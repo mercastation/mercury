@@ -2,9 +2,10 @@
 // whoever asks and whatever the person presses: a file sent to a cloud thread
 // (./cloud-sent-files.mts) and a key a cloud run asks for (./cloud-key-sources.mts).
 // No fs here: the renderer reads it to decide which press a card offers.
+// Case-blind, because a Mac's disk is: `~/.SSH` opens `~/.ssh`.
 import { nameSlug, WAS } from './product-name.mjs';
 
-const FOLDERS = /(^|\/)(\.ssh|\.aws|\.gnupg|\.netrc|\.npmrc|\.pypirc|\.docker|\.kube|\.claude[^/]*|\.codex|\.agentbox|Keychains|\.config\/gh|\.config\/gcloud|\.password-store)(\/|$)/;
+const FOLDERS = /(^|\/)(\.ssh|\.aws|\.gnupg|\.netrc|\.npmrc|\.pypirc|\.docker|\.kube|\.claude[^/]*|\.codex|\.agentbox|Keychains|\.config\/gh|\.config\/gcloud|\.password-store)(\/|$)/i;
 
 // MERCURY: this copy's own home is ~/.<its name> (main/store/home.mts appHome),
 // and it holds the cloud key and cloud sign-ins (cloud-key, cloud-logins.json)
