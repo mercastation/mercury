@@ -75,12 +75,19 @@ const PLANS_GIVEN_MAX = 200;
 
 const iso = (t) => new Date(t).toISOString();
 
-/** The database, as the service role, with a deadline on every call. */
-export function supabaseRest({ url, serviceKey, fetchImpl = fetch, timeoutMs = DB_MS }) {
+/**
+ * The database, with a deadline on every call. `serviceKey` is the token the
+ * server acts with: the service role's, or a self-hosted server's own role
+ * (cloud/selfhost/phone-role.sql), with the publishable key as `apiKey` for
+ * the gateway in front. `schema` is where the tables are.
+ */
+export function supabaseRest({ url, serviceKey, apiKey = serviceKey, schema = 'public', fetchImpl = fetch, timeoutMs = DB_MS }) {
   const base = `${String(url).replace(/\/+$/, '')}/rest/v1`;
   const q = (v) => encodeURIComponent(v);
+  const keys = { apikey: apiKey, authorization: `Bearer ${serviceKey}` };
+  const profile = schema === 'public' ? {} : { 'accept-profile': schema, 'content-profile': schema };
   async function call(method, path, { body, prefer } = {}) {
-    const headers = { apikey: serviceKey, authorization: `Bearer ${serviceKey}`, 'content-type': 'application/json', ...(prefer ? { prefer } : {}) };
+    const headers = { ...keys, ...profile, 'content-type': 'application/json', ...(prefer ? { prefer } : {}) };
     const res = await fetchImpl(`${base}/${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) });
     const text = await res.text();
     if (!res.ok) throw new Error(`the database answered ${res.status}: ${text.slice(0, 200)}`);
@@ -129,7 +136,7 @@ export function supabaseRest({ url, serviceKey, fetchImpl = fetch, timeoutMs = D
       const root = String(url).replace(/\/+$/, '');
       const at = [owner, device, name].map(encodeURIComponent).join('/');
       const res = await fetchImpl(`${root}/storage/v1/object/sign/phone-files/${at}`, {
-        method: 'POST', headers: { apikey: serviceKey, authorization: `Bearer ${serviceKey}`, 'content-type': 'application/json' },
+        method: 'POST', headers: { ...keys, 'content-type': 'application/json' },
         body: JSON.stringify({ expiresIn: seconds }), signal: AbortSignal.timeout(timeoutMs),
       });
       const said = await res.json().catch(() => null);

@@ -7,6 +7,9 @@
 //   PGHOST=… PGPORT=5432 PGUSER=… PGPASSWORD=… PGDATABASE=postgres \
 //     node scripts/apply-migrations-self-hosted.mjs [file.sql …]
 //
+// `--schema <name>` names the schema instead of the team config, and
+// `--print` writes what psql would be given to stdout and runs nothing.
+//
 // psql reads the connection from those variables, so the password is never
 // in a command line. With no files it takes every migration, oldest first.
 // All of them run in one transaction: one that fails leaves the database as
@@ -29,10 +32,18 @@ export function migrationScript(files, schema) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  if (!process.env.PGHOST || !process.env.PGUSER) throw new Error('set PGHOST, PGUSER and PGPASSWORD (and PGPORT, PGDATABASE) for the database');
-  const schema = schemaOf(loadCloudConfig(root, { packaged: false, env: {} }));
   const given = process.argv.slice(2);
-  const files = given.length ? given : fs.readdirSync(MIGRATIONS).filter((f) => f.endsWith('.sql')).sort().map((f) => path.join(MIGRATIONS, f));
+  const print = given.includes('--print');
+  const at = given.indexOf('--schema');
+  if (at >= 0 && !given[at + 1]) throw new Error('--schema needs a name');
+  const schema = schemaOf(at >= 0 ? { schema: given[at + 1] } : loadCloudConfig(root, { packaged: false, env: {} }));
+  const named = given.filter((a, i) => a !== '--print' && a !== '--schema' && !(at >= 0 && i === at + 1));
+  const files = named.length ? named : fs.readdirSync(MIGRATIONS).filter((f) => f.endsWith('.sql')).sort().map((f) => path.join(MIGRATIONS, f));
+  if (print) {
+    process.stdout.write(migrationScript(files, schema));
+    process.exit(0);
+  }
+  if (!process.env.PGHOST || !process.env.PGUSER) throw new Error('set PGHOST, PGUSER and PGPASSWORD (and PGPORT, PGDATABASE) for the database');
   console.log(`applying ${files.length} migration(s) in schema ${schema}, in one transaction`);
   const run = spawnSync('psql', ['-X', '-q', '-f', '-'], { input: migrationScript(files, schema), stdio: ['pipe', 'inherit', 'inherit'], timeout: PSQL_MS });
   if (run.error) throw run.error;

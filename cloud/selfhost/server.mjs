@@ -3,7 +3,8 @@
 // reaches the managed cloud (~/.mercury/cloud.json names it as `gateway`).
 // What AWS did is here: the bucket on this machine's disk, a container of the
 // sandbox image a session, the clock's sweeps, and a door that checks the
-// database's signature. Paying, the phone and teams are not.
+// database's signature. With `phone` in the config it also carries the
+// phone's replies with the computer shut. Paying and teams are not here.
 //
 //   node cloud/selfhost/server.mjs /path/to/config.json
 //
@@ -14,18 +15,31 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createGateway, gatewayRequestHandler } from '../gateway/gateway.mjs';
 import { PLANS } from '../gateway/plans.mjs';
+import { supabaseRest } from '../gateway/phone.mjs';
+import { sendToExpo } from '../../main/phone-alerts.mts';
 import { fileBucket } from './bucket.mjs';
 import { dockerCli, dockerSessions } from './sessions.mjs';
 import { jwksWhoIs } from './whois.mjs';
 
 const MINUTE = 60_000;
-// As the managed cloud's clock: the gateway's sweep every 5 minutes.
-const EVERY = { gateway: 5 * MINUTE, sessions: MINUTE, bucket: 60 * MINUTE };
+// As the managed cloud's clock: the gateway's sweep every 5 minutes, the phone's every minute.
+const EVERY = { gateway: 5 * MINUTE, phone: MINUTE, sessions: MINUTE, bucket: 60 * MINUTE };
 
 /** The one plan a self-hosted cloud gives: as many agents at once as the machine holds, and no hours to run out of. */
 export const selfPlans = (agents) => Object.freeze({ none: PLANS.none, self: Object.freeze({ agents, hoursPerMonth: 1_000_000 }) });
 
-export async function selfHostedCloud({ dataDir, secret, publicUrl, jwks, people, issuer = null, sessions, agents, now = Date.now, log = () => {} }) {
+/**
+ * The database the phone's replies are read from, as the server's own role
+ * (cloud/selfhost/phone-role.sql): `{ url, anonKey, keyFile, schema }`.
+ */
+export function phoneDatabase({ url, anonKey, keyFile, schema = 'public' } = {}, { readFile = (f) => fs.readFileSync(f, 'utf8'), fetchImpl = fetch } = {}) {
+  if (!url || !anonKey || !keyFile) throw new Error('the config\'s phone needs url, anonKey and keyFile');
+  const key = readFile(keyFile).trim();
+  if (!key) throw new Error(`${keyFile} is empty`);
+  return supabaseRest({ url, apiKey: anonKey, serviceKey: key, schema, fetchImpl });
+}
+
+export async function selfHostedCloud({ dataDir, secret, publicUrl, jwks, people, issuer = null, sessions, agents, phone = null, now = Date.now, log = () => {} }) {
   if (!Array.isArray(people) || !people.length) throw new Error('a self-hosted cloud needs the people it is for');
   if (!(agents >= 1)) throw new Error('a self-hosted cloud needs how many agents run at once');
   let gw = null;
@@ -37,6 +51,13 @@ export async function selfHostedCloud({ dataDir, secret, publicUrl, jwks, people
     objects: bucket.objects,
     whoIs: jwksWhoIs({ jwks, people, issuer, now }),
     plans: selfPlans(agents),
+    ...(phone ? {
+      phone: {
+        sendPush: sendToExpo,
+        ...phone,
+        runFiles: { get: async (key) => (await bucket.objects.get(key))?.body ?? null, put: (key, body) => bucket.objects.put(key, body) },
+      },
+    } : {}),
     now,
     log,
   });
@@ -57,6 +78,7 @@ export async function selfHostedCloud({ dataDir, secret, publicUrl, jwks, people
   }
   const startTimers = () => {
     every(EVERY.gateway, 'cloud', () => gw.sweep());
+    if (phone) every(EVERY.phone, 'phone', () => gw.phoneSweep());
     every(EVERY.sessions, 'session', () => sessions.sweep());
     every(EVERY.bucket, 'bucket', () => bucket.sweep());
   };
@@ -101,6 +123,7 @@ async function main(file) {
     issuer: c.issuer || null,
     agents: c.agents,
     sessions,
+    phone: c.phone ? { db: phoneDatabase(c.phone) } : null,
     log,
   });
   const servers = await Promise.all((c.listen || []).map(({ host, port }) => new Promise((resolve, reject) => {

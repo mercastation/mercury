@@ -14,7 +14,8 @@ the same way. Nothing in `main/` changes.
 | The database's word on a session | the session's signature, checked against the database's JWKS (`whois.mjs`) |
 | Stripe and the plans            | one plan, `self`: as many agents at once as the machine holds     |
 
-The phone's replies with the computer shut, paying and teams are not part of it.
+Paying and teams are not part of it. The phone's replies with the computer
+shut are, once the config names the database ("The phone", below).
 
 ## The machine
 
@@ -62,6 +63,12 @@ sandboxes open those links. So that address must reach the server from both:
     "cpus": "2",
     "pids": 1024,
     "addHosts": ["cloud-server:172.31.250.1"]
+  },
+  "phone": {
+    "url": "https://<the database>",
+    "anonKey": "<its publishable key>",
+    "schema": "public",
+    "keyFile": "/etc/mercury-cloud/phone-key"
   }
 }
 ```
@@ -70,8 +77,36 @@ sandboxes open those links. So that address must reach the server from both:
   `<the database>/auth/v1/.well-known/jwks.json`.
 - **`secretFile`:** signs the links. Keep it to the server's user (0600).
 - **`people`:** only these people get in; anyone else is turned away.
+- **`phone`:** optional; see "The phone" below. Without it, a reply sent from
+  the phone waits for the computer.
 
 Start it with `node cloud/selfhost/server.mjs /path/to/config.json`.
+
+## The phone
+
+With `phone` in the config, the server does what the managed cloud does for
+a reply sent from the phone while the computer sleeps
+(docs/cloud/PHONE-PLAN.md, step 2): every minute it starts the reply from the
+kit the Mac left, and puts the agent's answer and an alert on the phone.
+
+It reads the database as a role of its own, not as the service role:
+
+1. As a superuser (`supabase_admin` on a self-hosted Supabase), apply
+   `cloud/selfhost/phone-role.sql` in the schema the tables are in:
+   `node scripts/apply-migrations-self-hosted.mjs --schema <schema> cloud/selfhost/phone-role.sql`
+   (with `--print` it writes the SQL out instead).
+2. Sign a token with the database's JWT secret, carrying `"role": "phone_carry"`,
+   `"sub"` set to the one person whose phone it carries, an `exp`, and a
+   `jti` of 32 hex digits. Add that `jti` to `phone_carry_tokens`, and put the
+   token in `keyFile`, readable by the server's user alone.
+
+The role reaches only that person's rows, in the phone tables the server
+uses, and the phone's files in Storage. A token works only while its `jti`
+is in `phone_carry_tokens`: deleting the row stops it at once.
+
+The machine has to reach the database's API, and each session's container
+has to reach its Storage: a sandbox fetches a file sent from the phone by a
+signed link there.
 
 ## The Mac
 
