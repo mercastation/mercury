@@ -577,6 +577,14 @@ input. In order:
    its own still waits for the Mac: a new-thread kit does not carry its
    conversation.
 
+   **A run already going when she walks away, 2026-11-15.** An agent started
+   at 02:28 on a Mac left open stopped when it slept, for nine hours. Now a
+   local worker holds the Mac from idle sleep while it runs (`caffeinate -i
+   -w`, from the run host), and ten minutes with no keyboard or mouse on a Mac
+   that is awake count as away: away, "when this Mac is full" is Everything,
+   so each run the cloud can take moves there and the Mac sleeps once none is
+   left. A closed lid still sleeps the Mac at once and freezes what is here.
+
 ## Cloud threads: the cloud in charge, the computer asked when needed (2026-10-31)
 
 Replaces the machine-per-account design in "The hub" below. What survives from

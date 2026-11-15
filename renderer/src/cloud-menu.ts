@@ -119,7 +119,7 @@ export function accountLabel(a: CloudAccount, all: CloudAccount[]): string {
 
 export const CLOUD_MODES: { id: CloudMode; label: string; note: string }[] = [
   { id: 'mac', label: 'This Mac only', note: 'Threads that don’t fit wait for a free agent.' },
-  { id: 'full', label: 'When this Mac is full', note: 'Threads that don’t fit here start in the cloud.' },
+  { id: 'full', label: 'When this Mac is full', note: 'The cloud takes what won’t fit, and all when you’re away.' },
   { id: 'all', label: 'Everything', note: 'Threads start in the cloud first, wherever they can.' },
 ];
 
@@ -142,7 +142,7 @@ export function cloudChord(
 }
 
 export const CLOUD_WHEN_ON: { id: Exclude<CloudMode, 'mac'>; label: string; note: string }[] = [
-  { id: 'full', label: 'When this Mac is full', note: 'Threads that don’t fit here start in the cloud.' },
+  { id: 'full', label: 'When this Mac is full', note: 'The cloud takes what won’t fit, and all when you’re away.' },
   { id: 'all', label: 'Everything', note: 'Threads start in the cloud first, wherever they can.' },
 ];
 

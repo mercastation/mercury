@@ -1108,6 +1108,8 @@ const CLOUD_START_PATIENCE_MS = 10 * 60_000;
 // cloud start that fails sends it back here once rather than back and forth.
 const TO_CLOUD_PATIENCE_MS = 10 * 60_000;
 const MOVE_TO_CLOUD_AGAIN_MS = 30 * 60_000;
+// No keyboard or mouse for this long, on a Mac that is awake, is away (`_awayFromMac`).
+const AWAY_FROM_MAC_MS = 10 * 60_000;
 // Cloud runs failing in a row before the cloud rests, and for how long
 // (`_noteCloudOutcome`).
 const CLOUD_FAULTS_TO_REST = 3;
@@ -6980,8 +6982,21 @@ export class Supervisor {
 
   // Where new threads go: 'all' sends them to the cloud first; anything else
   // (null, true) is "when this Mac is full"; false is off (`_cloudReady`).
+  // Away from the Mac, "when this Mac is full" is Everything too.
   _cloudFirst() {
-    return this.config.cloudRuns === 'all';
+    return this.config.cloudRuns === 'all' || this._awayFromMac();
+  }
+
+  // AWAY FROM THE MAC: a run left going here stops when the Mac sleeps, so
+  // once nobody has touched it for AWAY_FROM_MAC_MS each run the cloud can
+  // take moves there (`_moveRunsToTheCloud`). Not in a shut Mac's few-second
+  // wakes, where nothing may start (`asleep`), and never on a copy with no
+  // keyboard to read.
+  _awayFromMac(now = Date.now()) {
+    if (this.config.cloudRuns === false || typeof this.idleMs !== 'function') return false;
+    let idle: number | null = null;
+    try { idle = this.idleMs() ?? null; } catch { return false; }
+    return idle !== null && idle >= AWAY_FROM_MAC_MS && !this.asleep(now);
   }
 
   // Picked Cloud on the thread, Moved it there, or its agent asked for it.

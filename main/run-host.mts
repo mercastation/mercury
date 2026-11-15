@@ -80,6 +80,8 @@ export interface ServeRunsOptions {
   onIdle?: () => void;
   log?: (message: string) => void;
   stamp?: string;
+  /** Holds the Mac from idle sleep until the worker with this pid ends (`keepAwakeWhile`). */
+  keepAwake?: (pid: number) => void;
 }
 
 export interface RunHost {
@@ -139,6 +141,27 @@ export function runHostSocket({ stamp = runHostStamp(), dir = os.tmpdir(), uid =
 // Windows refuses to listen at a socket path (EACCES), so there runs start directly.
 export const runHostWorksOn = (platform: NodeJS.Platform = process.platform): boolean => platform !== 'win32';
 
+interface KeepAwakeOptions {
+  platform?: NodeJS.Platform;
+  spawnImpl?: (bin: string, args: string[], opts: { stdio: 'ignore' }) => { on(event: 'error', fn: (err: Error) => void): unknown; unref(): void };
+  log?: (message: string) => void;
+}
+
+/**
+ * A worker on a Mac that sleeps on its own stops mid-turn until it wakes, so
+ * macOS is told a run is going: `caffeinate -i -w` lets go when the worker
+ * ends. The display still sleeps, and a closed lid still sleeps the Mac.
+ */
+export function keepAwakeWhile(pid: number, { platform = process.platform, spawnImpl = spawn, log = () => {} }: KeepAwakeOptions = {}): void {
+  if (platform !== 'darwin' || !pid) return;
+  const cannot = (err: Error) => log(`run host: cannot keep the Mac awake for ${pid}: ${err?.message ?? err}`);
+  try {
+    const held = spawnImpl('/usr/bin/caffeinate', ['-i', '-w', String(pid)], { stdio: 'ignore' });
+    held.on('error', cannot);
+    held.unref();
+  } catch (err) { cannot(err as Error); }
+}
+
 export const spoolFiles = (spoolDir: string, runId: string): SpoolFiles => ({
   out: path.join(spoolDir, `${runId}.out`),
   err: path.join(spoolDir, `${runId}.err`),
@@ -147,7 +170,7 @@ export const spoolFiles = (spoolDir: string, runId: string): SpoolFiles => ({
 
 const validId = (id: unknown): id is string => typeof id === 'string' && /^[A-Za-z0-9-]{8,80}$/.test(id);
 
-export function serveRuns({ sockPath, spoolDir, idleMs = 60_000, keepEndedMs = KEEP_ENDED_MS, onIdle = () => {}, log = () => {}, stamp = runHostStamp() }: ServeRunsOptions): RunHost {
+export function serveRuns({ sockPath, spoolDir, idleMs = 60_000, keepEndedMs = KEEP_ENDED_MS, onIdle = () => {}, log = () => {}, stamp = runHostStamp(), keepAwake = (pid) => keepAwakeWhile(pid, { log }) }: ServeRunsOptions): RunHost {
   fs.mkdirSync(spoolDir, { recursive: true, mode: 0o700 });
   const runs = new Map<string, HeldRun>();
   let clients = 0;
@@ -223,7 +246,10 @@ export function serveRuns({ sockPath, spoolDir, idleMs = 60_000, keepEndedMs = K
       gate.emit('exit', code, signal);
       if (!run.exit) ended(run, { code, signal });
     });
-    child.once('spawn', () => send({ t: 'started', pid: child.pid }));
+    child.once('spawn', () => {
+      send({ t: 'started', pid: child.pid });
+      if (child.pid) keepAwake(child.pid);
+    });
     attach(run, sock, 0, 0, send, { fresh: true });
   }
 
