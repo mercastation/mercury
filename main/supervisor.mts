@@ -76,6 +76,7 @@ import { hostSocketPath, perlRunsTheShim, HOST_ALREADY_THERE } from './cloud/hos
 import { runHostSocket, spoolFiles, HOST_ALREADY_THERE as RUN_HOST_ALREADY_THERE } from './run-host.mts';
 import { toolHostDir, readToolHost, shareToolServers, TOOL_HOST_ALREADY_THERE } from './tool-host.mts';
 import { giveProjectBrowser, projectBrowserBrief } from './project-browser/app.mts';
+import { NO_BROWSER_YET, sitesOfProject } from '../shared/project-browser.mts';
 import { HostedRun, HOST_LOST } from './hosted-run.mts';
 import { HELPERS_LOST, helpersLostAnswer } from './claude-input.mts';
 import type { BackgroundTask } from './claude-input.mts';
@@ -10290,7 +10291,7 @@ export class Supervisor {
     const ranked = [standing, project, teammate, messages, adhd, teammate && howYourRunEnds()];
     // With the app's own rules, which every real run carries, and above them.
     if (messages) ranked.splice(ranked.indexOf(messages), 0, this.howAThreadChangesModel());
-    const system = fillName([this._connectionsBrief(), projectBrowserBrief(this.config, item.product), this._whatThisRunIsOn(engine, claudeModel, engine === 'claude' ? claudeEffort : effort), ...ranked].filter(Boolean).join('\n\n'));
+    const system = fillName([this._connectionsBrief(item.product), projectBrowserBrief(this.config, item.product), this._whatThisRunIsOn(engine, claudeModel, engine === 'claude' ? claudeEffort : effort), ...ranked].filter(Boolean).join('\n\n'));
     // `fork` IS THE FLAG THAT MAKES IT A FORK RATHER THAN A CONTINUATION: the
     // resumed conversation is written on under a NEW id, so the row it came
     // from keeps its own thread untouched (MP-08). The builder drops it when
@@ -13997,7 +13998,7 @@ export class Supervisor {
     return rows.find((m) => m.alias === word || m.id === word)?.label ?? word;
   }
 
-  _connectionsBrief() {
+  _connectionsBrief(slug?: string) {
     if (!this.connections) return null;
     const now = this.connections._now?.() ?? Date.now();
     let tools: ConnectionTool[] | null = null;
@@ -14013,6 +14014,7 @@ export class Supervisor {
     const missing = tools.filter((t) => t.state === 'not_connected');
     if (missing.length) lines.push(`Not connected: ${missing.map((e) => e.name).join(', ')}. If the work needs one of them as a tool, say so in your message and give the owner the link: ${missing.map((e) => `[Connect ${e.name}](agentbox://connections/${e.id})`).join(' ')}, or [Connections](agentbox://connections) for anything else.`);
     lines.push('A command-line tool the work runs (gh, vercel, supabase and the like), or an MCP server of the project\'s own, signs in with its own login: start it and hand its link to the sign_in tool, which puts it in front of the owner while you wait. Look for no other way in.');
+    if (slug && !sitesOfProject(this.config, slug).length) lines.push(NO_BROWSER_YET);
     let copies: ConnectionCopy[] = [];
     try { copies = this.connections.copiesNow?.() ?? []; } catch { /* told as none */ }
     if (copies.length || tools.some((t) => t.state !== 'not_connected')) lines.push('', filesComeFirst(copies, now));

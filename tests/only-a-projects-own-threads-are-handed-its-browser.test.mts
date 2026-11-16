@@ -158,7 +158,7 @@ describe('what a run is told', () => {
     expect(system).toContain('Do not try to sign in');
   });
 
-  it('is nothing about a browser on a project that has none', () => {
+  it('is no browser block on a project that has none', () => {
     expect(systemOf('notes')).not.toContain('This project\'s browser');
     expect(projectBrowserBrief({ storeRoot: '/s', projectBrowserSites: {} }, 'oms')).toBeNull();
     expect(projectBrowserBrief(null, 'oms')).toBeNull();

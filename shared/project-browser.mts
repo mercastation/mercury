@@ -86,12 +86,16 @@ export const AGENT_TOOLS: readonly string[] = [
   'browser_close',
 ];
 
+/** Told with the connected tools on a project with no browser, so a run that needs a signed-in site asks for one rather than signing in its own way. */
+export const NO_BROWSER_YET = 'A website the owner signs in to opens in this project\'s own browser, and this project has no browser of its own yet. Do not drive a browser of your own, and do not type into a site a password you find on this computer (git\'s stored credentials, the keychain, a file). Say so in your message instead: the owner lists the site under Settings, Projects, this project, Browser and signs in there, and the next run on this project is handed that browser.';
+
 /** What a run on a project with a browser is told about it. */
 export function browserBrief(sites: readonly string[]): string | null {
   if (!sites.length) return null;
   return [
     '## This project\'s browser',
     `This project has a browser of its own, which you drive with the ${BROWSER_SERVER} tools. The owner signed it in by hand, and it opens these sites and nothing else: ${sites.join(', ')}. The project's other threads use the same browser at the same time, each in its own tabs.`,
+    `If no ${BROWSER_SERVER} tools are in your tool list, this run is not on the computer that holds the browser. Say so in your message rather than signing in another way.`,
     'Use it to read. You are signed in as the owner there, so anything you submit, post, change or delete is done in their name: do that only when this task asks for it in so many words.',
     'A page that asks you to sign in, or for a code, means the sign-in has ended. Do not try to sign in. Stop, and tell the owner which site it was and that they sign in again under Settings, Projects, this project, Browser.',
     'After a page opens or changes you are given a link to a file with what is on it. Read that file, or search it, rather than taking a screenshot.',
