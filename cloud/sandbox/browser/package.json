@@ -1,0 +1,10 @@
+{
+  "name": "agentbox-sandbox-browser",
+  "private": true,
+  "description": "Copied by scripts/sandbox-browser.mjs; do not edit here.",
+  "dependencies": {
+    "@playwright/mcp": "0.0.83",
+    "playwright-core": "1.64.0-alpha-1790635538000",
+    "@modelcontextprotocol/sdk": "1.32.1"
+  }
+}

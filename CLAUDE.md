@@ -197,13 +197,20 @@ A PROJECT MAY HAVE A BROWSER OF ITS OWN (2026-11-10, `main/project-browser/`).
 Mercury's owner approved one step past "carries nothing": Chrome for Testing on
 a profile kept per project in the app's folder, holding only the
 sign-ins its owner made in it by hand for that project, opening only the sites
-they listed for it, and handed only to that project's runs on this computer.
+they listed for it, and handed only to that project's runs.
 Agents get Playwright MCP's tools for pages and none that run code. Anything
 wider (the person's own profile, a site nobody listed, another project's runs,
-a tool that runs code, the cloud) needs their yes first; the person's own
+a tool that runs code) needs their yes first; the person's own
 Chrome comes only through the Claude Code setting above.
 `tests/a-projects-browser-is-its-own-and-never-the-persons.test.mts` holds the
 edges.
+
+A cloud run carries a copy of it (approved 2026-11-15, `main/cloud/browser.mts`):
+the profile's cookies go up with the run, the image runs the same host code
+(copied into `cloud/sandbox/browser` by `scripts/sandbox-browser.mjs`, and
+`tests/the-cloud-runs-the-macs-own-browser-code` fails until you copy a
+change), and only cookies the Mac's profile already holds on its own sites
+come back.
 
 Nor does an agent start the person's Google Chrome headless: the Mac files that
 copy as their Chrome, and their own Chrome then opens no window. Every hidden

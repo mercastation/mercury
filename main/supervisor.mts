@@ -12085,8 +12085,8 @@ export class Supervisor {
     const runId = crypto.randomUUID();
     const spawnFiles: SpawnFile[] = [];
     this._giveConnections(plan, item, runId, spawnFiles);
-    // Its sign-ins are on this computer, so a run in the cloud has no use for it.
-    if (where === 'local') this._giveProjectBrowser(plan, item);
+    // A cloud run carries a copy of it when its image can run one (main/cloud/browser.mts).
+    this._giveProjectBrowser(plan, item);
     this.prepareClaudePermissions(plan, product, runId, spawnFiles);
 
     // Workers bill to the founder's Claude subscription (the CLI's own OAuth

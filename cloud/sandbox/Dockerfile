@@ -58,6 +58,18 @@ RUN useradd --create-home --home-dir /opt/agent --shell /bin/bash agent \
  && printf '[global]\nbreak-system-packages = true\n' > /etc/pip.conf \
  && mkdir -p /var/lib/agentbox
 
+# A PROJECT'S BROWSER, carried by a cloud run with the sign-ins its owner made
+# on the Mac (main/cloud/browser.mts): the Mac's own host code, copied into
+# browser/ by scripts/sandbox-browser.mjs, on the Playwright MCP the Mac runs,
+# driving the Chromium above. The packages first, so a change to the code alone
+# does not install them again.
+COPY browser/package.json browser/package-lock.json /opt/agentbox/browser/
+RUN cd /opt/agentbox/browser \
+ && PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci --omit=dev --ignore-scripts \
+ && npm cache clean --force
+COPY browser /opt/agentbox/browser
+RUN chmod -R a+rX /opt/agentbox/browser
+
 COPY server.mjs mcp-stub.mjs usage.mjs memory-guard.mjs machine.mjs sudo.mjs key-names.mjs /opt/agentbox/
 RUN chmod 755 /opt/agentbox/sudo.mjs && ln -s /opt/agentbox/sudo.mjs /usr/local/bin/sudo
 

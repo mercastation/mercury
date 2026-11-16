@@ -78,6 +78,8 @@ import type { CloudMachine } from '../../shared/cloud-machine.mts';
 import { referencedFiles } from '../../shared/referenced-files.mts';
 import { serveApprovals } from '../approval-prompt-core.mts';
 import { helperWatch, HELPERS_LOST } from '../claude-input.mts';
+import { BROWSER_RESULT, browserForTheCloud, takeBrowserHome } from './browser.mts';
+import { BROWSER_SERVER } from '../../shared/project-browser.mts';
 import type { HelperState } from '../claude-input.mts';
 import { cacheKey, folderKey, sendOnce, pickBase, bundlePast, refsAt, sendConversation, sentRecordPath } from './reuse.mts';
 import { KIT_VERSION, checkKit, kitKey } from '../../shared/cloud-kit.mts';
@@ -219,6 +221,8 @@ export interface RunMarker extends CloudMarker {
   resourceCapable?: boolean;
   // The saved keys this run started with, and whether its machine takes one mid-run.
   keysCarried?: string[];
+  // The host on this Mac that takes back what the run's copy of the project's browser renewed.
+  browser?: { sock: string };
   liveKeys?: boolean;
   foldersCapable?: boolean;
   offline?: boolean;
@@ -412,7 +416,7 @@ export function cloudNote({ plain = false, limitMs = RUN_LIMIT_MS, keys = null, 
       HEADING,
       'This turn runs in a Linux cloud sandbox (' + size + ': delete large renders and downloads once you are done with them, because a full disk can stop the run\'s work coming back) that is yours for this run and thrown away after it. It has: the project\'s documents folder, which is the folder you work in, at the same path as on their computer, but only its small files (up to 256 KB each), plus this thread\'s own designs folder (its newest files, up to 50 MB), every file attached to this thread (up to 1 GB each, at its own path in attachments/), and any file or folder the request names under the account\'s documents (up to 25 MB a file, 100 MB a folder); what you write there goes back to their computer as you work. There is no git repository here. It also has the store tools (look_at_page excepted); git, node, npm, python3 and pip, make, g++, curl, wget, unzip; and Playwright with Chromium already installed (`require(\'playwright\')` works from any folder; its Chromium is Debian\'s patched build with the sandbox on, so when a project\'s own Playwright asks for a different browser, launch it with `executablePath: \'/opt/agentbox/chromium.sh\'` rather than downloading one).',
       'Install whatever else the work needs: you have sudo (`sudo apt-get update && sudo apt-get install -y <package>`, `pip install --user`, `npm install`).',
-      'It does not have: any other file from their computer (documents over 256 KB, other threads\' design folders, large media, files under the home folder, /tmp from an earlier turn); API keys, key files or tokens kept on their computer; their computer\'s apps (Xcode, a simulator, their browser and its sign-ins).',
+      'It does not have: any other file from their computer (documents over 256 KB, other threads\' design folders, large media, files under the home folder, /tmp from an earlier turn); API keys, key files or tokens kept on their computer; their computer\'s apps (Xcode, a simulator, their own browser and its sign-ins; a project\'s own browser, when it has one, is its project-browser tools).',
       howLongNote(limitMs),
       ...codexPart,
       handBackNote(keys),
@@ -422,7 +426,7 @@ export function cloudNote({ plain = false, limitMs = RUN_LIMIT_MS, keys = null, 
     HEADING,
     'This turn runs in a Linux cloud sandbox (' + size + ': delete large renders and downloads once you are done with them, because a full disk can stop the run\'s work coming back) that is yours for this run and thrown away after it. It has: this task folder (its git branch and main, at the same path as on their computer); the project\'s documents folder at its usual path, but only its small files (up to 256 KB each), plus this thread\'s own designs folder (its newest files, up to 50 MB), every file attached to this thread (up to 1 GB each, at its own path in attachments/), and any file or folder the request names under the account\'s documents (up to 25 MB a file, 100 MB a folder); the store tools (look_at_page excepted); git, node, npm, python3 and pip, make, g++, curl, wget, unzip; and Playwright with Chromium already installed (`require(\'playwright\')` works from any folder; its Chromium is Debian\'s patched build with the sandbox on, so when a project\'s own Playwright asks for a different browser, launch it with `executablePath: \'/opt/agentbox/chromium.sh\'` rather than downloading one).',
     'Install whatever else the work needs: you have sudo (`sudo apt-get update && sudo apt-get install -y <package>`, `pip install --user`, `npm install`). When you install a program the project will need again, add the same lines to `.agentbox/cloud-setup.sh` in the task folder and commit it: that script runs before every cloud run of this project, and its output from this run is in /tmp/agentbox-cloud-setup.log.',
-    'It does not have: the project\'s other branches (only this task\'s branch and main came up); any other file from their computer (other threads\' design folders, large media, files under the home folder); files an earlier turn left outside git (node_modules, gitignored folders such as scripts/scratch, /tmp); API keys, key files or tokens kept on their computer; their computer\'s apps (Xcode, a simulator, their browser and its sign-ins). Run `npm ci --ignore-scripts` before anything that needs node_modules. Open files are capped at 1024 here (the cloud fixes that ceiling), so a test runner that watches the whole project (`vitest related`, `npm run test:changed`) fails with EMFILE: run the test files you changed and the ones that import them by name with `npx vitest run <files>`.',
+    'It does not have: the project\'s other branches (only this task\'s branch and main came up); any other file from their computer (other threads\' design folders, large media, files under the home folder); files an earlier turn left outside git (node_modules, gitignored folders such as scripts/scratch, /tmp); API keys, key files or tokens kept on their computer; their computer\'s apps (Xcode, a simulator, their own browser and its sign-ins; a project\'s own browser, when it has one, is its project-browser tools). Run `npm ci --ignore-scripts` before anything that needs node_modules. Open files are capped at 1024 here (the cloud fixes that ceiling), so a test runner that watches the whole project (`vitest related`, `npm run test:changed`) fails with EMFILE: run the test files you changed and the ones that import them by name with `npx vitest run <files>`.',
     `Only this task's own branch comes back to their computer. A commit, merge or reset on main or any other branch stays in this sandbox and is thrown away with it, so a merge done here has not happened. To ship, when your brief has a section on How this task ships, do what it says from here: commit on this branch and add the label \`ship\`. The app ships the branch on their computer once it comes home, so a ship never needs the hand-back line. When your brief has no section on how this task ships and the request includes merging into main, or whenever it includes changing any branch but this task's, do the rest of the work and commit it on this branch, then end your turn with the one line \`${HAND_BACK} merging into main\` (as below): the app merges on their computer.`,
     `${howLongNote(limitMs)} ${COMMIT_NOTE}`,
     ...codexPart,
@@ -836,9 +840,10 @@ function runsOnlyFrom(command: string, hooksDir: string) {
   return script;
 }
 
-export function mcpConfigForTheCloud(config: Partial<McpConfig> | null | undefined, stubPath: string = STUB) {
+/** Every server a stub calling back to this Mac, except those that run in the sandbox itself (`there`). */
+export function mcpConfigForTheCloud(config: Partial<McpConfig> | null | undefined, stubPath: string = STUB, there: Record<string, ServerConfig> = {}) {
   const servers: Record<string, ServerConfig> = {};
-  for (const name of Object.keys(config?.mcpServers || {})) servers[name] = { command: 'node', args: [stubPath, name], env: {} };
+  for (const name of Object.keys(config?.mcpServers || {})) servers[name] = there[name] ?? { command: 'node', args: [stubPath, name], env: {} };
   return { mcpServers: servers };
 }
 
@@ -1066,6 +1071,7 @@ export async function cloudRun({
     eventsUrl: await storage.putUrl(keyOf(runId, 'events.jsonl')),
     doneUrl: await storage.putUrl(keyOf(runId, 'done.json')),
     bring: await Promise.all(dirs.map(async (b) => ({ dir: b.dir, url: await storage.putUrl(keyOf(runId, b.name)) }))),
+    browserUrl: await storage.putUrl(keyOf(runId, BROWSER_RESULT)),
   });
   // A marker written before Codex runs existed names its account folder only.
   const dirsOf = (rec: RunMarker) => rec.bringDirs || [{ name: 'projects.tgz', dir: projectsFor(rec.configDir) }];
@@ -1117,6 +1123,7 @@ export async function cloudRun({
   // Files that are a conversation, sent joined to the copy the bucket has.
   const conversations = new Set<string>();
   let mcpConfig: McpConfig = { mcpServers: {} };
+  let cloudBrowser: Awaited<ReturnType<typeof browserForTheCloud>> = null;
   let serverEnv = env;
   let startCursor = 0; let startN = 0; let stdinClosed = false; let startConns: Record<string, ServerConnection> = {};
   const kitPrefix = kit ? kitKey(kit.device, kit.project, kit.item).replace(/\.json$/, '') : null;
@@ -1289,7 +1296,9 @@ export async function cloudRun({
   const mcpPath = argValue(argv, '--mcp-config');
   if (mcpPath && fs.existsSync(mcpPath)) {
     mcpConfig = JSON.parse(fs.readFileSync(mcpPath, 'utf8'));
-    sending.push(sendFile(mcpPath, mcpPath, Buffer.from(JSON.stringify(mcpConfigForTheCloud(mcpConfig, stubPath)))));
+    cloudBrowser = codex ? null : await browserForTheCloud(mcpConfig.mcpServers, { runId, caps: imageCaps }).catch(() => null);
+    if (cloudBrowser) sending.push(sendFile(null, cloudBrowser.given, Buffer.from(JSON.stringify(cloudBrowser.state))));
+    sending.push(sendFile(mcpPath, mcpPath, Buffer.from(JSON.stringify(mcpConfigForTheCloud(mcpConfig, stubPath, cloudBrowser ? { [BROWSER_SERVER]: cloudBrowser.server } : {})))));
   }
   const resumeId = argValue(argv, '--resume');
   if (resumeId) {
@@ -1397,7 +1406,7 @@ export async function cloudRun({
   // the servers, and the worker's own variables they ran with.
   // `startedAt` outlives this process, so a run brought home by a later one
   // can still say how long it had been going when its machine stopped.
-  marker = { runId, sessionId, branch, startSha, sent, configDir, engine, bringDirs, docs, startedAt: Date.now(), mcp: mcpConfig.mcpServers, toolEnv: toolVariables(env), resourceContext: { engine, homeDir, configDir, codexHome }, keysCarried: keysGo.map((k) => k.name), ...(plain ? { plain: true } : {}) };
+  marker = { runId, sessionId, branch, startSha, sent, configDir, engine, bringDirs, docs, startedAt: Date.now(), mcp: mcpConfig.mcpServers, toolEnv: toolVariables(env), resourceContext: { engine, homeDir, configDir, codexHome }, keysCarried: keysGo.map((k) => k.name), ...(cloudBrowser ? { browser: { sock: cloudBrowser.sock } } : {}), ...(plain ? { plain: true } : {}) };
   if (kit) {
     signals.off('SIGHUP', early);
     const { runId: _r, sessionId: _s, ...joins } = marker;
@@ -1449,6 +1458,7 @@ export async function cloudRun({
     login: { engine: login!.engine, id: login!.id, url: loginUrl },
     ...(carried.length ? { also: carried } : {}),
     ...(keysSent.length ? { keys: keysSent } : {}),
+    ...(cloudBrowser ? { browser: { out: cloudBrowser.out } } : {}),
     results,
     // A conversation comes home as only what the run added (`layTails`). An
     // image that does not know this ignores it and sends it whole.
@@ -2147,6 +2157,11 @@ export async function cloudRun({
       const tgz = await storage.get(k('docs.tgz'));
       if (!tgz) return { ok: false, why: 'the documents it wrote are missing' };
       if (!(await layArchive(rec.docs, tgz))) return { ok: false, why: 'the documents it wrote could not be laid in' };
+    }
+    // What the sites renewed, kept even when the folder below is parked: the sign-ins are not in it.
+    if (rec.browser?.sock) {
+      const trouble = await takeBrowserHome(rec.browser.sock, await storage.get(k(BROWSER_RESULT)).catch(() => null));
+      if (trouble) say(trouble);
     }
     // With no repository, the documents and the conversation are all of it.
     if (rec.plain) {

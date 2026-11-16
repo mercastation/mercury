@@ -122,7 +122,11 @@ export async function unpackFileArchive(file, destination) {
 }
 // What this server can do beyond the first version, said in a start's answer,
 // so a Mac knows rather than guesses whether its asks are honoured.
-const CAPS = ['offline', 'setup', 'kept', 'base', 'plain', 'hold', 'resources', 'keys', 'pieces', 'live-keys', 'folders'];
+const CAPS = ['offline', 'setup', 'kept', 'base', 'plain', 'hold', 'resources', 'keys', 'pieces', 'live-keys', 'folders', 'browser'];
+// What the run's copy of its project's browser renewed (main/cloud/browser.mts):
+// one small file in /tmp, written by the agent's user.
+const RENEWED = /^\/tmp\/[A-Za-z0-9._-]+\.json$/;
+const RENEWED_MAX = 1024 * 1024;
 // A conversation sent home as only what the run added is listed in this file
 // (the same name in main/cloud/run.mts).
 const TAILS = '.agentbox-tails.json';
@@ -1450,10 +1454,27 @@ export function createSandbox({
     return r.collecting;
   }
 
-  async function collect(r, { bundleUrl, changesUrl, docsUrl, bring = [] }) {
+  // Only a plain file the agent's user wrote: a link there would have this
+  // server, which runs as root, send whatever it points at.
+  async function sendRenewed(r, url) {
+    const out = r.spec.browser?.out;
+    if (!url || typeof out !== 'string' || !RENEWED.test(out)) return;
+    const file = at(out);
+    let body;
+    try {
+      const st = fs.lstatSync(file);
+      if (!st.isFile() || st.nlink !== 1 || st.size > RENEWED_MAX || (runAs && st.uid !== runAs.uid)) return;
+      body = fs.readFileSync(file);
+      JSON.parse(body.toString('utf8'));
+    } catch { return; }
+    await upload(fetchImpl, url, body);
+  }
+
+  async function collect(r, { bundleUrl, changesUrl, docsUrl, bring = [], browserUrl }) {
     r.attempt = (r.attempt || 0) + 1;
     const tmp = (name) => path.join(r.dir, `${r.attempt}-${name}`);
     const brought = [];
+    await sendRenewed(r, browserUrl);
     // The documents first: they are sent whether or not the folder ever got
     // as far as a checkout, and hold everything the Mac has not said it laid.
     const docs = docsUrl ? (await sendDocs(r, docsUrl)).files : [];

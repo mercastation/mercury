@@ -72,9 +72,11 @@ export function readHost(dir: string): { pid: number; appPid: number; sock: stri
 }
 
 export interface HostRequest {
-  method: 'tools/list' | 'tools/call' | 'status' | 'sign-in' | 'sign-in-done' | 'stop';
+  method: 'tools/list' | 'tools/call' | 'status' | 'sign-in' | 'sign-in-done' | 'stop' | 'state' | 'take-cookies';
   thread?: string;
   params?: { name?: unknown; arguments?: Record<string, unknown> };
+  /** With `take-cookies`: what a copy of the browser in the cloud renewed. */
+  cookies?: unknown;
 }
 
 /**

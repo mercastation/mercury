@@ -45,7 +45,24 @@ export interface BrowserStatus {
 }
 
 type McpConfig = NonNullable<Parameters<typeof createConnection>[0]>;
-type Launch = (profile: string, chrome: string) => Promise<BrowserContext>;
+export type Launch = (profile: string, chrome: string) => Promise<BrowserContext>;
+export type Cookie = Awaited<ReturnType<BrowserContext['cookies']>>[number];
+export type StorageState = Awaited<ReturnType<BrowserContext['storageState']>>;
+
+const sameCookie = (a: Cookie, b: Cookie): boolean => a.name === b.name && a.domain === b.domain && a.path === b.path;
+const onSites = (cookie: Cookie, sites: readonly string[]): boolean => siteAllows(sites, `https://${cookie.domain.replace(/^\./, '')}/`);
+
+/** Of what came back from a copy of this browser, the cookies it already holds on its sites, as the copy last had them. */
+export function cookiesToTake(came: unknown, held: readonly Cookie[], sites: readonly string[]): Cookie[] {
+  const list = Array.isArray(came) ? came : [];
+  return list.filter((c): c is Cookie => typeof c?.name === 'string' && typeof c?.value === 'string' && typeof c?.domain === 'string' && typeof c?.path === 'string')
+    .filter((c) => onSites(c, sites) && held.some((h) => sameCookie(h, c)));
+}
+
+/** What a copy started with that it holds differently now: the sign-ins its sites renewed. */
+export function renewedCookies(given: readonly Cookie[], now: readonly Cookie[]): Cookie[] {
+  return now.filter((c) => given.some((g) => sameCookie(g, c) && (g.value !== c.value || g.expires !== c.expires)));
+}
 
 const said = (text: string, isError = true): CallToolResult => ({ ...(isError ? { isError: true } : {}), content: [{ type: 'text', text }] });
 
@@ -80,13 +97,15 @@ const keptFromWords = ({ host, how }: KeptFrom, sites: readonly string[]): strin
   ? `The page tried to go to ${host}, which is not one of this project's sites (${sites.join(', ')}), so it was stopped and nothing was sent there.`
   : `The site sent this page on to ${host}, which is not one of this project's sites (${sites.join(', ')}), so the page was emptied. When that is a sign-in service, the sign-in has ended: stop, and tell the owner to sign in again under Settings, Projects, this project, Browser.`);
 
-export function serveBrowser({ dir, sock, appPid, chrome = testBrowser, launch = launchHidden, signInUrls = (sites) => sites.map((site) => `https://${site}/`), signInExtraArgs = [], settle = {}, idleMs = 15 * 60_000, callMs = 3 * 60_000, checkMs = 5_000, log = () => {}, onIdle = () => {} }: {
+export function serveBrowser({ dir, sock, appPid, chrome = testBrowser, launch = launchHidden, keep, signInUrls = (sites) => sites.map((site) => `https://${site}/`), signInExtraArgs = [], settle = {}, idleMs = 15 * 60_000, callMs = 3 * 60_000, checkMs = 5_000, log = () => {}, onIdle = () => {} }: {
   dir: string;
   /** The socket the app chose for this host. */
   sock: string;
   appPid: number;
   chrome?: () => string | null;
   launch?: Launch;
+  /** Run after each call and before the browser closes: a copy in the cloud keeps what its sites renewed here (cloud-host.mts). */
+  keep?: (context: BrowserContext) => Promise<void>;
   /** The pages the sign-in window opens on. */
   signInUrls?: (sites: readonly string[]) => string[];
   /** For a test, which opens the sign-in browser with no window. */
@@ -179,6 +198,7 @@ export function serveBrowser({ dir, sock, appPid, chrome = testBrowser, launch =
   async function closeBrowser(): Promise<void> {
     const open = context ?? await opening?.catch(() => null) ?? null;
     if (!open) return;
+    await keep?.(open).catch(() => {});
     forget();
     await open.close().catch(() => {});
     log('closed the browser');
@@ -240,6 +260,7 @@ export function serveBrowser({ dir, sock, appPid, chrome = testBrowser, launch =
       return said(`The browser did not finish this: ${(err as Error).message}. This thread's tabs were closed; open the page again.`);
     }
     if (name === 'browser_navigate' && !result.isError && !keptFrom.has(thread)) result = await onceFilledIn(thread, client, result);
+    if (keep && context) await keep(context).catch(() => {});
     const from = keptFrom.get(thread);
     keptFrom.delete(thread);
     return from ? { ...result, content: [...result.content, { type: 'text', text: keptFromWords(from, sites) }] } : result;
@@ -275,12 +296,31 @@ export function serveBrowser({ dir, sock, appPid, chrome = testBrowser, launch =
 
   const status = (): BrowserStatus => ({ state: signIn ? 'signing-in' : context ? 'open' : 'closed', canRun: !!chrome(), threads: threads.size });
 
+  /** The sign-ins this browser holds, for a run going to the cloud to carry. */
+  async function state(): Promise<{ ok: boolean; error?: string; sites?: string[]; state?: StorageState }> {
+    if (signIn) return { ok: false, error: 'signing-in' };
+    const sites = sitesNow();
+    if (!sites.length) return { ok: false, error: 'no-sites' };
+    return { ok: true, sites, state: await (await openBrowser()).storageState() };
+  }
+
+  async function takeCookies(came: unknown): Promise<{ ok: boolean; error?: string; taken?: number }> {
+    if (signIn) return { ok: false, error: 'signing-in' };
+    const open = await openBrowser();
+    const taking = cookiesToTake(came, await open.cookies(), sitesNow());
+    if (taking.length) await open.addCookies(taking);
+    log(`took ${taking.length} renewed cookies back from a copy`);
+    return { ok: true, taken: taking.length };
+  }
+
   async function answer(request: HostRequest): Promise<unknown> {
     usedAt = Date.now();
     if (request.method === 'status') return status();
     if (request.method === 'sign-in') return startSignIn();
     if (request.method === 'sign-in-done') { signIn?.close(); return { ok: true }; }
     if (request.method === 'stop') { setImmediate(onIdle); return { ok: true }; }
+    if (request.method === 'state') return state();
+    if (request.method === 'take-cookies') return takeCookies(request.cookies);
     if (request.method === 'tools/list') return { tools: await listTools() };
     if (request.method !== 'tools/call') return said('That is not something the browser offers.');
     const thread = typeof request.thread === 'string' && request.thread ? request.thread : null;
