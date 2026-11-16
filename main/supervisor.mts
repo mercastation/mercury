@@ -54,7 +54,7 @@ import { cloudWorkPending, takeCloudNews, writeMarker, readMarker } from './clou
 import { cloudClients } from './cloud/clients.mts';
 import { kitCopyPath, kitFramePath, readKitCopy, markerForCloudRun } from './cloud/kit.mts';
 import { REPLY_MARK, replyFrame, serverJoinedKey } from '../shared/cloud-kit.mts';
-import { NEW_THREAD, NEW_THREAD_CODEX, NEW_ITEM_MARK, NEW_TITLE_MARK, NEW_BODY_MARK, fillNewThreadKit } from '../shared/cloud-kit.mts';
+import { NEW_THREAD, NEW_THREAD_CODEX, NEW_ITEM_MARK, NEW_TITLE_MARK, NEW_BODY_MARK, fillNewThreadKit, newThreadOn, runIsOnLine } from '../shared/cloud-kit.mts';
 import { macAsleep, carryCommand, CARRY_AHEAD_MS, handOverSpent, notBeforeOf } from '../shared/cloud-carry.mts';
 import { execFile as execFileCb } from 'node:child_process';
 import { CLOSED_UNSHIPPED, closedBeforeItShipped, shippedAs } from '../shared/not-shipped.mts';
@@ -217,7 +217,7 @@ import type { CloudKit } from './cloud/kit.mts';
 import type { CatchUpCard } from './catch-up.mts';
 import type { QueuedLine, ReplyItem, ReplyPayload } from './live-replies.mts';
 import type { Talk } from '../shared/work-items.mts';
-import type { Kit } from '../shared/cloud-kit.mts';
+import type { Kit, NewThreadClaude } from '../shared/cloud-kit.mts';
 
 type MergeOutcome = MergeHomeResult;
 
@@ -4703,8 +4703,7 @@ export class Supervisor {
         // A row that has had a run resumes its conversation, which a new-thread kit does not carry.
         if (this._rowSessions?.[item.id]) continue;
         const kit = this._newThreadCopyFor(item.product, engine);
-        if (!kit?.newThread) continue;
-        if ((item.model && item.model !== kit.newThread.model) || (item.effort && item.effort !== kit.newThread.effort)) continue;
+        if (!kit?.newThread || 'why' in newThreadOn(kit, { model: item.model, effort: item.effort })) continue;
       }
       const cmd = carryCommand({ item, continuation, engine, notBefore, repeat });
       if (!cmd) continue;
@@ -13466,13 +13465,24 @@ export class Supervisor {
     fs.writeFileSync(framed, JSON.stringify(frame), { mode: 0o600 });
     const asked = path.join(dir, `${slug.replace(/[^A-Za-z0-9_-]/g, '_')}--_new.asked.json`);
     const cwd = plain ? root : path.join(root, '.claude', 'worktrees', NEW_ITEM_MARK);
-    fs.writeFileSync(asked, JSON.stringify({ cwd, brief: plan.prompt, model: plan.model ?? null, effort: plan.effort ?? null, defaultEngine }), { mode: 0o600 });
+    fs.writeFileSync(asked, JSON.stringify({ cwd, brief: plan.prompt, model: plan.model ?? null, effort: plan.effort ?? null, defaultEngine, claude: this._newThreadLine(launch.args) }), { mode: 0o600 });
     const child = this._spawnCloudRelay(['--agentbox-kit', ...launch.args], {
       cwd: root,
       env: { ...launch.env, AGENTBOX_KIT_DEVICE: this._phoneCarries!.device, AGENTBOX_KIT_FRAME: framed, AGENTBOX_KIT_NEW: asked, AGENTBOX_KIT_COPY: kitCopyPath(this.userDir, slug, NEW_THREAD) },
       stdio: ['ignore', 'ignore', 'pipe'],
     });
     this._followNewKitWriter(rec, 'child', child);
+  }
+
+  // What a new Claude Code thread's line runs, so a model or level picked on the phone can be put on it.
+  _newThreadLine(args: string[]): NewThreadClaude | null {
+    const after = (flag: string) => { const i = args.indexOf(flag); return i >= 0 && i + 1 < args.length ? args[i + 1] : null; };
+    const model = after('--model');
+    if (!model) return null;
+    const effort = after('--effort');
+    const models = this._claudeModelNames();
+    const note = runIsOnLine('claude', models[model] ?? model, effort);
+    return { model, effort, note: note && args.some((a) => a.includes(note)) ? note : null, models };
   }
 
   // A NEW CODEX THREAD'S KIT: the app-server a cloud run of it starts, and, in
@@ -13966,12 +13976,21 @@ export class Supervisor {
   _whatThisRunIsOn(engine: string, model: string | null, effort: string | null) {
     const word = engine === 'claude' ? model : this._codexModelWord({ model } as SpawnPlan);
     const named = engine === 'claude' && word ? this._claudeModelLabel(word) : word;
-    const parts = [engineLabel(engine), named, effort ? `at ${effort} effort` : null].filter(Boolean);
-    if (parts.length < 2) return null;
+    const line = runIsOnLine(engine, named, effort);
+    if (!line) return null;
     return [
-      `This run is on ${parts.join(', ')}.`,
+      line,
       'Check a rule that names a model or an effort level against it, and say in your answer when they do not match rather than working to a standard this run cannot meet.',
     ].join('\n');
+  }
+
+  /** The models a phone may pick for a new thread, by alias and by id, with their names here (`newThreadOn`). */
+  _claudeModelNames() {
+    let rows: readonly { alias?: string; id?: string; label?: string }[] = CLAUDE_MODELS;
+    try { rows = claudeModelRows({ bin: this.config.claudeBin }) ?? CLAUDE_MODELS; } catch { rows = CLAUDE_MODELS; }
+    const names: Record<string, string> = {};
+    for (const m of rows) for (const key of [m.alias, m.id]) if (key && m.label && !Object.hasOwn(names, key)) names[key] = m.label;
+    return names;
   }
 
   /**
@@ -13993,9 +14012,7 @@ export class Supervisor {
 
   /** Claude Code's own name for an alias or a version, off this Mac, else the word itself. */
   _claudeModelLabel(word: string) {
-    let rows: readonly { alias?: string; id?: string; label?: string }[] = CLAUDE_MODELS;
-    try { rows = claudeModelRows({ bin: this.config.claudeBin }) ?? CLAUDE_MODELS; } catch { rows = CLAUDE_MODELS; }
-    return rows.find((m) => m.alias === word || m.id === word)?.label ?? word;
+    return this._claudeModelNames()[word] ?? word;
   }
 
   _connectionsBrief(slug?: string) {

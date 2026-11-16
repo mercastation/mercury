@@ -22,7 +22,7 @@ import {
 } from '../../shared/cloud-kit.mts';
 import { withCloudTurn } from '../../shared/phone-snapshot.mts';
 import { cloudRunSnapshot } from './phone-status.mjs';
-import { fillNewThreadKit, newThreadKitKey } from '../../shared/cloud-kit.mts';
+import { fillNewThreadKit, newThreadKitKey, newThreadOn } from '../../shared/cloud-kit.mts';
 import { madeHere, newThreadSnapshot } from '../../shared/phone-snapshot.mts';
 import { codexOpenLines, codexTurnLines, codexReadLines, codexAnswersIn } from '../../shared/cloud-kit.mts';
 import { phoneBanner } from '../../shared/notify-rules.mts';
@@ -656,8 +656,6 @@ export function createPhoneCarry({ db, runFiles, links, objects, start, input, s
     // Later with no time is hers to start; one set for a time waits for it (`considerNew`).
     if (p.start === 'later' && !(Number(p.runAt) > 0)) return 'it is to start later';
     if (p.engine && p.engine !== kit.engine) return 'it is for another coding agent';
-    if (p.model && p.model !== (kit.newThread?.model ?? null)) return 'it asks for a model its kit does not run';
-    if (p.effort && p.effort !== (kit.newThread?.effort ?? null)) return 'it asks for an effort its kit does not run';
     if (p.assignee || p.due || p.visibility || p.visibleTo || p.people) return 'it is for the team';
     if (!titleOf(p)) return 'it has no words';
     return null;
@@ -690,11 +688,13 @@ export function createPhoneCarry({ db, runFiles, links, objects, start, input, s
   // `carried`: a row of the computer's own (shared/cloud-carry.mts), whose
   // thread is already on the phone as the computer's copy.
   async function startNewRun(person, cmd, itemId, tries, { carried = false } = {}) {
-    const project = await newThreadKitFor(person, cmd);
-    if (!project) return null;
+    const packed = await newThreadKitFor(person, cmd);
+    if (!packed) return null;
     const p = cmd.payload ?? {};
-    const why = newThreadLeft(p, project);
+    const on = newThreadOn(packed, { model: p.model, effort: p.effort });
+    const why = newThreadLeft(p, packed) ?? ('why' in on ? on.why : null);
     if (why) { once(`new:${why}`, `phone: a new thread is left to its computer: ${why}`); return null; }
+    const project = on.kit;
     const title = titleOf(p);
     const body = String(p.body ?? '');
     // Her files go with her ask; the brief links them where the sandbox puts them.

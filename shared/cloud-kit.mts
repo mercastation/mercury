@@ -13,6 +13,9 @@
 // Shared by the computer (main/cloud/kit.mts), the server and the phone, so
 // all three agree on the names. Pure: no file, no network.
 
+import { isEffort } from './effort-levels.mts';
+import { engineLabel } from './engines.mts';
+
 export const KIT_VERSION = 1;
 
 // Where the reply goes in the turn's prompt. Characters no prompt carries, so
@@ -95,7 +98,19 @@ export interface Kit {
     model?: string | null;
     effort?: string | null;
     defaultEngine?: Engine;
+    claude?: NewThreadClaude;
   };
+}
+
+/** A Claude Code new-thread kit's command line, for a pick on the phone to be put on it (`newThreadOn`). */
+export interface NewThreadClaude {
+  /** After `--model` and `--effort` on the line; the row asked for neither. */
+  model: string;
+  effort: string | null;
+  /** `runIsOnLine` of those, as the line's system prompt carries it, or null. */
+  note: string | null;
+  /** The models the computer offers, by alias and by id, with the names it draws. */
+  models: Record<string, string>;
 }
 
 /** What a sandbox is handed to start a run from a kit. */
@@ -482,6 +497,47 @@ export const NEW_THREAD = '_new';
 export const NEW_ITEM_MARK = 'xagentboxnewitemx';
 export const NEW_TITLE_MARK = '⁣AGENTBOX-NEW-TITLE⁣';
 export const NEW_BODY_MARK = '⁣AGENTBOX-NEW-BODY⁣';
+/** The line that tells a run which model and level it is on, or null with no model to name. */
+export function runIsOnLine(engine: string, model: string | null, effort: string | null): string | null {
+  const parts = [engineLabel(engine), model, effort ? `at ${effort} effort` : null].filter(Boolean);
+  return parts.length < 2 ? null : `This run is on ${parts.join(', ')}.`;
+}
+
+/**
+ * A project's new-thread kit on the model and level picked on the phone, or
+ * why it cannot run them. A Claude Code kit packed with `newThread.claude`
+ * takes any model the computer offers and any level Claude Code takes; any
+ * other kit runs only what it was packed with.
+ */
+export function newThreadOn(kit: Kit, { model = null, effort = null }: { model?: unknown; effort?: unknown }): { kit: Kit } | { why: string } {
+  const n = kit.newThread;
+  const c = kit.engine === 'claude' ? n?.claude : undefined;
+  const asked = (v: unknown) => (v === null || v === undefined || v === '' ? null : v);
+  const wantModel = asked(model);
+  const wantEffort = asked(effort);
+  if (!c) {
+    if (wantModel !== null && wantModel !== (n?.model ?? null)) return { why: 'it asks for a model its kit does not run' };
+    if (wantEffort !== null && wantEffort !== (n?.effort ?? null)) return { why: 'it asks for an effort its kit does not run' };
+    return { kit };
+  }
+  if (wantModel !== null && (typeof wantModel !== 'string' || !Object.hasOwn(c.models, wantModel))) return { why: 'it asks for a model this computer does not offer' };
+  if (wantEffort !== null && !isEffort(wantEffort)) return { why: 'it asks for an effort Claude Code does not take' };
+  const to = { model: (wantModel as string | null) ?? c.model, effort: (wantEffort as string | null) ?? c.effort };
+  if (to.model === c.model && to.effort === c.effort) return { kit };
+  const at = kit.argv.indexOf('--model');
+  if (at < 0 || at + 1 >= kit.argv.length) return { why: 'its kit names no model to change' };
+  const argv: string[] = [];
+  for (let i = 0; i < kit.argv.length; i += 1) {
+    if (kit.argv[i] === '--effort') { i += 1; continue; }
+    if (i === at) { argv.push('--model', to.model, ...(to.effort ? ['--effort', to.effort] : [])); i += 1; continue; }
+    argv.push(kit.argv[i]);
+  }
+  const note = runIsOnLine('claude', c.models[to.model] ?? to.model, to.effort);
+  const said = c.note && note ? argv.findIndex((a) => a.includes(c.note!)) : -1;
+  if (said >= 0) argv[said] = argv[said].replace(c.note!, note!);
+  return { kit: { ...kit, argv, newThread: { ...n!, model: to.model, effort: to.effort, claude: { ...c, ...to, note: said >= 0 ? note : null } } } };
+}
+
 // A Codex one, when the computer has a Codex sign-in for the cloud, beside it.
 export const NEW_THREAD_CODEX = '_new-codex';
 export const newThreadKitKey = (device: Name, project: Name, engine: Engine = 'claude'): string => kitKey(device, project, engine === 'codex' ? NEW_THREAD_CODEX : NEW_THREAD);

@@ -15,6 +15,7 @@ import { cloudRun, IMPORT_FAILED, LOGIN_TROUBLE } from './run.mts';
 import type { CloudKit, CodexAsk, CodexHere, NewThreadAsk, SignalSource } from './run.mts';
 import type { Readable, Writable } from 'node:stream';
 import { NEW_THREAD, NEW_THREAD_CODEX } from '../../shared/cloud-kit.mts';
+import type { NewThreadClaude } from '../../shared/cloud-kit.mts';
 import { cloudClients } from './clients.mts';
 import type { CloudConfig } from './clients.mts';
 import { readCloudConfig, readCloudKey, imageCapsToTry, noteImageCaps, cloudMachine, noteCloudMachine } from './config.mts';
@@ -171,15 +172,24 @@ export function kitFrom(env: NodeJS.ProcessEnv): CloudKit | null {
 // the thread's folder will be, its first prompt with the marks, and the model
 // and effort its command line runs, in a file read once.
 function newThreadAsked(file: string): NewThreadAsk | null {
-  let n: { cwd?: unknown; brief?: unknown; model?: unknown; effort?: unknown; defaultEngine?: unknown } | null = null;
+  let n: { cwd?: unknown; brief?: unknown; model?: unknown; effort?: unknown; defaultEngine?: unknown; claude?: unknown } | null = null;
   try { n = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
   fs.rmSync(file, { force: true });
   if (typeof n?.cwd !== 'string' || !path.isAbsolute(n.cwd) || typeof n.brief !== 'string') return null;
+  const claude = claudeLineOf(n.claude);
   return {
     cwd: n.cwd, brief: n.brief, model: typeof n.model === 'string' ? n.model : null, effort: typeof n.effort === 'string' ? n.effort : null,
     // The engine the project gives a new thread nobody chose one for.
     ...(n.defaultEngine === 'claude' || n.defaultEngine === 'codex' ? { defaultEngine: n.defaultEngine } : {}),
+    ...(claude ? { claude } : {}),
   };
+}
+
+function claudeLineOf(c: unknown): NewThreadClaude | null {
+  const o = c as Partial<NewThreadClaude> | null;
+  if (typeof o?.model !== 'string' || !o.model || !o.models || typeof o.models !== 'object') return null;
+  const models = Object.fromEntries(Object.entries(o.models).filter(([k, v]) => k && typeof v === 'string'));
+  return { model: o.model, effort: typeof o.effort === 'string' ? o.effort : null, note: typeof o.note === 'string' ? o.note : null, models };
 }
 
 // A Codex thread's kit also names the thread to resume and its turn's

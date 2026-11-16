@@ -85,6 +85,7 @@ import { cacheKey, folderKey, sendOnce, pickBase, bundlePast, refsAt, sendConver
 import { KIT_VERSION, checkKit, kitKey } from '../../shared/cloud-kit.mts';
 import { NEW_ITEM_MARK } from '../../shared/cloud-kit.mts';
 import { APPROVALS_SERVER } from '../../shared/cloud-kit.mts';
+import type { NewThreadClaude } from '../../shared/cloud-kit.mts';
 import { asksPermission, approvalsHandshakes } from './kit.mts';
 import { snapshotSkills, filesInFolder } from './skills.mts';
 import { createResourceRequests, resourceContextFor, accountFolderFor } from './resources.mts';
@@ -263,6 +264,7 @@ export interface NewThreadAsk {
   model: string | null;
   effort: string | null;
   defaultEngine?: 'claude' | 'codex';
+  claude?: NewThreadClaude;
 }
 
 /** A kit for the phone, not a run (shared/cloud-kit.mts). */
@@ -946,7 +948,7 @@ function newThreadNames(n: NewThreadAsk, { cwd, startSha, files, joins, bringDir
   return {
     files: files.map((f) => ({ ...f, path: rename(f.path), ...(f.untar ? { untar: rename(f.untar) } : {}) })),
     joins: { ...joins, bringDirs: dirs },
-    made: { cwd: n.cwd, bringDirs: dirs, newThread: { mainSha: startSha, brief: n.brief, model: n.model, effort: n.effort, ...(n.defaultEngine ? { defaultEngine: n.defaultEngine } : {}) } },
+    made: { cwd: n.cwd, bringDirs: dirs, newThread: { mainSha: startSha, brief: n.brief, model: n.model, effort: n.effort, ...(n.defaultEngine ? { defaultEngine: n.defaultEngine } : {}), ...(n.claude ? { claude: n.claude } : {}) } },
   };
 }
 

@@ -228,6 +228,21 @@ describe('the cloud server and a new thread from the phone', () => {
     expect(t.db.commands[1].claimed_by).toBe(`cloud:${runId}`);
   });
 
+  // The phone's card always names a model (tests/a-new-thread-from-the-phone-goes-to-the-cloud-on-the-model-picked-there).
+  it('starts one on the model and level picked on the phone, when the Mac offers them', async () => {
+    const t = await server();
+    const note = 'This run is on Claude Code, Opus 5.5.';
+    await t.objects.put(`runs/u-${A}/${newThreadKitKey(DEVICE, 'alpha').slice('runs/'.length)}`, JSON.stringify(projectKit(t.now(), {
+      argv: ['claude', '-p', '--model', 'opus', '--append-system-prompt', `Tools.\n${note}`],
+      newThread: { ...projectKit().newThread, claude: { model: 'opus', effort: null, note, models: { opus: 'Opus 5.5', fable: 'Fable 5.2' } } },
+    })));
+    t.db.add({ id: 'c0ffee00-0000-4000-8000-000000000009', payload: { title: 'KOMS-1474', body: 'Think it through.', model: 'fable', effort: 'high', engine: 'claude', priority: 0 }, created_at: t.now() - 2 * MIN });
+    await t.gw.phoneSweep();
+    expect(t.starts()).toHaveLength(1);
+    expect(t.starts()[0].payload.argv).toEqual(['claude', '-p', '--model', 'fable', '--effort', 'high', '--append-system-prompt', 'Tools.\nThis run is on Claude Code, Fable 5.2, at high effort.']);
+    expect(t.db.commands[0].claimed_by).toMatch(/^cloud:/);
+  });
+
   it('leaves to the computer one it cannot start as asked, and says why once', async () => {
     const t = await server();
     const asks = [
@@ -324,6 +339,10 @@ describe('the computer packs a project\'s new-thread kit from main', () => {
     const kit = kitFrom({ AGENTBOX_KIT_DEVICE: DEVICE, ZERO_PRODUCT: 'alpha', ZERO_ITEM: NEW_ITEM_MARK, AGENTBOX_KIT_FRAME: f, AGENTBOX_KIT_NEW: n });
     expect(kit).toMatchObject({ item: NEW_THREAD, newThread: { cwd: '/r/.claude/worktrees/x', brief: 'B' } });
     expect(fs.existsSync(n)).toBe(false);
+    const claude = { model: 'opus', effort: null, note: 'This run is on Claude Code, Opus 5.5.', models: { opus: 'Opus 5.5' } };
+    fs.writeFileSync(f, JSON.stringify({ before: 'b ', after: ' a' }));
+    fs.writeFileSync(n, JSON.stringify({ cwd: '/r/.claude/worktrees/x', brief: 'B', model: null, effort: null, claude }));
+    expect(kitFrom({ AGENTBOX_KIT_DEVICE: DEVICE, ZERO_PRODUCT: 'alpha', ZERO_ITEM: NEW_ITEM_MARK, AGENTBOX_KIT_FRAME: f, AGENTBOX_KIT_NEW: n }).newThread.claude).toEqual(claude);
   });
 });
 
@@ -384,6 +403,9 @@ describe('the supervisor and a new thread', () => {
     expect(brief.brief).toContain(NEW_BODY_MARK);
     const frame = JSON.parse(fs.readFileSync(opts.env.AGENTBOX_KIT_FRAME, 'utf8'));
     expect(frame.before + frame.after).not.toContain(REPLY_MARK);
+    // What its line runs, so a model picked on the phone can be put on it.
+    expect(brief.claude).toMatchObject({ model: 'opus', effort: null, models: expect.objectContaining({ opus: expect.any(String), fable: expect.any(String) }) });
+    expect(args.join(' ')).toContain(brief.claude.note);
   });
 
   it('is left once in a while, not after every turn', async () => {
