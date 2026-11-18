@@ -95,6 +95,25 @@ export function crumbParts(fullPath: string, roots: string[] = []): string[] {
   return parts.slice(-3);
 }
 
+/**
+ * Whether an edit can be saved where the file opened from. Saving goes by the
+ * file's name, so a copy read out from outside the project, such as a thread's
+ * branch, would be written over the project's own file of that name.
+ */
+export function paneCanSave(resolved: string | null, roots: readonly string[]): boolean {
+  if (!resolved || !roots.length) return true;
+  return roots.some((root) => resolved === root || resolved.startsWith(`${root.replace(/\/+$/, '')}/`));
+}
+
+/** How often an open file is read again while the app changes: a cloud run's
+ *  files land on this Mac after its answer does. */
+export const FOLLOW_FILE_MS = 3000;
+
+/** Whether a fresh read of the open file is newer than the one on screen. */
+export function newerOnDisk(shown: number, read: { ok: boolean; mtime?: number }): boolean {
+  return read.ok && typeof read.mtime === 'number' && read.mtime > shown;
+}
+
 /** The file's own name, for a title attribute and for the collapsed line. */
 export function docName(fullPath: string): string {
   const parts = crumbParts(fullPath);

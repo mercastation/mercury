@@ -15,7 +15,7 @@ import { schemaOf } from '../../shared/db-schema.mts';
 import { runningAsAFreshUser } from '../../shared/fresh-user-home.mts';
 import { supabaseBackend } from './supabase-backend.mts';
 import { standinSession } from './standin-backend.mts';
-import { signInWithGoogle, cancelGoogleSignIn } from './sign-in.mts';
+import { signInWithGoogle, cancelGoogleSignIn, listenForTheConfirmationLink } from './sign-in.mts';
 import { plainAuthError } from './auth-words.mts';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { TeamBackend, TeamSession } from './index.mts';
@@ -36,6 +36,8 @@ export interface CloudConfig {
   /** The database schema the tables live in, public when unset (shared/db-schema.mts). */
   schema?: string;
 }
+
+const SIGN_IN_RETURN = 'http://127.0.0.1:54783/auth/callback';
 
 export interface CloudConfigLookup { packaged?: boolean; home?: string; env?: NodeJS.ProcessEnv }
 
@@ -230,7 +232,7 @@ export function supabaseSession({ cloudConfig, sessionFile, encrypt = null, decr
     async signIn({ onUrl, log }: { onUrl?: (url: string) => void; log?: (line: string) => void } = {}) {
       if (!configured) throw new Error('this build has no team cloud configured');
       const c = await getClient();
-      await signInWithGoogle({ client: c, openExternal, onUrl, log, returnUrl: cloudConfig.signInReturn || 'http://127.0.0.1:54783/auth/callback' });
+      await signInWithGoogle({ client: c, openExternal, onUrl, log, returnUrl: cloudConfig.signInReturn || SIGN_IN_RETURN });
       return supabaseBackend(c, { schema: schemaOf(cloudConfig) });
     },
 
@@ -247,31 +249,45 @@ export function supabaseSession({ cloudConfig, sessionFile, encrypt = null, decr
 
     // A new account. With email confirmation on (the hosted project's setting)
     // there is no session until the link in the email is followed, so this
-    // answers { confirm: true } and the page says to check the inbox.
-    async signUp({ email, password, name }) {
+    // answers { confirm: true } and the page says to check the inbox. The link
+    // comes back to this Mac's sign-in address, held from now until it is
+    // followed or the link expires, and `confirmed` is that sign-in.
+    async signUp({ email, password, name, log = () => {} }) {
       if (!configured) throw new Error('this build has no team cloud configured');
-      // The plain kind of email link, which the phone website can finish; this
-      // Mac's own client would ask for a code only this Mac could spend.
-      const { createClient } = await import('@supabase/supabase-js');
-      const plain = createClient(cloudConfig.url, cloudConfig.anonKey, {
-        global: { fetch: withDeadline() },
-        auth: { flowType: 'implicit', persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
-      });
-      const { data, error } = await plain.auth.signUp({
-        email: String(email ?? '').trim(),
-        password: String(password ?? ''),
-        options: {
-          data: { full_name: String(name ?? '').trim() || undefined },
-          // Else the email's link goes to the database's default, this Mac's sign-in listener, dead outside a sign-in.
-          emailRedirectTo: typeof cloudConfig.phoneSite === 'string' ? cloudConfig.phoneSite : undefined,
-        },
+      const c = await getClient();
+      const returnUrl = cloudConfig.signInReturn || SIGN_IN_RETURN;
+      const account = { email: String(email ?? '').trim(), password: String(password ?? '') };
+      const { data, error } = await c.auth.signUp({
+        ...account,
+        options: { data: { full_name: String(name ?? '').trim() || undefined }, emailRedirectTo: returnUrl },
       });
       if (error) throw new Error(plainAuthError(error.message));
-      if (!data?.session) return { confirm: true };
-      const c = await getClient();
-      const { error: kept } = await c.auth.setSession(data.session);
-      if (kept) throw new Error(plainAuthError(kept.message));
-      return { backend: supabaseBackend(c, { schema: schemaOf(cloudConfig) }) };
+      if (data?.session) return { backend: supabaseBackend(c, { schema: schemaOf(cloudConfig) }) };
+      // A link opened once before, by the person or a mail scanner, comes back spent, yet that first
+      // open confirmed the address, so the password from this sign-up now signs in.
+      const rescue = async () => !(await c.auth.signInWithPassword(account)).error;
+      // The wait goes on after a visit nothing could finish; the screen is still told why.
+      let failedVisit: (why: string) => void = () => {};
+      // As long as the link lives (cloud/supabase/config.toml, otp_expiry).
+      const listen = async () => {
+        const held = await listenForTheConfirmationLink({ client: c, returnUrl, timeoutMs: 60 * 60 * 1000, log, rescue, onFailed: (why) => failedVisit(why) });
+        held.over.catch(() => {});
+        return held;
+      };
+      let { over } = await listen();
+      return {
+        confirm: true,
+        confirmed: () => over.then(() => supabaseBackend(c, { schema: schemaOf(cloudConfig) })),
+        failed: () => new Promise<string>((resolve) => { failedVisit = resolve; }),
+        stopWaiting: () => { cancelGoogleSignIn(); },
+        // Sent before the wait is replaced, so a refused send leaves the earlier link's wait as it was.
+        // The new code replaces the old one in the client, so only the newest link signs in.
+        async resend() {
+          const { error: refused } = await c.auth.resend({ type: 'signup', email: account.email, options: { emailRedirectTo: returnUrl } });
+          if (refused) throw new Error(plainAuthError(refused.message));
+          ({ over } = await listen());
+        },
+      };
     },
 
     // The session an Agentbox Cloud sign-in made (main/cloud/account.mts), so
@@ -300,8 +316,11 @@ export function supabaseSession({ cloudConfig, sessionFile, encrypt = null, decr
 // resolves to a path OUTSIDE the store. A dir inside the store moves to a
 // per-store folder under the config home; if even that is inside the store
 // there is nowhere safe and it throws, because writing the token where a worker
-// reads it is worse than a sign-in to do again. A copy an older version left in
-// the store, under either name, is carried across.
+// reads it is worse than a sign-in to do again. A team sign-in an older version
+// left in the store is carried across only into the headless app's own sign-in
+// file: any other file taking it would sign the desktop out.
+const HEADLESS_SESSION = 'team-session.json';
+
 const isInside = (file: string, root: string) => {
   const f = path.resolve(file);
   const r = path.resolve(root);
@@ -320,7 +339,7 @@ export function sessionFileOutsideStore({ dir, name, storeRoot, home = os.homedi
     file = path.join(configHome({ home, env }), nameSlug, 'sessions', tag, name);
     if (isInside(file, storeRoot)) throw new Error(`no place outside the store root for the team session: ${storeRoot}`);
   }
-  const olds = [path.join(storeRoot, '.team-session'), path.join(storeRoot, 'team-session.json')];
+  const olds = name === HEADLESS_SESSION ? [path.join(storeRoot, '.team-session'), path.join(storeRoot, 'team-session.json')] : [];
   try {
     if (!fs.existsSync(file)) {
       for (const old of olds) {
@@ -337,7 +356,7 @@ export function sessionFileOutsideStore({ dir, name, storeRoot, home = os.homedi
 
 // The headless app keeps its sign-in as plain JSON readable by this user only.
 export function headlessSessionFile({ userDir, storeRoot, home, env }: { userDir: string; storeRoot: string; home?: string; env?: NodeJS.ProcessEnv }): string {
-  return sessionFileOutsideStore({ dir: userDir, name: 'team-session.json', storeRoot, home, env });
+  return sessionFileOutsideStore({ dir: userDir, name: HEADLESS_SESSION, storeRoot, home, env });
 }
 
 // The same session shape over the in-memory cloud, for tests.

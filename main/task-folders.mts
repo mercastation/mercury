@@ -65,10 +65,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { Name, nameSlug } from '../shared/product-name.mjs';
 import { insideGitFolder } from '../shared/project-folder-check.mts';
-import { carryLocalFiles, copyTree, onlyTrackedContent, trackedTopLevel } from './worktree-include.mts';
+import { carryLocalFiles, copyTree, folderChildDeadline, onlyTrackedContent, trackedTopLevel } from './worktree-include.mts';
 import type { ExecFailure } from './worktree-include.mts';
 import { startKey } from './task-start.mts';
 import { commonGitDirOf, gitDirOf } from './cloud/marker.mts';
+import { HOOK_FREE } from './hook-free-git.mts';
 
 /** The answer of a git call that does not throw. */
 export interface GitResult {
@@ -169,10 +170,10 @@ const inLinkedWorktree = (cwd: string) => {
   try { return fs.lstatSync(path.join(cwd, '.git')).isFile(); } catch { return false; }
 };
 const git = (cwd: string, args: string[]): string => execFileSync('git', [
-  ...(inLinkedWorktree(cwd) ? ['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false'] : []),
+  ...(inLinkedWorktree(cwd) ? HOOK_FREE : []),
   ...args,
 ], {
-  cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+  cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: folderChildDeadline(), killSignal: 'SIGKILL',
 }).trim();
 
 /**
@@ -514,6 +515,7 @@ function whatAFirstCommitTakes(root: string): { size: number; repositories: stri
   // far past the default megabyte of output.
   const listed = execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], {
     cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 256 * 1024 * 1024,
+    timeout: folderChildDeadline(), killSignal: 'SIGKILL',
   });
   let size = 0;
   const repositories: string[] = [];

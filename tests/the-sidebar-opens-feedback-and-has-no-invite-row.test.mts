@@ -80,8 +80,8 @@ describe('the Feedback row', () => {
 
   it('opens the feedback card in the App', () => {
     expect(app).toContain('onFeedback={openFeedback}');
-    expect(app).toMatch(/const openFeedback = [^;]*\(\) => setFeedbackOpen\(true\);/);
-    expect(app).toMatch(/\{feedbackOpen && <FeedbackCard[^>]*onClose=\{\(\) => setFeedbackOpen\(false\)\}/);
+    expect(app).toMatch(/const openFeedback = [^;]*setFeedbackOpen\(/);
+    expect(app).toMatch(/\{feedbackOpen !== null && <FeedbackCard[^>]*onClose=\{\(\) => setFeedbackOpen\(null\)\}/);
   });
 });
 

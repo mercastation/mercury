@@ -3,10 +3,12 @@ import {submitReply} from './live-replies.mts';
 import { noteToItsAgent, replyWithWaitingNotes, waitingNotes } from './notes-wake.mts';
 import { leftByAMove } from '../shared/move-thread.mts';
 import { moveThread } from './move-thread.mts';
-import { whereTheWorkStands } from './git-change.mts';
+import { whereTheWorkStands, type WorkStands } from './git-change.mts';
+import { gitJob } from './git-change-offthread.mts';
 import { taskFolderPath } from './task-folders.mts';
 import { GROUPS } from '../shared/connections-catalog.mts';
 import { projectSeenBy } from '../shared/thread-cards.mts';
+import { phoneSeenOf } from '../shared/phone-settings.mts';
 import { createEngineSetup, engineSetUpHere } from './engine-setup.mts';
 // IPC: a thin, typed-by-convention surface. The renderer asks; the main
 // process derives from files and answers. Pushes go one way: "state changed,
@@ -52,7 +54,7 @@ import { linkCopyOf, linkKindOf, linkSource } from './file-link.mts';
 import { bringSharedFile, fileLinkToken, projectToBringInto } from './bring-shared-file.mts';
 import { familyKeyOf, type Mark } from '../shared/artifact-marks.mts';
 import { readItemHistory } from './store/work-items.mts';
-import { readChange, readChangeSummary } from './code-change.mts';
+import { readChange, readChangeSummary, withStandsNow } from './code-change.mts';
 import { findFile, readCodeFile, writeCodeFile } from './code-file.mts';
 import { readNote, writeNote } from './rail-note.mts';
 import { teamForWindow } from './team/index.mts';
@@ -392,14 +394,16 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
   // becomes a no, by the same rule and in the same place as a yes the spool
   // would not take: `allow` and `note` stop meaning what she pressed and start
   // meaning what was actually recorded.
-  const answerApproval = (id: string, allow: boolean, note?: string) => {
-    const shown = approvals.cardShown(config.storeRoot, id);
+  // `phoneCard`: the card her phone answered on, which is what gets signed.
+  const answerApproval = (id: string, allow: boolean, note?: string, phoneCard?: string) => {
+    const phone = phoneCard !== undefined ? { card: phoneCard } : undefined;
+    const shown = phone ? phoneCard : approvals.cardShown(config.storeRoot, id);
     if (allow && supervisor.codexCardChanged?.(id, shown)) {
       console.warn(`zero: approval ${id} was drawn from a request that has since been rewritten; the founder's Allow was for a different card and nothing has been allowed`);
       allow = false;
       note = CARD_CHANGED;
     }
-    const ok = approvals.answer(config.storeRoot, id, allow, note);
+    const ok = approvals.answer(config.storeRoot, id, allow, note, phone);
     if (!ok) { allow = false; note = SPOOL_REFUSED; }
     const settled = supervisor.settleCodexApproval?.(id, allow, note) ?? false;
     if (!ok && settled) console.warn(`zero: approval ${id} could not be recorded in the spool; the worker waiting on it has been denied`);
@@ -434,11 +438,12 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
   // answer in THIS process, ahead of the page: reading a different order from
   // the one on screen means ⌘Y allows a command nobody was reading.
   let looking: { product: string | null; id: string } | null = null;
-  const pendingApprovals = () => cardsInFront(approvals.listPending(config.storeRoot), looking);
+  // Read at a press (the chord, the menu): finds the card, signs nothing new.
+  const pendingApprovals = () => cardsInFront(approvals.listPending(config.storeRoot, { drawn: false }), looking);
   // When each card was first sent to the window, so a chord in its first moment answers nothing (shared/card-settles.mts).
   const sentAt = new Map<string, number>();
   const sendingApprovals = () => {
-    const cards = pendingApprovals();
+    const cards = cardsInFront(approvals.listPending(config.storeRoot), looking);
     const now = Date.now();
     for (const id of [...sentAt.keys()]) if (!cards.some((c) => c.id === id)) sentAt.delete(id);
     for (const c of cards) if (!sentAt.has(c.id)) sentAt.set(c.id, now);
@@ -463,7 +468,7 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
   // and a request rewritten since gets nothing.
   ipcMain.handle('zero:approve', (_e, { id, allow, note, card }: { id: string; allow: boolean; note?: string; card?: string }) => {
     if (card !== undefined && !approvals.cardStillShown(config.storeRoot, id, card)) return { ok: false, error: 'the card changed after your phone showed it, so nothing was allowed' };
-    return { ok: answerApproval(id, allow, note) };
+    return { ok: answerApproval(id, allow, note, card) };
   });
 
   // AN AGENT ROW IS NOT A WORK ITEM. Rows for her Claude Code agents are drawn
@@ -513,12 +518,12 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
     },
   });
 
-  ipcMain.handle('zero:refresh-usage', async (event, { engine = DEFAULT_ENGINE }: { engine?: string } = {}) => {
+  ipcMain.handle('zero:refresh-usage', async (event, { engine = DEFAULT_ENGINE, ask = false }: { engine?: string; ask?: boolean } = {}) => {
     if (event.senderFrame?.parent || (event.sender && event.sender !== window.webContents)) throw Error('Usage refresh is only available in the main app window.');
-    // Codex is asked of this computer and not of OpenAI; main/codex-usage.mts
-    // says why there is no explicit read.
+    // Codex asks OpenAI only when the person pressed Refresh (`ask`); opening
+    // the page reads what this computer already has.
     if (engine !== DEFAULT_ENGINE) {
-      const reading = supervisor.refreshCodexUsage();
+      const reading = ask ? await supervisor.askCodexUsage() : supervisor.refreshCodexUsage();
       return reading ? { ok: true, reading: { engine, ...reading } } : { ok: false, error: 'Codex has reported no usage on this computer yet.' };
     }
     const result = await usage.refreshNow();
@@ -529,7 +534,10 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
   const accountUsage = new AccountUsage({
     bin: () => config.claudeBin ?? null,
     env: () => supervisor._workerEnv(DEFAULT_ENGINE),
-    onReading: (profile, reading) => supervisor.noteUsageReading(profile, reading),
+    onReading: (profile, reading) => {
+      supervisor.noteUsageReading(profile, reading);
+      usage.adopt({ ...reading, profile });
+    },
     identity: (profile) => accountIdentity(profile === 'default' ? null : profile, { home: config.home }),
   });
   ipcMain.handle('zero:account-usage', async (event, { refresh = false, engine = DEFAULT_ENGINE }: { refresh?: boolean; engine?: string } = {}) => {
@@ -556,6 +564,8 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
     try { codex = supervisor.codexAccountUsage(); } catch { /* no Codex reading */ }
     return { claude, codex };
   };
+  let seenHere: Record<string, number> = {};
+  const seenForPhone = () => seenHere;
 
   // Agents this run has already counted. In memory on purpose: a fresh launch
   // seeing the same agent again is a fresh fact about the app being used.
@@ -984,7 +994,8 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
     const withNotes = product && id && !later && status !== 'done'
       ? replyWithWaitingNotes({ store, product, id, answer, me: teamMe(), nameOf: noteBy, people: teamPeople() })
       : null;
-    const out = await submitReply(supervisor,{product,id,answer:withNotes?.answer ?? answer,status,permissionMode,now:!!now,later},()=>{
+    const moves = engine !== undefined || model !== undefined || effort !== undefined ? { engine, model, effort } : undefined;
+    const out = await submitReply(supervisor,{product,id,answer:withNotes?.answer ?? answer,status,permissionMode,now:!!now,later,moves},()=>{
       const said = withNotes
         ? store.answerItem(product, id, { answer: withNotes.answer, fromNotes: withNotes.fromNotes, typed: answer as string, status, priority, permissionMode, engine, model, effort, inReplyTo: thread, fromPhone })
         : store.answerItem(product, id, { answer, status, priority, permissionMode, engine, model, effort, inReplyTo: thread, fromPhone });
@@ -1039,6 +1050,18 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
     const out = supervisor.moveToCloud(ids);
     push();
     return out;
+  });
+
+  // A thread opened on the phone. Only the window keeps what has been read.
+  ipcMain.handle('zero:phone-seen', (_e, { id, at }: { product?: string; id?: string; at?: number } = {}) => {
+    if (typeof id !== 'string' || !id || !(Number(at) > 0)) return { ok: false, error: 'not a thread opened on the phone' };
+    if (!window.isDestroyed()) window.webContents.send('zero:seen-on-phone', { id, at: Number(at) });
+    return { ok: true };
+  });
+  // And what the window has opened, for the phone's dots (phoneSettingsOf).
+  ipcMain.handle('zero:seen-here', (_e, { seen }: { seen?: unknown } = {}) => {
+    seenHere = phoneSeenOf(seen);
+    return { ok: true };
   });
 
   // PINNED THREADS (w-20323283e6): id to true, or null to unpin.
@@ -1113,11 +1136,30 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
     try {
       const out = await team.signUp(email, password, name);
       push();
+      raiseOnceConfirmed();
       return { ok: true, team: teamNow(), confirm: !!out?.confirm };
     } catch (err) {
       return { ok: false, error: String((err as Error)?.message ?? err), team: teamNow() };
     }
   });
+  // The setup waits on "Check your email" and moves on by itself once this signs in.
+  const raiseOnceConfirmed = () => {
+    void team?.confirmation()?.then(({ ok }) => {
+      if (ok) { try { if (window?.isMinimized?.()) window.restore?.(); window?.show?.(); } catch { /* no window to raise */ } }
+      push();
+    });
+  };
+  // How the link ended, so "Check your email" can say it failed. Bounded by the session's own wait.
+  ipcMain.handle('zero:team-confirmation', async () => {
+    const waiting = team?.confirmation();
+    if (!waiting) return { ok: false, error: 'Create the account again to get a new link.' };
+    const out = await waiting;
+    return out.ok ? { ok: true, team: teamNow() } : { ...out, team: teamNow() };
+  });
+  ipcMain.handle('zero:team-resend-confirmation', teamCall(async () => {
+    await team!.resendConfirmation();
+    raiseOnceConfirmed();
+  }));
   ipcMain.handle('zero:team-create', teamCall(({ name }: { name: string }) => team!.createTeam(name)));
   // An invite answered yes. Nothing else joins a team.
   ipcMain.handle('zero:team-accept-invite', teamCall(({ teamId }: { teamId: string }) => team!.acceptInvite(teamId)));
@@ -1149,9 +1191,9 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
   ipcMain.handle('zero:team-give-task', teamCall(({ to, title, body, priority, due, files, visibility, visibleTo, blockedBy }: { to: string; title?: string; body?: string; priority?: number; due?: unknown; files?: AttachmentFile[]; visibility?: string; visibleTo?: string[]; blockedBy?: unknown }) => team!.giveTask(to, { title, body, priority, due, files, visibility, visibleTo, blockedBy })));
   // Only a thread nothing is running on: closing one with an agent on it would
   // leave that agent writing into a thread its owner has given away.
-  ipcMain.handle('zero:team-hand-on', teamCall(async ({ product, id, to }: { product: string; id: string; to: string }) => {
+  ipcMain.handle('zero:team-hand-on', teamCall(async ({ product, id, to, note }: { product: string; id: string; to: string; note?: string }) => {
     if (supervisor.status().running?.some((r) => r.itemId === id)) throw new Error('An agent is still on this thread. Stop it, then give it.');
-    const made = await team!.handOn({ product, id, to });
+    const made = await team!.handOn({ product, id, to, note });
     supervisor.setThreadPins({ [id]: null });
     return made;
   }));
@@ -1356,7 +1398,7 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
     }
   });
 
-  ipcMain.handle('zero:compose', async (_e, { product, title, body, kind, priority, runAt, start, labels, engine, model, effort, baseBranch, assignee, due, visibility, visibleTo, fromPhone, onMac, meeting }: ComposeInput & { product: string; onMac?: unknown; meeting?: unknown }) => {
+  ipcMain.handle('zero:compose', async (_e, { product, title, body, kind, priority, runAt, start, labels, engine, model, effort, baseBranch, assignee, due, visibility, visibleTo, fromPhone, onMac, meeting, label }: ComposeInput & { product: string; onMac?: unknown; meeting?: unknown; label?: unknown }) => {
     // A recording from the phone: the words come first and the thread after them.
     if (meeting) {
       if (!meetings) throw new Error('This computer cannot transcribe recordings.');
@@ -1398,6 +1440,8 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
       // fields cannot be corrected separately.
       model: supervisor.modelOffered(engine, model),
     });
+    // A thread a task was handed to an agent in keeps the task's name, so the namer leaves it.
+    if (typeof label === 'string' && label.trim() && out?.id) store.nameItem(product, out.id, label);
     // Before the wake below, so its first run cannot start in the cloud.
     if (onMac === true && out?.id) supervisor.setThreadOnMac({ [out.id]: true });
     // A real thread ends the walk's hold on agents (`Supervisor#sentByThem`).
@@ -2259,6 +2303,19 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
     return plan;
   });
   ipcMain.handle('zero:cloud-account-pay', (_e, { plan }: { plan?: string } = {}) => cloudCall('payForCloud', { plan }));
+  // The setup makes a team account one step before it offers Pro, and the payment is the cloud's.
+  ipcMain.handle('zero:cloud-account-from-team', async (_e, { acceptTerms }: { acceptTerms?: unknown } = {}) => {
+    try {
+      const home = supervisor.config.home || os.homedir();
+      const { cloudAccountConfig, cloudFromTeamSignIn } = await import('./cloud/account.mts');
+      const { loadCloudConfig } = await import('./team/session.mts');
+      const out = await cloudFromTeamSignIn({ config: cloudAccountConfig(supervisor.appDir, { home }), teamUrl: loadCloudConfig(supervisor.appDir)?.url, token: (await team?.liveToken?.()) ?? null, acceptTerms: acceptTerms === true, home });
+      push();
+      return out;
+    } catch (err) {
+      return { ok: false, error: 'unreachable', message: `The cloud did not answer: ${(err as Error)?.message || err}` };
+    }
+  });
   ipcMain.handle('zero:cloud-account-billing', () => cloudCall('openCloudBilling'));
   ipcMain.handle('zero:cloud-account-team-billing', () => cloudCall('cloudTeamBilling'));
 
@@ -2927,7 +2984,14 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
   ipcMain.handle('zero:file-links', linkCall(async (_arg, team) => team.fileLinks()));
   ipcMain.handle('zero:file-link-stop', linkCall(async ({ token }, team) => { await team.stopFileLink(String(token ?? '')); return {}; }));
   ipcMain.handle('zero:file-link-comments', linkCall(async ({ token }, team) => ({ comments: await team.fileLinkComments(String(token ?? '')) })));
-  ipcMain.handle('zero:file-link-comment', linkCall(async ({ token, text, place }, team) => ({ comments: await team.commentOnFileLink(String(token ?? ''), text, place ?? null) })));
+  // Sent from a thread, the reply also answers the link comments waiting on it, so it leaves Needs you.
+  ipcMain.handle('zero:file-link-comment', linkCall(async ({ token, text, place, product, thread, src }, team) => {
+    const comments = await team.commentOnFileLink(String(token ?? ''), text, place ?? null);
+    if (product && typeof thread === 'string' && typeof src === 'string') {
+      try { store.repliedOnALink(product, thread, { file: path.basename(familyKeyOf(src)), text: String(text ?? '').trim() }); } catch (err) { console.error(`link reply on ${thread}: ${(err as Error).message}`); }
+    }
+    return { comments };
+  }));
 
   // A FILE SOMEONE SHARED WITH THIS PERSON, brought into one of their projects
   // as their own copy on a thread that runs nothing until they write to it.
@@ -2965,7 +3029,16 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
     });
     if (!found.ok) return found;
     try {
-      return { ok: true, change: summary ? readChangeSummary(found.path) : readChange(found.path) };
+      if (summary) return { ok: true, change: readChangeSummary(found.path) };
+      const change = readChange(found.path);
+      // Only the pane's read, which draws "not committed"; the summary is polled.
+      const prod = store.listProducts().find((p) => p.slug === product);
+      let folder: string | null = null;
+      try { folder = prod?.repoPath && change.item ? taskFolderPath(supervisor.productFolder(prod), change.item) : null; } catch { folder = null; }
+      const now = folder && fsWatch.existsSync(folder)
+        ? await (gitJob('whereTheWorkStands', folder) as Promise<WorkStands>).catch(() => null)
+        : null;
+      return { ok: true, change: withStandsNow(change, now) };
     } catch (e) {
       return { ok: false, error: `that change could not be read (${(e as Error).message})` };
     }
@@ -3126,5 +3199,5 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
     const hash = keeper?.hashAt(file);
     return hash ? keeper!.bringBack(hash) : Promise.resolve(false);
   };
-  return { answerApproval, pendingApprovals, cardSentAt, push, usageForPhone, comeBackAt };
+  return { answerApproval, pendingApprovals, cardSentAt, push, usageForPhone, seenForPhone, comeBackAt };
 }

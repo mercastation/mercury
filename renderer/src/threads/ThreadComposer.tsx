@@ -53,25 +53,26 @@ import { forgetVoiceDraft } from '../team/useVoiceRecorder';
 import { MeetingRecorder } from './MeetingRecorder';
 import { meetingTitle } from './meeting-recording';
 import { AGENT_DECIDES, PRIORITIES, choiceLabelOf, priorityValueOf, sentPriority, startingPriority, type PriorityChoice } from '../priority';
-import { clearComposeDraft, composeDraftIsEmpty, dropComposeDraft, markComposeDraftSending, openingComposeDraft, readComposeDraft, restoreComposeDraft, saveComposeDraft, type ComposeDraft } from '../drafts';
+import { cardPick, clearComposeDraft, composeDraftIsEmpty, dropComposeDraft, markComposeDraftSending, openingComposeDraft, readComposeDraft, restoreComposeDraft, saveComposeDraft, type ComposeDraft } from '../drafts';
 import { codeProjectFor, LAST_PRODUCT_KEY, rememberedProject } from '../compose-project';
 import { practiceRefusal, noProjectYet } from '../compose-says';
 import { onCloudPhone } from '../phone-screen';
 import { defaultModelFor, engineModelLabel, readLastModel, writeLastModel, type ModelChoice } from '../models';
 import { defaultEffortFor, effortChoicesFor, effortPicked, effortShown, readLastEffort, writeLastEffort } from '../effort';
-import { startingEngine, writeLastEngine } from '../engines';
+import { ENGINE_CHOSEN, startingEngine, writeLastEngine } from '../engines';
 import { repeatPresets } from '../components/When';
 import { ideasFor, type Idea } from '../first-run';
 import { readRule, repeatsLine } from '../format';
 import { fitMenu } from '../keep-in-window';
 import { ModelMenu } from './ModelMenu';
+import { dropRank, useFitRow } from './fit-row';
 import { useThreadMentions } from '../components/ThreadMentions';
 import {
-  agentChoices, agentWordFor, autoOffered,
+  agentChoices, toOffered, autoOffered,
   allModels, findPeople, harnessFields, laterHint, momentFromWords, mondayIsTomorrow, mondayMorning, moreCount,
   joinNames, placeholderFor, projectsOffered, projectSwatch, recentModels,
   sharingFields, cardProject, startingVisibility, startingChosen, teammates, threadMessage, tomorrowMorning, chosenWords, VISIBILITY_ROWS,
-  dueChoices, dueWords, headRows, NOT_BLOCKED, keyOnTheNewThreadCard, modEnterSendsTheCard, messageSubject, toSections, findInvited, type ToSection,
+  dueChoices, dueWords, headRows, NOT_BLOCKED, keyOnTheNewThreadCard, modEnterSendsTheCard, messageSubject, toSections, findInTo, findInvited, type ToSection,
   agentOnThisWork, atOffers, atWordAt, cardDraftPlace, cardDraftToKeep, handedFromLabel, withoutAtWord, branchChip, branchRows, BRANCH_ROWS_SHOWN,
   startingWhen, whenOnDraft, whenToSend, whenWords,
   type AtOffer, type HandFrom, type Harness, type Keyboard, type ModelPick, type SendAs, type SendWhen, type Visibility,
@@ -127,6 +128,8 @@ export interface ComposeStart {
   attachments?: PendingAttachment[];
   /** The message this card was opened from, when it was handed to an agent. */
   handFrom?: HandFrom;
+  /** The task's name, which the thread keeps while its first line still says it. */
+  named?: string;
   /** The teammate's thread this one carries on: labelled on the new thread, and its owner told once it is sent. */
   continueFrom?: { personId: string; threadId: string };
   /** The project it starts in, ahead of the default. */
@@ -369,6 +372,8 @@ export function ThreadComposer({
   // carried silently into the next thread sent work to the wrong agent. Each
   // agent's own last model is still remembered.
   const remembered = (): ModelPick => {
+    const kept = cardPick(opened.current, engineRows.map((e) => e.id));
+    if (kept) return { engine: kept.engine as Harness, model: kept.model };
     const engine: Harness = startingEngine(workspaceEngine ?? null, engines);
     return { engine, model: readLastModel(undefined, engine, codexDefault) ?? defaultModelFor(engine, codexDefault) };
   };
@@ -381,6 +386,16 @@ export function ThreadComposer({
     if (pick.engine === 'claude' && !claudeOffered && codexOffered) setPick({ engine: 'codex', model: readLastModel(undefined, 'codex', codexDefault) ?? defaultModelFor('codex', codexDefault) });
   }, [codexOffered, claudeOffered]);
   const [effort, setEffort] = useState<string | null>(() => readLastEffort(undefined, pick.engine));
+  // The setup asks which agent while this box is already open behind it.
+  useEffect(() => {
+    const chosen = (e: Event) => {
+      const engine: Harness = startingEngine(String((e as CustomEvent).detail ?? ''), engines);
+      setPick({ engine, model: readLastModel(undefined, engine, codexDefault) ?? defaultModelFor(engine, codexDefault) });
+      setEffort(readLastEffort(undefined, engine));
+    };
+    addEventListener(ENGINE_CHOSEN, chosen);
+    return () => removeEventListener(ENGINE_CHOSEN, chosen);
+  });
   const pickModel = (p: ModelPick) => {
     setPick(p);
     writeLastEngine(p.engine);
@@ -397,13 +412,8 @@ export function ThreadComposer({
     writeLastEffort(next, undefined, pick.engine);
   };
   const labelOf = (p: ModelPick) => engineModelLabel(p.engine, p.model, modelOpts);
-  // WHO IS ABOUT TO GET THIS, by name, and the rows To offers. Both are empty
-  // words on a Mac with one coding agent, where they read exactly as before.
-  const agents = agentChoices(engineRows);
-  const engineTags = agents.length > 0;
-  const chooseAgent = (engine: Harness) => {
-    pickModel({ engine, model: readLastModel(undefined, engine, codexDefault) ?? defaultModelFor(engine, codexDefault) });
-  };
+  // Recent rows say which agent runs them, where there are two.
+  const engineTags = agentChoices(engineRows).length > 0;
   const recent = useMemo(
     () => recentModels(items, { codexModels, codexDefault, codexOffered, claudeOffered }),
     [items, codexModels, codexDefault, codexOffered, claudeOffered],
@@ -503,7 +513,7 @@ export function ThreadComposer({
   /* ------------------------------ draft --------------------------------- */
   // On every keystroke, every paste, every pick, the same draft the old card
   // kept, so an Escape or a reload never takes her words or her pictures.
-  const whatTheCardHolds = () => ({ text, attachments: attachments.filter((a) => !a.draftId), priority: prio, when: whenOnDraft(when), dropped: 0 });
+  const whatTheCardHolds = () => ({ text, attachments: attachments.filter((a) => !a.draftId), priority: prio, when: whenOnDraft(when), dropped: 0, pick: { engine: pick.engine, model: pick.model } });
   useEffect(() => {
     const kept = cardDraftToKeep(text, initial);
     const unchanged = seeded && !kept && attachments.length === (initial?.attachments?.length ?? 0);
@@ -513,7 +523,7 @@ export function ThreadComposer({
     if (composeDraftIsEmpty(draft) && readComposeDraft(undefined, place).sendingAt) return;
     const stored = saveComposeDraft(draft, undefined, place);
     setDropped(stored.dropped);
-  }, [text, attachments, prio, when]);
+  }, [text, attachments, prio, when, pick]);
   // What is sent is written down first, even a hand-off nobody changed, so a
   // send that fails still has its words to give back.
   const takeTheDraft = () => {
@@ -595,6 +605,8 @@ export function ThreadComposer({
   // Long project names fade rather than end in an ellipsis, which was turned
   // down twice on the old card; only a name that really overflows fades.
   const projName = useRef<HTMLSpanElement>(null);
+  const fitBar = useRef<HTMLDivElement>(null);
+  useFitRow(fitBar, inline);
   const [projCut, setProjCut] = useState(false);
   useLayoutEffect(() => {
     const el = projName.current;
@@ -684,6 +696,7 @@ export function ThreadComposer({
           ...harness,
           ...branch?.field,
           ...(team ? sharingFields(visibility, chosenHere) : {}),
+          ...(initial?.named && message.title === initial.named ? { label: initial.named } : {}),
           ...(onAuto || initial?.handFrom || initial?.continueFrom ? { labels: [
             ...(onAuto ? [AUTO_LABEL] : []),
             ...(initial?.handFrom ? [handedFromLabel(initial.handFrom.product, initial.handFrom.id)] : []),
@@ -885,37 +898,48 @@ export function ThreadComposer({
     return false;
   };
 
+  // One Agent row, never one per program: the model picks which runs it.
+  const toFound = findInTo(query, { auto: autoHere, agents: [], mates: agentMates ?? [] });
+  const peopleHere = !!team && (others.length > 0 || !!team.state.sent?.length);
+  const matesHere = !!agentMates && !!onToTeammate;
+  const toShown = toOffered({ people: peopleHere, auto: autoHere, mates: matesHere, chosen: !!person || !!mate });
+  const sections = toSections({
+    people: peopleHere,
+    auto: toFound.auto,
+    agents: toFound.agent,
+    mates: matesHere && (toFound.mates.length > 0 || toFound.someoneNew),
+    adding,
+  });
+  const firstFound = (): (() => void) | null => {
+    if (found[0]) return () => chooseTo(found[0].id);
+    if (adding) return null;
+    if (sections.includes('auto')) return chooseAuto;
+    if (sections.includes('agents')) return () => chooseTo('agent');
+    if (sections.includes('mates') && toFound.mates[0]) return () => chooseMate(toFound.mates[0].id);
+    return null;
+  };
   const toSection = (s: ToSection) => s === 'auto' ? (
         <button key="auto" type="button" data-item className={`tc-row ${onAuto ? 'on' : ''}`} onPointerMove={hover} onClick={chooseAuto}>
           <AutoFace /><span className="tc-row-label">Auto</span><small className="tc-row-aside">picks who when you send</small>
         </button>
       )
-      /* ONE ROW PER AGENT WHERE THIS MAC HAS TWO, and the one row it has
-          always drawn where it has one. Picking an agent is picking where the
-          task runs, so it moves the model with it (`chooseAgent`). */
-      : s === 'agents' ? (agents.length
-        ? agents.map((a) => (
-          <button key={a.id} type="button" data-item className={`tc-row ${!person && !mate && !onAuto && pick.engine === a.id ? 'on' : ''}`}
-            onPointerMove={hover} onClick={() => { chooseAgent(a.id); chooseTo('agent'); }}>
-            <AgentFace /><span className="tc-row-label">{a.label}</span>
-          </button>
-        ))
-        : (
+      : s === 'agents' ? (
           <button key="agent" type="button" data-item className={`tc-row ${person || mate || onAuto ? '' : 'on'}`} onPointerMove={hover} onClick={() => chooseTo('agent')}>
             <AgentFace /><span className="tc-row-label">Agent</span>
           </button>
-        ))
+        )
       : s === 'mates' ? (<Fragment key="mates">
-        <span className="tc-sep" />
         <span className="tc-menu-head">Teammates</span>
-        {(agentMates ?? []).map((t) => (
+        {toFound.mates.map((t) => (
           <button key={t.id} type="button" data-item className={`tc-row ${mate === t.id ? 'on' : ''}`} onPointerMove={hover} onClick={() => chooseMate(t.id)}>
             <TeammateMark t={t} /><span className="tc-row-label">{t.name}</span>{t.role && <small className="tc-row-aside">{t.role}</small>}
           </button>
         ))}
-        <button type="button" data-item className={`tc-row ${mate === 'new' ? 'on' : ''}`} onPointerMove={hover} onClick={() => chooseMate('new')}>
-          <i className="tq tq-sm tq-hash" aria-hidden="true">+</i><span className="tc-row-label">Someone new</span><small className="tc-row-aside">makes a teammate for this</small>
-        </button>
+        {toFound.someoneNew && (
+          <button type="button" data-item className={`tc-row ${mate === 'new' ? 'on' : ''}`} onPointerMove={hover} onClick={() => chooseMate('new')}>
+            <i className="tq tq-sm tq-hash" aria-hidden="true">+</i><span className="tc-row-label">Someone new</span><small className="tc-row-aside">makes a teammate for this</small>
+          </button>
+        )}
       </Fragment>)
       : (<Fragment key="people">
         <span className="tc-menu-head">People</span>
@@ -925,7 +949,7 @@ export function ThreadComposer({
           placeholder="Find a person"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter' && query.trim() && found[0]) { e.preventDefault(); chooseTo(found[0].id); } }}
+          onKeyDown={(e) => { const pick = query.trim() && e.key === 'Enter' ? firstFound() : null; if (pick) { e.preventDefault(); pick(); } }}
         />
         {found.map((p) => (
           <button key={p.id} type="button" data-item className={`tc-row ${to === p.id ? 'on' : ''}`} onPointerMove={hover} onClick={() => chooseTo(p.id)}>
@@ -937,12 +961,16 @@ export function ThreadComposer({
             <Face name={e} /><span className="tc-row-label">{e}</span><small className="tc-row-aside">Invited, not joined yet</small>
           </div>
         ))}
-        {!found.length && !invitedFound.length && <span className="tc-none">Nobody on the team matches that.</span>}
-        {!adding && <span className="tc-sep" />}
+        {!found.length && !invitedFound.length && sections.length === 1 && <span className="tc-none">Nobody on the team matches that.</span>}
       </Fragment>);
   const toMenu = (
     <div className="tc-menu tc-drop tc-to-menu" role="listbox" aria-label="To" onKeyDown={menuKeys}>
-      {toSections({ people: !!team && (others.length > 0 || !!team.state.sent?.length), auto: autoHere, mates: !!agentMates && !!onToTeammate, adding }).map(toSection)}
+      {sections.map((s, i) => (
+        <Fragment key={s}>
+          {i > 0 && (s === 'mates' || sections[i - 1] === 'people') && <span className="tc-sep" />}
+          {toSection(s)}
+        </Fragment>
+      ))}
     </div>
   );
 
@@ -1115,7 +1143,7 @@ export function ThreadComposer({
      the bars below: two copies of the same four words is how the composer and
      the reply dock drifted apart the first time (components/Priority.tsx). */
   const priorityChip = (
-    <span className="tc-anchor" ref={anchor('priority')}>
+    <span className="tc-anchor" ref={anchor('priority')} data-drop={inline ? dropRank('priority') : undefined}>
       <button type="button" data-trigger className={`tc-chip ${open === 'priority' ? 'open' : ''}`} title="Priority"
         aria-haspopup="listbox" aria-expanded={open === 'priority'} onClick={() => toggle('priority')} onKeyDown={triggerKeys('priority')}>
         <PrioGlyph id={prio} />{choiceLabelOf(prio)}
@@ -1264,12 +1292,12 @@ export function ThreadComposer({
   // the bar on the page.
   const trigger = (key: MenuKey) => `${inline ? 'tc-chip' : 'tc-word'} ${open === key ? 'open' : ''}`;
   const fields: { label: string; node: ReactNode }[] = [
-    { label: 'To', node: (
-      <span className="tc-anchor" ref={anchor('to')}>
+    ...(toShown ? [{ label: 'To', node: (
+      <span className="tc-anchor" ref={anchor('to')} data-drop={inline && !mate && !person ? dropRank('to') : undefined}>
         <button type="button" data-trigger className={trigger('to')} aria-haspopup="listbox" aria-expanded={open === 'to'}
           onClick={() => toggle('to')} onKeyDown={triggerKeys('to')}>
           {mate ? (mateRow ? <TeammateMark t={mateRow} /> : <i className="tq tq-sm tq-hash" aria-hidden="true">+</i>) : person ? <Face person={person} /> : inline ? null : onAuto ? <AutoFace /> : <AgentFace />}
-          <span className="tc-word-text">{mate ? mateRow?.name ?? 'Someone new' : person ? person.name : onAuto ? 'Auto' : agentWordFor(engineRows, pick.engine)}</span>
+          <span className="tc-word-text">{mate ? mateRow?.name ?? 'Someone new' : person ? person.name : onAuto ? 'Auto' : 'Agent'}</span>
         </button>
         {extra.map((p) => (
           <span key={p.id} className="tc-also">
@@ -1283,7 +1311,7 @@ export function ThreadComposer({
         )}
         {open === 'to' && toMenu}
       </span>
-    ) },
+    ) }] : []),
     ...(rows.includes('sendAs') ? [{ label: 'Send As', node: sendAsChoice }] : []),
     ...(rows.includes('subject') ? [{ label: 'Subject', node: (
       <input className="tc-subject" value={subject} aria-label="Subject" spellCheck
@@ -1312,7 +1340,7 @@ export function ThreadComposer({
       </span>
     ) }] : []),
     ...(rows.includes('model') ? [{ label: 'Model', node: (
-      <span className="tc-anchor" ref={anchor('model')}>
+      <span className="tc-anchor" ref={anchor('model')} data-drop={inline ? dropRank('model') : undefined}>
         <button type="button" data-trigger className={trigger('model')} aria-haspopup="listbox" aria-expanded={open === 'model'}
           onClick={() => toggle('model')} onKeyDown={triggerKeys('model')}>
           <span className="tc-word-text">{labelOf(pick)}</span>
@@ -1470,7 +1498,7 @@ export function ThreadComposer({
         {!talk.on && talk.problem && <div className="tc-note">{talk.problem}</div>}
 
         {person ? (
-          <div className="tc-bar">
+          <div className="tc-bar tc-fit" ref={fitBar}>
             {headChips}
             {taskToMany && <span className="tc-why">A task goes to one person.</span>}
             {team && sendAs === 'task' && (
@@ -1491,18 +1519,18 @@ export function ThreadComposer({
                 already says. The chip is the task card's own, because a message
                 lands in a list sorted by the same four words. */}
             {priorityChip}
-            <button type="button" className="tc-icon" title="Attach files" aria-label="Attach files" onClick={() => fileRef.current?.click()}>
+            <button type="button" className="tc-icon" title="Attach files" aria-label="Attach files" data-drop={inline ? dropRank('attach') : undefined} onClick={() => fileRef.current?.click()}>
               <ClipIcon />
             </button>
             <input ref={fileRef} type="file" multiple hidden onChange={async (e) => { await addFiles(e.target.files); e.target.value = ''; }} />
             <span className="tc-send solo">
               <button type="button" className="tc-send-main" disabled={!canSend} onClick={() => void send()} title={`Send · ${SEND}`}>
-                Send <kbd>{SEND}</kbd>
+                Send <kbd data-drop={inline ? dropRank('send-keys') : undefined}>{SEND}</kbd>
               </button>
             </span>
           </div>
         ) : mate ? (
-          <div className="tc-bar">
+          <div className="tc-bar tc-fit" ref={fitBar}>
             {headChips}
             {mate === 'new' && (
               <span className="tc-anchor" ref={anchor('project')}>
@@ -1516,12 +1544,12 @@ export function ThreadComposer({
             )}
             <span className="tc-send solo">
               <button type="button" className="tc-send-main" disabled={!text.trim() || sending} onClick={() => void send()} title={`Send · ${SEND}`}>
-                Send <kbd>{SEND}</kbd>
+                Send <kbd data-drop={inline ? dropRank('send-keys') : undefined}>{SEND}</kbd>
               </button>
             </span>
           </div>
         ) : (
-          <div className="tc-bar">
+          <div className="tc-bar tc-fit" ref={fitBar}>
             {headChips}
             <span className="tc-anchor" ref={anchor('project')} data-tour="project">
               <button type="button" data-trigger className={`tc-chip ${open === 'project' ? 'open' : ''}`} title={product?.name ?? 'Which project'}
@@ -1558,7 +1586,7 @@ export function ThreadComposer({
               }} />
             )}
             {talk.on ? <Listening talk={talk} /> : (
-            <button type="button" className="tc-icon" title="Attach files" aria-label="Attach files" onClick={() => fileRef.current?.click()}>
+            <button type="button" className="tc-icon" title="Attach files" aria-label="Attach files" data-drop={inline ? dropRank('attach') : undefined} onClick={() => fileRef.current?.click()}>
               <ClipIcon />
             </button>
             )}
@@ -1578,7 +1606,7 @@ export function ThreadComposer({
             )}
             <span className="tc-send" ref={anchor('later')}>
               <button type="button" className="tc-send-main" disabled={!canSend} onClick={() => void send()} title={refusal ?? stopper?.reason ?? `Send · ${SEND}`}>
-                Send <kbd>{SEND}</kbd>
+                Send <kbd data-drop={inline ? dropRank('send-keys') : undefined}>{SEND}</kbd>
               </button>
               {/* A picked time is said here, on the half that changes it. */}
               <button type="button" data-trigger className={`tc-send-caret${when ? ' set' : ''}`} disabled={sending}

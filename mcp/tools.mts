@@ -25,7 +25,7 @@ import { readTeammates, readTeamView, teamDir } from '../main/store/teammates-fi
 import { legacyRoot } from '../main/store/project.mts';
 import { listProductChats, readProductChat } from './core/chat.mts';
 import { lookAtPage } from './core/page.mts';
-import { askToSignIn, keepAfterSignIn, waitForSignIn, WAIT_MS } from './core/sign-in.mts';
+import { askToSignIn, keepAfterSignIn, keyNamesFor, waitForSignIn, WAIT_MS } from './core/sign-in.mts';
 import { WORK_ITEM_STATUSES } from '../shared/work-items.mts';
 import { CONTEXT_WORDS, DONE_STEPS, DONE_STEP_WORDS, SUMMARY_WORDS } from '../shared/thread-cards.mts';
 import { AGENT_CREATION_KINDS } from '../shared/contracts.mts';
@@ -176,15 +176,16 @@ export function buildTools({ holder, ownItem: givenItem, ownProduct = process.en
     },
     {
       name: 'update_product',
-      description: 'Change a product\'s name, one-liner, repo path, or archived flag.',
+      description: 'Change a product\'s name, one-liner, repo path, or archived flag. On a thread, a new repo path needs the person\'s own words there naming or agreeing to it, quoted in askedBecause.',
       schema: {
         product: z.string(),
         name: z.string().optional(),
         oneLiner: z.string().optional(),
         repoPath: z.string().optional(),
         archived: z.boolean().optional(),
+        askedBecause: z.string().optional().describe('for a new repoPath on a thread: the person\'s own words on it naming or agreeing to the folder, quoted exactly'),
       },
-      run: ({ product, ...patch }: { product: string } & ProductPatch) => json(updateProduct(product, patch)),
+      run: ({ product, askedBecause, ...patch }: { product: string; askedBecause?: string } & ProductPatch) => json(updateProduct(product, patch, askedBecause, thisRun())),
     },
 
     {
@@ -417,11 +418,11 @@ export function buildTools({ holder, ownItem: givenItem, ownProduct = process.en
     },
     {
       name: 'stop_repeating_task',
-      description: 'Stop a repeating task for good, as Stop repeating on the person\'s own screen does: no more runs start, and runs already made are left as they are. Use it when the person asks for one to stop, be switched off or cancelled, rather than telling them to find it and stop it by hand. Name it as it is listed (such as "Daily security review") or by its id; a name not in this thread\'s product is looked for in every product, and a name two running tasks share is refused with both ids. On a thread it needs the person\'s own words there asking for it to stop, quoted in askedBecause.',
+      description: 'Stop a repeating task for good, as Stop repeating on the person\'s own screen does: no more runs start, and runs already made are left as they are. Use it when the person asks for one to stop, be switched off or cancelled, rather than telling them to find it and stop it by hand. Name it as it is listed (such as "Daily security review") or by its id; a name not in this thread\'s product is looked for in every product, and a name two running tasks share is refused with both ids. On a thread it needs the person\'s own words there asking for it to stop and naming it, quoted in askedBecause; on one of the task\'s own runs, words like "Switch it off" are enough.',
       schema: {
         which: z.string().describe('the task\'s name as it is listed, or its id (r-…)'),
         product: z.string().optional().describe('which product it is in, when you know; otherwise every product is searched'),
-        askedBecause: z.string().optional().describe('on a thread: the person\'s own words on it asking for this to stop, quoted exactly, such as "Switch it off". Without them nothing is stopped'),
+        askedBecause: z.string().optional().describe('on a thread: the person\'s own words on it asking for this to stop, quoted exactly, such as "Stop the daily security review". Without them nothing is stopped'),
       },
       run: (ask: StopRepeatingTask) => json(stopRepeatingTask(ask, thisRun())),
     },
@@ -640,6 +641,12 @@ export function buildTools({ holder, ownItem: givenItem, ownProduct = process.en
       if (keep) {
         if (!ask) throw new Error('keep goes with the ask of a sign-in that worked');
         if (typeof keepCloudKey !== 'function') return json({ status: 'kept_here', message: 'On this computer the login keeps its own sign-in, so there is nothing to keep.' });
+        const said = (await waitForSignIn(id, asked.id, { product, waitMs: 0 })).status;
+        if (said === 'skipped' || said === 'replied') return json({ status: 'denied', message: 'They did not sign in here, so there is nothing to keep.' });
+        const names = keyNamesFor(asked.service);
+        // Off the list, the name would be the agent's own choice, and a blocklist of names keeps missing some.
+        if (!names) return json({ status: 'denied', message: `A ${asked.service} sign-in is not one ${Name} keeps. If later cloud runs need its key, ask for it with an AGENTBOX-NEEDS: key line, which they answer on a card.` });
+        if (!names.includes(keep.name)) return json({ status: 'denied', message: `A ${asked.service} sign-in is kept as ${names.join(' or ')}, not ${keep.name}.` });
         await keepCloudKey(keep.name, keep.value);
         return json({ status: 'kept', message: `Kept as ${keep.name} for every later cloud run.` });
       }

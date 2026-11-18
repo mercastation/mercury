@@ -2,8 +2,9 @@
 // box means.
 import { instructionOf, isCleanRun } from '../../shared/repeats.mts';
 import { teammateIdOf } from '../../shared/teammates.mts';
-import { answerSettled, filedByThePerson, wakesItselfAt } from '../../shared/answers.mts';
+import { answerSettled, filedByThePerson, wakesItselfAt, wordWaits } from '../../shared/answers.mts';
 import { saysARunGotNowhere } from '../../shared/spawn-trouble.mts';
+import { asksToClose } from '../../shared/asks-to-close.mts';
 import { notShippedLine } from '../../shared/not-shipped.mts';
 import { setByPerson } from '../../shared/thread-waits.mts';
 import { isTaskRow } from '../../shared/team-rules.mts';
@@ -127,6 +128,12 @@ export function gaveUpOnTheAnswer(i: InboxItem): boolean {
   return saysARunGotNowhere(i.result);
 }
 
+// Her last words asked for the close and the agent's done came after them:
+// that done is hers, as if she had pressed E.
+function closedAsSheAsked(i: InboxItem): boolean {
+  return asksToClose(liveAnswer(i)) && (i.wrote?.status?.ts ?? 0) >= (i.wrote?.answer?.ts ?? Infinity);
+}
+
 // Who deferred a row decides what the deferral means. A future runAt an agent
 // wrote stops workers respawning (`isDue` in shared/work-items.mts) but does
 // not hide the row, or an agent could take its own question away from the
@@ -160,7 +167,9 @@ function putAwayByThem(i: InboxItem, legacySnooze = 0): number {
   // Something she said after scheduling it runs now, and its answer is hers to read now.
   const spokeSince = (i.wrote?.answer?.ts ?? 0) > (i.wrote?.runAt?.ts ?? 0);
   const mine = i.wrote?.runAt?.source === 'founder' && !spokeSince ? i.runAt ?? 0 : 0;
-  const reminder = i.wrote?.snoozedUntil?.source === 'founder' ? i.snoozedUntil ?? 0 : 0;
+  // A pick lifts Later with no write of its own, so an answer after it lifts it here.
+  const answered = !!liveAnswer(i) && (i.wrote?.answer?.ts ?? 0) > (i.wrote?.snoozedUntil?.ts ?? 0);
+  const reminder = i.wrote?.snoozedUntil?.source === 'founder' && !answered ? i.snoozedUntil ?? 0 : 0;
   return Math.max(mine, reminder, legacySnooze);
 }
 
@@ -250,6 +259,7 @@ export function belongsInInbox(
     // `done` is the archive. A thread she spoke on is hers whoever filed it.
     if (!hers(i) && !liveAnswer(i)) return false;            // agent work she never touched is filed
     if (i.wrote?.status?.source === 'founder') return false; // she archived it herself
+    if (closedAsSheAsked(i)) return false;
     return (i.wrote?.status?.ts ?? i.updatedAt ?? 0) > deliveredThrough;
   }
   // A stopped row is in the inbox whatever its kind. This must come before the
@@ -478,8 +488,20 @@ export function withdrawReply(statusWhenReplied: string): { answer: string; stat
 // A reply lifts a reminder, which only hides the row. A moment to run is left
 // alone: the reply runs now anyway (`wordWaits`, shared/work-items.mts) and the
 // moment stays for the run it was set for.
+/** When the window treats a thread's work as due: its moment, unless a reply
+ *  after the moment is running now, as the supervisor does (`isDue`). */
+export function deferredUntil(i: Parameters<typeof wordWaits>[0] & { runAt?: number }): number {
+  return wordWaits(i) ? 0 : i.runAt ?? 0;
+}
+
 export function replyClearsSchedule(i: InboxItem, now = Date.now()): boolean {
   return (i.snoozedUntil ?? 0) > now;
+}
+
+/** Whether a thread shows when it comes back. A word on its way (held for Z) lifts your Later before it is written. */
+export function showsWhenItComesBack(i: Pick<InboxItem, 'status' | 'snoozedUntil'>, scheduledUntil: number | undefined, onItsWay: boolean, now = Date.now()): boolean {
+  if (i.status === 'done' || !((scheduledUntil ?? 0) > 0)) return false;
+  return !(onItsWay && replyClearsSchedule(i as InboxItem, now));
 }
 
 export type ClickTarget = 'row' | 'box';

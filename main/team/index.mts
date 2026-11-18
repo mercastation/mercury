@@ -39,7 +39,9 @@ import QRCode from 'qrcode';
 import { createPhoneInbox } from '../phone-inbox.mts';
 import type { PhoneBackendCalls, PhoneHistoryLine, PhoneInboxOptions, PhoneItem } from '../phone-inbox.mts';
 import { PHONE_UNDO_HOLD_MS } from '../../shared/phone-undo.mts';
-import { SNAPSHOT_LIMITS, phoneProjectsOf, phoneEligible } from '../../shared/phone-snapshot.mts';
+import { SNAPSHOT_LIMITS, RUN_LIMITS, phoneProjectsOf, phoneEligible } from '../../shared/phone-snapshot.mts';
+import { readRunTails } from '../run-traces.mts';
+import { machineryPath } from '../store/home.mts';
 import { createRooms } from './rooms.mts';
 import { isOnTeam } from '../../shared/rooms-on.mts';
 import { noticeEndedWaits } from './waits.mts';
@@ -177,6 +179,8 @@ export type TeamBackend = Omit<SyncBackend, 'me' | 'personId'> & RoomsBackend & 
 };
 
 /** The sign-in side: Supabase in the app, memory in tests. */
+export type Confirmation = { ok: true } | { ok: false; error: string; cancelled?: boolean };
+
 export interface TeamSession {
   configured?: boolean;
   restore(): Promise<TeamBackend | null | undefined>;
@@ -185,7 +189,7 @@ export interface TeamSession {
   cancelSignIn?(): boolean | void;
   signInWithPassword?(email: string, password: string): Promise<TeamBackend>;
   adoptSession?(session: { supabaseUrl: string; access_token: string; refresh_token: string } | null): Promise<TeamBackend | null>;
-  signUp?(account: { email: string; password: string; name: string }): Promise<{ backend?: TeamBackend; confirm?: boolean } | null | undefined>;
+  signUp?(account: { email: string; password: string; name: string; log?: (line: string) => void }): Promise<{ backend?: TeamBackend; confirm?: boolean; confirmed?: () => Promise<TeamBackend>; failed?: () => Promise<string>; stopWaiting?: () => void; resend?: () => Promise<void> } | null | undefined>;
   signOut?(): Promise<unknown>;
   /** The cloud as nobody, for what anyone may read: a shared file's link. */
   anyone?(): Promise<TeamBackend | null>;
@@ -394,6 +398,20 @@ export function createTeamService({
   // `canSignIn` survives teamForWindow, so a build with Multiplayer off still asks.
   let state: TeamState = { ...EMPTY, configured: !!session?.configured, canSignIn: !!session?.configured, settling: !!session?.configured, phoneSite: site, phoneSiteQr: null };
   let backend: TeamBackend | null = null;
+  let confirming: Promise<Confirmation> | null = null;
+  let awaitingLink: { confirmed: () => Promise<TeamBackend>; failed?: () => Promise<string>; resend?: () => Promise<void>; stopWaiting?: () => void } | null = null;
+  const waitOnTheLink = () => {
+    const waiting = awaitingLink!;
+    const ended: Promise<Confirmation> = waiting.confirmed().then(
+      async (b) => { if (awaitingLink === waiting) awaitingLink = null; await signedIn(b); return { ok: true } as const; },
+      (err) => {
+        log(`team: email confirmation: ${err?.message ?? err}`);
+        return { ok: false, error: String(err?.message ?? err), ...(err?.cancelled ? { cancelled: true } : {}) };
+      },
+    );
+    // A failed visit is answered at once; the wait itself goes on, and a good link still signs in.
+    confirming = waiting.failed ? Promise.race([ended, waiting.failed().then((error): Confirmation => ({ ok: false, error }))]) : ended;
+  };
   let sync: ReturnType<typeof createTeamSync> | null = null;
   let timer: ReturnType<typeof setInterval> | null = null;
   let unsubscribe: (() => void) | null = null;
@@ -722,6 +740,11 @@ export function createTeamService({
       },
       listItems: (slug) => { const p = productOf(slug); try { return p ? disk.readWorkItems(p.dir) : []; } catch { return []; } },
       historyOf: (slug, id, { all = false }: { all?: boolean } = {}) => { try { return store.readHistory(slug, id, { max: all ? Number.MAX_SAFE_INTEGER : SNAPSHOT_LIMITS.lines * 4 }); } catch { return []; } },
+      runsOf: (slug, id) => {
+        const p = productOf(slug);
+        if (!p?.dir || !/^[\w-]+$/.test(id)) return [];
+        try { return readRunTails(machineryPath(p.dir, path.join('sessions', id)), { newest: RUN_LIMITS.runs, chars: RUN_LIMITS.chars }); } catch { return []; }
+      },
       apply: phone.apply,
       waitsOf: () => phone.waits?.() ?? null,
       liveOf: (slug, id) => phone.live?.(slug, id) ?? null,
@@ -912,6 +935,10 @@ export function createTeamService({
     async signInWithEmail(email: string, password: string) {
       if (!session?.signInWithPassword) throw new Error('this build cannot sign in with email');
       const b = await session.signInWithPassword(email, password);
+      // An address confirmed in another browser never comes back here, so the
+      // wait would hold the sign-in address for the hour.
+      awaitingLink?.stopWaiting?.();
+      awaitingLink = null;
       await signedIn(b);
       return state;
     },
@@ -924,12 +951,25 @@ export function createTeamService({
       return state;
     },
 
-    /** A new account: signed in at once, or { confirm: true } until the email is confirmed. */
+    /** A new account: signed in at once, or { confirm: true } and `confirmation` signs in once the email's link is followed. */
     async signUp(email: string, password: string, name: string) {
       if (!session?.signUp) throw new Error('this build cannot make accounts');
-      const out = await session.signUp({ email, password, name });
+      const out = await session.signUp({ email, password, name, log });
       if (out?.backend) { await signedIn(out.backend); return state; }
+      awaitingLink?.stopWaiting?.();
+      awaitingLink = out?.confirmed ? { confirmed: out.confirmed, failed: out.failed, resend: out.resend, stopWaiting: out.stopWaiting } : null;
+      if (awaitingLink) waitOnTheLink(); else confirming = null;
       return { ...state, confirm: true };
+    },
+
+    /** How the waiting confirmation link ended: signed in, or why not. Null when none waits. */
+    confirmation: () => confirming,
+
+    /** Another copy of the link, for one that never came, ran out or was opened elsewhere. */
+    async resendConfirmation() {
+      if (!awaitingLink?.resend) throw new Error('Create the account again to get a new link.');
+      await awaitingLink.resend();
+      waitOnTheLink();
     },
 
     async signOut() {
@@ -1222,7 +1262,7 @@ export function createTeamService({
      * in your hand rather than the app's, or Done would read it as news and put
      * it in your own Needs you.
      */
-    async handOn({ product: slug, id, to }: { product: string; id: string; to: string }) {
+    async handOn({ product: slug, id, to, note = '' }: { product: string; id: string; to: string; note?: string }) {
       if (!backend || !state.team || !state.me) throw new Error('start or join a team first');
       const product = products().find((p) => p.slug === slug);
       const row = product ? store.readItem(slug, id) : null;
@@ -1234,7 +1274,8 @@ export function createTeamService({
       if (to === state.me.id) throw new Error('that thread is yours already');
       const { words, files, tooBig } = briefOfThread(row, product);
       const left = tooBig.length ? `(Not sent: ${tooBig.join(', ')}, over 10 MB. Ask ${state.me.name || 'me'} for ${tooBig.length === 1 ? 'it' : 'them'}.)` : '';
-      const brief = [words, left].filter(Boolean).join('\n\n');
+      // What the giver wants from them comes first, over the thread's own words.
+      const brief = [String(note ?? '').trim(), words, left].filter(Boolean).join('\n\n');
       // The task leads back to the thread, opened to them as Share's Send opens it.
       const seen = seenNow(row, product, kept().getSince(state.me.id));
       if (seen !== 'team') store.threadEdit(slug, id, openTo(seen, row.visibleTo, [to]));

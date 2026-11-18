@@ -25,7 +25,7 @@ interface LaterBridge {
   gitHubBrowserSignIn?(): Promise<{ ok: boolean; code?: string; url?: string; error?: string }>;
   gitHubCloudSignIn?(p: { action: 'start' | 'token' }): Promise<{ ok: boolean; code?: string; url?: string; token?: string; error?: string }>;
   signInAnswer?(p: { product: string; id: string; ask: string; said: 'signed-in' | 'skipped' | 'landed' | 'code'; url?: string; code?: string }): Promise<{ ok: boolean; error?: string }>;
-  cloudAccountPay?(p: { plan: 'pro' | 'plus' | 'max' | 'team' }): Promise<{ ok: boolean; where?: 'checkout' | 'billing'; error?: string; message?: string }>;
+  cloudAccountPay?(p: { plan: 'pro' | 'plus' | 'max' | 'team' }): Promise<{ ok: boolean; where?: 'checkout' | 'billing' | 'started'; error?: string; message?: string }>;
   cloudAccountTeamBilling?(): Promise<{ ok: boolean; owner?: boolean } & Partial<TeamBillingDetails>>;
 }
 const laterBridge = () => window.zero as (Omit<NonNullable<Window['zero']>, keyof LaterBridge> & LaterBridge) | undefined;
@@ -633,6 +633,9 @@ export const api = {
           base.cloud.movable = here;
           if (cloud === 'all') base.supervisor.whyNotCloud = Object.fromEntries(here.map((id) => [id, { at: 'mac' as const, why: 'moving' }]));
         }
+        // &movedhere draws the second running thread moved to this Mac after the cloud could not start it.
+        const second = base.supervisor.running[1];
+        if (params.has('movedhere') && second) base.supervisor.whyNotCloud = { ...base.supervisor.whyNotCloud, [second.itemId]: { at: 'mac' as const, why: 'cloud-refused' } };
       }
       // &cloud=managed draws Agentbox Cloud signed in through its server, and
       // &noroom=hours|agents the server saying it had no room a moment ago.
@@ -646,6 +649,11 @@ export const api = {
         const queued = base.items.filter((i) => /^(Can the welcome email|Bring back a list)/.test(i.title)).map((i) => i.id);
         base.supervisor.queued = queued;
         base.supervisor.capacity = base.supervisor.running.filter((r) => (r as { where?: string }).where !== 'cloud').length;
+      // &longwait has a Later thread wait on a long free-typed name, as long as a wait can be.
+      if (params.has('longwait')) {
+        const row = base.items.find((i) => i.title.startsWith('Name the five card rarities'));
+        if (row) base.items.push({ ...row, id: 'w-longwait', title: 'Pay the card art studio', label: undefined, parent: undefined, blockedBy: ['name:the signed vendor contract and the legal review of part 4'], wrote: { blockedBy: { ts: Date.now() - 3_600_000, source: 'founder' } } });
+      }
       }
       // &team=signedout: a build that can sign in, with nobody signed in and no team.
       if (params.get('team') === 'signedout') {
@@ -683,7 +691,7 @@ export const api = {
     try { await window.zero?.looking?.({ product: at?.product ?? null, id: at?.id ?? null }); } catch { /* the card simply stays where it was */ }
   },
 
-  async refreshUsage(engine: 'claude' | 'codex' = 'claude'): Promise<{ ok: boolean; reading?: Usage; error?: string }> {
+  async refreshUsage(engine: 'claude' | 'codex' = 'claude', { ask = false }: { ask?: boolean } = {}): Promise<{ ok: boolean; reading?: Usage; error?: string }> {
     if (useFixtures) {
       if (params.get('account') === 'unreadable') return { ok: false, error: USAGE_UNREADABLE };
       if (codexMonth && engine === 'codex') return { ok: true, reading: { engine, limits: codexMonth, profile: 'default', at: Date.now() } };
@@ -691,7 +699,7 @@ export const api = {
       return reading ? { ok: true, reading: { ...structuredClone(reading), profile: 'default', at: Date.now() } } : { ok: false, error: 'No usage reading yet.' };
     }
     if (!window.zero?.refreshUsage) return { ok: false, error: RESTART_NOTE };
-    try { return await window.zero.refreshUsage({ engine }); }
+    try { return await window.zero.refreshUsage({ engine, ask }); }
     catch { return { ok: false, error: USAGE_UNREADABLE }; }
   },
 
@@ -845,7 +853,8 @@ export const api = {
     if (!zero?.bringSharedFile) return { ok: false, error: `quit and reopen ${NAME} to bring in shared files` };
     return zero.bringSharedFile(p);
   },
-  async fileLinkComment(p: { token: string; text: string; place?: NotePlace | null }): Promise<{ ok: boolean; error?: string; comments?: LinkComment[] }> {
+  /** With `product`, `thread` and `src`, the reply also answers that thread's link comments. */
+  async fileLinkComment(p: { token: string; text: string; place?: NotePlace | null; product?: string; thread?: string; src?: string }): Promise<{ ok: boolean; error?: string; comments?: LinkComment[] }> {
     const zero = window.zero;
     if (!zero?.fileLinkComment) return { ok: false, error: `quit and reopen ${NAME} to answer comments` };
     return zero.fileLinkComment(p);
@@ -934,7 +943,7 @@ export const api = {
 
   // Hand a file to the operating system, the way every link on a card already
   // does. The pane's first mark, and what a png or a pdf still does.
-  async openArtifactExternally(p: { product: string; src: string }): Promise<{ ok: boolean; error?: string }> {
+  async openArtifactExternally(p: { product: string; src: string; thread?: string }): Promise<{ ok: boolean; error?: string }> {
     const zero = window.zero;
     if (!zero?.openArtifact) { window.open(p.src, '_blank'); return { ok: true }; }
     return zero.openArtifact(p);
@@ -1034,6 +1043,8 @@ export const api = {
   async teamSignOut(): Promise<TeamCallResult> { return teamCall(() => window.zero!.teamSignOut()); },
   async teamSignInEmail(email: string, password: string): Promise<TeamCallResult> { return teamCall(() => window.zero!.teamSignInEmail({ email, password })); },
   async teamSignUp(name: string, email: string, password: string): Promise<TeamCallResult> { return teamCall(() => window.zero!.teamSignUp({ name, email, password })); },
+  async teamConfirmation(): Promise<TeamCallResult> { return teamCall(() => window.zero!.teamConfirmation()); },
+  async teamResendConfirmation(): Promise<TeamCallResult> { return teamCall(() => window.zero!.teamResendConfirmation()); },
   async teamCreate(name: string): Promise<TeamCallResult> { return teamCall(() => window.zero!.teamCreate({ name })); },
   async teamAcceptInvite(teamId: string): Promise<TeamCallResult> { return teamCall(() => window.zero!.teamAcceptInvite({ teamId })); },
   async teamInvite(email: string): Promise<TeamCallResult> { return teamCall(() => window.zero!.teamInvite({ email })); },
@@ -1149,7 +1160,7 @@ export const api = {
   async teamSeen(p: { product: string; id: string }): Promise<boolean> { try { return !!(await window.zero?.teamSeen?.(p)); } catch { return false; } },
   async teamMoveToThread(p: { product: string; id: string; on: string }): Promise<TeamCallResult> { return teamCall(() => window.zero!.teamMoveToThread(p)); },
   async teamMessageMate(p: { owner: string; mate: string; text: string }): Promise<TeamCallResult> { return teamCall(() => window.zero!.teamMessageMate(p)); },
-  async teamHandOn(p: { product: string; id: string; to: string }): Promise<TeamCallResult> { return teamCall(() => window.zero!.teamHandOn(p)); },
+  async teamHandOn(p: { product: string; id: string; to: string; note?: string }): Promise<TeamCallResult> { return teamCall(() => window.zero!.teamHandOn(p)); },
   async teamTaskBrief(p: { product: string; id: string }) { return window.zero!.teamTaskBrief(p); },
   async teamContinueBrief(p: { personId: string; threadId: string }) { return window.zero!.teamContinueBrief(p); },
   async teamContinued(p: { personId: string; threadId: string }): Promise<TeamCallResult> { return teamCall(() => window.zero!.teamContinued(p)); },
@@ -1185,6 +1196,11 @@ export const api = {
     if (useFixtures || !window.zero?.setThreadPins) return;
     await window.zero.setThreadPins({ pins });
   },
+  // What this window has opened, so the phone reads those threads as read too.
+  async seenHere(seen: Record<string, number>): Promise<void> {
+    if (useFixtures || !window.zero?.seenHere) return;
+    try { await window.zero.seenHere({ seen }); } catch { /* the dots on the phone wait for the next open */ }
+  },
 
   /** Keep a thread on this Mac (true), send it to the cloud (false), or leave it to the cloud setting (null). */
   async setThreadOnMac(onMac: Record<string, boolean | null>): Promise<void> {
@@ -1203,7 +1219,7 @@ export const api = {
     return out?.moving ?? (out?.ok ? ids.length : 0);
   },
 
-  async compose(p: { product: string; title: string; body?: string; kind?: string; priority?: number; runAt?: number; start?: 'later' | 'now'; labels?: string[]; model?: string; engine?: string; effort?: string; baseBranch?: string; assignee?: string; due?: string; visibility?: 'team' | 'people' | 'private'; visibleTo?: string[]; onMac?: boolean; meeting?: number }): Promise<WorkItem | null> {
+  async compose(p: { product: string; title: string; body?: string; label?: string; kind?: string; priority?: number; runAt?: number; start?: 'later' | 'now'; labels?: string[]; model?: string; engine?: string; effort?: string; baseBranch?: string; assignee?: string; due?: string; visibility?: 'team' | 'people' | 'private'; visibleTo?: string[]; onMac?: boolean; meeting?: number }): Promise<WorkItem | null> {
     // FIXTURES ANSWER WITH THE TASK, the way the real store does. Returning
     // null here meant the send had nothing to point at, and the caller reads
     // that as "no task was made" and puts no way back on the undo pile — so the
@@ -1808,10 +1824,13 @@ export const api = {
   async cloudAccountSignOut(): Promise<void> { await window.zero?.cloudAccountSignOut?.(); },
   async cloudAccountPlan(): Promise<CloudPlan> {
     // &cloudplan=pro draws someone on Pro, 6 running and 88 of 400 hours used;
-    // &cloudplan=free someone on the free hours, 1 running and 1.5 of 5 used.
+    // &cloudplan=pro-trial the same Pro in its free week, 12 of its 50 hours used (&spent=1: all 50).
     if (useFixtures) {
-      if (params.get('cloudplan') === 'pro') return { signedIn: true, plan: 'pro', unlimited: false, agents: 10, hoursPerMonth: 400, running: 6, usedSeconds: 88 * 3600 };
-      if (params.get('cloudplan') === 'free') return { signedIn: true, plan: 'free', unlimited: false, agents: 2, hoursPerMonth: 5, running: 1, usedSeconds: 1.5 * 3600, billing: null };
+      if (params.get('cloudplan') === 'pro') return { signedIn: true, plan: 'pro', unlimited: true, agents: null, hoursPerMonth: 400, running: 6, usedSeconds: 88 * 3600 };
+      if (params.get('cloudplan') === 'pro-trial') {
+        const used = (params.has('spent') ? 50 : 12) * 3600;
+        return { signedIn: true, plan: 'pro', unlimited: true, agents: null, hoursPerMonth: 400, running: params.has('spent') ? 0 : 2, usedSeconds: used, billing: 'stripe', trial: { hours: 50, usedSeconds: used } };
+      }
       // &cloudplan=team-trial|team-trial-card|team: on a team of 3, its trial 5 days from its end
       // (with the card in, not yet charged), or 3 seats paid for.
       if (['team-trial', 'team-trial-card', 'team'].includes(params.get('cloudplan') ?? '')) {
@@ -1828,15 +1847,21 @@ export const api = {
         const team = { trial, endsAt: trial ? Date.now() + 5 * 86_400_000 : null, seats: trial && !card ? 0 : 3, members: 3, owner: params.get('owner') !== '0', agents: null, running: people[0].running, hours: each, usedSeconds: people[0].usedSeconds, people };
         return { signedIn: true, plan: 'team', unlimited: true, agents: null, hoursPerMonth: team.hours, running: team.running, usedSeconds: team.usedSeconds, billing: null, team };
       }
-      if (params.get('cloudplan') === 'spent') return { signedIn: true, plan: 'none', unlimited: false, agents: 0, hoursPerMonth: 0, running: 0, usedSeconds: 0, billing: null, free: { agents: 2, hours: 5, usedSeconds: 5 * 3600 } };
-      return { signedIn: true, plan: 'none', unlimited: false, agents: 0, hoursPerMonth: 0, running: 0, usedSeconds: 0 };
+      // No plan yet: every plan's free week is offered, as the server offers it before any subscription.
+      return { signedIn: true, plan: 'none', unlimited: false, agents: 0, hoursPerMonth: 0, running: 0, usedSeconds: 0, trialOffer: { days: 7, hours: 50 } };
     }
     return (await window.zero?.cloudAccountPlan?.()) ?? { signedIn: false };
   },
-  async cloudAccountPay(plan: 'pro' | 'plus' | 'max' | 'team'): Promise<{ ok: boolean; where?: 'checkout' | 'billing'; error?: string; message?: string }> {
+  async cloudAccountPay(plan: 'pro' | 'plus' | 'max' | 'team'): Promise<{ ok: boolean; where?: 'checkout' | 'billing' | 'started'; error?: string; message?: string }> {
     const zero = laterBridge();
     if (!zero?.cloudAccountPay) return { ok: false, message: RESTART_NOTE };
     return zero.cloudAccountPay({ plan });
+  },
+  /** Signs this computer in to the cloud with the team sign-in it already has. */
+  async cloudAccountFromTeam(acceptTerms: boolean): Promise<{ ok: boolean; error?: string; message?: string }> {
+    const zero = laterBridge();
+    if (!zero?.cloudAccountFromTeam) return { ok: false, message: RESTART_NOTE };
+    return zero.cloudAccountFromTeam({ acceptTerms });
   },
   async cloudAccountBilling(): Promise<{ ok: boolean; error?: string; message?: string }> {
     const zero = window.zero;

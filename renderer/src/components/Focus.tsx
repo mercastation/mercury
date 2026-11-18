@@ -31,7 +31,7 @@ import { providerCommand } from '../../../shared/provider-commands.mts';
 
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as BoxKeyEvent, type ReactNode } from 'react';
 import { Face, TeamContext, firstName } from '../team/people';
-import { isDirect, peopleInConversation, peopleToAdd, workAudience } from '../threads/page-rules';
+import { handedInitials, handedTo, isDirect, taskHandedFrom, peopleInConversation, peopleToAdd, workAudience } from '../threads/page-rules';
 import {
   allModels, joinNames, moreCount, recentModels, replyBoxAsk, replyWaitsUntil, type Harness, type ModelPick,
 } from '../threads/composer-rules';
@@ -99,7 +99,7 @@ import { CODE_PATH, artifactUrlTransform, isMediaPath, productPath, remarkArtifa
 import { api } from '../api';
 import { draftKey, readDraft, saveDraft, clearDraft, readDraftAttachments, saveDraftAttachments, readDraftPick, saveDraftPick, readDraftWhen, saveDraftWhen, type SentDraft } from '../drafts';
 import { ReplyLater } from './ReplyLater';
-import { effortSaid, pickOnTheRow, pickToSend, replyOpensOn } from '../reply-pick';
+import { effortSaid, modelShown, pickOnItsWay, pickToSend, replyOpensOn } from '../reply-pick';
 import { withQuote } from '../team/chat-quote';
 import { THREAD_WIDTH, THREAD_WIDTH_KEY, clampThreadWidth, threadToOpen } from '../team/chat-threads';
 import { heldByAPerson, isGivenTask, nameIsAPersons, whatWaits } from '../../../shared/team-rules.mts';
@@ -117,7 +117,7 @@ import { ClipGlyph, SendGlyph } from './reply-glyphs';
 import { bringIntoView, resumeTo } from '../thread-bottom';
 import { optionIsClipped, optionPeek } from '../option-peek';
 import { changedFiles, FOLDER_SETTLES_MS, folderMayStillMove, onlyNamedFiles, shipOfferFor, shipOfferLive, standingFrom, UNREAD, type ChangedFile, type Standing } from '../ship-offer';
-import { MOVED_PX, THE_OPTIONS_MOVED, clickLandsOnTheRowYouSaw } from '../pick-settles';
+import { THE_OPTIONS_MOVED, clickLandsOnTheRowYouSaw, stripUnderThePointer } from '../pick-settles';
 import { askHeading, askFull, askIsClipped } from '../ask-line';
 import { replyIsSwallowed, replyReaches } from '../../../shared/agents.mts';
 import { recapFor } from '../recap';
@@ -134,7 +134,7 @@ import { ContinuedFrom, HandedFrom, OpenTeammateThread } from '../threads/Contin
 import { threadLink, threadOfLink, seenWord, seenNow, type SeenBy, type ShareActs } from '../threads/share-rules';
 import { answerOnItsWay, type PendingSaid } from '../item-thread';
 import { isTroubleRow } from '../trouble-row';
-import { rowTitle } from '../list-rules';
+import { rowTitle, showsWhenItComesBack } from '../list-rules';
 import { useKeepInWindow } from '../keep-in-window';
 import { escapeClosesMenu } from '../menu-escape';
 import { isUpdateRow } from '../update-row';
@@ -161,7 +161,7 @@ import { focusAtEnd } from '../focus-at-end';
 import type { Spot } from '../one-thing-at-a-time';
 import { ChoicesFold, ChoicesShow, QueueNav } from './OneThingAtATime';
 import { InlineTable, gridFromHast } from './TableView';
-import { foldKey, foldedKeys, toggleFold } from '../one-thing-at-a-time';
+import { foldKey, foldedKeys, toggleFold, pageTitle } from '../one-thing-at-a-time';
 import { watchForBlank } from '../blank-check';
 import { FittedImg } from './FittedImg';
 const needName = (n: Need) => (n.kind === 'sign-in' ? n.service.name : n.kind === 'key' ? (keyWords(n.what) ? `the ${keyWords(n.what)}` : n.name) : n.kind === 'file' ? (n.path.split('/').pop() ?? n.path) : `the ${n.about} code`);
@@ -761,7 +761,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   onHandToAgent?: (item: WorkItem, message?: AgentTurn) => void;
   /** Who this thread can be handed on to, for its menu. */
   giveTo?: readonly { id: string; name: string }[];
-  onGive?: (to: { id: string; name: string }) => void;
+  onGive?: (to: { id: string; name: string }, note: string) => void;
   /** Whether a person has said it shipped, or null where the team would not see that. */
   shippedMark?: boolean | null;
   onShipped?: (on: boolean) => void;
@@ -1035,6 +1035,8 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   const talkFull = talkOthers.length > 1 ? talkOthers.map((p) => p.name).join(', ') : talkPerson?.name || talkName;
   // A thread about work is named for the work, and these are the people it is with.
   const audience = teamCtx ? workAudience(item, teamCtx.products.get(item.product), teamCtx.me, (id) => firstName(teamCtx.byId.get(id) ?? null)) : null;
+  const handedName = handedTo(item);
+  const handedTask = handedName ? taskHandedFrom(items ?? [], item.id, teamCtx?.me ?? null) : null;
   const summarised = !agent && !made && !direct;
   // The pane's own width decides whether the summary has room (../room.ts),
   // read before the first paint so a narrow window never flashes it open.
@@ -1118,11 +1120,9 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // same pick the composer's sentence has, so there is one place it is chosen.
   // Not on a running agent's row (a message goes straight into it) or on a
   // message to a person (no agent reads it).
+  const shownModel = modelShown(item, runningEngine ?? null, sending);
   const modelWord = !agent && !direct
-    // Through `pickOnTheRow`, because a cleared model is stored as '' and this
-    // read it with `??`: the pill then drew no model word at all, on every
-    // thread she had ever changed the model of (../reply-pick.ts).
-    ? engineModelLabel(runningEngine ?? null, pickOnTheRow(item).model, { codexModels, codexDefault: codexModelDefault })
+    ? engineModelLabel(shownModel.engine, shownModel.model, { codexModels, codexDefault: codexModelDefault })
     : null;
   const [openModel, setOpenModel] = useState(false);
   useEffect(() => { if (!replyOpen) setOpenModel(false); }, [replyOpen]);
@@ -1801,17 +1801,14 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // every render, because nothing else here knows the pane has scrolled under
   // a hand that is not moving.
   const stripRef = useRef<HTMLDivElement>(null);
-  const overStrip = useRef(false);
-  const stripTop = useRef<number | null>(null);
+  const strip = useRef(stripUnderThePointer()).current;
+  const stripTopNow = () => stripRef.current?.getBoundingClientRect().top ?? null;
+  const onStripOver = (over: boolean) => { if (over) strip.enter(stripTopNow()); else strip.leave(); };
   const [stripMovedAt, setStripMovedAt] = useState<number | null>(null);
   useLayoutEffect(() => {
-    const top = stripRef.current?.getBoundingClientRect().top ?? null;
-    const was = stripTop.current;
-    stripTop.current = top;
-    if (top === null || was === null) return;
-    if (overStrip.current && Math.abs(top - was) >= MOVED_PX) setStripMovedAt(Date.now());
+    if (strip.jumped(stripTopNow())) setStripMovedAt(Date.now());
   });
-  useEffect(() => { setStripMovedAt(null); overStrip.current = false; }, [item.id]);
+  useEffect(() => { setStripMovedAt(null); strip.leave(); }, [item.id]);
   // The keys are not aimed at a place on the screen, so they are untouched.
   const pickByClick = (n: number) => {
     if (!clickLandsOnTheRowYouSaw(stripMovedAt, Date.now())) {
@@ -1977,6 +1974,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
       onCloseTask={canFinish && givenTask ? onCloseTask ?? null : null}
       onStopRepeating={repeat ? repeat.onEnd : null}
       onReopen={!canFinish && !agent ? onReopenDone ?? null : null}
+      handedTo={handedName ? { name: handedName, initials: handedInitials(handedName), onOpen: handedTask ? () => onOpenItem(handedTask) : null } : null}
       onRunNow={waiting && onRunNow ? onRunNow : null}
       onLater={canFinish ? onSnooze ?? null : null}
       // A finished thread has nothing to be pinned for.
@@ -2052,7 +2050,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
           full at the top of the thread. */}
       {/* A conversation is named for the person in it, never for what the
           first message happened to be about. */}
-      <div className="keep-line-title" title={item.title}>{direct && !givenTask && !audience && talkFull ? talkFull : rowTitle(item)}</div>
+      <div className="keep-line-title" title={item.title}>{direct && !givenTask && !audience && talkFull ? talkFull : pageTitle(item)}</div>
       {theByline}
     </div>
   );
@@ -2066,7 +2064,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // Its name renames it (w-ab3d51dc7d), except a conversation, which is named
   // for the person in it.
   const named = direct && !givenTask && !audience && talkFull && !nameIsAPersons(item);
-  const threadName = named ? talkFull : rowTitle(item);
+  const threadName = named ? talkFull : pageTitle(item);
   const rename = (label: string) => api.threadEdit(item.product, item.id, { label }).then((r) => r.ok);
   // Every thread opened from a list wears it, summary or not, document open or not.
   const barContent = inChats
@@ -2077,7 +2075,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
     : <>{backButton}{bandLine}</>;
 
   // A closed thread has nothing to bring back, whatever time it still carries.
-  const scheduledHere = item.status !== 'done' && (scheduledUntil ?? 0) > 0;
+  const scheduledHere = showsWhenItComesBack(item, scheduledUntil, answered);
 
   // ANYTHING ADDED TO THIS ELEMENT RIDES BESIDE THE LITERAL, NEVER INSIDE IT.
   // `the way out of an opened task` finds this element by the literal string
@@ -2412,7 +2410,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
             selectedOption={selectedOption} selRef={selRef}
             onPick={pickByClick} onOptionEnter={onOptionEnter} onAskEnter={onAskEnter}
             setPeek={setPeek} setAskPeek={setAskPeek}
-            stripRef={stripRef} onOver={(over) => { overStrip.current = over; }}
+            stripRef={stripRef} onOver={onStripOver}
           />
         ))}
 
@@ -2602,7 +2600,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
               selectedOption={selectedOption} selRef={selRef}
               onPick={pickByClick} onOptionEnter={onOptionEnter} onAskEnter={onAskEnter}
               setPeek={setPeek} setAskPeek={setAskPeek}
-              stripRef={stripRef} onOver={(over) => { overStrip.current = over; }}
+              stripRef={stripRef} onOver={onStripOver}
               bare={!shipAsk?.headed}
             />
             <ChoicesFold onFold={foldChoices} />
@@ -2633,7 +2631,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
               selectedOption={selectedOption} selRef={selRef}
               onPick={pickByClick} onOptionEnter={onOptionEnter} onAskEnter={onAskEnter}
               setPeek={setPeek} setAskPeek={setAskPeek}
-              stripRef={stripRef} onOver={(over) => { overStrip.current = over; }}
+              stripRef={stripRef} onOver={onStripOver}
             />
           ))}
           {/* NO REPLY BOX ON THE TROUBLE ROW EITHER, and for the same reason as
@@ -2662,7 +2660,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
                than beside the box: that row is where this card already keeps
                the things you press. It is handed in whole so there is one stop
                button in the app and this card cannot grow a second. */
-            <DockComposer key={`${item.product}:${item.id}`} item={item} runningMode={runningMode} runningEngine={runningEngine} codexModels={codexModels} codexModelDefault={codexModelDefault} engines={engines} items={items} onSend={sendReply} onClose={onReplyClose} onNotice={onNotice} openModel={openModel} talkTo={direct ? talkNames : null} answering={talkAnswer} stop={stopButton} />
+            <DockComposer key={`${item.product}:${item.id}`} item={item} runningMode={runningMode} runningEngine={runningEngine} onItsWay={pickOnItsWay(sending)} codexModels={codexModels} codexModelDefault={codexModelDefault} engines={engines} items={items} onSend={sendReply} onClose={onReplyClose} onNotice={onNotice} openModel={openModel} talkTo={direct ? talkNames : null} answering={talkAnswer} stop={stopButton} />
           ) : (
             /*
              * THE FOLDED BOX SHOWS WHAT IS IN IT. A pill saying "Reply…" over
@@ -2856,8 +2854,10 @@ function ModePicker({ value, options, label, onChange, onEscape, chip = false, f
   );
 }
 
-function DockComposer({ item, runningMode, runningEngine, codexModels = [], codexModelDefault = null, engines, items = [], onSend, onClose, onNotice, stop, openModel = false, talkTo = null, talkWord = 'Reply to', answering = null }: {
+function DockComposer({ item, onItsWay = null, runningMode, runningEngine, codexModels = [], codexModelDefault = null, engines, items = [], onSend, onClose, onNotice, stop, openModel = false, talkTo = null, talkWord = 'Reply to', answering = null }: {
   item: WorkItem;
+  /** The pick of a reply still on its way here, until the row carries it. */
+  onItsWay?: ReplyPick | null;
   /** The agent whose message this answers, named in place of its owner. */
   answering?: string | null;
   /** "Message" on the Chats page, as a group's box says it. */
@@ -2983,20 +2983,20 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
      mid-flight. On a row with a worker already on it this sets what picks up the
      turn after, and the drawer's own sentence is the only promise made.
   */
-  const [touched, setTouched] = useState(() => replyOpensOn(item, readDraftPick(item)).touched);
-  const [model, setModel] = useState<string | null>(() => replyOpensOn(item, readDraftPick(item)).pick.model);
-  const [effort, setEffort] = useState<string | null>(() => replyOpensOn(item, readDraftPick(item)).pick.effort);
+  const [touched, setTouched] = useState(() => replyOpensOn(item, readDraftPick(item), onItsWay).touched);
+  const [model, setModel] = useState<string | null>(() => replyOpensOn(item, readDraftPick(item), onItsWay).pick.model);
+  const [effort, setEffort] = useState<string | null>(() => replyOpensOn(item, readDraftPick(item), onItsWay).pick.effort);
   // AND WHICH CODING AGENT, now the menu offers both (w-e1a42f6b21). Null is
   // the row's own, which main resolved and handed down as `runningEngine`; a
   // value here is a pick that MOVES the thread, and the session cannot follow
   // it. It is kept with the model, so a fold loses neither.
-  const [engineChosen, setEngine] = useState<string | null>(() => replyOpensOn(item, readDraftPick(item)).pick.engine ?? null);
+  const [engineChosen, setEngine] = useState<string | null>(() => replyOpensOn(item, readDraftPick(item), onItsWay).pick.engine ?? null);
   // ON THE ROW'S IDENTITY ONLY, the rule the mode below already follows and
   // for the reason spelled out there: a snapshot arriving mid-sentence must
   // not overwrite a pick she just made. The dependency list is pinned by
   // tests/the-reply-box-keeps-the-model-you-picked-when-it-folds.
   useEffect(() => {
-    const opens = replyOpensOn(item, readDraftPick(item));
+    const opens = replyOpensOn(item, readDraftPick(item), onItsWay);
     setTouched(opens.touched);
     setModel(opens.pick.model);
     setEffort(opens.pick.effort);

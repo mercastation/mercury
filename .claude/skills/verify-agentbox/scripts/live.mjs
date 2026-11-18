@@ -131,7 +131,9 @@ export function cloudAccountKeys(emails, { home = os.homedir() } = {}) {
   for (const engine of ['claude', 'codex']) {
     for (const r of listCloudLogins(engine, { home })) {
       const name = String(r.email || (engine === 'claude' ? nameForOrganization(r.org, here) : '') || '').toLowerCase();
-      if (want.includes(name)) { keys.push(r.key); found.add(name); }
+      // `codex:<email>` names that engine's account alone: one email can sign in to both.
+      const hit = [name, `${engine}:${name}`].find((n) => want.includes(n));
+      if (hit) { keys.push(r.key); found.add(hit); }
     }
   }
   return { keys, missing: want.filter((e) => !found.has(e)) };
@@ -174,6 +176,8 @@ export function copyConfig(state, had = {}) {
  */
 export function teamEnv(file) {
   const t = JSON.parse(fs.readFileSync(file, 'utf8'));
+  // `config` alone is somebody with no account yet: the first run's account step is theirs to do.
+  if (t.config && !t.email && !t.password) return { AGENTBOX_TEAM_CONFIG: t.config };
   if (!t.config || !t.email || !t.password) throw new Error(`the team file ${file} needs config, email and password`);
   return { AGENTBOX_TEAM_CONFIG: t.config, AGENTBOX_TEAM_TEST_LOGIN: `${t.email}:${t.password}` };
 }
@@ -304,14 +308,15 @@ async function prepare(real, setupName = null, { logins = 2, codex = true, proje
     // checkout: a checkout under ~/Desktop or ~/Documents is a folder macOS
     // guards, and the installed app reading a script there waits on a privacy
     // prompt on the person's screen. Measured 2026-10-12: four workers sat for
-    // minutes before running a line. (The stand-in and the one file it imports
-    // use nothing but Node's own modules, so the two copies are the whole of it.)
+    // minutes before running a line. (The stand-in and the files it imports
+    // use nothing but Node's own modules, so these copies are the whole of it.)
     claudeBin = path.join(INSTANCE, 'bin', 'claude');
     fs.mkdirSync(path.dirname(claudeBin), { recursive: true });
     const stub = path.join(INSTANCE, 'bin', 'stub-claude-worker.mjs');
     fs.copyFileSync(STUB, stub);
     fs.copyFileSync(path.join(path.dirname(STUB), 'stand-in-world.mjs'), path.join(INSTANCE, 'bin', 'stand-in-world.mjs'));
     fs.copyFileSync(path.join(path.dirname(STUB), 'stand-in-artifacts.mjs'), path.join(INSTANCE, 'bin', 'stand-in-artifacts.mjs'));
+    fs.copyFileSync(path.join(path.dirname(STUB), 'stand-in-key-place.mjs'), path.join(INSTANCE, 'bin', 'stand-in-key-place.mjs'));
     fs.mkdirSync(path.join(INSTANCE, 'bin', 'pictures'), { recursive: true });
     for (const p of ['priority-palette.png', 'inbox-urgent.png']) fs.copyFileSync(path.join(REPO, 'docs', 'readme', p), path.join(INSTANCE, 'bin', 'pictures', p));
     fs.writeFileSync(claudeBin, `#!/bin/sh\nexec "${process.execPath}" "${stub}" "$@"\n`, { mode: 0o755 });
@@ -586,7 +591,7 @@ async function startStandInCloud(state) {
   // It imports .mts files; Node before 22.18 reads those only with the flag.
   const server = spawn(process.execPath, ['--experimental-strip-types', '--no-warnings', path.join(here, 'stub-cloud-server.mjs')], {
     detached: true, stdio: ['ignore', log, log],
-    env: { ...cleanEnv(), STUB_CLOUD_INSTANCE: INSTANCE, STUB_CLOUD_HOME: state.home, STUB_CLAUDE_PLAN: state.plan, ...(state.freeHours ? { STUB_CLOUD_FREE_HOURS: String(state.freeHours) } : {}), ...(process.env.STUB_CLOUD_FILES_GB ? { STUB_CLOUD_FILES_GB: process.env.STUB_CLOUD_FILES_GB } : {}), ...(state.cloudTeam ? { STUB_CLOUD_TEAM: state.cloudTeam, ...(state.cloudTeamHours ? { STUB_CLOUD_TEAM_HOURS: String(state.cloudTeamHours) } : {}) } : {}) },
+    env: { ...cleanEnv(), STUB_CLOUD_INSTANCE: INSTANCE, STUB_CLOUD_HOME: state.home, STUB_CLAUDE_PLAN: state.plan,...(process.env.STUB_CLOUD_FILES_GB ? { STUB_CLOUD_FILES_GB: process.env.STUB_CLOUD_FILES_GB } : {}), ...(state.cloudTeam ? { STUB_CLOUD_TEAM: state.cloudTeam, ...(state.cloudTeamHours ? { STUB_CLOUD_TEAM_HOURS: String(state.cloudTeamHours) } : {}) } : {}) },
   });
   server.unref();
   const deadline = Date.now() + 20_000;
@@ -620,10 +625,6 @@ async function up(args) {
   if (setupName && (real || installed)) stop('--setup runs the browser copy on its own home; it cannot be combined with --real or --installed.');
   const standInCloud = args.includes('--stand-in-cloud');
   if (standInCloud && (real || installed || setupName)) stop('--stand-in-cloud runs the stand-ins on the browser copy.');
-  // `--free-hours 0.5`: the stand-in cloud's account starts on the Free plan with that many hours.
-  const freeAt = args.indexOf('--free-hours');
-  const freeHours = freeAt >= 0 ? Number(args[freeAt + 1]) : 0;
-  if (freeAt >= 0 && !(freeHours > 0 && standInCloud)) stop('--free-hours takes a number of hours, with --stand-in-cloud.');
   // `--cloud-team owner:0.3`: the stand-in account is on a team's trial, as its owner or a member, with that many hours a member.
   const cloudTeamAt = args.indexOf('--cloud-team');
   const [cloudTeam, cloudTeamHours] = cloudTeamAt >= 0 ? String(args[cloudTeamAt + 1] ?? '').split(':') : [];
@@ -665,7 +666,7 @@ async function up(args) {
   const alpha = value('alpha');
   const toolsFixture = value('tools-fixture');
   const toolStandins = value('tool-standins');
-  const prepared = { ...(await prepare(real, setupName, shape)), teamFile, ...(toolsFixture ? { toolsFixture } : {}), ...(toolStandins ? { toolStandins } : {}), ...(alpha ? { alpha: alpha.split(',').map((f) => f.trim()).filter(Boolean) } : {}), ...(cloud ? { cloud: true, cloudTmp: cloudTmpFor(INSTANCE), cloudAccounts } : {}), ...(standInCloud ? { standInCloud: true, cloudTmp: cloudTmpFor(INSTANCE), ...(freeHours ? { freeHours } : {}), ...(cloudTeam ? { cloudTeam, cloudTeamHours: Number(cloudTeamHours) || null } : {}) } : {}) };
+  const prepared = { ...(await prepare(real, setupName, shape)), teamFile, ...(toolsFixture ? { toolsFixture } : {}), ...(toolStandins ? { toolStandins } : {}), ...(alpha ? { alpha: alpha.split(',').map((f) => f.trim()).filter(Boolean) } : {}), ...(cloud ? { cloud: true, cloudTmp: cloudTmpFor(INSTANCE), cloudAccounts } : {}), ...(standInCloud ? { standInCloud: true, cloudTmp: cloudTmpFor(INSTANCE), ...(cloudTeam ? { cloudTeam, cloudTeamHours: Number(cloudTeamHours) || null } : {}) } : {}) };
   const next = await start(installed ? { ...prepared, installed: true } : prepared);
   say(installed ? `up: the installed app, pid ${next.pid}, window on debugging port ${next.cdpPort}` : `up: ${next.url}`);
   say(setupName

@@ -8,8 +8,7 @@
 //                                                      the copies' agents are the real Claude Code and Codex on this computer's plans
 //     --stand-ins "<the person's words agreeing>"      stand-in Claude Code instead, only with their explicit say-so for this run
 //     --cloud                                          every thread in this Mac's cloud (implies --real); the Mac sleeps and shuts under the runs
-//     --cloud-accounts a@x.com,b@y.com                 the cloud accounts the copies may spend, of those signed in (default all)
-//     --free-hours 0.5                                 with --stand-in-cloud: start on the Free plan with that many hours
+//     --cloud-accounts a@x.com,codex:b@y.com           the cloud accounts the copies may spend, of those signed in (default all); engine: names one engine's
 //     --chaos none|light|normal|heavy                  what goes wrong around them (default normal)
 //     --stuck                                          for a stretch, most stand-in agents get stuck on one shared cause (needs --stand-ins)
 //     --round-minutes 20                               one tester session, before it is started again with its diary
@@ -69,6 +68,8 @@ const stop = (s) => { console.error(`power-test: ${s}`); process.exit(1); };
 const readJson = (file) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; } };
 const readJsonl = (file) => { try { return fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean); } catch { return []; } };
 const node = process.execPath;
+// The browsers this test opens end with it, even if it is killed outright (cdp.mjs launchChrome).
+process.env.AGENTBOX_TEST_RUN_PID = String(process.pid);
 
 let people;
 try { people = pickPeople(opt('who', 'random:2'), readPeople(path.join(here, '..', 'people'))); } catch (err) { stop(err.message); }
@@ -81,11 +82,9 @@ const standInCloud = flag('stand-in-cloud');
 const fresh = flag('fresh');
 if (standInCloud && cloud) stop('--stand-in-cloud is the stand-ins\' own cloud; it cannot go with --cloud.');
 if (flag('stand-in-codex')) stop('--stand-in-codex is gone: the agents are real unless the person agreed to stand-ins (--stand-ins "<their words>").');
-const freeHours = opt('free-hours');
 // `owner:0.3,member:0.3`, one per person in --who order: each copy on a team's trial in that role.
 const cloudTeams = (opt('cloud-team') || '').split(',').filter(Boolean);
 if (cloudTeams.length && !standInCloud) stop('--cloud-team puts the stand-in cloud\'s account on a team: add --stand-in-cloud.');
-if (freeHours && !standInCloud) stop('--free-hours starts the stand-in cloud\'s account on the Free plan: add --stand-in-cloud.');
 let mode;
 try { mode = agentMode({ standIns: args.includes('--stand-ins') ? (opt('stand-ins') ?? '') : null, standInCloud, cloud }); } catch (err) { stop(err.message); }
 // With stand-ins agreed, Codex stays real on the testers' own login wherever it can.
@@ -134,7 +133,8 @@ function run(cmd, argv, { env = process.env, timeoutMs = 10 * MIN, cwd = REPO } 
 }
 const live = (name, ...verb) => {
   const shut = verb.indexOf('--shut-for');
-  return run(node, [LIVE, ...verb], { env: { ...process.env, VERIFY_INSTANCE: name }, timeoutMs: 15 * MIN + (shut >= 0 ? Number(verb[shut + 1]) * 1000 : 0) });
+  // The copies' own Codex agents spend the testers' login too, never this Mac's default one.
+  return run(node, [LIVE, ...verb], { env: { ...process.env, VERIFY_INSTANCE: name, VERIFY_CODEX_HOME: login.home }, timeoutMs: 15 * MIN + (shut >= 0 ? Number(verb[shut + 1]) * 1000 : 0) });
 };
 
 /** `app` and `diary` in the person's folder: the tester's two commands, each knowing which copy and diary it is for. */
@@ -256,7 +256,7 @@ for (const person of people) {
   fs.mkdirSync(dir, { recursive: true });
   const shape = real ? [] : ['--logins', String(person.logins), ...(person.codex ? [] : ['--no-codex']), ...(person.codex && codexReal ? ['--real-codex', login.home] : [])];
   say(`${person.name}: starting a copy of the app shaped like their setup`);
-  const up = await live(name, 'up', ...(real ? ['--real'] : []), ...(cloud ? ['--cloud'] : []), ...(standInCloud ? ['--stand-in-cloud'] : []), ...(fresh ? ['--fresh'] : []), ...(freeHours ? ['--free-hours', freeHours] : []), ...(cloudTeams[people.indexOf(person)] ? ['--cloud-team', cloudTeams[people.indexOf(person)]] : []), ...(cloudAccounts ? ['--cloud-accounts', cloudAccounts] : []), ...shape, '--projects', person.projects.join(','), ...(team ? ['--team', team] : []), ...(teamFiles[person.slug] ? ['--team', teamFiles[person.slug]] : []), ...(alpha ? ['--alpha', alpha] : []));
+  const up = await live(name, 'up', ...(real ? ['--real'] : []), ...(cloud ? ['--cloud'] : []), ...(standInCloud ? ['--stand-in-cloud'] : []), ...(fresh ? ['--fresh'] : []), ...(cloudTeams[people.indexOf(person)] ? ['--cloud-team', cloudTeams[people.indexOf(person)]] : []), ...(cloudAccounts ? ['--cloud-accounts', cloudAccounts] : []), ...shape, '--projects', person.projects.join(','), ...(team ? ['--team', team] : []), ...(teamFiles[person.slug] ? ['--team', teamFiles[person.slug]] : []), ...(alpha ? ['--alpha', alpha] : []));
   fs.writeFileSync(path.join(dir, 'up.log'), up.out);
   const stateFile = path.join(instanceDir(name), 'instance.json');
   const state = readJson(stateFile);

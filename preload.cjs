@@ -80,6 +80,8 @@ contextBridge.exposeInMainWorld('zero', {
   teamSignOut: () => ipcRenderer.invoke('zero:team-sign-out'),
   teamSignInEmail: (payload) => ipcRenderer.invoke('zero:team-sign-in-email', payload),
   teamSignUp: (payload) => ipcRenderer.invoke('zero:team-sign-up', payload),
+  teamConfirmation: () => ipcRenderer.invoke('zero:team-confirmation'),
+  teamResendConfirmation: () => ipcRenderer.invoke('zero:team-resend-confirmation'),
   teamCreate: (payload) => ipcRenderer.invoke('zero:team-create', payload),
   teamAcceptInvite: (payload) => ipcRenderer.invoke('zero:team-accept-invite', payload),
   teamInvite: (payload) => ipcRenderer.invoke('zero:team-invite', payload),
@@ -258,6 +260,7 @@ contextBridge.exposeInMainWorld('zero', {
   cloudAccountSignOut: () => ipcRenderer.invoke('zero:cloud-account-sign-out'),
   cloudAccountPlan: () => ipcRenderer.invoke('zero:cloud-account-plan'),
   cloudAccountPay: (payload) => ipcRenderer.invoke('zero:cloud-account-pay', payload),
+  cloudAccountFromTeam: (payload) => ipcRenderer.invoke('zero:cloud-account-from-team', payload),
   cloudAccountBilling: () => ipcRenderer.invoke('zero:cloud-account-billing'),
   cloudAccountTeamBilling: () => ipcRenderer.invoke('zero:cloud-account-team-billing'),
   cloudClipboardCode: () => ipcRenderer.invoke('zero:cloud-clipboard-code'),
@@ -344,6 +347,7 @@ contextBridge.exposeInMainWorld('zero', {
   setProductOrder: (payload) => ipcRenderer.invoke('zero:set-product-order', payload),
   setThreadPlaces: (payload) => ipcRenderer.invoke('zero:set-thread-places', payload),
   setThreadPins: (payload) => ipcRenderer.invoke('zero:set-thread-pins', payload),
+  seenHere: (payload) => ipcRenderer.invoke('zero:seen-here', payload),
   setThreadOnMac: (payload) => ipcRenderer.invoke('zero:set-thread-on-mac', payload),
   moveToCloud: (payload) => ipcRenderer.invoke('zero:move-to-cloud', payload),
   setProductHidden: (payload) => ipcRenderer.invoke('zero:set-product-hidden', payload),
@@ -390,6 +394,12 @@ contextBridge.exposeInMainWorld('zero', {
     const handler = (_e, payload) => fn(payload);
     ipcRenderer.on('zero:recovered', handler);
     return () => ipcRenderer.removeListener('zero:recovered', handler);
+  },
+  // A thread opened on the phone, so it reads as read here too.
+  onSeenOnPhone: (fn) => {
+    const handler = (_e, payload) => fn(payload);
+    ipcRenderer.on('zero:seen-on-phone', handler);
+    return () => ipcRenderer.removeListener('zero:seen-on-phone', handler);
   },
   // A thread's link opened the app.
   onThreadLink: (fn) => {

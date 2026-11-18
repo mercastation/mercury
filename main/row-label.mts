@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import { harnessFor } from './harnesses.mts';
-import { teammateIdOf } from '../shared/teammates.mts';
 import { catchUpDue } from '../shared/agent-import.mts';
 // THE NAME ON THE ROW, WRITTEN RATHER THAN TAKEN FROM THE FIRST SENTENCE.
 //
@@ -125,9 +124,10 @@ const LIVE = new Set(['open', 'claimed', 'blocked']);
  * than our label is a rename, so `rowTitle` draws theirs (list-rules.ts) and
  * this stays quiet rather than answering it with another name of ours.
  */
-export function wantsName(item?: RowItem | null) {
+export function wantsName(item?: RowItem | null, me: string | null = null) {
   if (!item || !LIVE.has(item.status!)) return false;
-  if (teammateIdOf(item)) return false;
+  // A task or message a teammate made is named on their computer, and the name comes with it.
+  if (me && typeof item.createdBy === 'string' && item.createdBy !== me && Array.isArray(item.people) && item.people.length > 1) return false;
   // A chat just brought in is named by its rewrite (main/catch-up.mts).
   if (catchUpDue(item)) return false;
   if (!String(item.title ?? '').trim() && !String(item.body ?? '').trim()) return false;
@@ -149,6 +149,8 @@ export function namePrompt(item?: RowItem | null) {
     'being worked on rather than restating the sentence. If the opening line is',
     'already a short name, keep its words and only fix the case. If it asks for',
     'several things, name all of them, as in "Onboarding flow and pricing page".',
+    'Name it in the words the opening line uses, the ones its owner would look for it by:',
+    'never a code name, file name or technical term the opening line did not use.',
     'Reply with the',
     'name and nothing else.',
     '',

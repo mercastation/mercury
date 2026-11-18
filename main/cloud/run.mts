@@ -92,6 +92,7 @@ import { createResourceRequests, resourceContextFor, accountFolderFor } from './
 import { saveCloudKey } from './keys.mts';
 import type { ResourceContext, ResourceFile, ResourceState } from './resources.mts';
 import { createKeyAsks, keyFileFor } from './key-asks.mts';
+import { HOOK_FREE } from '../hook-free-git.mts';
 import type { CloudMarker } from './marker.mts';
 import type { CloudCallError, CloudEvent, CloudReply, CloudStorage, CloudTransport } from './managed.mts';
 import type { Readable, Writable } from 'node:stream';
@@ -399,7 +400,7 @@ const CODEX_WHY: Record<string, (until?: string) => [why: string, fix: string]> 
 export function codexNote({ carried, state = null, until = null }: CodexHere) {
   const [why, fix] = (CODEX_WHY[state ?? ''] ?? CODEX_WHY.none)(until ? clock(until) : 'later');
   const opening = carried
-    ? 'Codex here is signed in to the cloud\'s Codex account, which their computer keeps and renews. Before anything long runs on Codex, try one tiny request (`codex exec --skip-git-repo-check \'Reply ok\'`): `codex login status` says signed in even when OpenAI refuses the sign-in. If it is refused,'
+    ? 'Codex here is signed in to the cloud\'s Codex account, which their computer keeps and renews. Before anything long runs on Codex, try one tiny request (`codex exec --skip-git-repo-check \'Reply ok\' < /dev/null`): `codex login status` says signed in even when OpenAI refuses the sign-in. Run every `codex exec` with `< /dev/null`, or it waits for input that never comes. If it is refused,'
     : `Codex is signed out on this machine, because ${why}. Whatever the work,`;
   return [
     opening,
@@ -474,6 +475,20 @@ export function limitInResultLine(line: string, now: number = Date.now()) {
   try { msg = JSON.parse(line); } catch { return null; }
   if (msg?.type !== 'result' || msg.is_error !== true) return null;
   const text = String(msg.result ?? '');
+  if (troubleCause(text) !== 'at-limit') return null;
+  return limitResetMoment(text, now) ?? now + LIMIT_REST_MS;
+}
+
+// The same for a Codex turn relayed from the cloud: its code goes in front, as
+// main/codex-session.mts `troubleText` does, so the classifier reads it too.
+export function codexLimitInLine(line: string, now: number = Date.now()) {
+  let msg: { method?: string; params?: { turn?: { status?: string; error?: { message?: unknown; codexErrorInfo?: unknown } } } } | null;
+  try { msg = JSON.parse(line); } catch { return null; }
+  if (msg?.method !== 'turn/completed' && msg?.method !== 'turn/failed') return null;
+  const turn = msg.params?.turn;
+  if (!turn || (turn.status ?? 'failed') !== 'failed') return null;
+  const info = turn.error?.codexErrorInfo;
+  const text = `${typeof info === 'string' && info !== 'other' ? `${info}: ` : ''}${String(turn.error?.message ?? '')}`;
   if (troubleCause(text) !== 'at-limit') return null;
   return limitResetMoment(text, now) ?? now + LIMIT_REST_MS;
 }
@@ -726,7 +741,7 @@ interface GitOptions {
 function git(cwd: string, args: string[], opts?: GitOptions & { buffer?: false }): Promise<string>;
 function git(cwd: string, args: string[], opts: GitOptions & { buffer: true }): Promise<Buffer>;
 function git(cwd: string, args: string[], { buffer = false, env, input }: GitOptions = {}) {
-  return run('git', args, { cwd, env, input, encoding: buffer ? null : 'utf8' });
+  return run('git', [...HOOK_FREE, ...args], { cwd, env, input, encoding: buffer ? null : 'utf8' });
 }
 const gitOk = (cwd: string, args: string[]) => git(cwd, args).then(() => true, () => false);
 
@@ -923,6 +938,28 @@ function stringsIn(text: unknown) {
   };
   walk(msg);
   return out;
+}
+
+// The cloud agent makes this archive, and the Mac later sends what it laid back
+// up with tar -h and copyFile, which follow links: a link here would carry a Mac
+// file to the cloud. Only plain files and folders are laid.
+export async function layConversationArchive(file: string, dir: string) {
+  const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'agentbox-conversation-'));
+  try {
+    await run('tar', ['-xzf', file, '-C', stage]);
+    const onlyPlain = (d: string): void => {
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+        const p = path.join(d, e.name);
+        if (e.isDirectory()) onlyPlain(p);
+        else if (!e.isFile()) fs.rmSync(p, { force: true });
+      }
+    };
+    onlyPlain(stage);
+    fs.mkdirSync(dir, { recursive: true });
+    await run('cp', ['-Rp', `${stage}/.`, dir]);
+  } finally {
+    fs.rmSync(stage, { recursive: true, force: true });
+  }
 }
 
 // COPYFILE_DISABLE: a Mac's tar can add a `._name` beside a file with
@@ -1545,7 +1582,7 @@ export async function cloudRun({
   let outLine = '';
   const overdue = () => cancelled && Date.now() - cancelledAt > resultsWaitMs;
   // A sign-in a login just made on the cloud machine, kept for every later cloud run.
-  const keepCloudKey = (name: string, value: string) => saveCloudKey(name, value, { storage, home: homeDir });
+  const keepCloudKey = (name: string, value: string) => saveCloudKey(name, value, { storage, home: homeDir, replace: false });
   const requestCloudResource = createResourceRequests({
     cwd, docs: docs?.dir, account: accountFolderFor({ accountId: env.STORE_ACCOUNT_ID, roots, docs: docs?.dir || env.AGENTBOX_DOCS }),
     ...resourceContextFor(marker, { engine, homeDir, configDir, codexHome }), runId,
@@ -1772,6 +1809,8 @@ export async function cloudRun({
       codexLine = codexLine.slice(i + 1);
       if (!line.includes('"turn/')) continue;
       if (codexLoginRefusedInLine(line)) loginTrouble = { state: 'refused', id: login?.id ?? null };
+      const until = codexLimitInLine(line);
+      if (until) { try { onLimit({ until }); } catch { /* noted elsewhere */ } }
     }
   }
   async function sayWhatWasLost() {
@@ -2255,8 +2294,7 @@ export async function cloudRun({
       return true;
     };
     for (const c of conversations) {
-      fs.mkdirSync(c.dir, { recursive: true });
-      await run('tar', ['-xzf', c.file, '-C', c.dir]);
+      await layConversationArchive(c.file, c.dir);
       await layTails(c.dir, say, { sentCopy });
     }
   }

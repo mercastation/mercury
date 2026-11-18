@@ -51,7 +51,7 @@ import { phoneWaitsOf } from '../shared/phone-snapshot.mts';
 import { teammatesOn } from '../shared/teammates.mts';
 import { dataFolderName, isNewUserBuild } from '../shared/side-build.mts';
 import { runningAsAFreshUser } from '../shared/fresh-user-home.mts';
-import { newUserWindow } from './new-user-window.mts';
+import { newUserTitle, newUserWindow } from './new-user-window.mts';
 import { applyGlass, glassTone, glassWindow, loadWindowGlass } from './window-glass.mts';
 import { openFreshUser } from './fresh-user.mts';
 import { installCrashReports, report as reportCrash, reportFromRenderer, pending as pendingCrashes, setTransport } from './crash-report.mts';
@@ -414,7 +414,7 @@ async function createWindow() {
   // (shared/which-card-is-in-front.mts). Late-bound beside the door above,
   // because only the IPC surface knows which thread is on screen, and before it
   // exists the spool's own order is the whole of what is known.
-  let cardInFront: () => { id: string } | null = () => approvals.listPending(config.storeRoot)[0] ?? null;
+  let cardInFront: () => { id: string } | null = () => approvals.listPending(config.storeRoot, { drawn: false })[0] ?? null;
   installMenu({
     onApproval: (allow) => {
       const front = cardInFront();
@@ -484,6 +484,8 @@ async function createWindow() {
     appDir,
     onFreeze: (f) => { stalls.noteFreeze(f); console.warn(`zero: the app froze for ${f.ms} ms in ${f.where}`); },
   });
+  powerMonitor.on('suspend', () => freezes.asleep());
+  powerMonitor.on('resume', () => freezes.awake());
   quitStep(app, 'before-quit', 'freezes.stop', () => freezes.stop());
   // No quit step: both of its timers are unref'd, so it holds nothing open, and
   // one more before-quit listener would be Node's eleventh, past its warning
@@ -516,6 +518,7 @@ async function createWindow() {
   let phoneSettings: (() => unknown) | null = null;
   // Every installed build has a cloud now, so the keychain is asked only once
   // a sign-in is read or kept, not at launch.
+  let retitle = () => {};
   const team = cloudConfig ? createTeamService({
     session: supabaseSession({
       cloudConfig,
@@ -531,7 +534,7 @@ async function createWindow() {
     stateFile: teamStateFile(config.storeRoot),
     // The window's push is declared further down and wired once the window
     // exists; until then a change has nobody to tell.
-    onChange: () => { try { pushUpdate(); } catch { /* no window yet */ } },
+    onChange: () => { try { pushUpdate(); retitle(); } catch { /* no window yet */ } },
     log: (line) => console.log(line),
     runningIds: () => supervisor.runsGoing().map((s) => s.itemId),
     wontStart: () => supervisor.status(),
@@ -555,7 +558,7 @@ async function createWindow() {
       // Why each thread nothing runs on is waiting, so the phone does not read it as "Nothing running".
       waits: () => phoneWaitsOf(supervisor.status()),
       // The cards waiting on her, each with the fingerprint her answer must carry back.
-      approvals: () => approvals.listPending(config.storeRoot).map((r) => ({ ...r, card: approvals.cardShown(config.storeRoot, r.id) })),
+      approvals: () => approvals.listPending(config.storeRoot, { on: 'phone' }).map((r) => ({ ...r, card: approvals.cardShown(config.storeRoot, r.id, 'phone') })),
       stateFile: path.join(config.storeRoot, '.phone-inbox.json'),
       // This installation and this store together (main/phone-inbox.mts).
       device: () => phoneDevice(userDir, config.storeRoot),
@@ -833,6 +836,13 @@ async function createWindow() {
   // renderer/index.html carries the app's name, so a throwaway copy went back
   // to saying "Agentbox" as soon as it drew anything.
   window.on('page-title-updated', (e) => e.preventDefault());
+  retitle = () => {
+    if (!window || window.isDestroyed()) return;
+    const me = team?.state().me;
+    const title = newUserTitle({ fresh: runningAsAFreshUser(), name: NAME, account: team?.state().signedIn ? me?.email || me?.name : null });
+    if (title && window.getTitle() !== title) window.setTitle(title);
+  };
+  retitle();
 
   keepThePageAlive({
     window,
@@ -993,7 +1003,7 @@ async function createWindow() {
     if (!model || typeof model !== 'object') return null;
     // A cloud that does not answer leaves the list empty rather than holding the copy back.
     const listed = (await Promise.resolve(phoneChannels.get('zero:file-links')?.({ sender: null }, {})).catch(() => null)) as { ok?: boolean; links?: unknown[] } | null | undefined;
-    return { ...model, cloud: supervisor.cloudStatus(), usage: ipc.usageForPhone(), links: listed?.ok ? listed.links : [] };
+    return { ...model, cloud: supervisor.cloudStatus(), usage: ipc.usageForPhone(), links: listed?.ok ? listed.links : [], seen: ipc.seenForPhone() };
   };
   meetings.watch();
   updater.start();
