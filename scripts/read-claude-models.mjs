@@ -37,8 +37,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
-import { findClaudeBin } from '../main/claude-bin.mts';
-import { commandBundle, localText, onlyTheStampsMoved, shown } from './read-claude-commands.mjs';
+import { installedBundle, localText, onlyTheStampsMoved, shown } from './read-claude-commands.mjs';
 // The app's name is never typed, here or in what this writes out.
 import { Name } from '../shared/product-name.mjs';
 
@@ -230,9 +229,8 @@ export function run({ bin = null, out = OUT, local = LOCAL, snapshot = false, lo
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const found = findClaudeBin();
   run({
-    bin: found.found && found.path ? commandBundle(found.path) : null,
+    bin: installedBundle(),
     snapshot: process.argv.includes('--snapshot'),
   });
 }

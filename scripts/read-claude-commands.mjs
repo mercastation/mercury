@@ -94,7 +94,14 @@ function miseWhich(name) {
   } catch { return null; }
 }
 
-export function commandBundle(binPath, { which = miseWhich } = {}) {
+function realFile(file) {
+  try {
+    const real = fs.realpathSync(file);
+    return fs.statSync(real).isFile() ? real : null;
+  } catch { return null; }
+}
+
+export function commandBundle(binPath, { which = miseWhich, others = [] } = {}) {
   let real = binPath;
   try { real = fs.realpathSync(binPath); } catch { /* the path is already what we were given */ }
   if (!isShellWrapper(real)) return real;
@@ -104,7 +111,19 @@ export function commandBundle(binPath, { which = miseWhich } = {}) {
     try { resolvedReal = fs.realpathSync(resolved); } catch { /* keep */ }
     if (fs.existsSync(resolvedReal) && !isShellWrapper(resolvedReal)) return resolvedReal;
   }
+  // A launcher of the person's own (a setup step, then exec) names no binary
+  // we can follow, so read the first other copy on the machine that is one.
+  for (const other of others) {
+    const file = realFile(other);
+    if (file && file !== real && !isShellWrapper(file)) return file;
+  }
   return real;
+}
+
+/** The bundle of the Claude Code the search found, or null when it found none. */
+export function installedBundle(found = findClaudeBin(), how = {}) {
+  if (!found.found || !found.path) return null;
+  return commandBundle(found.path, { ...how, others: found.searched ?? [] });
 }
 
 /**
@@ -380,9 +399,8 @@ export function run({ bin = null, out = OUT, local = LOCAL, snapshot = false, lo
 }
 
 function main() {
-  const found = findClaudeBin();
   run({
-    bin: found.found && found.path ? commandBundle(found.path) : null,
+    bin: installedBundle(),
     snapshot: process.argv.includes('--snapshot'),
   });
 }
