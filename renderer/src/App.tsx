@@ -162,9 +162,9 @@ import { needsByWho, readFolded, readNeedsGroup, stackRows, toggleFolded, whoIsW
 import { FeedbackCard } from './components/FeedbackCard';
 import { canRecord, meetingCard } from './meeting-card';
 import { searchFieldInStrip, workspaceDestinations, workspacePageTitle } from './workspace-navigation.ts';
-import { DemandCrumb, DemandPage, DemandsList, PlaceTitle, TodayButton, demandKey } from './demands/DemandsPlace';
+import { DemandCrumb, DemandPage, DemandsDoor, DemandsList, PlaceTitle, TodayButton, demandKey } from './demands/DemandsPlace';
 import { demandByThread, demandRows, demandTabs, finishedThisWeek, type DemandRecord, type DemandTabId, type Place as ThreadPlace } from './demands/demand-rules';
-import { DemandsContext } from './demands/demands-context';
+import { DemandPlacingContext, DemandsContext } from './demands/demands-context';
 import { dayKey } from '../../shared/demands.mts';
 import { UsagePill } from './components/UsagePill';
 import { engineWordFor } from './byline';
@@ -2688,6 +2688,11 @@ export default function App() {
   const demandRowsNow = useMemo(() => demandRows(demands, items, demandPlace, now), [demands, items, demandPlace, now]);
   const demandTabsNow = useMemo(() => demandTabs(demandRowsNow), [demandRowsNow]);
   const demandOfThread = useMemo(() => demandByThread(demands), [demands]);
+  // A thread's menu moves it to another demand, or to none (threads/ThreadMenu.tsx).
+  const putInDemand = useCallback((item: { product: string; id: string }, demand: string | null) => {
+    void api.placeInDemand({ product: item.product, thread: item.id, demand }).then(loadDemands).catch((e: Error) => showToastRef.current?.(e.message));
+  }, [loadDemands]);
+  const demandPlacing = useMemo(() => ({ demands, place: putInDemand }), [demands, putInDemand]);
 
   // What the Scheduled tab counts, and it is exactly what the page lists.
   const scheduledCount = snoozed.length + repeats.length;
@@ -8094,6 +8099,7 @@ export default function App() {
     <FreeAgentContext.Provider value={freeWaitIds}>
     <TryAgainContext.Provider value={tryAgain}>
     <DemandsContext.Provider value={demandOfThread}>
+    <DemandPlacingContext.Provider value={demandPlacing}>
     <CloudOfferContext.Provider value={cloudOfferNow ? { offer: cloudOfferNow, onGo: (go) => void onCloudGo(go) } : null}>
     <div data-design-toolbar={toolbarExploration ? designToolbar : 'corner'} data-preview-treatment={previewTreatment} data-reading-width={readingWidth} data-artifact-layout={openDoc ? artifactView : undefined} data-chrome={fullScreenDoc ? (chromeUp ? 'up' : 'away') : undefined} className={`app workspace-layout${narrowSidebar ? ` gt-rail gt-inset gt-sumleft${sideFolded ? '' : ' gt-rail-open'}` : ''}${focused && !settingsOpen && !inChats ? ' workspace-task' : ''}${settingsOpen ? ' workspace-settings' : ''}${teamShown ? ' workspace-team' : ''}${backForward ? ' back-forward-on' : ''}${sideFolded ? ' workspace-collapsed' : ''}${panelShown ? ' panel-up' : ''}${openDoc ? ' doc-open' : ''}${notesShown ? ' notes-open' : ''}${notesClosed ? ' notes-closed' : ''}${inPractice ? ' banded' : ''}${modal === 'reply' ? ' composing' : ''}${cardOnScreen ? ' asking' : ''}${(queueSpot || onePage) && focused ? ' one-at-a-time' : ''}${homeShown ? ' home-shown sky-shown' : skyOnInbox ? (onBoard ? ' sky-shown sky-board' : ' sky-shown') : ''}${skyOnPlace ? ' sky-shown sky-place' : ''}`}>
 
@@ -8235,7 +8241,9 @@ export default function App() {
               <CrossIcon />
             </button>
           </nav>
-        ) : (settingsOpen ? <div className="workspace-page-heading"><button className="workspace-back" aria-label="Back to previous page" title="Back to previous page (Esc)" onClick={() => { setSettingsOpen(false); setSettingsPane(null); }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button><h1 className="workspace-title">{settingsPage === 'projects' ? 'Projects' : settingsPage === 'team' ? 'Team' : 'Settings'}</h1></div> : focused ? (inChats ? <><div className="gc-head"><div className="gc-head-col"><span className="workspace-title gc-col-title">{homeLayout === 'chats' ? 'Team' : 'Chats'}</span></div><div className="workspace-task-header cx-task-header" ref={setTaskHeader} /></div><div className="workspace-artifact-header" ref={setArtifactHeader} /></> : <><div className="workspace-task-header" ref={setTaskHeader} /><div className="workspace-artifact-header" ref={setArtifactHeader} /></>) : (demandsShown ? (demandOpen ? <div className="workspace-task-header"><DemandCrumb row={demandOpen} onBack={() => openDemands(null)} onRename={async (name) => { await api.setDemand({ product: demandOpen.demand.product, id: demandOpen.demand.id, patch: { name } }); loadDemands(); return true; }} /></div> : <PlaceTitle here="demands" onInbox={() => openView('inbox')} />) : filesShown ? <h1 className="workspace-title">Files</h1> : connectionsShown ? <h1 className="workspace-title">Connections</h1> : chatsPlaceShown ? <h1 className="workspace-title">Team</h1> : teamShown ? <h1 className="workspace-title">{openCard ? (cardFromPlace ? 'Team' : 'Inbox') : 'Team'}</h1> : evOn ? <h1 className="workspace-title">Inbox</h1> : teammatesShown ? teammatesUi.title : roomsUi.live && !roomShown ? <h1 className="workspace-title">Inbox</h1> : roomShown && roomsUi.heading ? roomsUi.heading.title : <PlaceTitle here="inbox" onDemands={() => openDemands()} />))}
+        ) : (settingsOpen ? <div className="workspace-page-heading"><button className="workspace-back" aria-label="Back to previous page" title="Back to previous page (Esc)" onClick={() => { setSettingsOpen(false); setSettingsPane(null); }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button><h1 className="workspace-title">{settingsPage === 'projects' ? 'Projects' : settingsPage === 'team' ? 'Team' : 'Settings'}</h1></div> : focused ? (inChats ? <><div className="gc-head"><div className="gc-head-col"><span className="workspace-title gc-col-title">{homeLayout === 'chats' ? 'Team' : 'Chats'}</span></div><div className="workspace-task-header cx-task-header" ref={setTaskHeader} /></div><div className="workspace-artifact-header" ref={setArtifactHeader} /></> : <><div className="workspace-task-header" ref={setTaskHeader} /><div className="workspace-artifact-header" ref={setArtifactHeader} /></>) : (demandsShown ? (demandOpen ? <div className="workspace-task-header"><DemandCrumb row={demandOpen} onBack={() => openDemands(null)} onRename={async (name) => { await api.setDemand({ product: demandOpen.demand.product, id: demandOpen.demand.id, patch: { name } }); loadDemands(); return true; }} /></div> : <PlaceTitle onInbox={() => openView('inbox')} />) : filesShown ? <h1 className="workspace-title">Files</h1> : connectionsShown ? <h1 className="workspace-title">Connections</h1> : chatsPlaceShown ? <h1 className="workspace-title">Team</h1> : teamShown ? <h1 className="workspace-title">{openCard ? (cardFromPlace ? 'Team' : 'Inbox') : 'Team'}</h1> : evOn ? <h1 className="workspace-title">Inbox</h1> : teammatesShown ? teammatesUi.title : roomsUi.live && !roomShown ? <h1 className="workspace-title">Inbox</h1> : roomShown && roomsUi.heading ? roomsUi.heading.title : <h1 className="workspace-title">Inbox</h1>))}
+        {/* The way to Demands on a phone, which has no sidebar: its name beside the Inbox's (demands/demands.css). */}
+        {search === null && !focused && !focusedRepeat && !settingsOpen && !teamShown && !demandsShown && !filesShown && !connectionsShown && !chatsPlaceShown && !teammatesShown && !roomShown && <DemandsDoor onOpen={() => openDemands()} />}
         {/* THE PLUS, THE COMMAND MARK AND THE COG STEP OFF WHILE SHE IS
             SEARCHING, and that is the half of the chosen design that is not the
             cross. It is forced, not chosen: .topbar and .body carry the same 22px
@@ -10036,6 +10044,7 @@ export default function App() {
       <FindBar />
     </div>
     </CloudOfferContext.Provider>
+    </DemandPlacingContext.Provider>
     </DemandsContext.Provider>
     </TryAgainContext.Provider>
     </FreeAgentContext.Provider>

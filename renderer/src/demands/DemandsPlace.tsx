@@ -153,10 +153,15 @@ export function TodayButton({ on, onToggle }: { on: boolean; onToggle: () => voi
   </span></span>;
 }
 
-/** The place's name in the top bar. On a phone, where there is no sidebar, it is the way between the two. */
-export function PlaceTitle({ here, onInbox, onDemands }: { here: 'inbox' | 'demands'; onInbox?: () => void; onDemands?: () => void }) {
+/** The place's name in the top bar. On a phone, which has no sidebar, the Inbox's name stands before it and is the way back. */
+export function PlaceTitle({ onInbox }: { onInbox: () => void }) {
   return <h1 className="workspace-title dm-places">
-    <button type="button" className={`dm-place${here === 'inbox' ? ' on' : ''}`} aria-current={here === 'inbox' ? 'page' : undefined} onClick={onInbox}>Inbox</button>
-    <button type="button" className={`dm-place${here === 'demands' ? ' on' : ''}`} aria-current={here === 'demands' ? 'page' : undefined} onClick={onDemands}>Demands</button>
+    <button type="button" className="dm-place" onClick={onInbox}>Inbox</button>
+    <span className="dm-place on" aria-current="page">Demands</span>
   </h1>;
+}
+
+/** On a phone, the way from the Inbox to Demands: its name after the Inbox's, in the same type. */
+export function DemandsDoor({ onOpen }: { onOpen: () => void }) {
+  return <button type="button" className="dm-place dm-door" onClick={onOpen}>Demands</button>;
 }

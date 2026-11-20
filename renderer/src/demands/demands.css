@@ -44,15 +44,23 @@
 /* A thread's demand, on its row in the inbox. */
 .th-demand { color: var(--text-faint); }
 
+/* A thread's Demand row, in its More actions menu (threads/ThreadMenu.tsx): a long name is cut, not the menu widened. */
+.ts-more-row kbd.ts-more-long { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.th-menu.ts-more-demands { max-width: min(340px, calc(100vw - 24px)); max-height: min(420px, 70vh); overflow-y: auto; }
+.ts-more-demands .ts-more-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 @media (max-width: 700px), (max-height: 520px) {
   :root:root:root .dm-place:not(.on) { display: inline; }
+  /* Beside the Inbox's name, in the top bar's own type (phone.css `.workspace-title`). */
+  :root:root:root .topbar > .dm-door { flex: none; margin: 0 auto 0 18px; font-family: inherit; font-size: calc(19px * var(--phone-type, 1)); font-weight: 500; letter-spacing: -.01em; line-height: 1; }
   :root:root:root .dm-on-desk { display: none; }
   :root:root:root .dm-on-phone { display: inline; }
   :root:root:root .dm-week { padding: 14px 16px 2px; }
 
   /* A demand's row: its name with its project beside it, then the state line. */
-  :root:root:root:root .th-grid > .dm-title { display: flex; flex-wrap: wrap; align-items: baseline; -webkit-line-clamp: unset; overflow: visible; }
-  :root:root:root .dm-title > .th-aside { font-size: calc(13.5px * var(--phone-type, 1)); }
+  :root:root:root:root .th-grid > .dm-title { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 12px; -webkit-line-clamp: unset; overflow: visible; }
+  /* The gap is the row's, so a project that wraps under a long name starts at the name's own edge. */
+  :root:root:root .dm-title > .th-aside { margin-left: 0; font-size: calc(13.5px * var(--phone-type, 1)); }
   :root:root:root .dm-title > .dm-out { display: block; flex: 1 0 100%; margin-top: 4px; font-size: calc(13.5px * var(--phone-type, 1)); line-height: 1.5; color: var(--text-faint); white-space: normal; }
   :root:root:root:root .th-grid > .dm-last { display: flex; align-items: center; min-width: 0; }
   :root:root:root .dm-last > .dm-what { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(12.5px * var(--phone-type, 1)); }

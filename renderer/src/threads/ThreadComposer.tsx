@@ -35,7 +35,7 @@ import { SEND } from '../this-keyboard';
 import { Fragment, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 import { PRACTICE_TASK } from '../../../shared/first-run-practice.mts';
 import type { BranchList, Product, TeamMessageFile, WorkItem } from '../types';
-import type { DemandRecord } from '../demands/demand-rules';
+import { demandChoices, type DemandRecord } from '../demands/demand-rules';
 import type { Engine } from '../../../shared/engines.mts';
 import { ENGINES } from '../../../shared/engines.mts';
 import { api } from '../api';
@@ -1161,13 +1161,13 @@ export function ThreadComposer({
     </span>
   );
 
-  const demandsHere = (demands ?? []).filter((d) => d.product === product?.slug);
+  const demandsHere = product ? demandChoices(demands ?? [], product.slug) : [];
   const demandPicked = demandsHere.find((d) => d.id === demandPick) ?? null;
   const demandChip = demandsHere.length > 0 && (
     <span className="tc-anchor tc-demand" ref={anchor('demand')}>
       <button type="button" data-trigger className={`tc-chip ${open === 'demand' ? 'open' : ''}`} title="Demand"
         aria-haspopup="listbox" aria-expanded={open === 'demand'} onClick={() => toggle('demand')} onKeyDown={triggerKeys('demand')}>
-        <span className="tc-chip-name">{demandPicked?.name ?? AGENT_DECIDES.label}</span>
+        <DemandGlyph /><span className="tc-chip-name">{demandPicked?.name ?? AGENT_DECIDES.label}</span>
       </button>
       {open === 'demand' && (
         <div className="tc-menu tc-rise" role="listbox" aria-label="Demand" onKeyDown={menuKeys}>
@@ -1668,6 +1668,8 @@ function Swatch({ slug }: { slug: string }) {
 // THE APP'S OWN PRIORITY BARS. Urgent is a fourth bar, never an exclamation
 // mark in a box (w-bba20a03f5, Priority.tsx), whatever the drawing showed.
 const PrioGlyph = ({ id }: { id: PriorityChoice }) => <span className="tc-prio"><PriorityIcon id={id} /></span>;
+/** The sidebar's flag for Demands, so this chip is not read as the priority one beside it. */
+const DemandGlyph = () => <span className="tc-prio"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6.5 20V4.5" /><path d="M6.5 5.5h10.5l-2.2 3.5 2.2 3.5H6.5" /></svg></span>;
 
 const PeopleIcon = () => (
   <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">

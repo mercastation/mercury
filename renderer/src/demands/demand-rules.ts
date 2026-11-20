@@ -50,6 +50,13 @@ export function demandByThread(demands: readonly DemandRecord[]): Map<string, De
 
 export const demandOfThread = (by: Map<string, DemandRecord>, i: { product: string; id: string }) => by.get(threadKey(i.product, i.id)) ?? null;
 
+/** The demands a thread of this project can be put in: the open ones first, each group newest first. */
+export function demandChoices(demands: readonly DemandRecord[], product: string): DemandRecord[] {
+  return demands
+    .filter((d) => d.product === product && !d.endedAt)
+    .sort((a, b) => Number(!!a.outcome) - Number(!!b.outcome) || b.updatedAt - a.updatedAt);
+}
+
 const andMore = (names: string[]) => (names.length > 1 ? `${names[0]}, and ${names.length - 1} more` : names[0] ?? '');
 const newestStep = (progress: unknown) => String(progress ?? '').split('\n').map((l) => l.trim()).filter(Boolean).pop() ?? '';
 

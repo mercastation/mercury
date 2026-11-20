@@ -30,7 +30,8 @@ import { providerCommand } from '../../../shared/provider-commands.mts';
 // a docked composer, never a modal over the text.
 
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as BoxKeyEvent, type ReactNode } from 'react';
-import { DemandsContext, threadKey } from '../demands/demands-context';
+import { DemandPlacingContext, DemandsContext, threadKey } from '../demands/demands-context';
+import { demandChoices } from '../demands/demand-rules';
 import { Face, TeamContext, firstName } from '../team/people';
 import { handedInitials, handedTo, isDirect, taskHandedFrom, peopleInConversation, peopleToAdd, workAudience } from '../threads/page-rules';
 import {
@@ -924,6 +925,8 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   const teamCtx = useContext(TeamContext);
   const chatAgents = useContext(ChatAgentsContext);
   const demandsOfThreads = useContext(DemandsContext);
+  const placing = useContext(DemandPlacingContext);
+  const demandsToPick = useMemo(() => (placing ? demandChoices(placing.demands, item.product) : []), [placing, item.product]);
   const heldByPerson = teamHeld(item, teamCtx);
 
   // A ROW THAT STANDS FOR A RUNNING AGENT, not for work in a ledger. Almost
@@ -2000,6 +2003,9 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
       blocks={(item.labels ?? []).includes('given-task')}
       onRename={crumbFrom && !agent ? () => setRenameAt(Date.now()) : null}
       onMove={canFinish && !agent && !direct ? onMove ?? null : null}
+      // A wrong guess of the sorter's is put right here (main/demand-sorter.mts).
+      demand={placing && demandsToPick.length > 0 && !agent && !direct ? { current: demandsOfThreads.get(threadKey(item))?.id ?? null, choices: demandsToPick } : null}
+      onDemand={(id) => placing?.place(item, id)}
       priority={priorityIdOf(shownPriority(item))}
       onPriority={canFinish && !agent && !direct && onPriority ? (id) => onPriority(priorityValueOf(id)) : undefined}
     />
