@@ -19,7 +19,7 @@ import { isTroubleRow } from './trouble-row';
 import type { WorkItem } from './types';
 import { isUpdateRow } from './update-row';
 
-export type Harness = 'claude' | 'codex';
+export type Harness = 'claude' | 'codex' | 'antigravity';
 
 export interface BoxFilter {
   project: string | null;
@@ -45,6 +45,7 @@ const CODEX_LABELS = new Set(['codex', 'codex-import', 'not-imported']);
  */
 export function harnessOf(item: Pick<WorkItem, 'labels'> & { engine?: string | null }): Harness {
   if (item.engine === 'codex') return 'codex';
+  if (item.engine === 'antigravity') return 'antigravity';
   if ((item.labels ?? []).some((l) => CODEX_LABELS.has(l) || l.startsWith('codex:'))) return 'codex';
   return 'claude';
 }

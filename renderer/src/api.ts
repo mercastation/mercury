@@ -1546,6 +1546,30 @@ export const api = {
     }
   },
 
+  async recheckAntigravity(): Promise<{ found: boolean; certain: boolean }> {
+    if (useFixtures) return { found: true, certain: true };
+    try {
+      const r = await window.zero?.antigravityRecheck?.();
+      return r?.ok ? { found: !!r.workspace?.found, certain: r.workspace?.certain === true } : { found: false, certain: false };
+    } catch {
+      return { found: false, certain: false };
+    }
+  },
+
+  /** The line the Settings terminal types to sign agy in. */
+  async antigravitySignIn(): Promise<{ ok: boolean; command?: string; error?: string }> {
+    if (useFixtures) return { ok: true, command: 'agy acp --login' };
+    const zero = window.zero;
+    if (!zero?.antigravitySignIn) return { ok: false, error: RESTART_NOTE };
+    try { return (await zero.antigravitySignIn()) ?? { ok: false, error: 'could not start the sign-in' }; } catch (err) { return { ok: false, error: String((err as Error)?.message ?? err) }; }
+  },
+
+  /** Ask agy again whether it is signed in, and read its models. */
+  async antigravityRefresh(): Promise<boolean | null> {
+    if (useFixtures) return true;
+    try { return (await window.zero?.antigravityRefresh?.())?.signedIn ?? null; } catch { return null; }
+  },
+
   /* * POINT AT THE CODING AGENT YOURSELF, when neither search can find it
      (w-ce8c1a9275). The picker opens in the main process and the choice is
      applied in the same call, so this call hands over WHICH agent and nothing
@@ -1558,7 +1582,7 @@ export const api = {
      be run, is an ordinary mistake at a file panel and the row prints what came
      back. Cancelling the panel is neither: `ok` with nothing changed.
   */
-  async engineBin(engine: 'claude' | 'codex', action?: 'search'): Promise<Settings & { canceled?: boolean; refused?: string }> {
+  async engineBin(engine: 'claude' | 'codex' | 'antigravity', action?: 'search'): Promise<Settings & { canceled?: boolean; refused?: string }> {
     if (useFixtures) return { ...emptySettings, ok: true, canceled: true };
     const zero = window.zero;
     if (!zero?.engineBin) return { ...emptySettings, ok: false, error: RESTART_NOTE };

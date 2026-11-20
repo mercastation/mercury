@@ -103,6 +103,17 @@ export function setCodexFreePlan(fact: { endedAt?: number | null } | null | unde
 }
 export function codexFreePlan(): { endedAt: number | null } | null { return CODEX_FREE; }
 
+// Antigravity's models, as `agy models` listed them (main/antigravity-models.mts),
+// set beside `setClaudeModels` for the same reason.
+let ANTIGRAVITY: ModelChoice[] = [];
+export function setAntigravityModels(rows: unknown): void {
+  ANTIGRAVITY = Array.isArray(rows)
+    ? rows.filter((r): r is ModelChoice => !!r && typeof r.id === 'string' && !!r.id && typeof r.label === 'string')
+      .map((r) => ({ id: r.id, label: r.label, levels: Array.isArray(r.levels) ? r.levels.filter((l) => typeof l === 'string') : [] }))
+    : [];
+}
+export function antigravityModelRows(): ModelChoice[] { return ANTIGRAVITY; }
+
 /**
  * @deprecated for new code: it is a snapshot of the committed table taken at
  * import time, so it cannot see a `claude update`. Call `claudeModelRows`.
@@ -191,6 +202,8 @@ export const CODEX_OWN = '';
  * about -- and `CODEX_OWN` when that file names nothing.
  */
 export function defaultModelFor(engine: string | null, codexDefault: string | null = null): string {
+  // Nothing picked sends nothing, and agy runs its own default.
+  if (engine === 'antigravity') return CODEX_OWN;
   if (engine !== 'codex') return DEFAULT_MODEL;
   return codexDefault ?? CODEX_OWN;
 }
@@ -210,6 +223,12 @@ export function engineModelChoices(
   id: string | null,
   { codexModels = [], codexDefault = null }: { codexModels?: ModelChoice[]; codexDefault?: string | null } = {},
 ): ModelChoice[] {
+  if (engine === 'antigravity') {
+    const rows = antigravityModelRows();
+    const value = id ?? CODEX_OWN;
+    if (value === CODEX_OWN) return [...rows, { id: CODEX_OWN, label: 'Antigravity’s own' }];
+    return rows.some((m) => m.id === value) ? rows : [...rows, { id: value, label: value }];
+  }
   if (engine !== 'codex') return modelChoices(id);
   const value = id ?? defaultModelFor(engine, codexDefault);
   if (value === CODEX_OWN) return [...codexModels, { id: CODEX_OWN, label: "Codex's own" }];

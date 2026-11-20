@@ -10,7 +10,7 @@
 // picking where it runs, and the two can never disagree the way two pickers did
 // (a Claude alias sent to Codex is a run the supervisor refuses outright).
 
-import { claudeModelRows, CODEX_OWN, DEFAULT_MODEL, engineModelPicked, type ModelChoice } from '../models';
+import { antigravityModelRows, claudeModelRows, CODEX_OWN, DEFAULT_MODEL, engineModelPicked, type ModelChoice } from '../models';
 import { splitMessage } from '../message-split';
 import { parseWhen } from '../format';
 import { firstName } from '../team/company';
@@ -20,7 +20,7 @@ import { isRepeatRule, ruleLabel, type RepeatShape } from '../../../shared/repea
 import { clockWords, dayDeadline } from '../../../shared/team-tasks.mts';
 import { threadOfLink } from '../../../shared/thread-link.mts';
 
-export type Harness = 'claude' | 'codex';
+export type Harness = 'claude' | 'codex' | 'antigravity';
 
 /** One model as the card holds it: where it runs, and the word that runs it. */
 export interface ModelPick {
@@ -81,8 +81,8 @@ const WINDOW = 40;
  */
 export function recentModels(
   items: ReadonlyArray<{ createdAt?: number; model?: string; engine?: string; wrote?: { model?: { ts: number } | undefined } }>,
-  { codexModels = [], codexDefault = null, codexOffered, claudeOffered = true, limit = 3 }:
-    { codexModels?: readonly CodexRow[]; codexDefault?: string | null; codexOffered: boolean; claudeOffered?: boolean; limit?: number },
+  { codexModels = [], codexDefault = null, codexOffered, claudeOffered = true, antigravityOffered = false, limit = 3 }:
+    { codexModels?: readonly CodexRow[]; codexDefault?: string | null; codexOffered: boolean; claudeOffered?: boolean; antigravityOffered?: boolean; limit?: number },
 ): ModelPick[] {
   const out: ModelPick[] = [];
   const seen = new Set<string>();
@@ -101,10 +101,11 @@ export function recentModels(
     .slice(0, WINDOW)
     .map(({ i, at }) => {
       const model = i.model as string;
-      const engine: Harness = i.engine === 'codex' || i.engine === 'claude' ? i.engine : harnessOf(model, codexModels);
+      // Antigravity's models include Claude's full ids, so only the row's own engine says it.
+      const engine: Harness = i.engine === 'codex' || i.engine === 'claude' || i.engine === 'antigravity' ? i.engine : harnessOf(model, codexModels);
       return { pick: { engine, model: engine === 'claude' ? claudeAliasOf(model) : model }, at };
     })
-    .filter(({ pick }) => (pick.engine === 'codex' ? codexOffered : claudeOffered));
+    .filter(({ pick }) => (pick.engine === 'codex' ? codexOffered : pick.engine === 'antigravity' ? antigravityOffered : claudeOffered));
   const tally = new Map<string, { pick: ModelPick; count: number; last: number }>();
   for (const { pick, at } of used) {
     const row = tally.get(keyOf(pick)) ?? { pick, count: 0, last: 0 };
@@ -126,19 +127,20 @@ export function recentModels(
   return out;
 }
 
-/** Everything behind "All models": Claude Code's list and, when offered, Codex's. */
-export function allModels({ codexModels = [], codexOffered, claudeOffered = true }: { codexModels?: readonly CodexRow[]; codexOffered: boolean; claudeOffered?: boolean }): {
-  claude: ModelPick[]; codex: ModelPick[];
+/** Everything behind "All models": Claude Code's list and, when offered, Codex's and Antigravity's. */
+export function allModels({ codexModels = [], codexOffered, claudeOffered = true, antigravityOffered = false }: { codexModels?: readonly CodexRow[]; codexOffered: boolean; claudeOffered?: boolean; antigravityOffered?: boolean }): {
+  claude: ModelPick[]; codex: ModelPick[]; antigravity: ModelPick[];
 } {
   return {
     claude: claudeOffered ? claudeModelRows().map((m) => ({ engine: 'claude' as const, model: m.id })) : [],
     codex: codexOffered ? codexModels.map((m) => ({ engine: 'codex' as const, model: m.id })) : [],
+    antigravity: antigravityOffered ? antigravityModelRows().map((m) => ({ engine: 'antigravity' as const, model: m.id })) : [],
   };
 }
 
 /** The "N more" on the All models row: what is in the columns and not in Recent. */
-export function moreCount(recent: readonly ModelPick[], all: { claude: readonly ModelPick[]; codex: readonly ModelPick[] }): number {
-  const listed = new Set([...all.claude, ...all.codex].map(keyOf));
+export function moreCount(recent: readonly ModelPick[], all: { claude: readonly ModelPick[]; codex: readonly ModelPick[]; antigravity?: readonly ModelPick[] }): number {
+  const listed = new Set([...all.claude, ...all.codex, ...(all.antigravity ?? [])].map(keyOf));
   return listed.size - recent.filter((r) => listed.has(keyOf(r))).length;
 }
 
@@ -155,7 +157,7 @@ export function agentChoices(engines?: readonly EngineRow[]): { id: Harness; lab
   const rows = engines ?? [];
   if (rows.length < 2) return [];
   return rows
-    .filter((e) => e.id === 'claude' || e.id === 'codex')
+    .filter((e) => e.id === 'claude' || e.id === 'codex' || e.id === 'antigravity')
     .map((e) => ({ id: e.id as Harness, label: e.label }));
 }
 

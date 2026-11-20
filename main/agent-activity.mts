@@ -3,6 +3,8 @@
 // commands, records reasoning, or changes worker permissions.
 import { commandWork, isBookkeeping, plainCommand, shortPath } from '../shared/work-lines.mts';
 import type { BackgroundTask } from './claude-input.mts';
+import { TURN_DONE, toolWordOf, STORE_SERVERS } from './antigravity.mts';
+import type { AcpFrame } from './antigravity.mts';
 
 export interface ActiveTool { id: string; label: string; detail: string; startedAt: number; background?: boolean }
 export interface ActivitySession { activeTools?: Map<string, ActiveTool> }
@@ -116,5 +118,36 @@ export function codexActivity(session: ActivitySession, method: string, params: 
       : add(session, item.id, `Using ${clean(item.tool).replace(/_/g, ' ') || 'tool'}`, `${item.server ?? ''} · ${item.tool ?? ''}`);
     case 'webSearch': return add(session, item.id, 'Searching the web', item.query ?? '');
     default: return false;
+  }
+}
+
+// Antigravity's tool updates (main/antigravity.mts). A tool waiting on a card
+// is `pending`, and it is still the thing the run is doing.
+export function antigravityActivity(session: ActivitySession, method: string, params: AcpFrame | null | undefined) {
+  if (method === TURN_DONE) return clear(session);
+  if (method !== 'session/update') return false;
+  const u = params?.update;
+  if (u?.sessionUpdate !== 'tool_call' && u?.sessionUpdate !== 'tool_call_update') return false;
+  const id = clean(u.toolCallId);
+  if (!id) return false;
+  if (u.status === 'completed' || u.status === 'failed') return finish(session, id);
+  if (u.status !== 'in_progress' && u.status !== 'pending') return false;
+  const tool = toolWordOf(u, STORE_SERVERS);
+  if (!tool) return false;
+  switch (tool.word) {
+    case 'Bash': {
+      const plain = commandWork(clean(tool.detail));
+      return add(session, id, plain ? `${plain.doing} ${plain.subject}`.trim() : `Running ${plainCommand(clean(tool.detail)) || 'command'}`, tool.detail);
+    }
+    case 'Edit': case 'Write': case 'Delete': case 'Move': return add(session, id, `Editing ${shortPath(tool.detail) || 'files'}`, tool.detail);
+    case 'Read': return add(session, id, `Reading ${shortPath(tool.detail) || 'file'}`, tool.detail);
+    case 'Grep': return add(session, id, `Searching ${clean(tool.detail) || 'files'}`, tool.detail);
+    case 'WebSearch': return add(session, id, 'Searching the web', tool.detail);
+    case 'WebFetch': return add(session, id, 'Reading web page', tool.detail);
+    default: {
+      if (isBookkeeping(tool.word)) return false;
+      const friendly = tool.word.split('__').pop()!.replace(/_/g, ' ');
+      return add(session, id, `Using ${friendly || 'tool'}`, clean(u.title));
+    }
   }
 }

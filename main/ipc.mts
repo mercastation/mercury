@@ -34,6 +34,7 @@ import {TerminalHosts,taskClosed} from './terminal-hosts.mts';
 import {SETTINGS_TERMINAL} from '../shared/settings-terminal.mts';
 import {AgentUpdates,installedAgent} from './agent-updates.mts';
 import {refreshAgentModels} from './refresh-agent-models.mts';
+import { readAntigravityModels } from './antigravity-models.mts';
 import {readInstruction,writeInstruction,listVersions,readVersion} from './instruction-settings.mts';
 import path from 'node:path';
 import os from 'node:os';
@@ -544,6 +545,7 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
     if (event.senderFrame?.parent || (event.sender && event.sender !== window.webContents)) throw Error('Usage is only available in the main app window.');
     // Codex's are files on this computer, read on every ask.
     if (engine === 'codex') return { readings: supervisor.codexAccountUsage() };
+    if (engine === 'antigravity') return { readings: [] };
     const profiles = effectiveProfiles(config.authProfiles, { home: config.home });
     // The cloud's logins too; a look takes a sandbox session, so the page is
     // not held for it and redraws off the snapshot when it lands.
@@ -726,7 +728,9 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
     // spends twenty-five seconds of somebody's machine on a number nothing will
     // draw -- which is what a Codex-only workflow paid every five minutes until
     // now. The Codex side never starts anything at all (main/codex-usage.mts).
-    const reading = usageFor === DEFAULT_ENGINE ? usage.read() : supervisor.codexUsage();
+    // An engine with no reading of its own (Antigravity) shows none, never another's.
+    const reading = usageFor === 'antigravity' ? null : usageFor === DEFAULT_ENGINE ? usage.read() : supervisor.codexUsage();
+    const readingOf = (id: string) => (id === DEFAULT_ENGINE ? usage.peek() : id === 'codex' ? supervisor.codexUsage() : null);
     const alpha = alphaFeatures(config, { onTeam: onTeamNow() });
     return snapshots.answer({
       products: store.listProducts(),
@@ -791,7 +795,7 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
       // rule is `engineWordFor`'s, in renderer/src/byline.ts.
       usage: reading && { engine: usageFor, ...reading },
       usageByEngine: engines.choices.map(({ id }) => {
-        const value = id === usageFor ? reading : id === DEFAULT_ENGINE ? usage.peek() : supervisor.codexUsage();
+        const value = id === usageFor ? reading : readingOf(id);
         return value ? { engine: id, ...value } : null;
       }).filter(Boolean),
       // WHETHER A NEWER AGENTBOX IS ALREADY DOWNLOADED AND WAITING. It rides the
@@ -2093,6 +2097,13 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
       return { ok: false, error: String((err as Error).message) };
     }
   });
+  ipcMain.handle('zero:antigravity-recheck', async () => {
+    try {
+      return { ok: true, workspace: await lookAgainFor('antigravity', config) };
+    } catch (err) {
+      return { ok: false, error: String((err as Error).message) };
+    }
+  });
 
   /*
    * AND WHEN NEITHER BUTTON CAN FIND IT: POINT AT THE FILE YOURSELF
@@ -2115,7 +2126,7 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
    * as words the row prints, the way `zero:choose-folder` already does.
    */
   ipcMain.handle('zero:engine-bin', async (_e, { engine, action }: { engine?: string; action?: string } = {}) => {
-    if (engine !== 'claude' && engine !== 'codex') return { ok: false, error: 'Unknown coding agent.' };
+    if (engine !== 'claude' && engine !== 'codex' && engine !== 'antigravity') return { ok: false, error: 'Unknown coding agent.' };
     try {
       // Handing the choice back needs no panel: it is the row saying "look for
       // it again", and the search takes over from there.
@@ -2126,7 +2137,7 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
       }
       const { dialog } = await import('electron');
       const r = await dialog.showOpenDialog(window as IpcWindow as AppWindow, {
-        title: engine === 'codex' ? 'Where is Codex?' : 'Where is Claude Code?',
+        title: engine === 'codex' ? 'Where is Codex?' : engine === 'antigravity' ? 'Where is Antigravity (agy)?' : 'Where is Claude Code?',
         buttonLabel: 'Use this one',
         properties: ['openFile', 'showHiddenFiles', 'treatPackageAsDirectory'],
       });
@@ -2153,6 +2164,7 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
         // nothing does not read as a computer with nothing on it.
         claude: async () => { const s = await lookAgainFor('claude', config) as Extract<LookedAgain, { claudeFound: unknown }>; return { found: s.claudeFound, path: s.claudeBin, certain: s.claudeCertain }; },
         codex: async () => { const s = await lookAgainFor('codex', config) as Extract<LookedAgain, { found: unknown }>; return { found: s.found, path: s.bin, certain: s.certain }; },
+        antigravity: async () => { const s = await lookAgainFor('antigravity', config) as Extract<LookedAgain, { found: unknown }>; return { found: s.found, path: s.bin, certain: s.certain }; },
       };
       return finders[engine]?.() ?? { found: false, path: null };
     },
@@ -2170,8 +2182,24 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
     void engineSetup.signedInNow('claude', config.claudeBin);
     void engineSetup.signedInNow('codex', config.codexBin);
   }
+  // Antigravity's model list and whether it is signed in are one call, and
+  // only `agy` can answer either; asked in the background at launch.
+  const readAntigravity = async () => {
+    const { signedIn } = await readAntigravityModels(config.antigravityBin);
+    if (signedIn !== null) config.antigravitySignedIn = signedIn;
+    return signedIn;
+  };
+  if (config.antigravityBin) void readAntigravity();
   // A sign-in left waiting on the browser is not left running after the app.
-  app.on('will-quit', () => { engineSetup.cancel('claude'); engineSetup.cancel('codex'); });
+  app.on('will-quit', () => { engineSetup.cancel('claude'); engineSetup.cancel('codex'); engineSetup.cancel('antigravity'); });
+  // Signing in to Antigravity happens in the Settings terminal, where agy can
+  // open the browser or take a pasted code; this is the one line it types.
+  ipcMain.handle('zero:antigravity-sign-in', () => {
+    if (!config.antigravityBin) return { ok: false, error: 'Antigravity (agy) is not installed on this computer.' };
+    try { terminals.close(JSON.stringify(SETTINGS_TERMINAL)); } catch { /* none open */ }
+    return { ok: true, command: `'${config.antigravityBin.replace(/'/g, `'\\''`)}' acp --login` };
+  });
+  ipcMain.handle('zero:antigravity-refresh', async () => ({ ok: true, signedIn: await readAntigravity() }));
   ipcMain.handle('zero:engine-setup', async (_e, { action, engine }: { action?: string; engine: string } = {} as { action?: string; engine: string }) => {
     if (!isEngine(engine)) return { ok: false, error: 'Unknown coding agent.' };
     try {

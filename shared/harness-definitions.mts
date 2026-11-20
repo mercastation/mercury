@@ -155,6 +155,29 @@ export const HARNESS_DEFINITIONS: readonly HarnessDefinition[] = freeze([
     // false until somebody turns it on deliberately.
     admitted: false,
   },
+  {
+    // Google's Antigravity CLI, driven over ACP (`agy acp`), so it has no `run`.
+    // Its sign-in is the person's Google account, kept by agy itself (the
+    // Keychain on a Mac), so there is no home variable and no credential file:
+    // a worker gets a home of the app's own with `--gemini-dir`
+    // (main/supervisor.mts `_antigravityLaunch`). agy has no sign-in status
+    // command; `agy models` needs a sign-in to list anything.
+    id: 'antigravity', label: 'Antigravity', word: 'Antigravity', binKey: 'antigravityBin',
+    homeEnv: '', accountPrefix: 'antigravity:', package: '',
+    commandMenu: 'antigravity', commandRoute: 'antigravity',
+    casks: ['antigravity-cli'],
+    installer: { shell: '/bin/bash', url: 'https://antigravity.google/cli/install.sh', pipe: 'bash' },
+    loginArgs: ['acp', '--login'], statusArgs: ['models'],
+    credentialFiles: [],
+    // A Gemini key (`gemini-api-key`) or Google Cloud credentials
+    // (`agent-platform`) in its environment would bill something other than the person's plan.
+    scrubPatterns: [
+      '^ANTHROPIC_', CLAUDE_CODE, '^CLAUDECODE$', '^CLAUDE_PID$', '^CLAUDE_EFFORT$', '^CLAUDE_CONFIG_DIR$', '^CLAUDE_SECURESTORAGE_CONFIG_DIR$',
+      '^OPENAI_', '^CODEX_', '^GEMINI_', '^GOOGLE_', '^CLOUDSDK_',
+    ],
+    capabilities: { nativeCommands: false, fork: false, nativeReview: false, remoteControl: false, inlineImages: true, claudeEffort: false, planLimits: false },
+    imageInstruction: 'Each one is attached to this message as an image, and is also on disk at the absolute path below.',
+  },
 ]);
 export function harnessDefinition(id: string = 'claude'): HarnessDefinition | null {
   return HARNESS_DEFINITIONS.find(h => h.id === id) ?? null;

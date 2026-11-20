@@ -20,6 +20,7 @@ const MAC = 'about the desktop app itself on this computer (its window, keys, up
 const KEYS = 'a keyboard shortcut, and a phone has no keyboard to learn';
 const SELLS = 'the phone app sells nothing, so the App Store takes no cut (guideline 3.1)';
 const SECRET = 'keys and tokens stay off the phone and out of the cloud copy';
+const AGY = 'agy is found on the computer and signed in in its terminal';
 
 const P = 'mobile/src/lib/palette.ts';
 const MENU = 'mobile/src/ui/ThreadMenu.tsx';
@@ -130,6 +131,7 @@ export const PARITY = {
   'settings-page:alpha': { phone: SET, find: "id: 'alpha'" },
   'settings-page:claude': { phone: SET, find: "id: 'claude'" },
   'settings-page:codex': { phone: SET, find: "id: 'codex'" },
+  'settings-page:antigravity': { desktopOnly: AGY },
   'settings-page:running': { phone: SET, find: "id: 'running'" },
   'settings-page:instructions': { phone: SET, find: "id: 'instructions'", still: 'ADHD mode only; the instruction text stays on the computer' },
   'settings-page:projects': { phone: SET, find: "id: 'projects'" },
@@ -164,6 +166,7 @@ export const PARITY = {
   'settings:codex/Signed in': { phone: SET, find: "key: 'activeAccount'" },
   'settings:codex/Cloud accounts': { phone: SET, find: 'cloudInUseName(s.settings!.workspace, engine)' },
   'settings:codex/Permission mode': { phone: SET, find: "key: 'codexMode'" },
+  'settings:antigravity/Signed in': { desktopOnly: AGY },
   'settings:files/Keep files in the cloud': { desktopOnly: MAC },
   'settings:files/Take big files off this computer': { desktopOnly: MAC },
   'settings:cloud/Your plan': { desktopOnly: SELLS },

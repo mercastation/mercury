@@ -162,6 +162,9 @@ export const REQUEST_CHANNELS: Readonly<Record<string, string>> = {
   settingsRead: 'zero:settings-read',
   claudeRecheck: 'zero:claude-recheck',
   codexRecheck: 'zero:codex-recheck',
+  antigravityRecheck: 'zero:antigravity-recheck',
+  antigravitySignIn: 'zero:antigravity-sign-in',
+  antigravityRefresh: 'zero:antigravity-refresh',
   // Point at the coding agent yourself, or hand the choice back to the search.
   // The browser tab has no file panel, so main answers it ok-with-nothing-done
   // there (main/serve.mts stubs showOpenDialog) and the row stays honest.

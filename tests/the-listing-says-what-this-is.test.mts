@@ -52,7 +52,7 @@ describe('the npm listing', () => {
     // The repo description she picked on 2026-10-16 (option A in
     // reports/listings-ready-to-submit.md), cut to its first sentence, so npm
     // and GitHub say the same thing. Not a paraphrase of it.
-    expect(said).toBe('A desktop GUI for running dozens of Claude Code and Codex agents in parallel, each in its own git worktree.');
+    expect(said).toBe('A desktop GUI for running dozens of Claude Code, Codex and Antigravity agents in parallel, each in its own git worktree.');
     // One sentence: the description is one line, not several sentences.
     expect(said.match(/\./g)).toHaveLength(1);
     // And it has to still be true when a third engine lands, which is what

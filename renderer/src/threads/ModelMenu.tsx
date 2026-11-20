@@ -25,7 +25,7 @@ export function ModelMenu({
   page: 'recent' | 'all';
   onPage: (page: 'recent' | 'all') => void;
   recent: readonly ModelPick[];
-  every: { claude: readonly ModelPick[]; codex: readonly ModelPick[] };
+  every: { claude: readonly ModelPick[]; codex: readonly ModelPick[]; antigravity?: readonly ModelPick[] };
   more: number;
   pick: ModelPick;
   onPick: (p: ModelPick) => void;
@@ -53,8 +53,9 @@ export function ModelMenu({
   const freeWhy = freeDate
     ? `Your ChatGPT plan ended ${freeDate}, so Codex offers fewer models.`
     : 'Codex offers fewer models on the ChatGPT free plan.';
-  const head = (engine: 'claude' | 'codex') => {
-    const u = updates[engine];
+  const head = (engine: ModelPick['engine']) => {
+    // agy updates itself, so its column offers no Update.
+    const u = engine === 'antigravity' ? null : updates[engine];
     const due = u && ['available', 'running', 'failed'].includes(u.state) ? u.state : null;
     const tag = engine === 'codex' && free;
     if (!due && !tag) return <span className="tc-menu-head">{engineLabel(engine)}</span>;
@@ -115,6 +116,12 @@ export function ModelMenu({
             <div className="tc-col">
               {head('codex')}
               {every.codex.map((p) => row(p))}
+            </div>
+          )}
+          {!!every.antigravity?.length && (
+            <div className="tc-col">
+              {head('antigravity')}
+              {every.antigravity.map((p) => row(p))}
             </div>
           )}
         </div>

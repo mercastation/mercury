@@ -1315,7 +1315,21 @@ const CODEX = {
   searchAgain: 'Look for it instead',
 } as const;
 
-type ConnectionCopy = typeof CLAUDE | typeof CODEX;
+const ANTIGRAVITY = {
+  ...CODEX,
+  name: 'Antigravity',
+  connected: 'Antigravity is connected',
+  connectedSay: `${Name} can see agy on this computer, so you can put a task on Antigravity. Sign in below once.`,
+  trouble: 'Antigravity is here but not working',
+  missing: 'Antigravity is not on this computer',
+  missingSay: `${Name} could not find agy, Antigravity's command line, on this computer. Install it, then check again.`,
+  missingLink: 'Get Antigravity',
+  unsureSay: `${Name} has not been able to look for agy on this computer. That is not the same as it being missing. Try again in a moment.`,
+  getSay: 'It takes a minute. Come back here and press Check again, and Antigravity is a choice on every task.',
+  pointSay: `If ${Name} is looking in the wrong place, show it where agy is.`,
+} as const;
+
+type ConnectionCopy = typeof CLAUDE | typeof CODEX | typeof ANTIGRAVITY;
 
 type EngineAccount = { email: string | null; name: string | null; plan: string | null; planNamed?: boolean; mode: string | null; accountId: string | null };
 
@@ -1375,7 +1389,7 @@ function Connection({ copy, check, engine, found, certain, bin, chosen = false, 
    *  when somebody points at the file themselves. The path comes back from the
    *  panel main opened; it never goes the other way (main/ipc.mts,
    *  `zero:engine-bin`). */
-  engine: 'claude' | 'codex';
+  engine: 'claude' | 'codex' | 'antigravity';
   /**
    * The search this card's button runs. It is the engine's own, because
    *  looking for Claude Code tells you nothing about Codex. */
@@ -1534,6 +1548,10 @@ const ClaudeCode = (props: EngineConnectionProps) => (
 
 const CodexCli = (props: EngineConnectionProps) => (
   <Connection copy={CODEX} check={api.recheckCodex} engine="codex" {...props} />
+);
+
+const AntigravityCli = (props: EngineConnectionProps) => (
+  <Connection copy={ANTIGRAVITY} check={api.recheckAntigravity} engine="antigravity" {...props} />
 );
 
 /* THE UPDATES GROUP CAME BACK, AS ONE ROW WITH ONE BUTTON (w-39d6c237f7,
@@ -1724,6 +1742,7 @@ function NavIcon({ id }: { id: SettingsPageId }) {
     phone: <><rect x="7" y="3" width="10" height="18" rx="2.2" /><path d="M11 17.5h2" /></>,
     claude: <><rect x="3.5" y="5" width="17" height="14" rx="2" /><path d="m7.5 10 2.5 2-2.5 2M12.5 14.5h4" /></>,
     codex: <><path d="m9 8-4 4 4 4M15 8l4 4-4 4" /></>,
+    antigravity: <><path d="m7 12.5 5-5 5 5" /><path d="M6.5 18.5h11" /></>,
     running: <><circle cx="12" cy="12" r="8" /><path d="M10.5 9.2v5.6l4.5-2.8z" /></>,
     cloud: <path d="M4 18V9M9.5 18V5M15 18v-6M20.5 18v-9" />,
     instructions: <path d="M6.5 3.5h7.5l4 4V20.5h-11.5zM14 3.5V8h4M9.5 12h5M9.5 16h5" />,
@@ -2233,6 +2252,56 @@ export function Settings({ look, onSetLook, onSkyTheme, tune, onSetTune, onReset
     );
   };
 
+  // ANTIGRAVITY HAS ONE SIGN-IN, the Google account agy holds itself, so its
+  // page is that one tile and the terminal that signs it in.
+  const antigravityPage = () => {
+    const a = w?.antigravity;
+    if (!a) return null;
+    const recheck = async () => {
+      await api.antigravityRefresh();
+      await load();
+      window.dispatchEvent(new Event('agent-models-changed'));
+    };
+    const signIn = async () => {
+      const r = await api.antigravitySignIn();
+      setAdding(r.ok ? { engine: 'antigravity', name: 'your Google account', command: r.command } : { engine: 'antigravity', name: 'your Google account', error: r.error });
+    };
+    const tile: PlaceAccount = {
+      key: 'antigravity',
+      name: 'Google account',
+      about: [a.signedIn ? 'Signed in' : a.signedIn === false ? 'Not signed in' : 'Not checked yet'],
+      meters: false,
+      use: a.signedIn ? null : { word: 'Sign in', onUse: () => void signIn() },
+    };
+    return (
+      <Page title="Antigravity">
+        {(!a.found || a.chosen) && <AntigravityCli found={a.found} certain={a.certain} bin={a.bin} chosen={!!a.chosen} url={a.url} onChecked={load} />}
+        {a.found && (
+          <>
+            <Place
+              id="usage"
+              name="Signed in"
+              action={<span className="acct-place-act"><button type="button" className="set-ghost" onClick={() => void recheck()}>Refresh</button></span>}
+              accounts={[tile]}
+            />
+            {adding && adding.engine === 'antigravity' && (
+              <div className="ac-adding">
+                <div className="ac-adding-top">
+                  <span>{adding.error ? 'Could not start the sign-in' : `Sign in to ${adding.name}`}</span>
+                  <button type="button" className="ac-adding-x" aria-label="Close" onClick={() => { setAdding(null); void api.terminal({ ...SETTINGS_TERMINAL, action: 'close' }); void recheck(); }}>&#215;</button>
+                </div>
+                {adding.error
+                  ? <p>{adding.error}</p>
+                  : <p>Finish signing in below. Open the link it shows, and paste the code back here if it asks.</p>}
+                {!adding.error && <SettingsTerminal command={adding.command} onFinished={() => void recheck()} />}
+              </div>
+            )}
+          </>
+        )}
+      </Page>
+    );
+  };
+
   return (
     <div className={`settings-screen${embedded ? ' settings-embedded' : ''}`} data-pane={typeof pane === 'string' ? pane : 'project'}>
       <div className="set-nav">
@@ -2455,6 +2524,7 @@ export function Settings({ look, onSetLook, onSkyTheme, tune, onSetTune, onReset
 
         {model && w && pane === 'claude' && enginePage('claude')}
         {model && w && pane === 'codex' && w.codex && enginePage('codex')}
+        {model && w && pane === 'antigravity' && antigravityPage()}
 
         {/* RUNNING: how many agents work at once, what holds them back when the
             Mac is short of memory, and which of your own reach the inbox. */}

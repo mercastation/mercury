@@ -166,8 +166,8 @@ describe('which engine a task runs on once the gate is open', () => {
 
 describe('the names the engine rule holds', () => {
   it('lists Claude Code first and Codex second', () => {
-    expect(ENGINES.map((e) => e.id)).toEqual(['claude', 'codex']);
-    expect(ENGINE_IDS).toEqual(['claude', 'codex']);
+    expect(ENGINES.map((e) => e.id)).toEqual(['claude', 'codex', 'antigravity']);
+    expect(ENGINE_IDS).toEqual(['claude', 'codex', 'antigravity']);
     expect(engineLabel('codex')).toBe('Codex');
     expect(engineLabel('cursor')).toBe('Claude Code');
     expect(engineLabel(null)).toBe('Claude Code');

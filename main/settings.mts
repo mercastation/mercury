@@ -22,7 +22,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { codexChoiceToOpen, saveConfig } from './config.mts';
 import { forgetClaudeBin, INSTALL_URL } from './claude-bin.mts';
-import { lookAgain } from './engine-bin.mts';
+import { lookAgain, forgetEngine, ENGINES as ENGINE_BINS } from './engine-bin.mts';
+import { antigravityModels } from './antigravity-models.mts';
+
+const ANTIGRAVITY_INSTALL_URL = ENGINE_BINS.antigravity.installUrl;
 import { AGENT_MODES } from '../shared/agents.mts';
 import type { AgentMode } from '../shared/agents.mts';
 import type { ProfileTrouble } from './supervisor.mts';
@@ -62,6 +65,9 @@ export interface SettingsConfig {
   codexFrom?: string | null;
   codexMode?: string | null;
   codexModel?: string | null;
+  antigravityBin?: string | null;
+  antigravityBinConfigured?: string | null;
+  antigravitySignedIn?: boolean | null;
   engineChoice?: unknown;
   outsideAgents?: unknown;
   sessionArgs?: string[] | null;
@@ -447,6 +453,7 @@ export function recheckClaude(config: SettingsConfig) {
  */
 export async function lookAgainFor(engine: string, config: SettingsConfig) {
   await lookAgain(engine);
+  if (engine === 'antigravity') return recheckAntigravity(config);
   return engine === 'claude' ? takeClaude(config) : takeCodex(config);
 }
 
@@ -542,6 +549,28 @@ function takeCodex(config: SettingsConfig) {
   return state;
 }
 
+/** Antigravity's card: where agy is, and whether `agy models` last said it is signed in (null: not asked yet). */
+export function antigravityState(config: SettingsConfig, { search = true }: { search?: boolean } = {}) {
+  const found = search
+    ? harnessFor('antigravity').discover(config.antigravityBinConfigured ?? null)
+    : { path: config.antigravityBin ?? null, found: !!config.antigravityBin, certain: true, from: config.antigravityBinConfigured ? 'settings' : null };
+  return {
+    bin: found.found ? (found.path ?? '') : '',
+    found: !!found.found,
+    certain: found.certain !== false,
+    url: ANTIGRAVITY_INSTALL_URL,
+    chosen: found.from === 'settings',
+    signedIn: typeof config.antigravitySignedIn === 'boolean' ? config.antigravitySignedIn : null,
+  };
+}
+
+export function recheckAntigravity(config: SettingsConfig) {
+  forgetEngine('antigravity');
+  const state = antigravityState(config);
+  config.antigravityBin = state.found ? state.bin : null;
+  return state;
+}
+
 /* ------------------- POINTING AT IT YOURSELF, AND BACK -------------------- */
 /**
  * THE WAY OUT OF A SEARCH THAT MISSED, AND IT IS NOT A RELEASE (w-ce8c1a9275).
@@ -569,7 +598,8 @@ function takeCodex(config: SettingsConfig) {
  * open panel itself produced. The sibling rule is
  * tests/where-codex-runs-from-is-not-a-file-a-worker-can-write.test.mts.
  */
-const BIN_KEY: Record<string, string> = { claude: 'claudeBin', codex: 'codexBin' };
+const BIN_KEY: Record<string, string> = { claude: 'claudeBin', codex: 'codexBin', antigravity: 'antigravityBin' };
+const recheckFor = (engine: string, config: SettingsConfig) => (engine === 'claude' ? recheckClaude(config) : engine === 'antigravity' ? recheckAntigravity(config) : recheckCodex(config));
 
 /** The sentence, or null when the file really is one we could run. */
 function whyNotAnAgent(chosen: unknown) {
@@ -603,7 +633,7 @@ export function pointAtEngineBin(config: SettingsConfig, engine: string, chosen:
   if (!config.appDir) return { ok: false, say: `${Name} has nowhere to save that.` };
   saveConfig(config, { [key]: chosen });
   config[`${engine}BinConfigured`] = chosen;
-  const state = engine === 'claude' ? recheckClaude(config) : recheckCodex(config);
+  const state = recheckFor(engine, config);
   return { ok: true, state };
 }
 
@@ -619,7 +649,7 @@ export function searchForEngineBin(config: SettingsConfig, engine: string) {
   if (!config.appDir) return { ok: false, say: `${Name} has nowhere to save that.` };
   saveConfig(config, { [key]: undefined });
   config[`${engine}BinConfigured`] = null;
-  const state = engine === 'claude' ? recheckClaude(config) : recheckCodex(config);
+  const state = recheckFor(engine, config);
   return { ok: true, state };
 }
 
@@ -976,8 +1006,9 @@ function engineSettings(supervisor: SettingsSupervisor, config: SettingsConfig, 
     // means.
     accounts: codexAccountRows(supervisor),
   };
+  const antigravity = antigravityState(config, { search });
   if (choices.length < 2 && !codexIsHome) {
-    return { engine, engineChoices: choices, codex, codexModels: [], codexModelDefault: null, codexModel: null };
+    return { engine, engineChoices: choices, codex, codexModels: [], codexModelDefault: null, codexModel: null, antigravity, antigravityModels: [] };
   }
   const home = supervisor._codexHome();
   const offered = supervisor._codexOfferHomes();
@@ -1008,6 +1039,9 @@ function engineSettings(supervisor: SettingsSupervisor, config: SettingsConfig, 
     // this; `Supervisor#effectiveCodexMode` is what a run reads, and it layers
     // the project's answer over this one.
     codexMode: isCodexMode(config.codexMode) ? config.codexMode : CODEX_DEFAULT_MODE,
+    antigravity,
+    // agy's own list (main/antigravity-models.mts), only where it is offered.
+    antigravityModels: choices.some((e) => (e as { id?: unknown } | null)?.id === 'antigravity') ? antigravityModels() : [],
   };
 }
 

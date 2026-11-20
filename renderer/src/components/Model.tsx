@@ -62,7 +62,8 @@ export function ModelPicker({ value, onChange, title, onOpenChange, engine = nul
   const {updates,start}=useAgentUpdates();
   const updateEngine=engine==='codex'?'codex':'claude';
   const update=updates[updateEngine];
-  const showUpdate=['available','running','failed'].includes(update?.state);
+  // agy updates itself, so an Antigravity drawer offers no Update.
+  const showUpdate=engine!=='antigravity'&&['available','running','failed'].includes(update?.state);
   const [cursor, setCursor] = useState(0);
   // A span, not a div: this sits inside a line of prose and a div there is not
   // phrasing content.

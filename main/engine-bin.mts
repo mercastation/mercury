@@ -335,6 +335,23 @@ export const ENGINES = {
       ]),
     },
   }),
+
+  /**
+   * Antigravity's CLI is optional, like Codex. Its installer puts one binary in
+   * ~/.local/bin and updates it in place; its state lives in ~/.gemini.
+   */
+  antigravity: engine({
+    bin: 'agy',
+    name: 'Antigravity',
+    installUrl: 'https://antigravity.google/docs/cli/install',
+    ownPaths: (home) => [path.join(home, '.local/bin/agy')],
+    evidence: (home) => [
+      path.join(home, '.gemini/antigravity-cli/settings.json'),
+      path.join(home, '.gemini/antigravity-cli/conversations'),
+      path.join(home, '.gemini/antigravity-cli'),
+    ],
+    windows: { ownPaths: (home) => [path.win32.join(home, '.local', 'bin', 'agy.exe')] },
+  }),
 };
 
 export type EngineKey = keyof typeof ENGINES;

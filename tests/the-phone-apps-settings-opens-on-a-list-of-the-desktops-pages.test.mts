@@ -20,8 +20,8 @@ import { SETTINGS_PAGES as DESKTOP } from '../renderer/src/settings-search';
 
 const pages = fs.readFileSync(new URL('../mobile/src/ui/SettingsPages.tsx', import.meta.url), 'utf8');
 const phone = [...pages.matchAll(/\{ id: '([\w-]+)', label: '([^']+)', group: '(\w+)'/g)].map(([, id, label, group]) => ({ id, label, group }));
-// Files is this computer's disk (mobile/parity.mjs).
-const OFF_THE_PHONE = ['shortcuts', 'files', 'cloud'];
+// Files is this computer's disk, and Antigravity is signed in in its terminal (mobile/parity.mjs).
+const OFF_THE_PHONE = ['shortcuts', 'files', 'antigravity', 'cloud'];
 
 describe('the pages', () => {
   it('are the desktop\'s, in its order, under its groups, with its names', () => {

@@ -20,7 +20,11 @@ import { REFUSAL_DECISION } from './codex-app-server.mts';
 
 import { fileVerbWord, type CodexItem } from './codex.mts';
 import type { ApprovalRequest } from './approval-prompt-core.mts';
-import { Name, isOurSlug } from '../shared/product-name.mjs';
+import { Name, isOurSlug, nameSlugs } from '../shared/product-name.mjs';
+import { antigravityApprovalCard, antigravityToolName, type AcpPermissionParams } from './antigravity.mts';
+
+/** The question an ACP agent asks (main/acp.mts), answered through this same spool. */
+export const ACP_PERMISSION = 'session/request_permission';
 
 /** What a card shows: the tool word the renderer draws and the fields it reads off `input`. */
 export interface CodexCard {
@@ -308,7 +312,24 @@ export function createCodexApprovals({
       return;
     }
 
-    const card = codexApprovalCard(method, params, seen);
+    // Antigravity over ACP: the same rule for the same servers, read off the
+    // tool name it gives (`mcp_<server>_<tool>`).
+    const servers = [context?.storeServer, ...(context?.connectionServers ?? [])].filter((s): s is string => !!s);
+    if (method === ACP_PERMISSION) {
+      const named = antigravityToolName((params as AcpPermissionParams | null | undefined)?.toolCall?.name, [...servers, ...nameSlugs]);
+      const server = /^mcp__(.+)__/.exec(named)?.[1] ?? '';
+      if (server && ((context?.storeServer && (server === context.storeServer || isOurSlug(server))) || context?.connectionServers?.includes(server))) {
+        resolve(ACCEPT_DECISION);
+        return;
+      }
+    }
+
+    const drawn = method === ACP_PERMISSION
+      ? antigravityApprovalCard(params as AcpPermissionParams | null | undefined, servers)
+      : codexApprovalCard(method, params, seen);
+    const card = drawn && method === ACP_PERMISSION
+      ? { tool: drawn.tool, input: Object.fromEntries(Object.entries(drawn.input).map(([k, v]) => [k, readable(v)])) }
+      : drawn;
     if (!card) {
       // Anything that cannot be described is refused. The refusal goes to the
       // worker's own stderr through `context.say`, so `troubleCause` and the run

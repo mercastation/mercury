@@ -1593,6 +1593,9 @@ export interface WorkspaceSettings {
    *  See main/codex-models.mts. */
   codexModels?: Array<{ id: string; label: string; levels?: string[]; defaultLevel?: string | null }>;
   codexModelDefault?: string | null;
+  /** Antigravity's card (main/settings.mts `antigravityState`); `signedIn` null until agy has been asked. */
+  antigravity?: { found: boolean; certain: boolean; bin: string; url: string; chosen?: boolean; signedIn: boolean | null };
+  antigravityModels?: Array<{ id: string; label: string; levels?: string[] }>;
   /** Set when every Codex login offered is on ChatGPT's free plan; `endedAt` is when the latest paid plan ended. */
   codexFreePlan?: { endedAt: number | null } | null;
   /**
@@ -2040,9 +2043,12 @@ declare global {
       redeliver?(p: { product: string; id: string }): Promise<{ ok: boolean; error?: string }>;
       claudeRecheck?(): Promise<{ ok: boolean; error?: string; workspace?: { claudeFound?: boolean; claudeCertain?: boolean; claudeInstallUrl?: string } }>;
       codexRecheck?(): Promise<{ ok: boolean; error?: string; workspace?: { found?: boolean; certain?: boolean } }>;
+      antigravityRecheck?(): Promise<{ ok: boolean; error?: string; workspace?: { found?: boolean; certain?: boolean } }>;
+      antigravitySignIn?(): Promise<{ ok: boolean; command?: string; error?: string }>;
+      antigravityRefresh?(): Promise<{ ok: boolean; signedIn?: boolean | null }>;
       codexAddAccount?(): Promise<AddedAccount>;
       claudeAddAccount?(): Promise<AddedAccount>;
-      engineBin(p: { engine: 'claude' | 'codex'; action?: 'search' }): Promise<Settings & { canceled?: boolean; refused?: string }>;
+      engineBin(p: { engine: 'claude' | 'codex' | 'antigravity'; action?: 'search' }): Promise<Settings & { canceled?: boolean; refused?: string }>;
       engineSetup?(p: { action: 'ready' | 'start' | 'status' | 'again' | 'cancel'; engine: 'claude' | 'codex' }): Promise<EngineSetupAnswer>;
       projectRename?(p: { product: string; name: string }): Promise<Settings>;
       projectIcon(p: { product: string }): Promise<Settings & { canceled?: boolean }>;

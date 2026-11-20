@@ -138,16 +138,16 @@ describe('the shell is asked before any list', () => {
 });
 
 describe('one registry, one strategy', () => {
-  it('holds both engines the app ships with, and nothing else', () => {
-    expect(engineKeys()).toEqual(['claude', 'codex']);
+  it('holds the engines the app ships with, and nothing else', () => {
+    expect(engineKeys()).toEqual(['claude', 'codex', 'antigravity']);
   });
 
   // THE POINT OF THE REGISTRY. A third harness is an entry: a bin name, where
   // the tool's own installer puts it, what it leaves behind, and where to get
   // it. Nothing below is engine-specific, which is what makes that true.
-  it.each(['claude', 'codex'])('declares %s as a name, a home, evidence and a link', (key) => {
+  it.each([['claude', 'claude'], ['codex', 'codex'], ['antigravity', 'agy']])('declares %s as a name, a home, evidence and a link', (key, bin) => {
     const engine = ENGINES[key];
-    expect(engine.bin).toBe(key);
+    expect(engine.bin).toBe(bin);
     expect(engine.name).toEqual(expect.any(String));
     expect(engine.installUrl).toMatch(/^https:\/\//);
     expect(engine.ownPaths(HOME).length).toBeGreaterThan(0);
@@ -157,12 +157,12 @@ describe('one registry, one strategy', () => {
   // THE LIST THAT WAS WRITTEN TWICE. Fourteen package-manager bin directories
   // were copied, in order, into both files; a path added to one and not the
   // other is how one engine quietly stops being found where the other is.
-  it('generates every package manager path from one list, for both engines', () => {
+  it('generates every package manager path from one list, for every engine', () => {
     const dirs = sharedBinDirs(HOME);
     expect(dirs.length).toBeGreaterThanOrEqual(14);
     for (const key of engineKeys()) {
       const paths = ENGINES[key].candidates(HOME, () => []);
-      for (const dir of dirs) expect(paths).toContain(path.join(dir, key));
+      for (const dir of dirs) expect(paths).toContain(path.join(dir, ENGINES[key].bin));
     }
   });
 
@@ -172,7 +172,7 @@ describe('one registry, one strategy', () => {
   it('never offers one engine a path belonging to the other', () => {
     for (const key of engineKeys()) {
       for (const p of ENGINES[key].candidates(HOME, () => ['v22.14.0'])) {
-        expect(path.basename(p)).toBe(key);
+        expect(path.basename(p)).toBe(ENGINES[key].bin);
       }
     }
   });

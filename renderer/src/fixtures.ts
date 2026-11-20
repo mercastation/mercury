@@ -1255,6 +1255,14 @@ export function fixtureEngineSettings(world: FixtureEngineWorld | null): Partial
       found: true, certain: true, bin: CODEX_BIN, url: CODEX_INSTALL_URL, trouble: null,
       accounts: [{ profile: 'default', email: 'you@example.com', name: null, plan: 'Plus', accountId: null, signedIn: true, chosen: false }],
     },
+    // What `agy models` listed on 2026-11-19, folded as main/antigravity-models.mts folds it.
+    antigravity: { found: true, certain: true, bin: '/Users/you/.local/bin/agy', url: 'https://antigravity.google/docs/cli/install', signedIn: true },
+    antigravityModels: [
+      { id: 'gemini-4-neon', label: 'Gemini 4 Neon', levels: ['high', 'xhigh', 'medium', 'low'] },
+      { id: 'gemini-4-argon', label: 'Gemini 4 Argon', levels: ['medium', 'high', 'low'] },
+      { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash', levels: ['high', 'medium', 'low'] },
+      { id: 'claude-opus-5-5', label: 'Claude Opus 5.5', levels: ['low', 'medium', 'high'] },
+    ],
   };
 }
 

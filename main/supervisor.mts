@@ -177,6 +177,10 @@ import type { CodexServerClient, ConnectionServer, ConnectionServers } from './c
 import { CODEX_DEFAULT_MODE, isCodexMode } from '../shared/codex-modes.mts';
 import { cloudCodexMode } from './cloud-permission.mts';
 import { createCodexApprovals } from './codex-approvals.mts';
+import { createAntigravityWorker } from './antigravity-worker.mts';
+import type { AcpMcpServer, AntigravityWorker } from './antigravity-worker.mts';
+import { antigravityMode } from './antigravity.mts';
+import { antigravityModels } from './antigravity-models.mts';
 import { approvalPublicKey, listPending } from './approvals.mts';
 import { connectionLine, filesComeFirst } from '../shared/connections-catalog.mts';
 import { codexDefaultModel, codexHome, codexKnownSlugs, codexModelLevels, codexModels } from './codex-models.mts';
@@ -323,6 +327,8 @@ export interface SupervisorConfig {
   codexProfiles?: string[] | null;
   codexBin?: string | null;
   claudeBin?: string | null;
+  antigravityBin?: string | null;
+  antigravitySignedIn?: boolean | null;
   codexHome?: string | null;
   codexModel?: string | null;
   codexMode?: string | null;
@@ -3123,7 +3129,9 @@ export class Supervisor {
    *  this Mac runs on Codex alone: with neither, the app refuses to open an
    *  inbox and says so in its own words, so a second sentence here is noise. */
   _engineCanRun(engine: string) {
-    return engineOf(engine) === DEFAULT_ENGINE ? this._homeEngine() === DEFAULT_ENGINE : !!this.config.codexBin;
+    const which = engineOf(engine);
+    if (which === DEFAULT_ENGINE) return this._homeEngine() === DEFAULT_ENGINE;
+    return !!(this.config as unknown as Record<string, unknown>)[harnessFor(which).binKey];
   }
 
   /**
@@ -9943,7 +9951,10 @@ export class Supervisor {
   // The Claude reading is the picked login's (or the first), which is the one
   // the usage corner reads; a look-back on a rotating Mac may bill another.
   _roomToLookBack(engine: string | null, now = Date.now()) {
-    if (engineOf(this._engineFor({ engine } as WorkItem)) !== DEFAULT_ENGINE) return roomToLookBack(this.codexUsage(), now);
+    const which = engineOf(this._engineFor({ engine } as WorkItem));
+    // Antigravity reports no usage, so there is no reading that shows room.
+    if (which === 'antigravity') return false;
+    if (which !== DEFAULT_ENGINE) return roomToLookBack(this.codexUsage(), now);
     const profile = this._theOneAccount(DEFAULT_ENGINE, this._profiles())[0] ?? 'default';
     return roomToLookBack(this._usageSeen?.[profile], now);
   }
@@ -10992,7 +11003,7 @@ export class Supervisor {
     // come from the sign-in check (main/engine-setup.mts); until it has
     // answered, nothing moves.
     const claudeSignedOut = this.config.claudeSignedIn === false && codex && this.config.codexSignedIn === true && !this._addedClaudeSignedIn();
-    return { claude: this.config.claudeFound !== false && !claudeSignedOut, codex };
+    return { claude: this.config.claudeFound !== false && !claudeSignedOut, codex, antigravity: !!this.config.antigravityBin };
   }
 
   /** The launch check only asks the default login, so a signed-in added account must be counted here. */
@@ -11079,6 +11090,8 @@ export class Supervisor {
    */
   runsOnAccount(engine: string = this._engineFor(null)) {
     const home = this.config.home;
+    // agy holds its one sign-in itself; `agy models` is what last said whether there is one.
+    if (engine === 'antigravity') return this.config.antigravityBin && this.config.antigravitySignedIn !== false ? { engine } : null;
     if (engine === 'codex') {
       const pool = this._theOneAccount('codex', this._codexProfiles());
       return runsOn({ engine, home, codexHome: this._codexProfileHome(pool[0] ?? 'default') });
@@ -11393,6 +11406,62 @@ export class Supervisor {
     // `codexThreadParamsFor` that refuses, by throwing, which lands in
     // `createCodexWorker`'s own catch -- on a microtask, long after every
     // listener is on -- and stops the run instead of narrating past it.
+    return worker;
+  }
+
+  /** agy's home for every worker (`--gemini-dir`): the app's own, so none of the person's own agy settings, MCP servers, plugins or rules reach a run. */
+  _antigravityHome() {
+    return path.join(this.userDir, 'antigravity');
+  }
+
+  /** What one Antigravity run is started with: the command line, and the store and the connections in ACP's shape. */
+  _antigravityLaunch(plan: SpawnPlan, item: Pick<WorkItem, 'id' | 'product'>) {
+    const acp = (name: string, server: { command: string; args?: string[]; env?: Record<string, string | null | undefined> }): AcpMcpServer => ({
+      name,
+      command: server.command,
+      args: [...(server.args ?? [])],
+      env: Object.entries(server.env ?? {}).filter((e): e is [string, string] => typeof e[1] === 'string').map(([key, value]) => ({ name: key, value })),
+    });
+    const store = this._codexStoreServer(item as WorkItem);
+    const connections = plan.connectionServers ?? {};
+    return {
+      bin: this.config.antigravityBin ?? null,
+      args: ['acp', '--disable-telemetry', '--gemini-dir', this._antigravityHome()],
+      mcpServers: [...(store?.name ? [acp(store.name, store)] : []), ...Object.entries(connections).map(([name, server]) => acp(name, server))],
+      storeServer: store?.name ?? null,
+      connectionServers: Object.keys(connections),
+    };
+  }
+
+  _spawnAntigravityWorker(plan: SpawnPlan, { cwd, item, env }: { cwd: string; item: WorkItem; env: NodeJS.ProcessEnv }) {
+    const launch = this._antigravityLaunch(plan, item);
+    let worker: AntigravityWorker | null = null;
+    const cards = this._codexApprovals().scope({
+      product: item.product,
+      item: item.id,
+      storeServer: launch.storeServer,
+      connectionServers: launch.connectionServers,
+      say: (line: string) => worker?.stderr?.emit?.('data', line),
+    });
+    worker = createAntigravityWorker({
+      spawnAgent: () => {
+        if (!launch.bin) throw new Error('Antigravity (agy) could not be found on this computer.');
+        return spawn(launch.bin, launch.args, { cwd, env: { ...env, ZERO_PRODUCT: item.product, ZERO_ITEM: item.id }, stdio: ['pipe', 'pipe', 'pipe'] });
+      },
+      cwd,
+      prompt: String(plan.prompt ?? ''),
+      system: plan.system ?? null,
+      mcpServers: launch.mcpServers,
+      resumeSessionId: plan.resumeId ?? null,
+      model: typeof plan.model === 'string' ? plan.model : null,
+      effort: typeof plan.effort === 'string' ? plan.effort : null,
+      mode: antigravityMode(plan.answerMode),
+      pictures: Array.isArray(plan.pictures) ? plan.pictures : [],
+      onApproval: cards.handle,
+    });
+    worker.once('exit', () => {
+      try { cards.close('the run that asked this has stopped'); } catch (e) { console.warn('zero: could not close an antigravity worker cards:', (e as Error)?.message ?? e); }
+    });
     return worker;
   }
 
@@ -14178,8 +14247,10 @@ export class Supervisor {
    * (tests/a-run-can-read-which-model-and-effort-it-is-on).
    */
   _whatThisRunIsOn(engine: string, model: string | null, effort: string | null) {
-    const word = engine === 'claude' ? model : this._codexModelWord({ model } as SpawnPlan);
-    const named = engine === 'claude' && word ? this._claudeModelLabel(word) : word;
+    const word = engine === 'claude' || engine === 'antigravity' ? model : this._codexModelWord({ model } as SpawnPlan);
+    const named = engine === 'claude' && word ? this._claudeModelLabel(word)
+      : engine === 'antigravity' && word ? (antigravityModels().find((m) => m.id === word)?.label ?? word)
+        : word;
     const line = runIsOnLine(engine, named, effort);
     if (!line) return null;
     return [

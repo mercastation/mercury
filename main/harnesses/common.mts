@@ -8,13 +8,14 @@ import type { CodexFrame } from '../codex.mts';
 
 export type Env = NodeJS.ProcessEnv;
 
-export type BinKey = 'claudeBin' | 'codexBin' | 'opencodeBin';
+export type BinKey = 'claudeBin' | 'codexBin' | 'opencodeBin' | 'antigravityBin';
 
 export interface HarnessConfig extends Partial<Record<BinKey, string | null>> {
   home?: string;
   accountId?: string;
   storeRoot?: string;
   cloudPermission?: string | null;
+  antigravitySignedIn?: boolean | null;
 }
 
 export interface HarnessRun {
@@ -156,6 +157,8 @@ export interface HarnessSupervisor {
   _releaseIdleCodex(profile: string): unknown;
   _openCodePassword?(): string | null;
   _openCodeApprovals?(item: HarnessItem): ((type: string, properties: OpenCodeProperties) => unknown) | null;
+  _antigravityHome(): string;
+  _spawnAntigravityWorker(plan: HarnessPlan, context: HarnessSpawnContext): unknown;
 }
 
 export interface CodexClient {

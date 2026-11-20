@@ -366,6 +366,7 @@ export function ThreadComposer({
   const engineRows = engines?.length ? engines : [ENGINES[0]];
   const codexOffered = engineRows.some((e) => e.id === 'codex');
   const claudeOffered = engineRows.some((e) => e.id === 'claude');
+  const antigravityOffered = engineRows.some((e) => e.id === 'antigravity');
   const codexDefault = codexModelDefault ?? null;
   const modelOpts = { codexModels, codexDefault };
   // The agent is the default from Settings, not the last one picked: a pick
@@ -415,10 +416,10 @@ export function ThreadComposer({
   // Recent rows say which agent runs them, where there are two.
   const engineTags = agentChoices(engineRows).length > 0;
   const recent = useMemo(
-    () => recentModels(items, { codexModels, codexDefault, codexOffered, claudeOffered }),
-    [items, codexModels, codexDefault, codexOffered, claudeOffered],
+    () => recentModels(items, { codexModels, codexDefault, codexOffered, claudeOffered, antigravityOffered }),
+    [items, codexModels, codexDefault, codexOffered, claudeOffered, antigravityOffered],
   );
-  const every = useMemo(() => allModels({ codexModels, codexOffered, claudeOffered }), [codexModels, codexOffered, claudeOffered]);
+  const every = useMemo(() => allModels({ codexModels, codexOffered, claudeOffered, antigravityOffered }), [codexModels, codexOffered, claudeOffered, antigravityOffered]);
   const more = moreCount(recent, every);
 
   /* ------------------------------ menus --------------------------------- */

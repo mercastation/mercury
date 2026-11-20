@@ -3022,17 +3022,19 @@ function DockComposer({ item, onItsWay = null, runningMode, runningEngine, codex
   const engineRows = engines?.length ? engines : [ENGINES[0]];
   const codexOffered = engineRows.some((e) => e.id === 'codex');
   const claudeOffered = engineRows.some((e) => e.id === 'claude');
+  const antigravityOffered = engineRows.some((e) => e.id === 'antigravity');
   const modelOpts = { codexModels, codexDefault: codexModelDefault };
   // The agent the row runs on now, as main resolved it, and the one the menu
   // is showing, which is the same until she picks the other.
-  const engineNow: Harness = (runningEngine === 'codex' ? 'codex' : 'claude');
-  const engineShown: Harness = engineChosen === 'codex' ? 'codex' : engineChosen === 'claude' ? 'claude' : engineNow;
+  const asHarness = (id: string | null | undefined): Harness | null => (id === 'codex' || id === 'claude' || id === 'antigravity' ? id : null);
+  const engineNow: Harness = asHarness(runningEngine) ?? 'claude';
+  const engineShown: Harness = asHarness(engineChosen) ?? engineNow;
   const pick: ModelPick = { engine: engineShown, model: model ?? defaultModelFor(engineShown, codexModelDefault) };
   const recent = useMemo(
-    () => recentModels(items, { codexModels, codexDefault: codexModelDefault, codexOffered, claudeOffered }),
-    [items, codexModels, codexModelDefault, codexOffered, claudeOffered],
+    () => recentModels(items, { codexModels, codexDefault: codexModelDefault, codexOffered, claudeOffered, antigravityOffered }),
+    [items, codexModels, codexModelDefault, codexOffered, claudeOffered, antigravityOffered],
   );
-  const every = useMemo(() => allModels({ codexModels, codexOffered, claudeOffered }), [codexModels, codexOffered, claudeOffered]);
+  const every = useMemo(() => allModels({ codexModels, codexOffered, claudeOffered, antigravityOffered }), [codexModels, codexOffered, claudeOffered, antigravityOffered]);
   const effortRows = effortChoicesFor(engineShown, pick.model, modelOpts);
   const effortLit = effortShown(effort, effortRows, defaultEffortFor(engineShown, pick.model, modelOpts));
   // A LEVEL BELONGS TO THE MODEL IT WAS PICKED FOR, so crossing to the other

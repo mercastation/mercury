@@ -228,6 +228,11 @@ contextBridge.exposeInMainWorld('zero', {
   // it is also what makes the Coding agent row appear, because the path the
   // search lands on is the one that row is drawn from.
   codexRecheck: () => ipcRenderer.invoke('zero:codex-recheck'),
+  // And Antigravity's: look for agy, the line that signs it in, and asking it
+  // again afterwards whether it is signed in.
+  antigravityRecheck: () => ipcRenderer.invoke('zero:antigravity-recheck'),
+  antigravitySignIn: () => ipcRenderer.invoke('zero:antigravity-sign-in'),
+  antigravityRefresh: () => ipcRenderer.invoke('zero:antigravity-refresh'),
   // AND WHEN NEITHER SEARCH CAN FIND IT: point at the file yourself, or hand
   // the choice back so the search takes over again. `{ engine }` opens the
   // picker in main and applies what it produced in the same trip, so no path

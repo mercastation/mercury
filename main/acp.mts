@@ -193,15 +193,21 @@ export function createAcpClient({
     return true;
   }
 
-  function request(method: string, params: unknown) {
+  // `timeoutMs` of 0 waits for as long as the connection lives. That is right
+  // for exactly one request, `session/prompt`, which answers only when the
+  // whole turn is over: a real task runs for minutes and a deadline would end
+  // it in the middle. Its ways out are a cancel, which the protocol answers
+  // with `cancelled`, and the connection closing, which rejects it below.
+  function request(method: string, params: unknown, timeoutMs: number = requestTimeoutMs) {
     if (gone) return Promise.reject(Error(gone));
     const id = nextId++;
     return new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
         pending.delete(id);
-        reject(Error(`${method} did not answer within ${requestTimeoutMs}ms`));
-      }, requestTimeoutMs);
+        reject(Error(`${method} did not answer within ${timeoutMs}ms`));
+      }, timeoutMs > 0 ? timeoutMs : 2 ** 31 - 1);
       timer.unref?.();
+      if (!(timeoutMs > 0)) clearTimeout(timer);
       pending.set(id, { resolve, reject, timer, method });
       if (!write({ jsonrpc: '2.0', id, method, params })) {
         clearTimeout(timer);
@@ -234,11 +240,14 @@ export function createAcpClient({
     return true;
   }
 
+  // `permissionTimeoutMs` of 0 lets a question wait for its person, as the
+  // inbox's cards do: a cancel, the connection closing or their answer ends it.
   function askPermission(id: RpcId, params: PermissionParams | null | undefined) {
     const options = Array.isArray(params?.options) ? params.options : [];
     const deny = () => settlePermission(id, rejectionOption(options));
-    const timer = setTimeout(deny, permissionTimeoutMs);
+    const timer = setTimeout(deny, permissionTimeoutMs > 0 ? permissionTimeoutMs : 2 ** 31 - 1);
     timer.unref?.();
+    if (!(permissionTimeoutMs > 0)) clearTimeout(timer);
     permissions.set(id, { sessionId: params?.sessionId ?? null, options, timer });
     if (!onPermission) return deny();
     // The asker may answer whenever: the reading loop is not waiting on it.
@@ -333,21 +342,46 @@ export function createAcpClient({
       if (capability === 'image' || capability === 'audio' || capability === 'embeddedContext') {
         return agent.promptCapabilities?.[capability] === true;
       }
+      // `session/resume` is advertised as an object under
+      // `sessionCapabilities`, not as a boolean beside `loadSession`.
+      if (capability === 'resume') {
+        const session = agent.sessionCapabilities as Record<string, unknown> | undefined;
+        return !!session && typeof session.resume === 'object' && session.resume !== null;
+      }
       return agent[capability] === true;
     },
+    /** What the agent said about itself beyond the protocol (`_meta`), as it said it. */
+    agentMeta: () => (negotiated?.agentCapabilities?._meta ?? null) as Record<string, unknown> | null,
     authMethods: () => negotiated?.authMethods ?? [],
     authenticate: (methodId: string) => request('authenticate', { methodId }),
-    newSession: ({ cwd, mcpServers = [], additionalDirectories }: { cwd: string; mcpServers?: unknown[]; additionalDirectories?: string[] }) =>
-      request('session/new', { cwd, mcpServers, ...(additionalDirectories ? { additionalDirectories } : {}) }),
-    loadSession({ sessionId, cwd, mcpServers = [] }: { sessionId: string; cwd: string; mcpServers?: unknown[] }) {
+    // `_meta` is the protocol's one place for what a particular agent adds,
+    // such as Antigravity's appended system prompt. It goes on the wire only
+    // when given, so an agent that never asked for one is sent nothing new.
+    newSession: ({ cwd, mcpServers = [], additionalDirectories, _meta }: { cwd: string; mcpServers?: unknown[]; additionalDirectories?: string[]; _meta?: Record<string, unknown> }) =>
+      request('session/new', { cwd, mcpServers, ...(additionalDirectories ? { additionalDirectories } : {}), ...(_meta ? { _meta } : {}) }),
+    loadSession({ sessionId, cwd, mcpServers = [], _meta }: { sessionId: string; cwd: string; mcpServers?: unknown[]; _meta?: Record<string, unknown> }) {
       // Refused before anything reaches the wire, so a thread cannot be
       // silently restarted as an empty conversation on a tool that cannot
       // resume. The caller's job is then to say so on the row.
       if (!this.can('loadSession')) return Promise.reject(Error('This agent cannot resume a session, so there is no thread to load'));
-      return request('session/load', { sessionId, cwd, mcpServers });
+      return request('session/load', { sessionId, cwd, mcpServers, ...(_meta ? { _meta } : {}) });
     },
+    /**
+     * PICK A CONVERSATION BACK UP WITHOUT HEARING IT AGAIN. `session/load`
+     * replays the whole history as updates, and a replayed answer read as a
+     * new one is an answer delivered twice. `session/resume` reopens it
+     * silently, and is refused here for an agent that never offered it.
+     */
+    resumeSession({ sessionId, cwd, mcpServers = [], _meta }: { sessionId: string; cwd: string; mcpServers?: unknown[]; _meta?: Record<string, unknown> }) {
+      if (!this.can('resume')) return Promise.reject(Error('This agent cannot reopen a session without replaying it'));
+      return request('session/resume', { sessionId, cwd, mcpServers, ...(_meta ? { _meta } : {}) });
+    },
+    setMode: ({ sessionId, modeId }: { sessionId: string; modeId: string }) => request('session/set_mode', { sessionId, modeId }),
+    setModel: ({ sessionId, modelId }: { sessionId: string; modelId: string }) => request('session/set_model', { sessionId, modelId }),
+    setConfigOption: ({ sessionId, configId, value }: { sessionId: string; configId: string; value: unknown }) => request('session/set_config_option', { sessionId, configId, value }),
+    // No deadline: the answer is the end of the turn (see `request`).
     prompt: ({ sessionId, text, blocks = null }: { sessionId: string; text?: string; blocks?: unknown[] | null }) =>
-      request('session/prompt', { sessionId, prompt: blocks ?? [{ type: 'text', text }] }),
+      request('session/prompt', { sessionId, prompt: blocks ?? [{ type: 'text', text }] }, 0),
     /**
      * Stop the turn, and answer what it was parked on. The protocol says a
      * cancelled turn MUST be answered `cancelled`, and this is the only place

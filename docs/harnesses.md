@@ -239,6 +239,44 @@ Sources: [OpenCode providers](https://opencode.ai/docs/providers/),
 [Conductor's OpenCode harness](https://www.conductor.build/docs/reference/harnesses/opencode),
 [Conductor providers](https://www.conductor.build/docs/guides/providers).
 
+## Antigravity: the first agent on ACP, measured and admitted
+
+Google's Antigravity CLI (`agy`) is driven over ACP with `agy acp`, which it
+offers to any ACP client. Measured on agy 1.5.13, 2026-11-19, with a real
+Google sign-in:
+
+- **Sign-in** is the Google account, kept by agy itself: the Keychain on a Mac
+  (without a keyring its release notes say it keeps a file; not yet seen).
+  `agy acp --login` signs in
+  (a browser, or a link and a pasted code without one). There is no status
+  command; `agy models` exits 1 signed out. A Gemini key or Google Cloud
+  credentials in its environment would bill something else, so the worker
+  scrub takes `GEMINI_*`, `GOOGLE_*` and `CLOUDSDK_*`.
+- **A home of the app's own.** `--gemini-dir <dir>` moves its whole config,
+  conversations included, and kept the Keychain sign-in, so a worker reads
+  none of the person's own agy settings, MCP servers, plugins or rules.
+- **Instructions** ride `_meta.antigravity.systemPrompt.append` on
+  `session/new` (advertised as `agentCapabilities._meta.antigravity.systemPrompt.append`).
+- **MCP servers** passed on `session/new` start with the agent's own
+  environment plus the ones named, and a call to one asks permission like any
+  tool. Store and connection tools are answered without a card, as for Codex.
+- **Approvals** come as `session/request_permission` with two options,
+  `allow` (allow_once) and `deny` (reject_once). Deny was enforced (the tool
+  reported failed and the file was never written); cancelling a turn while a
+  question stood answered `cancelled` and nothing ran.
+- **Mode.** A session starts in `default`, which asks before every edit and
+  command. Workers run in `auto`: commands run in agy's sandbox (in the folder,
+  no network) and it asks to leave it (`BypassSandbox`), the equivalent of
+  Codex's Auto. Deleting a folder inside the workspace did not ask.
+- **Resume.** `session/resume` reopened a conversation in a new process, after
+  a `kill -9` mid-turn, without replaying it.
+- **Models and levels** are `configOptions` `model` and `thought_level`;
+  `agy models` lists them as `<model>-<level>`. A model with no levels (the
+  orchestrators) has no `thought_level` option.
+- **Missing, declared so:** usage (agy shows quota only in its own screen),
+  compaction, its slash commands, forking, remote input, updates (agy updates
+  itself).
+
 The useful precedent from T3 Code is an adapter between provider behavior and
 orchestration. Herdr keeps agents in normal terminals and uses detection
 manifests or reported states; Mercury continues to use structured protocols.

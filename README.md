@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Give your agents an inbox.</strong><br>
-  Run dozens of Claude Code and Codex agents in parallel, each in its own git worktree,<br>
+  Run dozens of Claude Code, Codex and Antigravity agents in parallel, each in its own git worktree,<br>
   and only hear from the ones that need you.
 </p>
 

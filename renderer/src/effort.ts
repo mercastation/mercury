@@ -13,7 +13,7 @@
 // main/codex-models.mts).
 
 import { EFFORT_LEVELS, effortLabel, isEffort, isEffortWord } from '../../shared/effort-levels.mts';
-import { CODEX_OWN, claudeModelRows, defaultModelFor, type ModelChoice } from './models';
+import { CODEX_OWN, antigravityModelRows, claudeModelRows, defaultModelFor, type ModelChoice } from './models';
 
 export interface EffortChoice {
   /** What the engine is sent: `--effort <id>` for Claude Code, `turn/start`'s `effort` for Codex. */
@@ -41,6 +41,10 @@ export function effortChoicesFor(
   model: string | null,
   { codexModels = [], codexDefault = null }: { codexModels?: ModelChoice[]; codexDefault?: string | null } = {},
 ): EffortChoice[] {
+  if (engine === 'antigravity') {
+    const row = model ? antigravityModelRows().find((m) => m.id === model) : null;
+    return (row?.levels ?? []).filter((l) => isEffortWord(l)).map((l) => ({ id: l, label: effortLabel(l) ?? l }));
+  }
   if (engine !== 'codex') return EFFORTS;
   const id = model ?? defaultModelFor(engine, codexDefault);
   if (id === CODEX_OWN) return [];
@@ -81,6 +85,8 @@ export function defaultEffortFor(
   { codexModels = [], codexDefault = null }: { codexModels?: ModelChoice[]; codexDefault?: string | null } = {},
 ): string | null {
   const id = model ?? defaultModelFor(engine, codexDefault);
+  // agy does not say which level a model thinks at on its own.
+  if (engine === 'antigravity') return null;
   if (engine === 'codex') {
     if (id === CODEX_OWN) return null;
     return codexModels.find((m) => m.id === id)?.defaultLevel ?? null;

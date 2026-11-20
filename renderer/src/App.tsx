@@ -25,7 +25,7 @@ import { readySkin, swapLook } from './look-switch';
 import type { AgentTurn, AnswerMode, Approval, ApprovalInput, CloudPlan, PermissionMode, Product, RepeatRule, RepeatShape, RunningSession, Snapshot, TableCell, ThreadCard, ThreadStateWord, View, WorkItem } from './types';
 import type { ReplyPick } from './reply-pick';
 import { api } from './api';
-import { setClaudeModels, setCodexFreePlan } from './models';
+import { setAntigravityModels, setClaudeModels, setCodexFreePlan } from './models';
 import { codexFromSettings } from './web-settings';
 import { advanceAfter, advanceLandsHere, pickSentWords, pickStaysPut, replyMovesOn, opensIntoNeedsYou, nextAfterAdvance, sayWhoseBox, sentLineSays, type Advance } from './advance';
 import { arrowRows, spotIn, stepIn } from './one-thing-at-a-time';
@@ -1336,6 +1336,7 @@ export default function App() {
       const codex = codexFromSettings(s as Parameters<typeof codexFromSettings>[0]);
       if (Array.isArray(codex.models)) setCodexModels(codex.models);
       setCodexModelDefault(codex.defaultModel);
+      setAntigravityModels((s.workspace as { antigravityModels?: unknown } | undefined)?.antigravityModels);
     }).catch(() => { /* nothing here stops because a setting did not read */ });
     void readModels();window.addEventListener('agent-models-changed',readModels);
     return()=>window.removeEventListener('agent-models-changed',readModels);

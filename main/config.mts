@@ -10,7 +10,7 @@ import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
 import { resolveClaudeBin, candidatePaths } from './claude-bin.mts';
-import { warmShellAnswers, type EngineFrom } from './engine-bin.mts';
+import { warmShellAnswers, resolveEngine, type EngineFrom } from './engine-bin.mts';
 import { resolveCodexBin } from './codex-bin.mts';
 import { defaultStoreRoot } from './store/home.mts';
 import { machineSlots } from './machine.mts';
@@ -74,6 +74,9 @@ export interface Config extends ConfigDefaults {
   codexFound: boolean;
   codexCertain: boolean;
   codexFrom: EngineFrom | null;
+  antigravityBinConfigured: string | null;
+  antigravityBin: string | null;
+  antigravityFound: boolean;
   machineSlots: number;
   authProfiles?: string[] | null;
   home: string;
@@ -310,6 +313,13 @@ export function loadConfig(appDir: string, { home = os.homedir() }: { home?: str
   // that, or who added Codex later, never saw Codex anywhere. Written at the
   // end, once `appDir` is on the config to save through.
   const codexOpened = codexChoiceToOpen(config, codex.found);
+  // Optional like Codex: a miss is null, which is how `engineFor` reads "not here".
+  config.antigravityBinConfigured = typeof overrides.antigravityBin === 'string' && overrides.antigravityBin
+    ? overrides.antigravityBin
+    : null;
+  const antigravity = resolveEngine('antigravity', config.antigravityBinConfigured);
+  config.antigravityBin = antigravity.found ? antigravity.path : null;
+  config.antigravityFound = antigravity.found;
   // HOW MANY AGENTS AT ONCE, WHEN NOBODY HAS SAID, IS WHAT THIS COMPUTER
   // CARRIES (main/machine.mts). The Claude plan has no say: its limit is a
   // budget over hours and a week, and an account that spends it waits for the

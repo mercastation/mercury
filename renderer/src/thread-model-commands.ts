@@ -54,12 +54,13 @@ export function modelCommands(
   const offered = (id: Harness) => (engines.length === 0 ? id === 'claude' : engines.some((e) => e.id === id));
   const codexOffered = offered('codex');
   const claudeOffered = offered('claude');
+  const antigravityOffered = offered('antigravity');
   if (!codexOffered && !claudeOffered) return [];
 
   const here: ModelPick | null = on.model
-    ? { engine: on.engine === 'codex' ? 'codex' : 'claude', model: on.model }
+    ? { engine: on.engine === 'codex' || on.engine === 'antigravity' ? on.engine : 'claude', model: on.model }
     : null;
-  const picks = recentModels(items, { codexModels, codexDefault, codexOffered, claudeOffered });
+  const picks = recentModels(items, { codexModels, codexDefault, codexOffered, claudeOffered, antigravityOffered });
   const elsewhere: ModelPick[] = here?.engine === 'claude' && codexOffered
     ? [{ engine: 'codex', model: codexDefault ?? codexModels[0]?.id ?? '' }]
     : here?.engine === 'codex' && claudeOffered

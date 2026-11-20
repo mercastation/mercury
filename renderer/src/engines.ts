@@ -63,10 +63,11 @@ export function engineThisMacOffers(id: string | null, choices: Engine[] | undef
  * Claude Code: a Codex-only Mac opened the card on "Opus 5.5" because nothing
  * had been picked yet and nothing asked what the Mac could run.
  */
-export function startingEngine(last: string | null, choices: Engine[] | undefined): 'claude' | 'codex' {
+export function startingEngine(last: string | null, choices: Engine[] | undefined): 'claude' | 'codex' | 'antigravity' {
   const offers = (id: string) => (choices ?? []).some((e) => e.id === id);
   if (offers('codex') && !offers('claude')) return 'codex';
-  return engineThisMacOffers(last, choices) === 'codex' ? 'codex' : 'claude';
+  const offered = engineThisMacOffers(last, choices);
+  return offered === 'codex' || offered === 'antigravity' ? offered : 'claude';
 }
 
 // Remembered the moment she picks, exactly like the project, the level and the

@@ -900,6 +900,7 @@ describe('Codex readers stay behind the engine and approval boundary', () => {
     const importers = app.filter((f) => [...readFileSync(f, 'utf8').matchAll(/^import\s+(?!type\s)[^;]*?from\s+['"]([^'"]+)['"]/gm)]
       .some((m) => join(dirname(f), m[1]) === target));
     expect(importers.sort()).toEqual([
+      join(repo, 'main', 'antigravity.mts'),
       join(repo, 'main', 'codex-approvals.mts'),
       join(repo, 'main', 'harnesses', 'claude-stream.mts'),
       join(repo, 'main', 'harnesses', 'codex.mts'),

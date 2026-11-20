@@ -12,7 +12,7 @@
 
 export type SettingsPageId =
   | 'general' | 'appearance' | 'shortcuts' | 'phone' | 'alpha' | 'rooms'
-  | 'claude' | 'codex' | 'running' | 'cloud' | 'instructions'
+  | 'claude' | 'codex' | 'antigravity' | 'running' | 'cloud' | 'instructions'
   | 'projects' | 'files' | 'team';
 
 /** The menu, in the order it is drawn, under the headings it is drawn
@@ -25,6 +25,7 @@ export const SETTINGS_PAGES: Array<{ id: SettingsPageId; label: string; group: '
   { id: 'alpha', label: 'Alpha features', group: 'Personal' },
   { id: 'claude', label: 'Claude Code', group: 'Agents' },
   { id: 'codex', label: 'Codex', group: 'Agents' },
+  { id: 'antigravity', label: 'Antigravity', group: 'Agents' },
   { id: 'running', label: 'Running', group: 'Agents' },
   { id: 'instructions', label: 'Instructions', group: 'Agents' },
   { id: 'projects', label: 'Projects', group: 'Workspace' },
@@ -75,6 +76,7 @@ const ENTRIES: Entry[] = [
   { page: 'codex', label: 'Signed in', anchor: 'usage', words: 'codex account accounts login subscription add email this computer local' },
   { page: 'codex', label: 'Cloud accounts', anchor: 'cloud-accounts', words: 'codex cloud remote accounts limit' },
   { page: 'codex', label: 'Permission mode', anchor: 'permissions', words: 'codex permissions sandbox read only full access' },
+  { page: 'antigravity', label: 'Signed in', anchor: 'usage', words: 'antigravity agy gemini google account login sign in' },
   // The Memory group folded into the Agents card (w-e5225b62ba), so these three
   // land on `at-once` together. An anchor naming a group that no longer exists
   // is a search result that scrolls nowhere.
