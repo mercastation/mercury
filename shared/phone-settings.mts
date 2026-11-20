@@ -244,12 +244,46 @@ function threadRoute(p: SettingChange): SettingRoute {
 export function checkSetting(p: SettingChange | null | undefined): string | null {
   if (!p || typeof p !== 'object') return 'not a setting';
   if (p.scope === 'repeat') return checkRepeatChange(p);
+  if (p.scope === 'demand') return checkDemandChange(p);
   if (p.scope === 'teammate') return checkTeammateAsk(p);
   const rules = p.scope === 'workspace' ? WORKSPACE : p.scope === 'project' ? PROJECT : p.scope === 'thread' ? THREAD : null;
   if (!rules || !Object.hasOwn(rules, p.key)) return 'not a setting your phone can change';
   if (p.scope !== 'workspace' && !(typeof p.product === 'string' && SLUG.test(p.product))) return 'that setting needs its project';
   if (p.scope === 'thread' && !(typeof p.item === 'string' && THREAD_ID.test(p.item))) return 'that needs its thread';
   return rules[p.key](p.value) ? null : 'not a value that setting takes';
+}
+
+// A DEMAND MADE OR CHANGED ON A PHONE, OR A THREAD PUT IN ONE, handed to the
+// window's own handlers (main/ipc.mts). Its report is the Mac's to write.
+const DEMAND_ID = /^d-[\w-]{1,60}$/;
+const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/;
+const DEMAND_CHANGE: Record<string, Rule> = {
+  name: (v: unknown) => typeof v === 'string' && v.trim().length > 0 && v.length <= 200,
+  about: (v: unknown) => typeof v === 'string' && v.length <= 1000,
+  today: (v: unknown) => v === '' || (typeof v === 'string' && DAY_KEY.test(v)),
+  endedAt: (v: unknown) => Number.isInteger(v) && (v as number) > 0,
+};
+
+function checkDemandChange(p: SettingChange): string | null {
+  if (!['new', 'change', 'place'].includes(p.key)) return 'not a setting your phone can change';
+  if (!(typeof p.product === 'string' && SLUG.test(p.product))) return 'that setting needs its project';
+  if (p.key === 'place') {
+    if (!(typeof p.item === 'string' && THREAD_ID.test(p.item))) return 'that needs its thread';
+    return p.value === null || (typeof p.value === 'string' && DEMAND_ID.test(p.value)) ? null : 'not a value that setting takes';
+  }
+  if (p.key === 'change' && !(typeof p.id === 'string' && DEMAND_ID.test(p.id))) return 'that needs its demand';
+  const v = p.value as Fields | null | undefined;
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return 'not a value that setting takes';
+  const keys = Object.keys(v);
+  if (!keys.length || keys.some((k) => !Object.hasOwn(DEMAND_CHANGE, k) || !DEMAND_CHANGE[k](v[k]))) return 'not a value that setting takes';
+  if (p.key === 'new' && !Object.hasOwn(v, 'name')) return 'a demand needs a name';
+  return null;
+}
+
+function demandRoute(p: SettingChange): SettingRoute {
+  if (p.key === 'place') return ['zero:place-in-demand', { product: p.product, thread: p.item, demand: p.value }];
+  if (p.key === 'change') return ['zero:set-demand', { product: p.product, id: p.id, patch: p.value }];
+  return ['zero:compose-demand', { product: p.product, ...(p.value as Fields) }];
 }
 
 // A REPEATING TASK MADE, CHANGED OR ENDED ON A PHONE, handed to the window's
@@ -346,6 +380,7 @@ function profileFor(model: SettingsModel | null | undefined, engine: unknown, id
 export function settingRoute(p: SettingChange, model: SettingsModel | null | undefined): SettingRoute {
   if (p.scope === 'thread') return threadRoute(p);
   if (p.scope === 'repeat') return repeatRoute(p as Checked);
+  if (p.scope === 'demand') return demandRoute(p);
   if (p.scope === 'teammate') return teammateRoute(p as Checked);
   if (p.scope === 'project') {
     if (p.key === 'name') return ['zero:project-rename', { product: p.product, name: (p.value as string).trim() }];

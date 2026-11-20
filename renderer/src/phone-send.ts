@@ -131,6 +131,25 @@ export function phoneSender({ client, rows, setRows, aliases, changed }: {
       await setting(where.device, { scope: 'repeat', key: 'end', product: where.project, id: p.id, value: true });
       return null;
     },
+    // The demand doors (api.ts), for the computer that has the project.
+    composeDemand: async (p: { product: string; name: string; about?: string; today?: string }) => {
+      const where = splitSlug(p?.product);
+      if (!where) throw new Error(NOT_HERE);
+      await setting(where.device, { scope: 'demand', key: 'new', product: where.project, value: { name: p.name, ...(p.about ? { about: p.about } : {}), ...(p.today ? { today: p.today } : {}) } });
+      return null;
+    },
+    setDemand: async (p: { product: string; id: string; patch: Record<string, unknown> }) => {
+      const where = splitSlug(p?.product);
+      if (!where) throw new Error(NOT_HERE);
+      await setting(where.device, { scope: 'demand', key: 'change', product: where.project, id: p.id, value: p.patch });
+      return null;
+    },
+    placeInDemand: async (p: { product: string; thread: string; demand: string | null }) => {
+      const where = splitSlug(p?.product);
+      if (!where) throw new Error(NOT_HERE);
+      await setting(where.device, { scope: 'demand', key: 'place', product: where.project, item: p.thread, value: p.demand });
+      return null;
+    },
     answer: (p: PhoneAsk) => leave(REQUEST_CHANNELS.answer, p),
     stopSession: (p: PhoneAsk) => leave(REQUEST_CHANNELS.stopSession, p),
     runNow: (p: PhoneAsk) => leave(REQUEST_CHANNELS.runNow, p),

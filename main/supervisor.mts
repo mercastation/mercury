@@ -187,6 +187,10 @@ import { codexDefaultModel, codexHome, codexKnownSlugs, codexModelLevels, codexM
 import { codexAccount, codexPlanEnded, ensureCodexHome } from './codex-account.mts';
 import { accountName } from '../shared/account-names.mts';
 import { nameRow, wantsName, waitsForItsSubject, namesTaken, askSmallModel, smallModelPictures } from './row-label.mts';
+import { placePrompt, readPlace, wantsPlace } from './demand-sorter.mts';
+import { reportPrompt, readReport, wantsReport } from './demand-report.mts';
+import type { DemandStore } from './demands.mts';
+import type { Demand } from '../shared/demands.mts';
 import { catchUpRow, catchUpResult } from './catch-up.mts';
 import { isAuto, asksWho, routeCandidates, routePrompt, readRoute, readOffer, offerPrompt, readGains, routedPatch, orAgent, NOBODY_WHY } from '../shared/auto-route.mts';
 import { LEVELS, latestMessage, sortMessage, wantsPriority } from './message-priority.mts';
@@ -781,6 +785,8 @@ export interface SupervisorStore {
   recordSessionResult(slug: string, id: string, opts: { result: string; status?: WorkItemStatus | null }): StoredRow | null | undefined;
   releaseRunClaim(slug: string, id: string, run: unknown): unknown;
   nameItem(slug: string, id: string, label: string): unknown;
+  /** The demand store (main/demands.mts); absent on a store with no demands. */
+  demands?: DemandStore;
   /** Who is signed in on this computer; absent on a store with no team. */
   author?(): string | null;
   catchUpItem(slug: string, id: string, opts: { label?: string; problem?: string; result?: string }): unknown;
@@ -1451,6 +1457,10 @@ export class Supervisor {
   declare _sortingMessages: boolean | undefined;
   declare _levelMisses: Map<string, { count: number; at: number }>;
   declare _leveling: boolean | undefined;
+  declare _placeMisses: Map<string, { count: number; at: number }>;
+  declare _placing: boolean | undefined;
+  declare _reportMisses: Map<string, { count: number; at: number }>;
+  declare _reporting: boolean | undefined;
   declare _crossModelSaid: Set<string> | undefined;
   declare _oldChoiceSaid: Set<string> | undefined;
   declare _folderRefused: Set<string> | undefined;
@@ -5106,6 +5116,106 @@ export class Supervisor {
       })
       .catch((e) => console.warn('zero: could not name a row:', e.message))
       .finally(() => { this._naming = false; });
+  }
+
+  /**
+   * PUT ONE THREAD IN A DEMAND A TICK (main/demand-sorter.mts), paced like the
+   * namer: one at a time, newest first, never awaited. A thread another thread
+   * filed goes where that one is, with no model call. A reply that cannot be
+   * read waits ten minutes, and after three the thread is left for the person.
+   */
+  placeTheThreads(items: WorkItem[], now = Date.now()) {
+    const demands = this.store.demands;
+    if (!demands || this._placing || this._memoryCritical(now)) return undefined;
+    this._placeMisses ??= new Map();
+    const key = (i: WorkItem) => `${i.product}:${i.id}`;
+    const waiting = (i: WorkItem) => {
+      const miss = this._placeMisses.get(key(i));
+      return !!miss && (miss.count >= LEVEL_TRIES || now - miss.at < NAME_RETRY_MS);
+    };
+    const folds = new Map<string, ReturnType<DemandStore['folded']>>();
+    const foldOf = (slug: string) => {
+      if (!folds.has(slug)) folds.set(slug, demands.folded(this.store.productDir(slug)));
+      return folds.get(slug)!;
+    };
+    const wanting = items
+      .filter((i) => !waiting(i) && wantsPlace(i, new Set(foldOf(i.product).placed.keys()), now))
+      .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+    for (const item of wanting) {
+      const from = item.parent ? foldOf(item.product).placed.get(item.parent)?.demand : null;
+      if (!from || !foldOf(item.product).demands.get(from) || foldOf(item.product).demands.get(from)!.endedAt) continue;
+      demands.place(this.store.productDir(item.product), item.id, from, { source: 'agent' }, now);
+      folds.delete(item.product);
+    }
+    const next = wanting.find((i) => !foldOf(i.product).placed.has(i.id));
+    if (!next) return undefined;
+    const dir = this.store.productDir(next.product);
+    const open = demands.list(dir);
+    this._placing = true;
+    return this._askSmall((opts) => askSmallModel(placePrompt(next, open), (t) => (readPlace(t, open.length) ? t : ''), opts), { product: next.product })
+      .then((text) => {
+        const place = readPlace(text, open.length);
+        if (!place) {
+          const was = this._placeMisses.get(key(next));
+          this._placeMisses.set(key(next), { count: (was?.count ?? 0) + 1, at: now });
+          return;
+        }
+        this._placeMisses.delete(key(next));
+        const to = place.to === 'demand' ? open[place.index].id : place.to === 'new' ? demands.make(dir, { name: place.name }, now).id : null;
+        demands.place(dir, next.id, to, { source: 'agent' }, now);
+      })
+      .catch((e) => console.warn('zero: could not place a thread in a demand:', e.message))
+      .finally(() => { this._placing = false; });
+  }
+
+  /**
+   * WRITE ONE DEMAND'S REPORT A TICK (main/demand-report.mts): what it is and
+   * what its threads delivered. Paced like the namer, and a demand is written
+   * about again only after a thread of it has said something new. The person's
+   * own words for what a demand is are never written over.
+   */
+  reportTheDemands(items: WorkItem[], now = Date.now()) {
+    const demands = this.store.demands;
+    if (!demands || this._reporting || this._memoryCritical(now)) return undefined;
+    this._reportMisses ??= new Map();
+    const bySlug = new Map<string, Map<string, WorkItem>>();
+    for (const i of items) {
+      if (!bySlug.has(i.product)) bySlug.set(i.product, new Map());
+      bySlug.get(i.product)!.set(i.id, i);
+    }
+    const newest = (threads: WorkItem[]) => Math.max(0, ...threads.map((t) => t.updatedAt ?? 0));
+    let next: { slug: string; dir: string; demand: Demand; threads: WorkItem[] } | null = null;
+    for (const [slug, rows] of bySlug) {
+      const dir = this.store.productDir(slug);
+      for (const demand of demands.list(dir)) {
+        const miss = this._reportMisses.get(`${slug}:${demand.id}`);
+        if (miss && (miss.count >= LEVEL_TRIES || now - miss.at < NAME_RETRY_MS)) continue;
+        const threads = demand.threads.map((id) => rows.get(id)).filter((t): t is WorkItem => !!t);
+        if (wantsReport(demand, threads, now) && (!next || newest(threads) > newest(next.threads))) next = { slug, dir, demand, threads };
+      }
+    }
+    if (!next) return undefined;
+    const { slug, dir, demand, threads } = next;
+    const key = `${slug}:${demand.id}`;
+    this._reporting = true;
+    return this._askSmall((opts) => askSmallModel(reportPrompt(demand, threads), (t) => (readReport(t) ? t : ''), opts), { product: slug })
+      .then((text) => {
+        const report = readReport(text);
+        if (!report) {
+          const was = this._reportMisses.get(key);
+          this._reportMisses.set(key, { count: (was?.count ?? 0) + 1, at: now });
+          return;
+        }
+        this._reportMisses.delete(key);
+        demands.change(dir, demand.id, {
+          ...(!demand.about && report.about ? { about: report.about } : {}),
+          delivered: report.delivered,
+          ...(report.outcome ? { outcome: report.outcome } : {}),
+          wroteAt: now,
+        }, now);
+      })
+      .catch((e) => console.warn('zero: could not write a demand\'s report:', e.message))
+      .finally(() => { this._reporting = false; });
   }
 
   /**
@@ -9542,6 +9652,10 @@ export class Supervisor {
     // And is there a row still wearing the first line of what she dictated?
     // One a tick, never awaited, silent on every failure (nameTheRows above).
     try { this.nameTheRows(items); } catch (e) { console.warn('zero: could not name a row:', (e as Error).message); }
+    // And is there a thread nobody has put in a demand?
+    try { this.placeTheThreads(items, now); } catch (e) { console.warn('zero: could not place a thread in a demand:', (e as Error).message); }
+    // And has a demand's thread said something its report does not have?
+    try { this.reportTheDemands(items, now); } catch (e) { console.warn('zero: could not write a demand\'s report:', (e as Error).message); }
     // And is there a chat just brought in still reading as the end of a terminal session?
     try { this.catchUpTheImports(items, now); } catch (e) { console.warn('zero: could not catch up a chat:', (e as Error).message); }
     // And has a teammate written something that needs sorting by urgency?

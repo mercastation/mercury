@@ -336,6 +336,22 @@ export function phoneRepeatsOf(
     .map((r) => ({ product: r.product, ...pick(r, REPEAT_FIELDS, 4000, { home }) }));
 }
 
+// THE DEMANDS OF THE PROJECTS ON HER PHONE (shared/demands.mts), riding with
+// the settings copy as the repeating tasks do.
+const DEMAND_FIELDS = ['id', 'name', 'about', 'delivered', 'outcome', 'today', 'threads', 'createdAt', 'updatedAt'];
+export const DEMANDS_MAX = 300;
+export function phoneDemandsOf(
+  demands: readonly { id?: unknown; product?: string; endedAt?: unknown }[] | null | undefined,
+  slugs: Iterable<string>,
+  { home = null }: Ctx = {},
+): Copied[] {
+  const on = new Set<string | undefined>(slugs);
+  return (Array.isArray(demands) ? demands : [])
+    .filter((d) => d && !d.endedAt && on.has(d.product) && typeof d.id === 'string')
+    .slice(0, DEMANDS_MAX)
+    .map((d) => ({ product: d.product, ...pick(d, DEMAND_FIELDS, 400, { home }) }));
+}
+
 // YOUR AI TEAMMATES, AND YOUR CHAT WITH THEM (main/teammates.mts `view`),
 // riding with the settings copy as the repeating tasks do. Named fields only;
 // the method, memory and playbooks stay on the computer.

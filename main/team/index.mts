@@ -290,6 +290,7 @@ export interface TeamPhone {
   pins?: PhoneInboxOptions['pinsOf'];
   onMac?: PhoneInboxOptions['onMacOf'];
   repeats?: PhoneInboxOptions['repeatsOf'];
+  demands?: PhoneInboxOptions['demandsOf'];
   teammates?: PhoneInboxOptions['teammatesOf'];
   version?: string;
   idleMs?: PhoneInboxOptions['idleMs'];
@@ -753,6 +754,7 @@ export function createTeamService({
       pinsOf: () => phone.pins?.() ?? {},
       onMacOf: () => phone.onMac?.() ?? {},
       repeatsOf: phone.repeats ?? null,
+      demandsOf: phone.demands ?? null,
       teammatesOf: phone.teammates ?? null,
       version: phone.version ?? '',
       idleMs: phone.idleMs ?? null,

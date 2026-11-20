@@ -353,7 +353,7 @@ export async function readCommands(select: Select, now = Date.now()): Promise<Ph
 export const readSettingsRows = (select: Select) => select('phone_settings', 'select=device,name,settings,updated_at&order=updated_at.desc&limit=20') as Promise<SettingsRow[]>;
 
 /** A change for one computer's settings, which its own handlers carry out. */
-export function settingCommand(device: string, change: { scope: 'workspace' | 'project' | 'thread' | 'repeat' | 'teammate'; key: string; value: unknown; product?: string; item?: string; id?: string }) {
+export function settingCommand(device: string, change: { scope: 'workspace' | 'project' | 'thread' | 'repeat' | 'demand' | 'teammate'; key: string; value: unknown; product?: string; item?: string; id?: string }) {
   return { device, project: null, item: null, kind: 'setting', payload: change };
 }
 type ThreadSetting = PhoneRows['commands'][number] & { payload: CommandPayload & { product: string; item: string } };

@@ -60,6 +60,8 @@ export interface PhoneSettingsCopy {
   workspace: PhoneWorkspaceCopy;
   projects: PhoneProjectCopy[];
   repeats?: RepeatRule[];
+  /** The computer's demands (shared/phone-snapshot.mts phoneDemandsOf), read by demands/phone-demands.ts. */
+  demands?: unknown;
   teammates?: { list: Partial<Teammate>[]; chat: TeamChatLine[]; runs: TeamRunLine[]; trouble?: string };
   /** When the computer's window last opened each thread, by id (shared/phone-settings.mts phoneSeenOf). */
   seen?: Record<string, number>;

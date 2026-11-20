@@ -34,7 +34,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import os from 'node:os';
-import { threadSnapshot, threadsWorthCarrying, snapshotKey, checkCommand, madeHere, hideSecrets, bytesOf, phoneChoices, phoneApproval, phoneRepeatsOf, phoneTeammatesOf, phoneChangeOf, SNAPSHOT_LIMITS, TEAMMATES_LIMITS } from '../shared/phone-snapshot.mts';
+import { threadSnapshot, threadsWorthCarrying, snapshotKey, checkCommand, madeHere, hideSecrets, bytesOf, phoneChoices, phoneApproval, phoneRepeatsOf, phoneDemandsOf, phoneTeammatesOf, phoneChangeOf, SNAPSHOT_LIMITS, TEAMMATES_LIMITS } from '../shared/phone-snapshot.mts';
 import { changePath, readChangeSummary } from './code-change.mts';
 import { machineryDir } from './store/home.mts';
 import { phoneSettingsOf, settingRoute } from '../shared/phone-settings.mts';
@@ -188,6 +188,7 @@ export interface PhoneInboxOptions {
   pinsOf?: () => Record<string, boolean>;
   onMacOf?: () => Record<string, boolean>;
   repeatsOf?: (() => Parameters<typeof phoneRepeatsOf>[0]) | null;
+  demandsOf?: (() => Parameters<typeof phoneDemandsOf>[0]) | null;
   teammatesOf?: (() => TeammatesViewSeen | null) | null;
   version?: string;
   name?: string;
@@ -276,6 +277,8 @@ export function createPhoneInbox({
   onMacOf = () => ({}),
   // () -> every project's repeating tasks (store.listRepeats); they ride with the settings.
   repeatsOf = null,
+  // () -> every project's demands (store.listDemands); they ride with the settings as the repeating tasks do.
+  demandsOf = null,
   // () -> the teammates view (main/teammates.mts `view`) while they are on, else null; it rides with the settings too.
   teammatesOf = null,
   version = '',
@@ -491,6 +494,13 @@ export function createPhoneInbox({
     if (!carried) return false;
     if (repeatsOf) {
       try { carried = { ...carried, repeats: phoneRepeatsOf(repeatsOf(), projects().map((p) => p.slug), { home }) }; } catch (err) { troubled('read the repeating tasks for', err); }
+    }
+    if (demandsOf) {
+      try {
+        const demands = phoneDemandsOf(demandsOf(), projects().map((p) => p.slug), { home });
+        // Never at the cost of the settings their copy.
+        if (bytesOf(carried) + bytesOf(demands) <= SETTINGS_MAX_BYTES) carried = { ...carried, demands };
+      } catch (err) { troubled('read the demands for', err); }
     }
     if (teammatesOf) {
       try {

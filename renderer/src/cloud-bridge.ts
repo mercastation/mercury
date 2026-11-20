@@ -32,6 +32,7 @@ import {
 import { dictationAllowed, setDictationAllowed } from './web-speech';
 import { phoneSender } from './phone-send';
 import { phoneRepeats } from './phone-repeats';
+import { phoneDemands } from './demands/phone-demands';
 import { setIconCount, startPhoneAlerts } from './phone-alerts';
 import { cloudAlertsVia } from './cloud-alerts';
 import { computerOf, type Change, type SettingsRow } from './phone-settings-view';
@@ -359,6 +360,13 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
       if (!client.signedIn()) return [];
       try { settingsRows = await readSettingsRows((table, query) => client.select(table, query)); } catch { /* the last copy read stands */ }
       return phoneRepeats(settingsRows, rows.commands, rows.projects);
+    },
+    // And its demands ride the same copy (demands/phone-demands.ts).
+    demands: async () => {
+      await boot;
+      if (!client.signedIn()) return [];
+      try { settingsRows = await readSettingsRows((table, query) => client.select(table, query)); } catch { /* the last copy read stands */ }
+      return phoneDemands(settingsRows, rows.commands, rows.projects);
     },
     // The screens draw Groups from the snapshot, so it is read again after each answer.
     rooms: (p: { op: string; args?: unknown[] }) => groups.door(p).finally(() => changed(null)),

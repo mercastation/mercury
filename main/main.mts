@@ -552,6 +552,7 @@ async function createWindow() {
       pins: () => supervisor.threadPins,
       onMac: () => supervisor.threadOnMac,
       repeats: () => store.listRepeats(),
+      demands: () => store.listDemands(),
       teammates: () => (teammatesOn(config) ? store.teammatesView() : null),
       version: app.getVersion(),
       live: (slug, id) => supervisor.liveFor(slug, id),
