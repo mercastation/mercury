@@ -10,6 +10,8 @@ import { loadStore } from './store-modules.mts';
 import type { StoreModules } from './store-modules.mts';
 import { hasCode } from '../shared/has-code.mts';
 import { Repeats } from './repeats.mts';
+import { DemandStore, type DemandInput } from './demands.mts';
+import type { PlacedBy } from '../shared/demands.mts';
 import type { CodexThreadLike } from '../shared/codex-import.mts';
 import type { Callout } from '../shared/dashboard.mts';
 import { CLEAN_LABEL, isCleanRun } from '../shared/repeats.mts';
@@ -206,6 +208,7 @@ export class Store {
   declare config: StoreConfig;
   declare modules: StoreModules;
   declare repeats: Repeats;
+  declare demands: DemandStore;
   declare teammates: Teammates | null;
   declare watchers: fs.FSWatcher[];
   declare onChange: (() => void) | null;
@@ -218,6 +221,7 @@ export class Store {
     this.config = config;
     this.modules = null as unknown as StoreModules;
     this.repeats = null as unknown as Repeats;
+    this.demands = new DemandStore();
     this.watchers = [];
     this.onChange = null; // set by ipc layer; called on any store file change
     this._debounce = null;
@@ -1098,6 +1102,33 @@ export class Store {
 
   endRepeat(slug: string, id: string) {
     return this.repeats.endRule(this.productDir(slug), id);
+  }
+
+  /* -------------------------------- demands ------------------------------- */
+  // Every project's demands with their project on each, as listRepeats does.
+  listDemands() {
+    const all: Record<string, unknown>[] = [];
+    for (const product of this.listProducts()) {
+      for (const demand of this.demands.list(product.dir)) all.push({ ...demand, product: product.slug, productName: product.name });
+    }
+    return all;
+  }
+
+  composeDemand(slug: string, input: DemandInput & { threads?: string[] }) {
+    const dir = this.productDir(slug);
+    const made = this.demands.make(dir, input);
+    for (const thread of input.threads ?? []) this.demands.place(dir, thread, made.id, { source: 'person' });
+    return this.demands.get(dir, made.id);
+  }
+
+  setDemand(slug: string, id: string, patch: Record<string, unknown>) {
+    return this.demands.change(this.productDir(slug), id, patch);
+  }
+
+  /** Put a thread in a demand of its project, or in none. */
+  placeInDemand(slug: string, thread: string, demand: string | null, source: PlacedBy = 'person') {
+    this.demands.place(this.productDir(slug), thread, demand, { source });
+    return demand ? this.demands.get(this.productDir(slug), demand) : null;
   }
 
   // An ordinary agent-filed item: a PROPOSAL, which is what puts it in her

@@ -1,7 +1,7 @@
 // TWO THREADS IN A PROJECT ARE NOT GIVEN THE SAME NAME.
 //
 // What broke, read off one person's store on 2026-11-20: six threads in one
-// project were all named "Mercury agentbox sync". The same job is asked for
+// project had the same name, word for word. The same routine job is asked for
 // every few days in nearly the same words, and the namer saw one thread at a
 // time, so the same words gave the same name and the list could not tell last
 // week's run from today's.

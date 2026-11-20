@@ -145,6 +145,11 @@ contextBridge.exposeInMainWorld('zero', {
   composeRepeat: (payload) => ipcRenderer.invoke('zero:compose-repeat', payload),
   setRepeat: (payload) => ipcRenderer.invoke('zero:set-repeat', payload),
   endRepeat: (payload) => ipcRenderer.invoke('zero:end-repeat', payload),
+  // Demands: records of their own that threads serve (shared/demands.mts).
+  demands: () => ipcRenderer.invoke('zero:demands'),
+  composeDemand: (payload) => ipcRenderer.invoke('zero:compose-demand', payload),
+  setDemand: (payload) => ipcRenderer.invoke('zero:set-demand', payload),
+  placeInDemand: (payload) => ipcRenderer.invoke('zero:place-in-demand', payload),
   pauseSupervisor: (paused) => ipcRenderer.invoke('zero:supervisor-pause', paused),
   createProduct: (payload) => ipcRenderer.invoke('zero:create-product', payload),
   // The first run. Its example task is a real row with no session behind it,

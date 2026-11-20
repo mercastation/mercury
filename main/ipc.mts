@@ -1656,6 +1656,15 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
   // an archive, so it does not collide with what done means on a work item.
   ipcMain.handle('zero:end-repeat', (_e, { product, id }: { product: string; id: string }) => store.endRepeat(product, id));
 
+  /* -------------------------------- demands ------------------------------- */
+  // A demand is a record of its own (shared/demands.mts), so none of these writes a work item.
+  ipcMain.handle('zero:demands', () => store.listDemands());
+  ipcMain.handle('zero:compose-demand', (_e, { product, name, about, today, threads }: { product: string; name: string; about?: string; today?: string; threads?: string[] }) =>
+    store.composeDemand(product, { name, about, today, threads: Array.isArray(threads) ? threads.map(String) : [] }));
+  ipcMain.handle('zero:set-demand', (_e, { product, id, patch }: { product: string; id: string; patch?: Record<string, unknown> }) => store.setDemand(product, id, patch ?? {}));
+  ipcMain.handle('zero:place-in-demand', (_e, { product, thread, demand }: { product: string; thread: string; demand?: string | null }) =>
+    store.placeInDemand(product, String(thread), typeof demand === 'string' && demand ? demand : null, 'person'));
+
   ipcMain.handle('zero:create-product', (_e, { name, repoPath, ofMany }: { name: string; repoPath?: string; ofMany?: unknown }) => {
     const out = store.createProduct({ name, repoPath });
     // (privacy page 5.1). The count is the whole payload; the path it was

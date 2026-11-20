@@ -15,6 +15,8 @@ import type { EngineSetupState } from './plan-setup';
 import { fixtureAgents, fixtureSnapshot, fixtureUrgentArrival,fixtureDashboards, fixtureRepeats, fixtureRuns, fixtureMock, fixtureMockDashboards, fixtureTraces, fixtureHistory, fixtureSettings, fixtureConversation, fixtureAgentFiles, fixtureSessionThreads, fixtureSearchableThreads } from './fixtures';
 import { fixtureEngineWorld, fixtureEngineSettings, fixtureSecondEngine } from './fixtures';
 import { fixtureBranches, fixtureFolders } from './fixtures';
+import { fixtureDemands } from './demands/fixture-demands';
+import type { DemandPatch, DemandRecord } from './demands/demand-rules';
 import { NAME, Name } from '../../shared/product-name.mjs';
 import type { CarryState } from '../../shared/carried-files.mts';
 
@@ -1450,6 +1452,47 @@ export const api = {
   async endRepeat(p: { product: string; id: string }): Promise<RepeatRule | null> {
     if (useFixtures) return null;
     return window.zero!.endRepeat(p);
+  },
+
+  /* -------------------------------- demands ------------------------------- */
+  // Records of their own that threads serve (shared/demands.mts), so they come
+  // on their own channel like the repeating tasks. The fixture ones can be
+  // changed, so the pages can be tried with no store behind them.
+  async demands(): Promise<DemandRecord[]> {
+    if (emptyFixtures) return [];
+    if (useFixtures) return fixtureDemands.filter((d) => !d.endedAt);
+    return window.zero!.demands();
+  },
+
+  async composeDemand(p: { product: string; name: string; about?: string; today?: string; threads?: string[] }): Promise<DemandRecord | null> {
+    if (useFixtures) {
+      const made: DemandRecord = { id: `d-fx-${fixtureDemands.length}`, product: p.product, productName: p.product, name: p.name, about: p.about, today: p.today, threads: [], createdAt: Date.now(), updatedAt: Date.now() };
+      fixtureDemands.push(made);
+      for (const thread of p.threads ?? []) await this.placeInDemand({ product: p.product, thread, demand: made.id });
+      return made;
+    }
+    return window.zero!.composeDemand(p);
+  },
+
+  async setDemand(p: { product: string; id: string; patch: DemandPatch }): Promise<DemandRecord | null> {
+    if (useFixtures) {
+      const demand = fixtureDemands.find((d) => d.id === p.id);
+      if (!demand) return null;
+      Object.assign(demand, p.patch, { updatedAt: Date.now() });
+      if (!demand.today) delete demand.today;
+      return demand;
+    }
+    return window.zero!.setDemand(p);
+  },
+
+  async placeInDemand(p: { product: string; thread: string; demand: string | null }): Promise<DemandRecord | null> {
+    if (useFixtures) {
+      for (const d of fixtureDemands) if (d.product === p.product) d.threads = d.threads.filter((t) => t !== p.thread);
+      const to = fixtureDemands.find((d) => d.id === p.demand && d.product === p.product) ?? null;
+      to?.threads.push(p.thread);
+      return to;
+    }
+    return window.zero!.placeInDemand(p);
   },
 
   /* ------------------------------- settings ------------------------------- */

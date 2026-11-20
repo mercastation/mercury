@@ -11,6 +11,7 @@ import type { AgentFolder, SessionThread } from './agent-import-card';
 import type { TryAgainOutcome } from './try-again';
 import type { EngineSetupState } from './plan-setup';
 import type { MeetingState } from './meeting-card';
+import type { DemandPatch, DemandRecord } from './demands/demand-rules';
 
 export type { AgentVoice };
 
@@ -1891,6 +1892,10 @@ declare global {
       composeRepeat(p: { product: string; title: string; body?: string; priority?: number; rule: RepeatShape; engine?: string; model?: string; baseBranch?: string; startsNext?: boolean }): Promise<RepeatRule>;
       setRepeat(p: { product: string; id: string; rule: Partial<RepeatShape & { title: string; body: string; priority: number; startsNext: boolean }> }): Promise<RepeatRule>;
       endRepeat(p: { product: string; id: string }): Promise<RepeatRule>;
+      demands(): Promise<DemandRecord[]>;
+      composeDemand(p: { product: string; name: string; about?: string; today?: string; threads?: string[] }): Promise<DemandRecord | null>;
+      setDemand(p: { product: string; id: string; patch: DemandPatch }): Promise<DemandRecord | null>;
+      placeInDemand(p: { product: string; thread: string; demand: string | null }): Promise<DemandRecord | null>;
       pauseSupervisor(paused: boolean): Promise<SupervisorStatus>;
       createProduct(p: { name: string; repoPath?: string | null }): Promise<{ slug: string }>;
       // THE FIRST RUN. Both optional for the same reason chooseFolder is: a
