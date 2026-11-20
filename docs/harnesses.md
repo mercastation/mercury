@@ -272,8 +272,13 @@ Google sign-in:
   no network) and it asks to leave it (`BypassSandbox`), the equivalent of
   Codex's Auto. Deleting a folder inside the workspace did not ask. Settings
   can start them in any of agy's four (`auto`, `accept-edits`, `default`,
-  `plan`), here and in the cloud (shared/antigravity-modes.mts); agy has none
-  that skips every question, so the cloud's default is this computer's.
+  `plan`), here and in the cloud (shared/antigravity-modes.mts), or in Full
+  access: Auto on `agy acp --dangerously-skip-permissions` ("Auto-approve all
+  tool permission requests"), which no mode offers. Measured 2026-11-20 with
+  real turns in Auto: with and without the flag, a network call, a file
+  written outside the folder and `rm -rf` of a folder outside it ran without a
+  question, so without the flag asking is agy's own judgement, and with it
+  nothing is ever asked. A reply in Bypass Permissions runs in Full access.
 - **Resume.** `session/resume` reopened a conversation in a new process, after
   a `kill -9` mid-turn, without replaying it.
 - **Models and levels** are `configOptions` `model` and `thought_level`;
