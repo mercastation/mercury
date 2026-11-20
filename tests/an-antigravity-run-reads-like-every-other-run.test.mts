@@ -9,8 +9,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   captureAntigravityEvent, antigravityStreamingText, summarizeAntigravityEvent,
-  traceAntigravityEvent, antigravityToolName, MESSAGE_DONE, TURN_DONE,
+  traceAntigravityEvent, antigravityToolName, antigravityTookTheWords, MESSAGE_DONE, TURN_DONE,
 } from '../main/antigravity.mts';
+import { harnessFor } from '../main/harnesses.mts';
 import { antigravityActivity, currentActivity } from '../main/agent-activity.mts';
 import { tracesAToolCall } from '../shared/dead-run-trace.mts';
 
@@ -117,5 +118,16 @@ describe('an Antigravity run on the thread', () => {
     expect(currentActivity(session)).toEqual([]);
     const store = update({ sessionUpdate: 'tool_call', toolCallId: 'c9', name: 'mcp_mercury_update_work_item', kind: 'other', status: 'in_progress' });
     expect(antigravityActivity(session, 'session/update', store)).toBe(false);
+  });
+
+  it('counts a reply as heard only once the turn starts answering, never on session open', () => {
+    const readers = harnessFor('antigravity').readers();
+    expect(readers.took).toBe(antigravityTookTheWords);
+    expect(readers.took('session/new', { sessionId: SID })).toBe(false);
+    expect(readers.took('session/resume', { sessionId: SID })).toBe(false);
+    expect(readers.took(TURN_DONE, { sessionId: SID, error: 'rate limit' })).toBe(false);
+    expect(readers.took('session/update', chunk('Looking.'))).toBe(true);
+    expect(readers.took('session/update', command('in_progress'))).toBe(true);
+    expect(readers.took(MESSAGE_DONE, { sessionId: SID, text: 'Done.' })).toBe(true);
   });
 });

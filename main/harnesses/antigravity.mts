@@ -8,7 +8,7 @@ import { harnessDefinition } from '../../shared/harness-definitions.mts';
 import { resolveEngine } from '../engine-bin.mts';
 import {
   captureAntigravityEvent, antigravityStreamingText, summarizeAntigravityEvent,
-  traceAntigravityEvent, rememberAntigravityChange,
+  traceAntigravityEvent, rememberAntigravityChange, antigravityTookTheWords,
 } from '../antigravity.mts';
 import type { AntigravitySession } from '../antigravity.mts';
 import { antigravityActivity } from '../agent-activity.mts';
@@ -46,6 +46,7 @@ export const antigravityHarness = {
     summarize: summarizeAntigravityEvent,
     trace: traceAntigravityEvent,
     activity: antigravityActivity,
+    took: antigravityTookTheWords,
   }),
   subscribe(child: EventEmitter, session: HarnessSession, absorb: (method: string, params: unknown) => void): void {
     child.on('event', (method: string, params: unknown) => {

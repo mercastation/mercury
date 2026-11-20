@@ -86,6 +86,11 @@ export function captureAntigravityEvent(session: AntigravitySession | null | und
   } catch { /* a reader that throws kills a run that was going fine */ }
 }
 
+/** The agent has begun answering; `session/new` and `session/resume` come before it. */
+export function antigravityTookTheWords(method: string, _params?: unknown): boolean {
+  return method === 'session/update' || method === MESSAGE_DONE;
+}
+
 // Each message starts from empty, so the live text matches the traced block;
 // it is not cleared when the message ends, or it would blink off screen.
 export function antigravityStreamingText(session: AntigravitySession | null | undefined, method: string, params: unknown): boolean {
