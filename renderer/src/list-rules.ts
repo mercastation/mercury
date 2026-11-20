@@ -306,6 +306,15 @@ export function waitsInLater(i: InboxItem, waitingOn: readonly string[]): boolea
 }
 
 /**
+ * Later holds a put-off or waiting row only once no run is on it or queued for
+ *  it. Until then it is In progress, which is "running or queued", so it is
+ *  counted in one tab (tests/a-queued-thread-put-off-stays-in-progress-until-its-run-ends).
+ */
+export function putOffInLater(i: InboxItem, { hiddenUntil, now, waitingOn, runOnIt }: { hiddenUntil: number; now: number; waitingOn: readonly string[]; runOnIt: boolean }): boolean {
+  return (hiddenUntil > now || waitsInLater(i, waitingOn)) && !runOnIt;
+}
+
+/**
  * The threads this one waits on that can still finish. It fails open, because
  * hiding a thread is the dangerous direction. Not a wait: a blocker that is
  * done, one this window cannot see (another project, archived, past the 8 MB
@@ -574,10 +583,10 @@ export function rowTitle(i: {
   result?: string;
   wrote?: { title?: { ts: number; source?: string }; label?: { ts: number } };
 }): string {
-  // A teammate's thread reads as its message to you, and before it has said
-  // anything, as its own title, never a name guessed from its opening line.
-  if (teammateIdOf(i)) return (i.result ?? '').split('\n').map((l) => searchText(l).trim()).find(Boolean) || (i.title ?? '');
-  return shownTitle(i);
+  const name = shownTitle(i);
+  // A teammate's thread can start with no words of yours to name it by.
+  if (!name && teammateIdOf(i)) return (i.result ?? '').split('\n').map((l) => searchText(l).trim()).find(Boolean) ?? '';
+  return name;
 }
 
 // The schedule box names a thread the way the list does, not by its raw title
