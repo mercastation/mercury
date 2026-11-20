@@ -1200,6 +1200,8 @@ export default function App() {
   // one of those failures produced.
   const [claude, setClaude] = useState({ missing: false, url: 'https://code.claude.com/docs/en/setup' });
   const [home, setHome] = useState('');
+  // Bumped by each read of the agents' model lists, which live in renderer/src/models.ts.
+  const [, setModelsRead] = useState(0);
   // The first run that starts on real work, while it is up.
   const [fresh, setFresh] = useState(false);
   const [arm, setArm] = useState<Arm | null>(null);
@@ -1337,9 +1339,12 @@ export default function App() {
       if (Array.isArray(codex.models)) setCodexModels(codex.models);
       setCodexModelDefault(codex.defaultModel);
       setAntigravityModels((s.workspace as { antigravityModels?: unknown } | undefined)?.antigravityModels);
+      // Module values, not state: a read that changes only them still redraws the pickers.
+      setModelsRead((n) => n + 1);
     }).catch(() => { /* nothing here stops because a setting did not read */ });
-    void readModels();window.addEventListener('agent-models-changed',readModels);
-    return()=>window.removeEventListener('agent-models-changed',readModels);
+    // Read again when main says a list landed: agy's arrives seconds after launch.
+    void readModels();window.addEventListener('agent-models-changed',readModels);const offModels=api.onModelsChanged(()=>void readModels());
+    return()=>{window.removeEventListener('agent-models-changed',readModels);offModels();};
   }, []);
 
   // CLAUDE CODE IS ASKED ABOUT ONCE, AT THE END, AND NOWHERE ELSE.

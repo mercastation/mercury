@@ -2014,6 +2014,7 @@ declare global {
       onFind?(fn: (p: { step?: number }) => void): () => void;
       onZoomPercent?(fn: (p: { percent?: number }) => void): () => void;
       onPhoneChanged?(fn: () => void): () => void;
+      onModelsChanged?(fn: () => void): () => void;
       // A press on a recording (main/meetings.mts); what it changes rides the snapshot.
       meeting?(p: { action: 'record' | 'stop' | 'model' | 'open' | 'dismiss' | 'get'; product?: string }): Promise<unknown>;
       phoneLink?(p:{ action: 'status' | 'on' | 'off' | 'reset' | 'via' | 'stop-alerts'; via?: PhoneRoute; device?: string }): Promise<PhoneLink>;

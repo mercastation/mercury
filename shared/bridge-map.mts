@@ -283,6 +283,8 @@ export const PUSH_CHANNELS: Readonly<Record<string, string>> = {
   onKeyInTheFile: 'zero:key-in-the-file',
   // A phone connected, left, or the key changed.
   onPhoneChanged: 'zero:phone-changed',
+  // A model list changed in main, such as agy's arriving after launch.
+  onModelsChanged: 'zero:models-changed',
 };
 
 // THE FEW THAT ARE NOT A STRAIGHT HANDOVER. Each is called with bare values

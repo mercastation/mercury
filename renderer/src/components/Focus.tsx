@@ -152,7 +152,7 @@ import { ThreadsMade, type MadeRow } from './ThreadsMade';
 import { ChatAgentsContext, useChatMentions } from '../team/ChatAgents';
 import { useThreadMentions } from './ThreadMentions';
 import { AGENT_SCHEME } from '../team/agent-mentions';
-import { defaultModelFor, engineModelLabel } from '../models';
+import { antigravityModelRows, defaultModelFor, engineModelLabel } from '../models';
 import { defaultEffortFor, effortChoicesFor, effortShown } from '../effort';
 import { ENGINES } from '../../../shared/engines.mts';
 import { lookAgainAfter } from '../picture-looks-again';
@@ -3030,11 +3030,13 @@ function DockComposer({ item, onItsWay = null, runningMode, runningEngine, codex
   const engineNow: Harness = asHarness(runningEngine) ?? 'claude';
   const engineShown: Harness = asHarness(engineChosen) ?? engineNow;
   const pick: ModelPick = { engine: engineShown, model: model ?? defaultModelFor(engineShown, codexModelDefault) };
+  // agy's list lands seconds after launch (main/ipc.mts), as a new array, so the rows follow it.
+  const agyRows = antigravityModelRows();
   const recent = useMemo(
     () => recentModels(items, { codexModels, codexDefault: codexModelDefault, codexOffered, claudeOffered, antigravityOffered }),
-    [items, codexModels, codexModelDefault, codexOffered, claudeOffered, antigravityOffered],
+    [items, codexModels, codexModelDefault, codexOffered, claudeOffered, antigravityOffered, agyRows],
   );
-  const every = useMemo(() => allModels({ codexModels, codexOffered, claudeOffered, antigravityOffered }), [codexModels, codexOffered, claudeOffered, antigravityOffered]);
+  const every = useMemo(() => allModels({ codexModels, codexOffered, claudeOffered, antigravityOffered }), [codexModels, codexOffered, claudeOffered, antigravityOffered, agyRows]);
   const effortRows = effortChoicesFor(engineShown, pick.model, modelOpts);
   const effortLit = effortShown(effort, effortRows, defaultEffortFor(engineShown, pick.model, modelOpts));
   // A LEVEL BELONGS TO THE MODEL IT WAS PICKED FOR, so crossing to the other

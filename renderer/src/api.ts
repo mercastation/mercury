@@ -2169,4 +2169,11 @@ export const api = {
     if (useFixtures || !zero?.onPhoneChanged) return () => {};
     return zero.onPhoneChanged(fn);
   },
+
+  /** Main says a model list changed (agy's lands seconds after launch). */
+  onModelsChanged(fn: () => void): () => void {
+    const zero = window.zero;
+    if (useFixtures || !zero?.onModelsChanged) return () => {};
+    return zero.onModelsChanged(fn);
+  },
 };
