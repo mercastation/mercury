@@ -134,14 +134,55 @@ export function wantsName(item?: RowItem | null, me: string | null = null) {
   return !String(item.label ?? '').trim();
 }
 
+/** How long a thread asked by its ticket alone waits for the agent's first words before it is named anyway. */
+export const THIN_ASK_WAIT_MS = 10 * 60_000;
+
+/**
+ * PURE. A thread is named once, so one asked by its ticket alone waits for the
+ * words that say what the ticket is: the agent's Context, note or answer.
+ */
+export function waitsForItsSubject(item: RowItem, now: number = Date.now()) {
+  const written = [item.problem, item.result, item.note].some((s) => String(s ?? '').trim());
+  return askedByTicketAlone(item) && !written && now - (Number(item.createdAt) || 0) < THIN_ASK_WAIT_MS;
+}
+
+/** A ticket or card id as people type one: ABC-123. */
+const TICKET = /\b[A-Z][A-Z0-9]{1,9}-\d{1,6}\b/;
+const TICKET_LAST = /\s*\([A-Z][A-Z0-9]{1,9}-\d{1,6}\)$/;
+
+/** PURE. An ask that names a ticket and says almost nothing else. */
+export function askedByTicketAlone(item?: RowItem | null) {
+  const said = `${item?.title ?? ''} ${item?.body ?? ''}`.trim();
+  return TICKET.test(said) && said.split(/\s+/).length <= 8;
+}
+
+/** How many names of its project the namer is shown. */
+const NAMES_SHOWN = 40;
+
+/**
+ * PURE. The names a thread may not repeat: its own project's, newest first,
+ * each once. A row nobody has named has nothing to repeat.
+ */
+export function namesTaken(item: RowItem, items: readonly RowItem[]): string[] {
+  const names = new Set<string>();
+  for (const other of [...items].sort((a, b) => (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0))) {
+    if (other.id === item.id || other.product !== item.product) continue;
+    const name = String(other.label ?? '').trim();
+    if (name) names.add(name);
+    if (names.size === NAMES_SHOWN) break;
+  }
+  return [...names];
+}
+
 /**
  * PURE. The one message the naming call gets. The user's words first, then the last
  *  thing written on the row, which is what makes the name describe the thread
  *  rather than its opening line. Truncated hard: a name does not get better for
  *  having read six thousand words, and this is spawned on a timer. */
-export function namePrompt(item?: RowItem | null) {
+export function namePrompt(item?: RowItem | null, { others = [] }: { others?: readonly string[] } = {}) {
   const cut = (s: unknown, n: number) => String(s ?? '').replace(/\r/g, '').trim().slice(0, n);
   const latest = cut(item?.result || item?.note, 700);
+  const about = cut(item?.problem, 400);
   return [
     'Here is a work thread: the message that opened it, and the latest thing',
     'written on it. Write a short name for the thread AS IT STANDS NOW: 3 to 6',
@@ -151,6 +192,15 @@ export function namePrompt(item?: RowItem | null) {
     'several things, name all of them, as in "Onboarding flow and pricing page".',
     'Name it in the words the opening line uses, the ones its owner would look for it by:',
     'never a code name, file name or technical term the opening line did not use.',
+    'Write it in the language the opening message is written in.',
+    'If the opening line names the work only by a ticket or card id, name what the',
+    'ticket is about, from what is written below, and put the id last in brackets,',
+    'as in "Refund emails by store (ABC-123)".',
+    ...(others.length ? [
+      'Other threads here already have the names listed at the end. Never give this one',
+      'a name any of them has: say what is different about this one, such as its date,',
+      'its part or its step.',
+    ] : []),
     'Reply with the',
     'name and nothing else.',
     '',
@@ -162,8 +212,10 @@ export function namePrompt(item?: RowItem | null) {
     // (renderer/src/team/agent-mentions.ts taskBrief); the oldest lines of it
     // are not what the thread is about.
     (item?.labels ?? []).some((l) => String(l).startsWith('teammate:')) ? '' : cut(String(item?.body ?? '').split(/\n---\n\nAsked by /)[0], 1200),
+    ...(about ? ['--- what it is about ---', about] : []),
     '--- latest ---',
     latest || '(nothing written yet)',
+    ...(others.length ? ['--- names already taken ---', others.join('\n')] : []),
     '---',
   ].join('\n');
 }
@@ -191,8 +243,8 @@ export function cleanName(text?: unknown) {
   // A reply that runs on is a model that answered a different question, and a
   // chatty one clears the character cap easily. The prompt asks for three to
   // seven words, so eight is one word of slack and anything past it is not the
-  // thing that was asked for.
-  if (bare.split(/\s+/).length > 8) return '';
+  // thing that was asked for. A ticket id in brackets at the end is not one of them.
+  if (bare.replace(TICKET_LAST, '').split(/\s+/).length > 8) return '';
   return bare;
 }
 
@@ -215,8 +267,9 @@ function codexArgs(prompt: string) {
  * is not a name. Never throws and never rejects, because this is called from a
  * timer whose only correct behaviour on failure is to leave the row alone.
  */
-export function nameRow(item: RowItem | null | undefined, opts: SmallModelOptions = {}) {
-  return askSmallModel(namePrompt(item), cleanName, opts);
+export function nameRow(item: RowItem | null | undefined, opts: SmallModelOptions & { others?: readonly string[] } = {}) {
+  const { others, ...small } = opts;
+  return askSmallModel(namePrompt(item, { others }), cleanName, small);
 }
 
 /**

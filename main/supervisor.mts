@@ -186,7 +186,7 @@ import { connectionLine, filesComeFirst } from '../shared/connections-catalog.mt
 import { codexDefaultModel, codexHome, codexKnownSlugs, codexModelLevels, codexModels } from './codex-models.mts';
 import { codexAccount, codexPlanEnded, ensureCodexHome } from './codex-account.mts';
 import { accountName } from '../shared/account-names.mts';
-import { nameRow, wantsName, askSmallModel, smallModelPictures } from './row-label.mts';
+import { nameRow, wantsName, waitsForItsSubject, namesTaken, askSmallModel, smallModelPictures } from './row-label.mts';
 import { catchUpRow, catchUpResult } from './catch-up.mts';
 import { isAuto, asksWho, routeCandidates, routePrompt, readRoute, readOffer, offerPrompt, readGains, routedPatch, orAgent, NOBODY_WHY } from '../shared/auto-route.mts';
 import { LEVELS, latestMessage, sortMessage, wantsPriority } from './message-priority.mts';
@@ -5093,11 +5093,12 @@ export class Supervisor {
     this._nameMisses ??= new Map();
     const key = (i: WorkItem) => `${i.product}:${i.id}`;
     const next = items
-      .filter((i) => wantsName(i, this.store.author?.() ?? null) && !(now - (this._nameMisses.get(key(i)) ?? -Infinity) < NAME_RETRY_MS))
+      .filter((i) => wantsName(i, this.store.author?.() ?? null) && !waitsForItsSubject(i, now) && !(now - (this._nameMisses.get(key(i)) ?? -Infinity) < NAME_RETRY_MS))
       .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0];
     if (!next) return undefined;
     this._naming = true;
-    return this._askSmall((opts) => nameRow(next, opts), { product: next.product })
+    const others = namesTaken(next, items);
+    return this._askSmall((opts) => nameRow(next, { ...opts, others }), { product: next.product })
       .then((label) => {
         if (!label) { this._nameMisses.set(key(next), now); return; }
         this._nameMisses.delete(key(next));
