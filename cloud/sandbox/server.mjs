@@ -1103,23 +1103,10 @@ export function createSandbox({
         fs.writeFileSync(target, body, { mode: 0o600 });
       }
       tops.add(rel.split('/')[0]);
-      secrets.push(...longStringsIn(body));
+      secrets.push(...agyLoginSecrets(rel, body));
     }
     if (runAs) for (const top of tops) await sh('chown', ['-R', `${runAs.uid}:${runAs.gid}`, path.join(home, top)], '/').catch(() => {});
     return secrets;
-  }
-
-  // The long strings of a JSON file that are neither a path nor a link: its tokens.
-  function longStringsIn(body) {
-    let value;
-    try { value = JSON.parse(body.toString('utf8')); } catch { return []; }
-    const out = [];
-    const walk = (v) => {
-      if (typeof v === 'string') { if (v.length >= 20 && !/\s/.test(v) && !v.startsWith('/') && !/^https?:/.test(v)) out.push(v); return; }
-      if (v && typeof v === 'object') for (const x of Object.values(v)) walk(x);
-    };
-    walk(value);
-    return out;
   }
 
   // On the access token alone, and fresh, so Codex never tries to renew.
@@ -2234,7 +2221,12 @@ async function stageTails(r, dir, staging) {
 }
 
 // The transcripts that come home, with the login's text taken out of them.
-function redactFolder(dir, secrets) {
+// A FILE THAT IS NOT TEXT KEEPS ITS SHAPE (2026-11-20): Antigravity's
+// conversation is a SQLite database, and rewriting it as text turned every
+// byte that is not UTF-8 into U+FFFD, so the copy that came home could not be
+// opened and a reply could not resume it. In such a file a secret is masked
+// byte for byte, the same length, so nothing around it moves.
+export function redactFolder(dir, secrets) {
   const walk = (d) => {
     let entries = [];
     try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
@@ -2244,15 +2236,47 @@ function redactFolder(dir, secrets) {
       if (!e.isFile()) continue;
       try {
         if (fs.statSync(p).size > 512 * 1024 * 1024) continue;
-        const text = fs.readFileSync(p, 'utf8');
-        if (!secrets.some((s) => text.includes(s))) continue;
-        let out = text;
-        for (const s of secrets) out = out.split(s).join(REDACTED);
-        fs.writeFileSync(p, out);
+        const bytes = fs.readFileSync(p);
+        if (!secrets.some((s) => bytes.includes(s))) continue;
+        const text = bytes.toString('utf8');
+        if (Buffer.from(text, 'utf8').equals(bytes)) {
+          let out = text;
+          for (const s of secrets) out = out.split(s).join(REDACTED);
+          fs.writeFileSync(p, out);
+          continue;
+        }
+        for (const s of secrets) {
+          const needle = Buffer.from(s, 'utf8');
+          for (let at = bytes.indexOf(needle); at >= 0; at = bytes.indexOf(needle, at + needle.length)) bytes.fill(0x2a, at, at + needle.length);
+        }
+        fs.writeFileSync(p, bytes);
       } catch { /* unreadable: left as it is */ }
     }
   };
   walk(dir);
+}
+
+// WHAT IN AN ANTIGRAVITY SIGN-IN IS SECRET: the values its JSON files keep
+// under a key that names a token, a secret or a password, and a file that is
+// itself a token. Not every long string: the sign-in's project id is one, and
+// it is written into every conversation, so taking it for a secret had the
+// conversations rewritten on their way home (2026-11-20).
+export function agyLoginSecrets(rel, body) {
+  const out = [];
+  const keep = (v) => { if (typeof v === 'string' && v.length >= 20 && !/\s/.test(v)) out.push(v); };
+  let value;
+  try { value = JSON.parse(Buffer.from(body).toString('utf8')); } catch { value = undefined; }
+  if (value === undefined) {
+    if (/token|secret|credential/i.test(path.basename(rel))) keep(Buffer.from(body).toString('utf8').trim());
+    return out;
+  }
+  const named = (k) => /token|secret|password|credential|key$/i.test(k);
+  const walk = (v, secret) => {
+    if (typeof v === 'string') { if (secret) keep(v); return; }
+    if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) walk(x, secret || (!Array.isArray(v) && named(k)));
+  };
+  walk(value, typeof value === 'string' && /token|secret|credential/i.test(path.basename(rel)));
+  return out;
 }
 
 function jwtClaim(token, claim) {
