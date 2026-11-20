@@ -1413,7 +1413,11 @@ body {
   text-underline-offset: 4px;
   transition: text-decoration-color 0.12s ease;
 }
-.row:hover .subject { text-decoration-color: var(--line-strong); }
+/* `.pointed`, not `:hover`: J and K take the row back from a pointer that has
+   not moved, and `:hover` would keep a second underline on it. `.hovers` is a
+   list with key hints off, where the pointer never holds the keys. */
+.row.hovers:hover .subject,
+.row.pointed .subject { text-decoration-color: var(--line-strong); }
 .row.selected .subject,
 .row.checked .subject { text-decoration-color: var(--underline); }
 
@@ -3303,6 +3307,15 @@ body {
 .reply-dock .compose-note.attach-problem { padding-left: 0; padding-right: 0; }
 
 .attach-thumb { position: relative; }
+.attach-open {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: none;
+  border-radius: var(--artifact-corner-small);
+  cursor: zoom-in;
+}
+.attach-open:focus-visible { outline: 1px solid var(--text-faint); outline-offset: 2px; }
 .attach-thumb img {
   height: 84px;
   max-width: 220px;
@@ -3688,6 +3701,9 @@ img.product-mark { object-fit: cover; opacity: 1; }
      strip drawn after it stands down in workspace-navigation.css. */
   -webkit-app-region: no-drag;
 }
+/* Over a file opened big, under the ⌘F box. Only then: the tour points at the
+   bar from 1000. */
+body:has(.artifact-view, .picture-view, .file-sheet) .modal-backdrop.palette-backdrop { z-index: 9480; }
 
 /* THE IMPORT CARD THAT ENDS SETUP WAS DRAWN DIMMED. Setup's veil is 299 and
    this backdrop was 40, so the veil lay over the card. It goes at 301, with
@@ -4157,13 +4173,17 @@ img.product-mark { object-fit: cover; opacity: 1; }
 /* A long title gives way, never the project's name. */
 .palette-k .palette-thread .palette-hint { flex: none; }
 /* A line, file, comment or decision found inside something: its words, then who
-   and where under them in the faint ink. Two lines, so the row is taller. */
-.palette-k .palette-found { height: auto; min-height: 50px; padding: 7px 18px; align-items: flex-start; }
-.palette-k .palette-found .palette-glyph { padding-top: 3px; }
-.palette-k .palette-found .palette-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
-.palette-k .palette-found .palette-sub { font-size: 12px; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+   and where under them in the faint ink. A thread: its title, then the line it
+   was found by. Two lines, so the row is taller. */
+.palette-k :is(.palette-found, .palette-two) { height: auto; min-height: 50px; padding: 7px 18px; align-items: flex-start; }
+.palette-k :is(.palette-found, .palette-two) .palette-glyph { padding-top: 3px; }
+.palette-k :is(.palette-found, .palette-two) .palette-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.palette-k :is(.palette-found, .palette-two) .palette-sub { font-size: 12px; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .palette-k .palette-found .palette-file { margin-right: 8px; color: var(--text); font-weight: 500; }
-.palette-k .palette-found .hit { color: var(--text); font-weight: 600; }
+.palette-k :is(.palette-found, .palette-two) .hit { color: var(--text); font-weight: 600; }
+.palette-k .palette-two .palette-hint { padding-top: 2px; }
+/* Finished threads step back; the highlight behind a selected one does not. */
+.palette-k .palette-done > * { opacity: .5; }
 
 /* A found line, landed on from the results: marked for a moment. */
 [data-line] { transition: background-color .5s ease, box-shadow .5s ease; }
@@ -9158,7 +9178,8 @@ button.code-skip:hover::after, button.code-skip:hover::before { background: var(
 */
 .hint-plate {
   position: fixed;
-  z-index: 90;
+  /* Over a file opened full screen and the bar over its selected words, whose buttons wear hints too. */
+  z-index: 9460;
   display: grid;
   grid-template-columns: max-content 1fr;
   gap: 4px 0;
@@ -9484,7 +9505,9 @@ button.code-skip:hover::after, button.code-skip:hover::before { background: var(
 .msg-kind { display: inline-flex; align-items: baseline; gap: 6px; margin-left: 8px; padding: 1px 7px; border: 1px solid var(--line, rgba(255,255,255,.12)); border-radius: var(--tag-radius); background: none; font: 11px var(--mono); letter-spacing: .02em; color: var(--text-dim); text-align: left; }
 /* In a narrow column the label drops under the name whole, lined up with it, rather than breaking inside its box. */
 .msg-head:has(> .msg-kind) { flex-wrap: wrap; row-gap: 4px; }
-.msg-head > .msg-kind { margin-left: 0; white-space: nowrap; }
+/* A label longer than the column (a quoted sentence) wraps inside its box: held
+   on one line, it made the whole thread scroll sideways. */
+.msg-head > .msg-kind { margin-left: 0; max-width: 100%; overflow-wrap: anywhere; }
 .msg-head:has(> .msg-kind) > .msg-when { white-space: nowrap; }
 .msg-kind-why { color: var(--text-faint); letter-spacing: 0; }
 .msg-kind-why::before { content: '\00b7'; margin-right: 6px; }

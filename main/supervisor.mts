@@ -1300,6 +1300,7 @@ export interface FrameReaders {
   activity(...frame: unknown[]): unknown;
   summarize(...frame: unknown[]): string | null | undefined;
   trace(...frame: unknown[]): string | null | undefined;
+  took(...frame: unknown[]): boolean;
 }
 function codexLineReaders(r: FrameReaders) {
   const note = (line: unknown) => { try { const m = JSON.parse(line as string) as CodexNote | null; return typeof m?.method === 'string' && m.id === undefined ? m : null; } catch { return null; } };
@@ -1308,7 +1309,7 @@ function codexLineReaders(r: FrameReaders) {
     if (!m) return withView ? false : null;
     return withView ? fn(a, m.method, m.params) : fn(m.method, m.params);
   };
-  return { capture: on(r.capture, true), stream: on(r.stream, true), activity: on(r.activity, true), summarize: on(r.summarize, false), trace: on(r.trace, false) };
+  return { capture: on(r.capture, true), stream: on(r.stream, true), activity: on(r.activity, true), summarize: on(r.summarize, false), trace: on(r.trace, false), took: (line: unknown) => !!on(r.took, false)(line) };
 }
 
 export class Supervisor {
@@ -8460,6 +8461,19 @@ export class Supervisor {
     return n;
   }
 
+  /** The runs on this computer a quit would stop. A run the run host holds
+   *  is let go by `killAll` and carries on, so the quit question leaves it out. */
+  _stoppedByQuitting() {
+    let n = this._preparing?.size ?? 0;
+    for (const s of this.sessions.values()) {
+      if (s.command || s.remoteIdle || s.cloud) continue;
+      const rec = this._liveSessions?.[s.itemId];
+      const carriesOn = s.hosted && s.child instanceof HostedRun && !!s.sessionId && rec?.sessionId === s.sessionId;
+      if (!carriesOn) n += 1;
+    }
+    return n;
+  }
+
   // WHAT THIS EXIT SAYS ABOUT SPAWNING, which for most exits is nothing.
   //
   // A session that dies within seconds did no work: a hit usage limit, a bad
@@ -9810,8 +9824,9 @@ export class Supervisor {
       // MEMORY SHORT READS AS NO SLOT HERE (main/start-hold.mts), so an Urgent
       // row still takes a lesser session's slot below: a swap, which adds
       // nothing. A row this Mac's memory holds goes to the cloud instead when
-      // it may (`_roomFor`).
-      if (!this._roomFor(engine, item)) {
+      // it may (`_roomFor`). A row its model turns away takes no slot, so it is
+      // told so now rather than once a slot it will never use frees.
+      if (!this._modelIsForEngineOtherThan(item, engine) && !this._roomFor(engine, item)) {
         // A row being prepared holds its own slot; it is not waiting for one.
         if (!this._preparing?.has(item.id)) this._noteNotStarting(item, this._whyNoRoom(engine, item), engine);
         // an Urgent row takes a slot rather than queueing behind work that
@@ -10368,7 +10383,7 @@ export class Supervisor {
     const review = continuation && harnessFor(engine).capabilities.nativeReview && providerCommand(item.answer, engine)?.name === 'review' ? providerCommand(item.answer, engine) : null;
     const command = continuation && harnessFor(engine).capabilities.nativeCommands ? commandPrompt(item.answer, this._nativeCommands?.[item.id]) : review ? item.answer!.trim() : null;
     if (command) prompt = command;
-    else prompt = withWorkerGitBrief(prompt, product.repoPath);
+    else prompt = withWorkerGitBrief(prompt, product.repoPath, engine);
     if (!command && resumeId) {
       // Native resumes can reuse an older system prompt, so refresh the task
       // boundaries in the new turn too, without depending on a newer CLI flag.
@@ -12697,15 +12712,17 @@ export class Supervisor {
     // the real camelCase/snake_case divergence between app-server and the
     // `codex exec` stream the removed August build parsed, which is exactly the
     // difference a future reader has to be able to see.
-    const { capture, stream, summarize, trace: traceOne, activity } = harness.readers() as FrameReaders;
+    const { capture, stream, summarize, trace: traceOne, activity, took } = harness.readers() as FrameReaders;
     // One frame of a session, whatever a frame is on this engine: a line of
     // stdout, or a method and its params.
     const absorb = (...frame: unknown[]) => {
       session.lastOutputAt = Date.now();
       capture(session, ...frame);
-      // The conversation is up, so the words it was started with are in it
-      // (`_noteHeard`). Here rather than at exit: an app quit may not wait for one.
-      if (continuation && item.answer && session.sessionId && !session.heardNoted) {
+      // The agent has begun answering, so the words it was started with are in
+      // its conversation (`_noteHeard`). Not on the line that only names the
+      // conversation: a run stopped then never took them. Here rather than at
+      // exit: an app quit may not wait for one.
+      if (continuation && item.answer && session.sessionId && !session.heardNoted && took(...frame)) {
         session.heardNoted = true;
         this._noteHeard(item, session.sessionId);
       }
@@ -13332,8 +13349,8 @@ export class Supervisor {
       ? template.replace(/<!-- repeat-rules:(start|end) -->\n?/g, '')
       : template.replace(/<!-- repeat-rules:start -->[\s\S]*?<!-- repeat-rules:end -->\n?/g, '');
     // And a teammate's run: how it finishes, only where a teammate:<id> label says it is one.
-    // A thread she sent to a teammate is her ask, so the rules for her rows hold.
-    template = teammateIdOf(item) && !item.routed
+    // A thread she sent to a teammate, or started in its chat, is her ask, so the rules for her rows hold.
+    template = teammateIdOf(item) && !item.routed && !(item.labels ?? []).includes(CHAT_LABEL)
       ? template.replace(/<!-- teammate-rules:(start|end) -->\n?/g, '')
       : template.replace(/<!-- teammate-rules:start -->[\s\S]*?<!-- teammate-rules:end -->\n?/g, '');
     // And the fourth: her rule about when a piece of work gets its own row.
@@ -13395,7 +13412,7 @@ export class Supervisor {
     // to the briefs in Settings can use the same two tokens and follow a
     // rename too. Her saved copy keeps the tokens; only what a session reads
     // has the name in it.
-    return fillName(`${header}\n\n---\n\n${template}\n\n${workerGitBrief(product.repoPath)}`);
+    return fillName(`${header}\n\n---\n\n${template}\n\n${workerGitBrief(product.repoPath, engine)}`);
   }
 
   // What a spawned worker is allowed to do when the founder has not said.
