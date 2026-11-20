@@ -139,11 +139,23 @@ export const THIN_ASK_WAIT_MS = 10 * 60_000;
 
 /**
  * PURE. A thread is named once, so one asked by its ticket alone waits for the
- * words that say what the ticket is: the agent's Context, note or answer.
+ * words that say what the ticket is: the agent's Context, note or answer. One
+ * that hands over a recorded meeting waits for the Context or the answer.
  */
 export function waitsForItsSubject(item: RowItem, now: number = Date.now()) {
-  const written = [item.problem, item.result, item.note].some((s) => String(s ?? '').trim());
-  return askedByTicketAlone(item) && !written && now - (Number(item.createdAt) || 0) < THIN_ASK_WAIT_MS;
+  const written = (...words: unknown[]) => words.some((s) => String(s ?? '').trim());
+  const age = now - (Number(item.createdAt) || 0);
+  // A recording's first note only says the agent has started reading.
+  if (askedByRecordingAlone(item)) return !written(item.problem, item.result) && age < RECORDING_WAIT_MS;
+  return askedByTicketAlone(item) && !written(item.problem, item.result, item.note) && age < THIN_ASK_WAIT_MS;
+}
+
+/** How long a recording's thread waits for its notes: a transcript takes longer to read than a ticket. */
+export const RECORDING_WAIT_MS = 30 * 60_000;
+
+/** PURE. An ask that hands over a recorded meeting and says nothing of what was said in it (main/meetings.mts writes this opening). */
+export function askedByRecordingAlone(item?: { body?: unknown } | null) {
+  return /^I recorded a meeting\b[^:\n]*: \[[^\]\n]*\]\(/.test(String(item?.body ?? '').trim());
 }
 
 /** A ticket or card id as people type one: ABC-123. */
@@ -192,7 +204,12 @@ export function namePrompt(item?: RowItem | null, { others = [] }: { others?: re
     'several things, name all of them, as in "Onboarding flow and pricing page".',
     'Name it in the words the opening line uses, the ones its owner would look for it by:',
     'never a code name, file name or technical term the opening line did not use.',
-    'Write it in the language the opening message is written in.',
+    // A recording's opening is the app's own English whatever the meeting was in (main/meetings.mts).
+    ...(askedByRecordingAlone(item) ? [
+      'The opening line only says a meeting was recorded, so name what the meeting was about,',
+      'from what is written below, and never by its time. Write it in the language that is written in,',
+      'not the opening line\'s.',
+    ] : ['Write it in the language the opening message is written in.']),
     'If the opening line names the work only by a ticket or card id, name what the',
     'ticket is about, from what is written below, and put the id last in brackets,',
     'as in "Refund emails by store (ABC-123)".',

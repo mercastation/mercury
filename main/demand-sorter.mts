@@ -5,6 +5,7 @@
 // of the project's demands, a new one and its name, or none. The pacing is the
 // supervisor's (`placeTheThreads`); what is here is pure.
 import { DEMAND_NAME_MAX } from '../shared/demands.mts';
+import { askedByRecordingAlone } from './row-label.mts';
 
 export interface PlaceItem {
   id: string;
@@ -37,8 +38,8 @@ export function wantsPlace(item: PlaceItem, placed: ReadonlySet<string>, now: nu
   const labels = (item.labels ?? []).map(String);
   if (labels.some((l) => NOT_WORK.includes(l) || NOT_WORK_PREFIX.some((p) => l.startsWith(p)))) return false;
   if (!String(item.title ?? '').trim() && !String(item.body ?? '').trim()) return false;
-  // A recorded meeting serves several demands at once; its tasks are each asked about (main/meetings.mts writes this opening).
-  if (/^I recorded a meeting\b[^:]*:/.test(String(item.body ?? ''))) return false;
+  // A recorded meeting serves several demands at once; its tasks are each asked about.
+  if (askedByRecordingAlone(item)) return false;
   if (now - (Number(item.updatedAt) || 0) > PLACE_WINDOW_MS) return false;
   return !!String(item.label ?? '').trim() || now - (Number(item.createdAt) || 0) >= PLACE_AFTER_MS;
 }
