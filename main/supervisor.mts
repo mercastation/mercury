@@ -176,7 +176,7 @@ import { createCodexWorker, mcpServerNames, resumeThreadParams, workerThreadPara
 import type { CodexServerClient, ConnectionServer, ConnectionServers } from './codex-session.mts';
 import { CODEX_DEFAULT_MODE, isCodexMode } from '../shared/codex-modes.mts';
 import { cloudAntigravityMode, cloudCodexMode } from './cloud-permission.mts';
-import { isAntigravityMode } from '../shared/antigravity-modes.mts';
+import { AGY_SKIP_QUESTIONS, agyLaunchFor, isAntigravityMode } from '../shared/antigravity-modes.mts';
 import { createCodexApprovals } from './codex-approvals.mts';
 import { createAntigravityWorker } from './antigravity-worker.mts';
 import type { AcpMcpServer, AntigravityWorker } from './antigravity-worker.mts';
@@ -11448,7 +11448,7 @@ export class Supervisor {
   }
 
   /** What one Antigravity run is started with: the command line, and the store and the connections in ACP's shape. */
-  _antigravityLaunch(plan: SpawnPlan, item: Pick<WorkItem, 'id' | 'product'>) {
+  _antigravityLaunch(plan: SpawnPlan, item: Pick<WorkItem, 'id' | 'product'>, { skipQuestions = false }: { skipQuestions?: boolean } = {}) {
     const acp = (name: string, server: { command: string; args?: string[]; env?: Record<string, string | null | undefined> }): AcpMcpServer => ({
       name,
       command: server.command,
@@ -11459,7 +11459,8 @@ export class Supervisor {
     const connections = plan.connectionServers ?? {};
     return {
       bin: this.config.antigravityBin ?? null,
-      args: ['acp', '--disable-telemetry', '--gemini-dir', this._antigravityHome()],
+      // Full access is agy's server answering every question itself (shared/antigravity-modes.mts).
+      args: ['acp', '--disable-telemetry', '--gemini-dir', this._antigravityHome(), ...(skipQuestions ? [AGY_SKIP_QUESTIONS] : [])],
       mcpServers: [...(store?.name ? [acp(store.name, store)] : []), ...Object.entries(connections).map(([name, server]) => acp(name, server))],
       storeServer: store?.name ?? null,
       connectionServers: Object.keys(connections),
@@ -11467,7 +11468,12 @@ export class Supervisor {
   }
 
   _spawnAntigravityWorker(plan: SpawnPlan, { cwd, item, env, cloud = false }: { cwd: string; item: WorkItem; env: NodeJS.ProcessEnv; cloud?: boolean }) {
-    const launch = this._antigravityLaunch(plan, item);
+    // A reply's own mode, else the one set in Settings (here, or in the cloud).
+    const asked = antigravityMode(plan.answerMode);
+    const here = isAntigravityMode(this.config.antigravityMode) ? this.config.antigravityMode : null;
+    const chosen = cloud ? cloudAntigravityMode(this.config.cloudAntigravityMode, asked, here) : asked ?? here;
+    const agy = agyLaunchFor(isAntigravityMode(chosen) ? chosen : null);
+    const launch = this._antigravityLaunch(plan, item, { skipQuestions: agy.skipQuestions });
     let worker: AntigravityWorker | null = null;
     // A CLOUD RUN IS THE SAME WORKER on `agy acp` in the sandbox, reached
     // through the relay (main/cloud/run-cli.mts --agentbox-agy), which brings
@@ -11504,9 +11510,7 @@ export class Supervisor {
       resumeSessionId: plan.resumeId ?? null,
       model: typeof plan.model === 'string' ? plan.model : null,
       effort: typeof plan.effort === 'string' ? plan.effort : null,
-      // A reply's own mode, else the one set in Settings (here, or in the cloud).
-      mode: ((asked, here) => (cloud ? cloudAntigravityMode(this.config.cloudAntigravityMode, asked, here) : asked ?? here))(
-        antigravityMode(plan.answerMode), isAntigravityMode(this.config.antigravityMode) ? this.config.antigravityMode : null),
+      mode: agy.mode,
       pictures: Array.isArray(plan.pictures) ? plan.pictures : [],
       onApproval: cards.handle,
     });

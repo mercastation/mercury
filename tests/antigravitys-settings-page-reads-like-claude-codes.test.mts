@@ -117,9 +117,9 @@ describe('whose Antigravity sign-in it is', () => {
 });
 
 describe('Antigravity’s permission modes', () => {
-  it('are agy’s own four, Auto first and the default', () => {
-    expect(ANTIGRAVITY_MODE_ORDER).toEqual(['auto', 'accept-edits', 'default', 'plan']);
-    expect(ANTIGRAVITY_MODE_ORDER.map((m) => ANTIGRAVITY_MODES[m].label)).toEqual(['Auto', 'Accept edits', 'Default', 'Plan']);
+  it('are agy’s own four, Auto first and the default, and Full access last', () => {
+    expect(ANTIGRAVITY_MODE_ORDER).toEqual(['auto', 'accept-edits', 'default', 'plan', 'full-access']);
+    expect(ANTIGRAVITY_MODE_ORDER.map((m) => ANTIGRAVITY_MODES[m].label)).toEqual(['Auto', 'Accept edits', 'Default', 'Plan', 'Full access']);
     expect(antigravityState({ antigravityBin: '/u/agy' }, { search: false })).toMatchObject({ mode: 'auto', cloudMode: CLOUD_SAME });
   });
 
@@ -137,7 +137,7 @@ describe('Antigravity’s permission modes', () => {
     setWorkspaceSetting(w as never, { key: 'cloudAntigravityMode', value: CLOUD_SAME });
     expect(w.config).toMatchObject({ antigravityMode: 'accept-edits', cloudAntigravityMode: CLOUD_SAME });
     expect(() => setWorkspaceSetting(w as never, { key: 'antigravityMode', value: 'bypassPermissions' })).toThrow();
-    expect(() => setWorkspaceSetting(w as never, { key: 'cloudAntigravityMode', value: 'full-access' })).toThrow();
+    expect(() => setWorkspaceSetting(w as never, { key: 'cloudAntigravityMode', value: 'acceptEdits' })).toThrow();
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
@@ -166,23 +166,43 @@ describe('Antigravity’s permission modes', () => {
     proc.kill = () => {};
     return proc;
   }
-  const modeOfARun = async (config: Record<string, unknown>, { cloud = true, answerMode = null }: { cloud?: boolean; answerMode?: string | null } = {}) => {
+  const runStarted = async (config: Record<string, unknown>, { cloud = true, answerMode = null }: { cloud?: boolean; answerMode?: string | null } = {}) => {
     const relay = fakeRelay();
+    let args: string[] = [];
     const sup = Object.assign(Object.create(Supervisor.prototype), {
       appDir: '/app', userDir: '/u', config: { storeRoot: '/s', accountId: 'acct', antigravityBin: null, ...config },
       storeMcpCommand: () => null, _cloudDocsEnv: () => ({}),
       _codexApprovals: () => createCodexApprovals({ storeRoot: tmp() }),
-      _spawnCloudRelay: () => relay,
+      _spawnCloudRelay: (a: string[]) => { args = a; return relay; },
     });
     sup._spawnAntigravityWorker({ args: [], prompt: 'Fix it', answerMode }, { cwd: '/w', item: { id: 'w-1', product: 'shop' }, env: {}, cloud });
     await vi.waitFor(() => expect(relay.sent.some((m) => m.method === 'session/prompt')).toBe(true));
-    return relay.sent.find((m) => m.method === 'session/set_mode')?.params?.modeId ?? null;
+    return { mode: relay.sent.find((m) => m.method === 'session/set_mode')?.params?.modeId ?? null, skips: args.includes('--dangerously-skip-permissions') };
   };
 
   it('start a run in the mode set here, or the cloud’s own, or the reply’s', async () => {
-    expect(await modeOfARun({})).toBe('auto');
-    expect(await modeOfARun({ antigravityMode: 'accept-edits' })).toBe('accept-edits');
-    expect(await modeOfARun({ antigravityMode: 'accept-edits', cloudAntigravityMode: 'plan' })).toBe('plan');
-    expect(await modeOfARun({ antigravityMode: 'accept-edits', cloudAntigravityMode: 'plan' }, { answerMode: 'default' })).toBeNull();
+    expect(await runStarted({})).toEqual({ mode: 'auto', skips: false });
+    expect(await runStarted({ antigravityMode: 'accept-edits' })).toEqual({ mode: 'accept-edits', skips: false });
+    expect(await runStarted({ antigravityMode: 'accept-edits', cloudAntigravityMode: 'plan' })).toEqual({ mode: 'plan', skips: false });
+    expect(await runStarted({ antigravityMode: 'accept-edits', cloudAntigravityMode: 'plan' }, { answerMode: 'default' })).toEqual({ mode: null, skips: false });
+  });
+
+  // 2026-11-20: "o agy não tem um modo de full access igual o codex e claude?"
+  it('run Full access as Auto on a server that asks nothing, here, in the cloud and from a reply', async () => {
+    expect(await runStarted({ antigravityMode: 'full-access' })).toEqual({ mode: 'auto', skips: true });
+    expect(await runStarted({ antigravityMode: 'auto', cloudAntigravityMode: 'full-access' })).toEqual({ mode: 'auto', skips: true });
+    expect(await runStarted({ antigravityMode: 'full-access', cloudAntigravityMode: 'plan' })).toEqual({ mode: 'plan', skips: false });
+    expect(await runStarted({}, { answerMode: 'bypassPermissions' })).toEqual({ mode: 'auto', skips: true });
+    expect(await runStarted({ antigravityMode: 'full-access' }, { answerMode: 'plan' })).toEqual({ mode: 'plan', skips: false });
+  });
+
+  it('save Full access like any other', () => {
+    const dir = tmp();
+    const w = { config: { appDir: dir } as Record<string, unknown>, supervisor: { onChange() {} }, store: {} };
+    setWorkspaceSetting(w as never, { key: 'antigravityMode', value: 'full-access' });
+    setWorkspaceSetting(w as never, { key: 'cloudAntigravityMode', value: 'full-access' });
+    expect(w.config).toMatchObject({ antigravityMode: 'full-access', cloudAntigravityMode: 'full-access' });
+    expect(antigravityState(w.config as never, { search: false })).toMatchObject({ mode: 'full-access', cloudMode: 'full-access' });
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 });

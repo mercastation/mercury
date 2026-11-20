@@ -6,6 +6,7 @@
 // turn ends. Shapes read off agy 1.5.13 on 2026-11-19.
 import { SAYING_CAP } from './codex.mts';
 import { nameSlugs } from '../shared/product-name.mjs';
+import type { AntigravityModeId } from '../shared/antigravity-modes.mts';
 
 export const MESSAGE_DONE = 'turn/message';
 export const TURN_DONE = 'session/prompt';
@@ -188,11 +189,12 @@ export function summarizeAntigravityEvent(method: string, params: unknown): stri
 }
 
 /**
- * The agy mode for the mode a reply picked, in Claude Code's words, or null for
- * the worker's own (Auto). Nothing maps to skipping its questions.
+ * The Antigravity mode (shared/antigravity-modes.mts) for the mode a reply
+ * picked, in Claude Code's words, or null for the one set in Settings.
+ * Bypass Permissions is Full access, agy's server skipping every question.
  */
-export function antigravityMode(answerMode: unknown): string | null {
-  return ({ plan: 'plan', acceptEdits: 'accept-edits', default: 'default' } as Record<string, string>)[text(answerMode)] ?? null;
+export function antigravityMode(answerMode: unknown): AntigravityModeId | null {
+  return ({ plan: 'plan', acceptEdits: 'accept-edits', default: 'default', bypassPermissions: 'full-access' } as Record<string, AntigravityModeId>)[text(answerMode)] ?? null;
 }
 
 export interface AcpDiff { type?: unknown; path?: unknown; oldText?: unknown; newText?: unknown }
