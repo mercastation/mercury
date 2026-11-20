@@ -183,6 +183,18 @@ const CODE_ANSWER_MS = 60_000;
 // A link is taken only once something ends it: a half-read link is not one.
 const CLAUDE_SIGNIN_URL = /(https:\/\/claude\.(?:com|ai)\/\S*oauth\/authorize\?[^\s"'<>]+)\s/;
 const CODEX_DEVICE_URL = /(https:\/\/auth\.openai\.com\/[^\s"'<>]+)\s/;
+// ANTIGRAVITY'S SIGN-IN, `agy acp --login` through a pipe (agy 1.5.13,
+// measured 2026-11-20 in a container): a Google link, the code read as a line,
+// then "Logged in as <email>." and exit 0, or "couldn't log in" and exit 1.
+const AGY_SIGNIN_URL = /(https:\/\/accounts\.google\.com\/o\/oauth2\/[^\s"'<>]+)\s/;
+const AGY_LOGGED_IN = /Logged in as (\S+?)\.?\s/;
+const AGY_SIGNED_OUT = /Please sign in|not logged in/i;
+// Where agy keeps a login on a machine with no keyring was not seen, so a
+// sign-in keeps every small file it wrote under its home, but never its logs,
+// its work or the plugins it unpacks.
+const AGY_NOT_LOGIN = /(^|\/)(log|logs|crashes|builtin|conversations|brain|implicit|annotations|updater|marketplaces)(\/|$)|\.(db|log)$/;
+const AGY_FILE_CAP = 256 * 1024;
+const AGY_LOGIN_CAP = 4 * 1024 * 1024;
 // A code is taken only once something ends it: `WY6D-YCCO` read a moment
 // before its last letter arrived is not the code.
 const CODEX_DEVICE_CODE = /\b([A-Z0-9]{4}-[A-Z0-9]{4,6})\s/;
@@ -812,7 +824,7 @@ export function createSandbox({
         const own = [cwd, ...(r.spec.docs ? [r.spec.docs] : [])];
         // The harness's own home: Claude Code's account folder, or Codex's,
         // where it keeps its state database and writes its sessions.
-        for (const k of ['CLAUDE_CONFIG_DIR', 'CODEX_HOME']) {
+        for (const k of ['CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'AGENTBOX_AGY_HOME']) {
           if (env[k]) { const d = at(env[k]); fs.mkdirSync(d, { recursive: true }); own.push(d); }
         }
         for (const p of own) await sh('chown', ['-R', `${runAs.uid}:${runAs.gid}`, p], '/');
@@ -1045,8 +1057,9 @@ export function createSandbox({
     const id = r.spec.login.id ?? null;
     if (!login || login.engine !== want) {
       emit({ kind: 'login', state: 'missing', engine: want, id }, r);
-      throw new Error(`this account has no ${want === 'codex' ? 'Codex' : 'Claude'} sign-in in the cloud`);
+      throw new Error(`this account has no ${want === 'codex' ? 'Codex' : want === 'antigravity' ? 'Antigravity' : 'Claude'} sign-in in the cloud`);
     }
+    if (want === 'antigravity') { r.secrets = await placeAgyLogin(r, login.files); return; }
     if (want === 'claude') {
       if (!login.token) throw new Error('the saved Claude sign-in is empty');
       r.secrets = [login.token];
@@ -1065,6 +1078,44 @@ export function createSandbox({
     }
     r.loginExpiresAt = exp;
     r.secrets = writeCodexLogin(at(home), login.auth);
+  }
+
+  // AN ANTIGRAVITY LOGIN, laid where the sign-in wrote it under the home and,
+  // for what was under .gemini, under the agy home the Mac names too
+  // (`--gemini-dir`). Answers with the long strings in it, never printed.
+  async function placeAgyLogin(r, saved) {
+    const entries = Object.entries(saved && typeof saved === 'object' ? saved : {});
+    if (!entries.length) throw new Error('the saved Antigravity sign-in is empty');
+    const home = at(runAs?.home || process.env.HOME || '/root');
+    const agyHome = r.spec.env?.AGENTBOX_AGY_HOME ? at(r.spec.env.AGENTBOX_AGY_HOME) : null;
+    const secrets = [];
+    const tops = new Set();
+    for (const [rel, b64] of entries) {
+      if (!/^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/.test(rel) || rel.split('/').some((p) => p === '..' || p === '.')) throw new Error('the saved Antigravity sign-in names a file outside its home');
+      const body = Buffer.from(String(b64), 'base64');
+      const targets = [path.join(home, rel), ...(agyHome && rel.startsWith('.gemini/') ? [path.join(agyHome, rel.slice('.gemini/'.length))] : [])];
+      for (const target of targets) {
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        fs.writeFileSync(target, body, { mode: 0o600 });
+      }
+      tops.add(rel.split('/')[0]);
+      secrets.push(...longStringsIn(body));
+    }
+    if (runAs) for (const top of tops) await sh('chown', ['-R', `${runAs.uid}:${runAs.gid}`, path.join(home, top)], '/').catch(() => {});
+    return secrets;
+  }
+
+  // The long strings of a JSON file that are neither a path nor a link: its tokens.
+  function longStringsIn(body) {
+    let value;
+    try { value = JSON.parse(body.toString('utf8')); } catch { return []; }
+    const out = [];
+    const walk = (v) => {
+      if (typeof v === 'string') { if (v.length >= 20 && !/\s/.test(v) && !v.startsWith('/') && !/^https?:/.test(v)) out.push(v); return; }
+      if (v && typeof v === 'object') for (const x of Object.values(v)) walk(x);
+    };
+    walk(value);
+    return out;
   }
 
   // On the access token alone, and fresh, so Codex never tries to renew.
@@ -1143,10 +1194,14 @@ export function createSandbox({
     let scratch;
     try { scratch = await scratchFor(r, engine); } catch (err) { return failSignin(r, `could not prepare the sign-in: ${err.message}`); }
     r.scratch = scratch;
-    const env = ownEnv(engine === 'claude' ? { CLAUDE_CONFIG_DIR: scratch, BROWSER: '/bin/false', TERM: 'xterm-256color' } : { CODEX_HOME: scratch, BROWSER: '/bin/false' });
+    // agy keeps its login under its home, so the scratch folder is its home.
+    const env = ownEnv(engine === 'claude' ? { CLAUDE_CONFIG_DIR: scratch, BROWSER: '/bin/false', TERM: 'xterm-256color' }
+      : engine === 'antigravity' ? { HOME: scratch, BROWSER: '/bin/false' }
+        : { CODEX_HOME: scratch, BROWSER: '/bin/false' });
     const argv = engine === 'claude'
       ? terminal('stty cols 4000 rows 50 2>/dev/null; exec claude setup-token')
-      : r.spec.flow === 'browser' ? ['codex', 'login'] : ['codex', 'login', '--device-auth'];
+      : engine === 'antigravity' ? ['agy', 'acp', '--login']
+        : r.spec.flow === 'browser' ? ['codex', 'login'] : ['codex', 'login', '--device-auth'];
     if (r.cancelled) return failSignin(r, 'The sign-in was cancelled.');
     let child;
     try {
@@ -1186,6 +1241,13 @@ export function createSandbox({
           const url = seen.match(CLAUDE_SIGNIN_URL)?.[1];
           if (url) { r.signinUrl = url; signinEvent(r, 'needs-code', { url }); }
         }
+      } else if (engine === 'antigravity') {
+        if (!r.signinUrl) {
+          const url = seen.match(AGY_SIGNIN_URL)?.[1];
+          if (url) { r.signinUrl = url; signinEvent(r, 'needs-code', { url }); }
+        }
+        const who = seen.match(AGY_LOGGED_IN)?.[1];
+        if (who) r.agyEmail = who;
       } else if (!r.signinUrl && r.spec.flow === 'browser') {
         const url = seen.match(CODEX_BROWSER_URL)?.[1];
         if (url) {
@@ -1217,10 +1279,11 @@ export function createSandbox({
       if (r.signinOver) return;
       r.signinOver = true;
       if (engine === 'codex' && code === 0 && !r.cancelled) { finishCodex(r); return; }
+      if (engine === 'antigravity' && code === 0 && r.codeSent && !r.cancelled) { finishAntigravity(r); return; }
       if (r.cancelled) failSignin(r, 'The sign-in was cancelled.');
-      else if (r.codeSent) failSignin(r, 'Claude didn’t accept that code. Copy the newest code from Claude’s page and try again.');
+      else if (r.codeSent) failSignin(r, engine === 'antigravity' ? 'Google didn’t accept that code. Copy the newest code from Google’s page and try again.' : 'Claude didn’t accept that code. Copy the newest code from Claude’s page and try again.');
       else if (r.returnRefused) failSignin(r, 'OpenAI didn’t accept that sign-in. Try again.');
-      else failSignin(r, engine === 'claude' ? 'The sign-in ended before Claude finished it.' : 'Codex did not finish signing in.');
+      else failSignin(r, engine === 'claude' ? 'The sign-in ended before Claude finished it.' : engine === 'antigravity' ? 'The sign-in ended before Antigravity finished it.' : 'Codex did not finish signing in.');
     }));
     r.signinTimer = setTimeout(() => {
       if (r.signinOver) return;
@@ -1313,6 +1376,39 @@ export function createSandbox({
     await saveLogin(r, { engine: 'codex', auth, savedAt: Date.now() }, { expiresAt: jwtExpiryMs(auth.tokens.access_token), email: jwtClaim(auth.tokens.id_token, 'email') });
   }
 
+  // agy's answer on the new sign-in from its own home, then what the sign-in
+  // wrote there, by path under the home.
+  async function finishAntigravity(r) {
+    signinEvent(r, 'checking');
+    const out = await quiet(['agy', 'models'], { cwd: r.scratch, env: ownEnv({ HOME: r.scratch }), timeoutMs: 120_000 });
+    note(r, `check ${out.code === 0 ? 'answered' : `failed (exit ${out.code}): ${shape(out.output)}`}`);
+    if (out.code !== 0) return failSignin(r, 'Antigravity did not answer on the new sign-in; nothing was kept.');
+    const files = agyLoginFiles(r.scratch);
+    if (!Object.keys(files).length) return failSignin(r, 'Antigravity finished without a sign-in to keep.');
+    await saveLogin(r, { engine: 'antigravity', files, savedAt: Date.now() }, { expiresAt: null, email: r.agyEmail ?? null });
+  }
+
+  function agyLoginFiles(home) {
+    const files = {};
+    let total = 0;
+    const walk = (rel) => {
+      let entries = [];
+      try { entries = fs.readdirSync(path.join(home, rel), { withFileTypes: true }); } catch { return; }
+      for (const e of entries) {
+        const name = rel ? `${rel}/${e.name}` : e.name;
+        if (AGY_NOT_LOGIN.test(name)) continue;
+        if (e.isDirectory()) { walk(name); continue; }
+        if (!e.isFile()) continue;
+        const size = fs.statSync(path.join(home, name)).size;
+        if (size > AGY_FILE_CAP || total + size > AGY_LOGIN_CAP) continue;
+        total += size;
+        files[name] = fs.readFileSync(path.join(home, name)).toString('base64');
+      }
+    };
+    walk('');
+    return files;
+  }
+
   // Kept by its own link, a few tries; the Mac hears only that it was kept.
   async function saveLogin(r, login, meta) {
     const body = Buffer.from(JSON.stringify(login));
@@ -1383,6 +1479,13 @@ export function createSandbox({
     const { engine, id = null } = r.spec.login;
     if (engine === 'codex') {
       if (r.loginExpiresAt && r.loginExpiresAt <= Date.now()) emit({ kind: 'login', state: 'expired', engine, id }, r);
+      return;
+    }
+    // A failed run on a sign-in agy itself now calls signed out.
+    if (engine === 'antigravity') {
+      if (code === 0) return;
+      const out = await quiet(['agy', 'models'], { cwd: '/', env: ownEnv({}), timeoutMs: 60_000 });
+      if (out.code !== 0 && AGY_SIGNED_OUT.test(out.output)) emit({ kind: 'login', state: 'refused', engine, id }, r);
       return;
     }
     if (code === 0 || !r.secretEnv?.CLAUDE_CODE_OAUTH_TOKEN) return;
@@ -1759,12 +1862,19 @@ export function createSandbox({
         return handBack(r, query);
       }
       case 'signin-code': {
-        if (r.spec.kind !== 'signin' || r.spec.engine !== 'claude') return { ok: false, error: 'not-a-claude-sign-in' };
+        if (r.spec.kind !== 'signin' || (r.spec.engine !== 'claude' && r.spec.engine !== 'antigravity')) return { ok: false, error: 'not-a-claude-sign-in' };
         if (!r.child || r.signinOver) return { ok: false, error: 'not-waiting' };
         const code = String(req.code || '').replace(/[\x00-\x1f\x7f]/g, '').trim().slice(0, 4096);
         if (!code) return { ok: false, error: 'empty-code' };
         r.codeSent = true;
         r.markCode?.();
+        // agy reads the code as one line through its pipe, and answers by exiting.
+        if (r.spec.engine === 'antigravity') {
+          r.child.stdin.write(`${code}\n`);
+          signinEvent(r, 'checking');
+          note(r, 'code sent');
+          return { ok: true };
+        }
         // THE CODE, THEN ENTER ON ITS OWN. Sent together, Claude reads the
         // return as part of a paste and never submits a real-length code
         // (2.1.301, measured 2026-10-15: she sat on Adding; the code showed
@@ -1964,14 +2074,14 @@ function invalidSignin(action, req) {
   if (!req.runId || typeof req.runId !== 'string') return 'runId is required';
   if (action === 'look') return req.engine === 'claude' && req.loginUrl ? null : 'a look is at a Claude login, by its link';
   if (!req.saveUrl) return 'saveUrl is required';
-  if (action === 'signin' && !['claude', 'codex'].includes(req.engine)) return 'engine must be claude or codex';
+  if (action === 'signin' && !['claude', 'codex', 'antigravity'].includes(req.engine)) return 'engine must be claude, codex or antigravity';
   if (req.flow != null && (action !== 'signin' || req.engine !== 'codex' || req.flow !== 'browser')) return 'flow is browser, and only for a Codex sign-in';
   if (action === 'renew' && (req.engine !== 'codex' || !req.loginUrl)) return 'a renewal is for a Codex login, by its link';
   return null;
 }
 
 function invalidStart(req) {
-  if (req.login && (!req.login.url || !['claude', 'codex'].includes(req.login.engine))) return 'a login needs its engine and its link';
+  if (req.login && (!req.login.url || !['claude', 'codex', 'antigravity'].includes(req.login.engine))) return 'a login needs its engine and its link';
   if (req.also != null && (!Array.isArray(req.also) || req.also.some((l) => l?.engine !== 'codex' || typeof l.url !== 'string' || !l.url))) return 'also is a list of Codex logins, each by its link';
   if (req.also?.length && req.login?.engine !== 'claude') return 'only a Claude run carries a Codex login too';
   if (req.keys != null && (!Array.isArray(req.keys) || req.keys.some((k) => keyNameRefused(k?.name) || typeof k.url !== 'string' || !k.url))) return 'keys is a list of saved keys, each by its name and link';

@@ -11,7 +11,7 @@
 // (main/cloud/host.mts).
 import fs from 'node:fs';
 import path from 'node:path';
-import { cloudRun, IMPORT_FAILED, LOGIN_TROUBLE } from './run.mts';
+import { cloudRun, cloudEngineOf, IMPORT_FAILED, LOGIN_TROUBLE } from './run.mts';
 import type { CloudKit, CodexAsk, CodexHere, NewThreadAsk, SignalSource } from './run.mts';
 import type { Readable, Writable } from 'node:stream';
 import { NEW_THREAD, NEW_THREAD_CODEX } from '../../shared/cloud-kit.mts';
@@ -98,8 +98,9 @@ export async function cloudRunFromArgs({ args, env, cwd, stdin, stdout, stderr, 
   const importOnly = args[0] === '--agentbox-import-only';
   const kitOnly = args[0] === '--agentbox-kit';
   // A kit for a Codex thread: `--agentbox-kit --agentbox-codex app-server`.
-  const codex = args[0] === '--agentbox-codex' || (kitOnly && args[1] === '--agentbox-codex');
-  const engine = codex ? 'codex' : 'claude';
+  // `--agentbox-agy acp ...`: an Antigravity run, `agy acp` in the sandbox.
+  const asked = cloudEngineOf(kitOnly ? args.slice(1) : args);
+  const engine = asked.engine;
   // The cloud account it runs on (main/cloud/logins.mts pickCloudLogin). The
   // folder below only says where the conversation is kept.
   const { rec, trouble } = importOnly ? { rec: null, trouble: null } : loginForCloudRun(engine, env);
@@ -136,8 +137,8 @@ export async function cloudRunFromArgs({ args, env, cwd, stdin, stdout, stderr, 
     onCaps: (caps) => noteImageCaps(config, caps),
     machine: cloudMachine(config),
     onMachine: (m) => noteCloudMachine(config, m),
-    remoteCommand: codex ? 'codex' : 'claude',
-    argv: importOnly ? [] : args.slice((codex ? 1 : 0) + (kitOnly ? 1 : 0)),
+    remoteCommand: asked.remoteCommand,
+    argv: importOnly ? [] : asked.argv,
     env, cwd, transport, storage,
     ...(stdin ? { stdin, stdout, stderr } : {}),
     ...(signals ? { signals } : {}),

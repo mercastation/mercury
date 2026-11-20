@@ -13,7 +13,7 @@
 // And she waited on Claude's page "stuck for about 30 seconds", not seeing
 // that its code had to come back: the code is now read from the clipboard
 // the moment she returns, and every wait says so with a moving mark.
-import { signingIn, type CloudAccount, type CloudSignIn, type CloudStatus } from './cloud-menu';
+import { signingIn, type CloudAccount, type CloudEngine, type CloudSignIn, type CloudStatus } from './cloud-menu';
 import { PLAN_TRIAL } from '../../cloud/gateway/plans.mjs';
 
 export const SETUP = {
@@ -23,6 +23,8 @@ export const SETUP = {
   // inviting a second one was the screen asking for something it will not use.
   // Named, because right after the Agentbox sign-in "the account" read as that one.
   homeLede: 'Add the Claude or Codex account your agents run on.',
+  // On a Mac that runs Antigravity too (status `kinds`).
+  homeLedeThree: 'Add the Claude, Codex or Antigravity account agents use.',
   addClaude: 'Add Claude account',
   addCodex: 'Add Codex account',
   addOne: 'Add account',
@@ -31,11 +33,13 @@ export const SETUP = {
   kindCodex: 'Codex',
   planClaude: 'Pro or Max plan',
   planCodex: 'ChatGPT plan',
+  kindAntigravity: 'Antigravity',
+  planAntigravity: 'Google account',
   remove: 'Remove',
   sameAccount: 'The same Claude account as one above, so it adds nothing. Remove it and add a different one.',
   again: 'Sign in again',
   done: 'Done',
-  signInHead: (engine: CloudSignIn['engine'], as?: string | null) => (as ? `Sign in to ${as}` : engine === 'codex' ? 'Sign in to Codex' : 'Sign in to Claude'),
+  signInHead: (engine: CloudSignIn['engine'], as?: string | null) => (as ? `Sign in to ${as}` : engine === 'codex' ? 'Sign in to Codex' : engine === 'antigravity' ? 'Sign in to Antigravity' : 'Sign in to Claude'),
   openAgain: 'Open the page again',
   tryAgain: 'Try again',
   back: 'Back',
@@ -62,11 +66,24 @@ export const SETUP = {
   menuAccounts: (n: number) => (n === 0 ? 'None yet' : n === 1 ? '1 account' : `${n} accounts`),
   // AN ACCOUNT BEING ADDED IN THE BACKGROUND (2026-10-15), and one that was not.
   adding: 'Adding…',
-  menuAdding: (engine: CloudSignIn['engine']) => `Adding your ${engine === 'codex' ? 'Codex' : 'Claude'} account…`,
-  menuFailed: (engine: CloudSignIn['engine'], why: string | null) => `Your ${engine === 'codex' ? 'Codex' : 'Claude'} account wasn’t added.${why ? ` ${why}` : ''}`,
-  toastFailed: (engine: CloudSignIn['engine']) => `Your ${engine === 'codex' ? 'Codex' : 'Claude'} account wasn’t added. Open the cloud menu to try again.`,
+  menuAdding: (engine: CloudSignIn['engine']) => `Adding your ${kindName(engine)} account…`,
+  menuFailed: (engine: CloudSignIn['engine'], why: string | null) => `Your ${kindName(engine)} account wasn’t added.${why ? ` ${why}` : ''}`,
+  toastFailed: (engine: CloudSignIn['engine']) => `Your ${kindName(engine)} account wasn’t added. Open the cloud menu to try again.`,
   menuManage: 'Manage',
 };
+
+/** A kind of account, by name, and the plan it signs in with. */
+export function kindName(engine: CloudEngine): string {
+  return engine === 'codex' ? SETUP.kindCodex : engine === 'antigravity' ? SETUP.kindAntigravity : SETUP.kindClaude;
+}
+export function planName(engine: CloudEngine): string {
+  return engine === 'codex' ? SETUP.planCodex : engine === 'antigravity' ? SETUP.planAntigravity : SETUP.planClaude;
+}
+
+/** The kinds of account the screen offers to add: Claude and Codex, and Antigravity where this Mac runs it. */
+export function addableKinds(status: Pick<CloudStatus, 'kinds'>): CloudEngine[] {
+  return status.kinds?.length ? status.kinds : ['claude', 'codex'];
+}
 
 // The menu's one line about setup, when there is one: an account that did
 // not get added (with the way to try again), one being added, or one that
@@ -145,9 +162,11 @@ export function newlyFailedSignIns(before: Set<string>, status: CloudStatus | nu
 // WHAT ONE SIGN-IN SAYS, in a line, and what it asks for. `busy` draws the
 // moving mark beside the line, so a wait never looks like a stop.
 export function signInView(s: CloudSignIn): { lead: string; busy: boolean; paste: boolean; codeToType: string | null } {
-  const claude = s.engine === 'claude';
-  if (s.state === 'starting') return { lead: claude ? 'Opening Claude’s sign-in…' : 'Opening OpenAI’s sign-in…', busy: true, paste: false, codeToType: null };
-  if (s.state === 'needs-code') return { lead: 'Approve on Claude’s page, then copy the code it shows.', busy: false, paste: true, codeToType: null };
+  // Whose page the sign-in is on: Antigravity's is Google's, and like
+  // Claude's it ends on a code to copy back here.
+  const vendor = s.engine === 'claude' ? 'Claude' : s.engine === 'antigravity' ? 'Google' : 'OpenAI';
+  if (s.state === 'starting') return { lead: `Opening ${vendor}’s sign-in…`, busy: true, paste: false, codeToType: null };
+  if (s.state === 'needs-code') return { lead: `Approve on ${vendor}’s page, then copy the code it shows.`, busy: false, paste: true, codeToType: null };
   if (s.state === 'waiting' && !s.code) return { lead: 'Sign in with ChatGPT in your browser.', busy: true, paste: false, codeToType: null };
   if (s.state === 'waiting') return { lead: 'Enter this code on OpenAI’s page.', busy: true, paste: false, codeToType: s.code };
   if (s.state === 'checking') return { lead: 'Checking…', busy: true, paste: false, codeToType: null };

@@ -284,7 +284,9 @@ export function cloudAccountsFrom(env: NodeJS.ProcessEnv = process.env) {
 
 // The cloud account that is this Mac's own account, which the app hands each
 // cloud run it starts (Supervisor#_cloudAccountEnv).
-export const CLOUD_ACCOUNT_ENV: Record<string, string> = { claude: 'AGENTBOX_CLOUD_CLAUDE_ACCOUNT', codex: 'AGENTBOX_CLOUD_CODEX_ACCOUNT' };
+export const CLOUD_ACCOUNT_ENV: Record<string, string> = { claude: 'AGENTBOX_CLOUD_CLAUDE_ACCOUNT', codex: 'AGENTBOX_CLOUD_CODEX_ACCOUNT', antigravity: 'AGENTBOX_CLOUD_ANTIGRAVITY_ACCOUNT' };
+/** The agent's name in a sentence about its cloud sign-in. */
+export const cloudAgentName = (engine: string) => (engine === 'codex' ? 'Codex' : engine === 'antigravity' ? 'Antigravity' : 'Claude');
 export function cloudAccountFrom(env: NodeJS.ProcessEnv = process.env, engine = 'claude') {
   return String(env?.[CLOUD_ACCOUNT_ENV[engine]] ?? '').trim() || null;
 }
@@ -365,7 +367,7 @@ export const clock = (t: number) => new Date(t).toLocaleTimeString('en-US', { ho
 
 /** Why a run found no account to take, as its thread will quote it. */
 export function noCloudAccountSentence(engine: string, inUse: CloudLoginRecord | null | undefined, { now = Date.now() }: { now?: number } = {}) {
-  const name = engine === 'codex' ? 'Codex' : 'Claude';
+  const name = cloudAgentName(engine);
   const state = inUse ? cloudLoginState(inUse, { now }) : 'none';
   if (state === 'limited') return `the ${name} account the cloud runs on is at its usage limit until ${clock(inUse!.limitedUntil!)}`;
   if (state === 'renew') return `the ${name} account the cloud runs on is renewing its sign-in`;
@@ -494,7 +496,7 @@ export function startCloudSignIn({ transport, storage, engine, dir, home = os.ho
     // The check's clock starts when her part ends, and stops when it ends.
     if (status.state === 'checking' && !checkTimer) {
       checkTimer = setTimeout(() => {
-        if (status.state === 'checking') giveUp(`${engine === 'codex' ? 'Codex' : 'Claude'} didn’t finish signing in. Try again.`);
+        if (status.state === 'checking') giveUp(`${cloudAgentName(engine)} didn’t finish signing in. Try again.`);
       }, checkMs);
       checkTimer.unref?.();
     } else if (status.state !== 'checking' && checkTimer) {

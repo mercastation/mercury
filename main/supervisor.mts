@@ -6690,13 +6690,13 @@ export class Supervisor {
     if (!this._profilesFor(which)[0]) return false;
     return listCloudLogins(which, { home: this.config.home })
       .filter((r) => !['none', 'broken', 'duplicate'].includes(cloudLoginState(r, { now })))
-      .every((r) => (which === 'codex' ? !!r.email : !!r.org));
+      .every((r) => (which === 'codex' || which === 'antigravity' ? !!r.email : !!r.org));
   }
 
   // Engines whose account on this Mac has no working sign-in in the cloud, so
   // their threads run here (the cloud menu says so).
   _cloudNotSignedInHere(now = Date.now()) {
-    return [DEFAULT_ENGINE, 'codex'].filter((engine) => {
+    return [DEFAULT_ENGINE, 'codex', 'antigravity'].filter((engine) => {
       if (!this.engineChoices().some((e) => e.id === engine)) return false;
       if (!listCloudLogins(engine, { home: this.config.home }).length) return false;
       return !cloudLoginInUse(engine, this._cloudAccountAsk(engine, now));
@@ -6711,6 +6711,8 @@ export class Supervisor {
     const profile = this._profilesFor(which)[0];
     if (!profile) return null;
     const logins = listCloudLogins(which, { home: this.config.home }).filter((r) => !r.duplicateOf);
+    // agy has one sign-in on a Mac and says nothing of whose, so its cloud account is its cloud login.
+    if (which === 'antigravity') return logins[0]?.key ?? null;
     if (which === 'codex') {
       const email = codexAccount(this._codexProfileHome(profile))?.email?.toLowerCase();
       return (email && logins.find((r) => r.email?.toLowerCase() === email)?.key) || null;
@@ -6724,7 +6726,7 @@ export class Supervisor {
   // What a cloud run is handed so it takes that account (main/cloud/run-cli.mts).
   _cloudAccountEnv() {
     const out: Record<string, string> = {};
-    for (const engine of [DEFAULT_ENGINE, 'codex']) {
+    for (const engine of [DEFAULT_ENGINE, 'codex', 'antigravity']) {
       const key = this._cloudAccountOfThisMac(engine);
       if (key) out[CLOUD_ACCOUNT_ENV[engine as keyof typeof CLOUD_ACCOUNT_ENV]] = key;
     }
@@ -6766,6 +6768,7 @@ export class Supervisor {
       notInCloud: setUp ? this._cloudNotSignedInHere(now) : [],
       noCloudSignIn: setUp ? this.engineChoices().map((e) => e.id).filter((id) => !this._cloudSignedInAtAll(id)) : [],
       signIns: setUp ? this._cloudSignInsNow() : [],
+      kinds: setUp ? this._cloudKinds() : [],
       projects: setUp ? (this.store.listProducts?.() ?? []).filter((p) => this._cloudTakesProject(p)).map((p) => p.slug) : [],
       // The Agentbox Cloud plan the server last said ('none' is no plan).
       plan: this.cloudPlan ?? null,
@@ -6774,7 +6777,14 @@ export class Supervisor {
     };
   }
 
-  // THE ACCOUNTS SHE ADDED FOR THE CLOUD, of both engines, oldest first, each
+  // The kinds of account the cloud setup offers to add: Claude and Codex as
+  // always, and Antigravity only where this Mac runs it, since a cloud account
+  // of an engine this Mac never starts would never be used.
+  _cloudKinds(): string[] {
+    return [DEFAULT_ENGINE, 'codex', ...(this.engineChoices().some((e) => e.id === 'antigravity') ? ['antigravity'] : [])];
+  }
+
+  // THE ACCOUNTS SHE ADDED FOR THE CLOUD, of every engine, oldest first, each
   // named by its email when the vendor said it, and with whether it can run.
   // They are hers to choose (2026-10-14: "we shouldn't predefine which
   // accounts to sign up with"), so they are not this Mac's accounts.
@@ -6782,7 +6792,7 @@ export class Supervisor {
     const now = Date.now();
     const out: Record<string, unknown>[] = [];
     let here: (Partial<AccountIdentity> & { profile: string })[] | null = null;
-    for (const engine of [DEFAULT_ENGINE, 'codex']) {
+    for (const engine of [DEFAULT_ENGINE, 'codex', 'antigravity']) {
       const inUse = cloudLoginInUse(engine, this._cloudAccountAsk(engine, now))?.key ?? null;
       listCloudLogins(engine, { home: this.config.home }).forEach((r) => {
         const state = cloudLoginState(r, { now });
@@ -6979,7 +6989,7 @@ export class Supervisor {
   // sign-in happens in the cloud; the Mac only relays the link, the code, and
   // how it ended. Anything else is refused.
   async cloudSignIn(action: string, engine: string, key: string | null | undefined, code?: string) {
-    if (engine !== 'codex' && engine !== 'claude') throw new Error('not an engine the cloud runs');
+    if (engine !== 'codex' && engine !== 'claude' && engine !== 'antigravity') throw new Error('not an engine the cloud runs');
     const which = engineOf(engine);
     this._cloudSignIns ??= new Map();
     const known = (k: unknown): k is string => typeof k === 'string' && /^acct-[a-z0-9-]{4,40}$/.test(k);
@@ -7763,7 +7773,7 @@ export class Supervisor {
   // A cloud run's environment: this Mac's cloud accounts, the phone it reports
   // to, and the files the person sent its thread, which go with this run only.
   _cloudRelayEnv(given: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-    const { [CLOUD_ACCOUNT_ENV.claude]: _claude, [CLOUD_ACCOUNT_ENV.codex]: _codex, ...rest } = given;
+    const { [CLOUD_ACCOUNT_ENV.claude]: _claude, [CLOUD_ACCOUNT_ENV.codex]: _codex, [CLOUD_ACCOUNT_ENV.antigravity]: _antigravity, ...rest } = given;
     const env: NodeJS.ProcessEnv = { ...rest, ...this._cloudAccountEnv(),
       ...(this._phoneCarries?.slugs.has(given.ZERO_PRODUCT) ? { AGENTBOX_PHONE_DEVICE: this._phoneCarries.device } : {}),
       // Where a key the run asks this Mac for (main/cloud/key-asks.mts) puts its card, and the public half that checks the answer.
@@ -11433,9 +11443,23 @@ export class Supervisor {
     };
   }
 
-  _spawnAntigravityWorker(plan: SpawnPlan, { cwd, item, env }: { cwd: string; item: WorkItem; env: NodeJS.ProcessEnv }) {
+  _spawnAntigravityWorker(plan: SpawnPlan, { cwd, item, env, cloud = false }: { cwd: string; item: WorkItem; env: NodeJS.ProcessEnv; cloud?: boolean }) {
     const launch = this._antigravityLaunch(plan, item);
     let worker: AntigravityWorker | null = null;
+    // A CLOUD RUN IS THE SAME WORKER on `agy acp` in the sandbox, reached
+    // through the relay (main/cloud/run-cli.mts --agentbox-agy), which brings
+    // the work and the conversation home before it exits.
+    let relayExit: (value: ProcExit) => void = () => {};
+    const procExit = new Promise<ProcExit>((resolve) => { relayExit = resolve; });
+    const relay = () => {
+      const proc = this._spawnCloudRelay(['--agentbox-agy', ...launch.args], {
+        cwd,
+        env: { ...env, STORE_ACCOUNT_ID: this.config.accountId, ...storeRootEnv(this.config.storeRoot), ZERO_PRODUCT: item.product, ZERO_ITEM: item.id, ...this._cloudDocsEnv(item) },
+      });
+      proc.once('exit', (code, signal) => relayExit({ code, signal }));
+      proc.once('error', () => relayExit({ code: 1, signal: null }));
+      return proc as ChildProcessWithoutNullStreams;
+    };
     const cards = this._codexApprovals().scope({
       product: item.product,
       item: item.id,
@@ -11445,9 +11469,11 @@ export class Supervisor {
     });
     worker = createAntigravityWorker({
       spawnAgent: () => {
+        if (cloud) return relay();
         if (!launch.bin) throw new Error('Antigravity (agy) could not be found on this computer.');
         return spawn(launch.bin, launch.args, { cwd, env: { ...env, ZERO_PRODUCT: item.product, ZERO_ITEM: item.id }, stdio: ['pipe', 'pipe', 'pipe'] });
       },
+      endsWithItsInput: cloud,
       cwd,
       prompt: String(plan.prompt ?? ''),
       system: plan.system ?? null,
@@ -11462,6 +11488,12 @@ export class Supervisor {
     worker.once('exit', () => {
       try { cards.close('the run that asked this has stopped'); } catch (e) { console.warn('zero: could not close an antigravity worker cards:', (e as Error)?.message ?? e); }
     });
+    if (cloud) {
+      holdUntilHome({
+        worker, client: { close: () => {} }, procExit,
+        onTurnEnd: () => { try { cards.close('the run that asked this has stopped'); } catch { /* already closed */ } },
+      });
+    }
     return worker;
   }
 

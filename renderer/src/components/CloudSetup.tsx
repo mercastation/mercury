@@ -4,10 +4,11 @@
 // walk's screen and card (components/PlanSetup.tsx, `.fr-screen .ps-over`).
 // Three views, and only one thing to do on each:
 //   home     the accounts she added, and a button to add a Claude or a Codex
-//            account; Done once one can run;
-//   sign-in  one account signing in: Claude's code comes back from the
-//            clipboard by itself, Codex's code is shown to type on OpenAI's
-//            page; every wait wears a moving mark;
+//            account (or an Antigravity one, on a Mac that runs it); Done
+//            once one can run;
+//   sign-in  one account signing in: Claude's and Antigravity's codes come
+//            back from the clipboard by themselves, Codex's code is shown to
+//            type on OpenAI's page; every wait wears a moving mark;
 //   where    where new threads should start.
 // The sign-in itself happens in the cloud (main/cloud/logins.mts).
 import { useEffect, useRef, useState } from 'react';
@@ -17,8 +18,8 @@ import { EngineLogo } from './EngineLogos';
 import { AskList } from './PlanSetup';
 import { Cap } from './Onboarding';
 import { NAME } from '../../../shared/product-name.mjs';
-import { accountLabel, engineWord, pageToOpen, type CloudAccount, type CloudMode, type CloudSignIn, type CloudStatus } from '../cloud-menu';
-import { SETUP, WHERE_ROWS, activeSignIn, addingRows, doneAsksWhere, mayFinish, signInView } from '../cloud-setup';
+import { accountLabel, engineWord, pageToOpen, type CloudAccount, type CloudEngine, type CloudMode, type CloudSignIn, type CloudStatus } from '../cloud-menu';
+import { SETUP, WHERE_ROWS, activeSignIn, addableKinds, addingRows, doneAsksWhere, kindName, mayFinish, planName, signInView } from '../cloud-setup';
 import { CloudPlanCards } from './CloudPlanCards';
 import { setupStep } from '../cloud-setup-step';
 import type { PaidPlan } from '../cloud-upgrade';
@@ -28,7 +29,7 @@ const Plus = () => <svg width="14" height="14" viewBox="0 0 16 16" fill="none" s
 const Chevron = () => <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 3.5L10.5 8 6 12.5" /></svg>;
 const Busy = () => <span className="cs-busy" aria-hidden="true" />;
 
-const send = (engine: 'claude' | 'codex', action: 'start' | 'code' | 'cancel' | 'remove', key?: string | null, code?: string) =>
+const send = (engine: CloudEngine, action: 'start' | 'code' | 'cancel' | 'remove', key?: string | null, code?: string) =>
   api.cloudSignIn({ action, engine, key: key ?? null, code });
 
 // ONE SIGN-IN. Claude's code is read from the clipboard when she comes back
@@ -67,7 +68,7 @@ function SignIn({ s, existing, as = null }: { s: CloudSignIn; existing: boolean;
     <h1 className="fr-page">{SETUP.signInHead(s.engine, as)}</h1>
     <p className={`fr-lede${s.state === 'failed' ? ' cs-trouble' : ''}`}>{view.busy && <Busy />}{view.lead}</p>
     {view.paste && <form className="fr-card cs-paste-card" onSubmit={(e) => { e.preventDefault(); submit(code); }}>
-      <input autoFocus value={code} onChange={(e) => setCode(e.target.value)} placeholder={SETUP.pastePlaceholder} aria-label="Claude’s sign-in code" spellCheck={false} />
+      <input autoFocus value={code} onChange={(e) => setCode(e.target.value)} placeholder={SETUP.pastePlaceholder} aria-label={`${kindName(s.engine)}’s sign-in code`} spellCheck={false} />
       <button type="submit" className="fr-submit" disabled={!code.trim()}>{SETUP.pasteGo} <Cap cap="↵" /></button>
     </form>}
     {view.codeToType && <div className="cs-code">
@@ -92,6 +93,7 @@ export function CloudSetup({ cloud, onMode, onClose, signInAs = null, plan = nul
   plan?: CloudPlan | null;
 }) {
   const accounts = cloud.accounts || [];
+  const kinds = addableKinds(cloud);
   // PAY FIRST (../cloud-setup-step.ts): no account is asked for until the
   // plan is paid. Checkout opens in the browser, and the plan lands with
   // Stripe's notice to the cloud server, so it is read again every few
@@ -185,7 +187,7 @@ export function CloudSetup({ cloud, onMode, onClose, signInAs = null, plan = nul
   } else {
     body = <div className="fr-stack fr-stack-folders">
       <h1 className="fr-page">{SETUP.homeHead}</h1>
-      <p className="fr-lede">{SETUP.homeLede}</p>
+      <p className="fr-lede">{kinds.includes('antigravity') ? SETUP.homeLedeThree : SETUP.homeLede}</p>
       {/* ONE CARD, ONE COLUMN OF MARKS (2026-10-14). Each account is its
           vendor's logo and its name; the last row is Add account, and adding
           opens, in the same rows and the same columns, the two kinds to pick
@@ -214,22 +216,22 @@ export function CloudSetup({ cloud, onMode, onClose, signInAs = null, plan = nul
             with the way to try again. × lets the failure go. */}
         {adding.map((s) => <div key={s.key} className={`cs-row${s.state === 'failed' ? ' broken' : ''}`}>
           <span className="cs-row-mark"><EngineLogo engine={s.engine} /></span>
-          <span className="cs-row-name">{s.engine === 'codex' ? SETUP.kindCodex : SETUP.kindClaude}{s.state === 'failed' && <small className="cs-row-why">{s.message || 'That didn’t work.'}</small>}</span>
+          <span className="cs-row-name">{kindName(s.engine)}{s.state === 'failed' && <small className="cs-row-why">{s.message || 'That didn’t work.'}</small>}</span>
           <span className="cs-row-end">
             {s.state === 'checking'
               ? <span className="cs-row-eng cs-row-adding"><Busy />{SETUP.adding}</span>
               : <button type="button" className="cs-quiet cs-again" onClick={() => void send(s.engine, 'cancel', s.key).then(() => send(s.engine, 'start'))}>{SETUP.tryAgain}</button>}
             {/* Being added or failed, it can be let go: a cancel stops the cloud's side too. */}
-            <button type="button" className="cs-remove" aria-label={`${SETUP.remove} ${s.engine === 'codex' ? SETUP.kindCodex : SETUP.kindClaude}`} title={SETUP.remove} onClick={() => void send(s.engine, 'cancel', s.key)}>×</button>
+            <button type="button" className="cs-remove" aria-label={`${SETUP.remove} ${kindName(s.engine)}`} title={SETUP.remove} onClick={() => void send(s.engine, 'cancel', s.key)}>×</button>
           </span>
         </div>)}
         {choosing && accounts.length > 0 && <div className="cs-choose-head">{SETUP.addWhich}</div>}
         {choosing || (!accounts.length && !adding.length)
-          ? (['claude', 'codex'] as const).map((engine) => <button key={engine} type="button" className="cs-row cs-pick" onClick={() => { setChoosing(false); void send(engine, 'start'); }}>
+          ? kinds.map((engine) => <button key={engine} type="button" className="cs-row cs-pick" onClick={() => { setChoosing(false); void send(engine, 'start'); }}>
               <span className="cs-row-mark"><EngineLogo engine={engine} /></span>
-              <span className="cs-row-name">{engine === 'codex' ? SETUP.kindCodex : SETUP.kindClaude}</span>
+              <span className="cs-row-name">{kindName(engine)}</span>
               <span className="cs-row-end">
-                <span className="cs-row-eng">{engine === 'codex' ? SETUP.planCodex : SETUP.planClaude}</span>
+                <span className="cs-row-eng">{planName(engine)}</span>
                 <span className="cs-row-go"><Chevron /></span>
               </span>
             </button>)

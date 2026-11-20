@@ -39,6 +39,8 @@ export interface AntigravityWorkerOptions {
   mode?: string | null;
   pictures?: readonly string[];
   onApproval?: ((method: string, params: unknown) => unknown) | null;
+  /** A cloud relay: its input is ended after the turn, never killed, so it can bring the work home. */
+  endsWithItsInput?: boolean;
 }
 
 export interface AntigravityWorker extends EventEmitter {
@@ -230,7 +232,8 @@ export function createAntigravityWorker(o: AntigravityWorkerOptions): Antigravit
       code = 1;
     } finally {
       ended = true;
-      client.close('The run is over.');
+      if (o.endsWithItsInput && !stopping) { try { child.stdin.end(); } catch { /* already closed */ } }
+      else client.close('The run is over.');
       worker.emit('exit', code, null);
     }
   };

@@ -21,6 +21,13 @@ RUN apt-get update \
 
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" "@openai/codex@${CODEX_VERSION}" && npm cache clean --force
 
+# ANTIGRAVITY'S CLI, `agy`: one binary, which Google's installer checks
+# against the SHA-512 in its release manifest, on every user's PATH.
+RUN curl -fsSL -o /tmp/agy-install.sh https://antigravity.google/cli/install.sh \
+ && bash /tmp/agy-install.sh --dir /usr/local/bin \
+ && rm -f /tmp/agy-install.sh \
+ && /usr/local/bin/agy --version
+
 # A BROWSER, so an agent can draw a page and photograph it as one on the Mac
 # does. Without it a design thread spent its first minutes fetching Chromium's
 # libraries by hand (2026-10-15). Playwright's Chromium, the libraries and

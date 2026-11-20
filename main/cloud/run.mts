@@ -1092,13 +1092,10 @@ export async function cloudRun({
   const codexHome = env.CODEX_HOME || path.join(homeDir, '.codex');
   const projectsFor = (dir?: string) => path.join(dir || configDir, 'projects', transcriptFolderName(cwd));
   const projectsDir = projectsFor(configDir);
-  // WHAT COMES HOME BESIDES THE FOLDER: the conversation, wherever the
-  // harness keeps it. Claude Code: this folder's transcripts under the
-  // account. Codex: its sessions folder, which in the sandbox holds only
-  // what this run wrote (and the one rollout a resume sent up).
-  const bringDirs = codex
-    ? [{ name: 'sessions.tgz', dir: path.join(codexHome, 'sessions') }]
-    : [{ name: 'projects.tgz', dir: projectsDir }];
+  // Antigravity's home is the one its worker names (`--gemini-dir`), at the same path there.
+  const agy = engine === 'antigravity';
+  const agyHome = agy ? argValue(argv, '--gemini-dir') : null;
+  const bringDirs = bringDirsFor(engine, { agyHome, codexHome, projectsDir });
   const keyOf = (runId: string, name: string) => `runs/${runId}/${name}`;
   // The links a run uploads its results to. The folders are the RUN's, which
   // for a run being brought home are the ones its marker names, not whichever
@@ -1156,7 +1153,7 @@ export async function cloudRun({
     if (leftGoing && earlierHelpers.lost().length) await write(stdout, helpersLostLine(earlierHelpers.lost()));
   }
   if (importOnly && !joining) return 0;
-  if (!joining && (!login || login.engine !== engine)) { say(`this ${engine === 'codex' ? 'Codex' : 'Claude'} account has not signed in for the cloud`); return LOGIN_TROUBLE; }
+  if (!joining && (!login || login.engine !== engine)) { say(`this ${engine === 'codex' ? 'Codex' : agy ? 'Antigravity' : 'Claude'} account has not signed in for the cloud`); return LOGIN_TROUBLE; }
 
   let runId: string; let sessionId: string; let marker: RunMarker; let docs: RunDocs | null; let sentFiles: Set<string>; let sendFile: SendFile; let resourceCapable = false; let foldersCapable = false;
   // Files that are a conversation, sent joined to the copy the bucket has.
@@ -1196,6 +1193,11 @@ export async function cloudRun({
         const c = codexLineForTheCloud(line, { stubPath, codexHome, keep: mcpConfig.mcpServers, note });
         line = c.line;
         if (c.conversation) conversations.add(c.conversation);
+        named.push(...c.files.filter((f) => !named.includes(f)));
+      } else if (agy) {
+        // Its conversation is a database, so it goes up whole, never as a tail.
+        const c = acpLineForTheCloud(line, { stubPath, agyHome, keep: mcpConfig.mcpServers, note });
+        line = c.line;
         named.push(...c.files.filter((f) => !named.includes(f)));
       } else if (untold) {
         const was = line;
@@ -1346,9 +1348,10 @@ export async function cloudRun({
     else { conversations.add(t); sending.push(sendFile(t)); }
   }
   // Her saved memories for this project, where Claude Code in the cloud looks.
-  const saved = codex ? null : plain ? folderWithFiles(path.join(projectsDir, 'memory')) : memoryFolderFor(cwd, configDir);
+  const saved = engine !== 'claude' ? null : plain ? folderWithFiles(path.join(projectsDir, 'memory')) : memoryFolderFor(cwd, configDir);
   if (saved) sending.push(sendFolder(saved, path.join(projectsDir, '.memory.tgz'), path.join(projectsDir, 'memory')));
-  const skillFiles = (async () => {
+  // agy reads neither Claude Code's skills nor Codex's.
+  const skillFiles = agy ? Promise.resolve([]) : (async () => {
     const snapshot = await snapshotSkills({ engine, homeDir, configDir, codexHome });
     try {
       for (const skipped of snapshot.skipped) say(`skill not sent: ${skipped.path} (${skipped.reason})`);
@@ -1362,7 +1365,7 @@ export async function cloudRun({
     } finally { snapshot.close(); }
   })();
   // Commands and agents retain their existing account selection.
-  if (!codex) {
+  if (engine === 'claude') {
     const tooling = path.join(homeDir, '.claude');
     const own = (name: string) => (fs.existsSync(path.join(configDir, name)) ? path.join(configDir, name) : path.join(tooling, name));
     for (const sub of ['commands', 'agents']) {
@@ -1429,7 +1432,7 @@ export async function cloudRun({
   if (!plain) try { remote = remoteForTheCloud((await git(cwd, ['remote', 'get-url', 'origin'])).trim()); } catch { /* no origin */ }
 
   const remoteEnv = {
-    ...(codex ? { CODEX_HOME: codexHome } : { CLAUDE_CONFIG_DIR: configDir }),
+    ...(codex ? { CODEX_HOME: codexHome } : agy ? (agyHome ? { AGENTBOX_AGY_HOME: agyHome } : {}) : { CLAUDE_CONFIG_DIR: configDir }),
     MCP_TOOL_TIMEOUT: String(8 * 60 * 60 * 1000),
     DISABLE_AUTOUPDATER: '1',
     ...(env.ZERO_PRODUCT ? { ZERO_PRODUCT: env.ZERO_PRODUCT } : {}),
@@ -1465,7 +1468,7 @@ export async function cloudRun({
         // A conversation begun on the Mac is told it is in the cloud at the top of its message.
         note: untold ? kitNote : null,
         // A run that asks permission has its cards held for her phone while the computer is shut.
-        ...(!codex && asksPermission(argv) ? { hold: [APPROVALS_SERVER], handshakes: { [APPROVALS_SERVER]: await approvalsHandshakes() } } : {}),
+        ...(engine === 'claude' && asksPermission(argv) ? { hold: [APPROVALS_SERVER], handshakes: { [APPROVALS_SERVER]: await approvalsHandshakes() } } : {}),
         ...(codexOpen ? { codex: { open: codexOpen.lines, [kit.codex!.start ? 'startId' : 'resumeId']: CODEX_RESUME_ID, firstTurnId: CODEX_RESUME_ID + 1, turn: kit.codex!.turn } } : {}),
         ...(named ? named.made : {}),
       },
@@ -1505,7 +1508,7 @@ export async function cloudRun({
     // The run carries on while this Mac sleeps: a tool call is told it could
     // not reach the app, and a Claude Code turn that has ended has its input
     // closed there. A Codex turn ends only with the Mac, as before.
-    offline: { afterMs: offlineAfterMs, endTurn: codex ? null : 'claude-stream-json', kept: keptWhileAway },
+    offline: { afterMs: offlineAfterMs, endTurn: engine === 'claude' ? 'claude-stream-json' : null, kept: keptWhileAway },
   }), { what: 'start the cloud run', forever: false });
   if (!started) {
     signals.off('SIGHUP', early);
@@ -2475,6 +2478,55 @@ export function codexLineForTheCloud(line: string, { stubPath = STUB, codexHome,
     if (conversation) files.push(conversation);
   }
   return { line: JSON.stringify(msg) + (line.endsWith('\n') ? '\n' : ''), files, ...(conversation ? { conversation } : {}) };
+}
+
+// ONE LINE FROM AN ANTIGRAVITY WORKER (main/antigravity-worker.mts), MADE
+// READY FOR THE SANDBOX. Its tool servers are named in `session/new`,
+// `session/resume` and `session/load`, each swapped for the stub as Codex's
+// are; the cloud note joins its appended instructions; a resume names the one
+// file agy needs to find that conversation. Any other line passes as it came.
+export function acpLineForTheCloud(line: string, { stubPath = STUB, agyHome, keep, note = null }: { stubPath?: string; agyHome: string | null; keep: McpServers; note?: string | null }): CodexLineForTheCloud {
+  let msg: { method?: string; params?: { sessionId?: unknown; mcpServers?: unknown; _meta?: Record<string, unknown> } } | null;
+  try { msg = JSON.parse(line); } catch { return { line, files: [] }; }
+  if (!msg || !['session/new', 'session/resume', 'session/load'].includes(msg.method ?? '') || !msg.params) return { line, files: [] };
+  const params = msg.params;
+  if (Array.isArray(params.mcpServers)) {
+    params.mcpServers = params.mcpServers.map((s: { name?: unknown; command?: unknown; args?: unknown; env?: unknown }) => {
+      if (!s || typeof s.name !== 'string' || typeof s.command !== 'string') return s;
+      const env = Array.isArray(s.env) ? Object.fromEntries(s.env.filter((e: { name?: unknown; value?: unknown }) => typeof e?.name === 'string' && typeof e?.value === 'string').map((e: { name: string; value: string }) => [e.name, e.value])) : {};
+      keep[s.name] = { command: s.command, args: Array.isArray(s.args) ? s.args.map(String) : [], env };
+      return { name: s.name, command: SANDBOX_NODE, args: [stubPath, s.name], env: [{ name: 'AGENTBOX_BRIDGE_SOCK', value: BRIDGE_SOCK }] };
+    });
+  }
+  if (note) {
+    const meta = (params._meta ??= {}) as { antigravity?: { systemPrompt?: { append?: unknown } } };
+    const prompt = ((meta.antigravity ??= {}).systemPrompt ??= {});
+    prompt.append = typeof prompt.append === 'string' && prompt.append ? `${prompt.append}\n\n${note}` : note;
+  }
+  const files: string[] = [];
+  const id = params.sessionId;
+  if (msg.method !== 'session/new' && agyHome && typeof id === 'string' && /^[A-Za-z0-9-]+$/.test(id)) {
+    const db = path.join(agyHome, 'antigravity-cli', 'conversations', `${id}.db`);
+    if (fs.existsSync(db)) files.push(db);
+  }
+  return { line: JSON.stringify(msg) + (line.endsWith('\n') ? '\n' : ''), files };
+}
+
+/** Which engine the relay was started for, and what it runs in the sandbox (./run-cli.mts). */
+export function cloudEngineOf(args: string[]): { engine: string; remoteCommand: string; argv: string[] } {
+  if (args[0] === '--agentbox-agy') return { engine: 'antigravity', remoteCommand: 'agy', argv: args.slice(1) };
+  if (args[0] === '--agentbox-codex') return { engine: 'codex', remoteCommand: 'codex', argv: args.slice(1) };
+  return { engine: 'claude', remoteCommand: 'claude', argv: args };
+}
+
+// WHAT COMES HOME BESIDES THE FOLDER: the conversation, wherever the harness
+// keeps it. Claude Code: this folder's transcripts under the account. Codex:
+// its sessions folder, which in the sandbox holds only what this run wrote.
+// Antigravity: its conversations folder under the agy home the run was given.
+export function bringDirsFor(engine: string, { agyHome, codexHome, projectsDir }: { agyHome: string | null; codexHome: string; projectsDir: string }): BringDir[] {
+  if (engine === 'antigravity' && agyHome) return [{ name: 'agy-conversations.tgz', dir: path.join(agyHome, 'antigravity-cli', 'conversations') }];
+  if (engine === 'codex') return [{ name: 'sessions.tgz', dir: path.join(codexHome, 'sessions') }];
+  return [{ name: 'projects.tgz', dir: projectsDir }];
 }
 
 // THE PART OF HER CODEX CONFIG A CLOUD RUN TAKES: the top-level model, effort

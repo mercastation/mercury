@@ -276,6 +276,20 @@ Google sign-in:
 - **Missing, declared so:** usage (agy shows quota only in its own screen),
   compaction, its slash commands, forking, remote input, updates (agy updates
   itself).
+- **In the cloud** (2026-11-20). The sandbox image installs agy with Google's
+  installer. Its sign-in is made there, from the cloud setup screen: in a
+  Debian container through a pipe, `agy acp --login` printed the Google link,
+  read the code as a line, and ended `token exchange failed` with exit 1 on a
+  wrong one. Where it keeps the login without a keyring was not seen, so every
+  small file the sign-in wrote under its home is kept, logs left out, and a
+  run gets them back under its home and the agy home the Mac names. A run is
+  the same ACP worker, its `agy acp` started there through the relay: tool
+  servers named in `session/new` and `session/resume` become the stub, the
+  cloud note joins the appended instructions, and a conversation is one file,
+  `antigravity-cli/conversations/<id>.db` (a fresh agy home given only that
+  file resumed it), so it goes up for a resume and that folder comes home.
+  Offered only on a Mac that runs Antigravity. Not yet seen end to end with a
+  real Google sign-in, nor agy's Auto sandbox inside the container.
 
 The useful precedent from T3 Code is an adapter between provider behavior and
 orchestration. Herdr keeps agents in normal terminals and uses detection

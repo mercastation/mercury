@@ -13,11 +13,15 @@ export interface CloudMonth {
   costPerAgentHour: number | null;
 }
 
+/** The agents the cloud can run, each signed in there on its own. */
+export type CloudEngine = 'claude' | 'codex' | 'antigravity';
+
 // A sign-in going on in the cloud (main/cloud/logins.mts). Claude: its page
 // opens, she copies the code it shows. Codex: OpenAI's page opens, she types
-// the code shown here, and it finishes by itself.
+// the code shown here, and it finishes by itself. Antigravity: Google's page
+// opens and the code it shows is pasted, as Claude's is.
 export interface CloudSignIn {
-  engine: 'claude' | 'codex';
+  engine: CloudEngine;
   // The cloud account it adds, or signs in again.
   key: string;
   state: 'starting' | 'needs-code' | 'waiting' | 'checking' | 'saved' | 'failed';
@@ -31,7 +35,7 @@ export interface CloudSignIn {
 // AN ACCOUNT SHE ADDED FOR THE CLOUD. Not this Mac's account: any she likes
 // (2026-10-14: "we shouldn't predefine which accounts to sign up with").
 export interface CloudAccount {
-  engine: 'claude' | 'codex';
+  engine: CloudEngine;
   key: string;
   // Its email, when the vendor said it.
   name: string | null;
@@ -70,10 +74,12 @@ export interface CloudStatus {
   month: CloudMonth;
   accounts?: CloudAccount[];
   /** Engines whose account on this Mac has no working sign-in in the cloud, so their threads run here. */
-  notInCloud?: Array<'claude' | 'codex'>;
+  notInCloud?: Array<CloudEngine>;
   /** Engines with no sign-in in the cloud at all, so the cloud can run none of their threads. */
-  noCloudSignIn?: Array<'claude' | 'codex'>;
+  noCloudSignIn?: Array<CloudEngine>;
   signIns?: CloudSignIn[];
+  /** The kinds of account the setup screen offers to add (supervisor `_cloudKinds`). */
+  kinds?: CloudEngine[];
   /** 'resting' after runs failed in a row before their agent started, until `restingUntil`. */
   health?: 'ok' | 'failing' | 'resting';
   lastError?: string | null;
@@ -81,7 +87,7 @@ export interface CloudStatus {
   /** Agentbox Cloud had no room for this person a moment ago: no plan, hours spent, every agent running, paused, or terms not accepted. */
   noRoom?: { error: 'plan' | 'hours' | 'agents' | 'paused' | 'terms'; message: string | null } | null;
   /** The cloud image's Claude Code or Codex, as major.minor, when it is not this Mac's; `blocks` for a different major. */
-  versionGap?: { engine: 'claude' | 'codex'; cloud: string; mac: string; blocks: boolean } | null;
+  versionGap?: { engine: CloudEngine; cloud: string; mac: string; blocks: boolean } | null;
   /** The slugs of the projects whose threads the cloud may run (supervisor `_cloudTakesProject`). */
   projects?: string[];
   /** The Agentbox Cloud plan the server last said; 'none' is no plan. */
@@ -94,10 +100,10 @@ export interface CloudStatus {
   switched?: { from: string; to: string; until: number } | null;
 }
 
-const agentName = (engine: 'claude' | 'codex') => (engine === 'codex' ? 'Codex' : 'Claude Code');
+const agentName = (engine: CloudEngine) => (engine === 'codex' ? 'Codex' : engine === 'antigravity' ? 'Antigravity' : 'Claude Code');
 const rebuildLine = (g: NonNullable<CloudStatus['versionGap']>) => `The cloud's ${agentName(g.engine)} is ${g.cloud}, this Mac's is ${g.mac}: rebuild the cloud image`;
 
-export const engineWord = (a: { engine: 'claude' | 'codex' }) => (a.engine === 'codex' ? 'Codex' : 'Claude');
+export const engineWord = (a: { engine: CloudEngine }) => (a.engine === 'codex' ? 'Codex' : a.engine === 'antigravity' ? 'Antigravity' : 'Claude');
 
 const GOING = new Set(['starting', 'needs-code', 'waiting', 'checking']);
 export const signingIn = (s: CloudSignIn | null | undefined) => !!s && GOING.has(s.state);
@@ -172,7 +178,7 @@ export const countedAccounts = (accounts: CloudAccount[]) => accounts.filter((a)
  * account, which the screen's copy of the cloud accounts cannot see. One at
  * its usage limit is still the account, and the cloud waits for it.
  */
-export const cloudAccountInUse = (accounts: CloudAccount[], engine: 'claude' | 'codex') =>
+export const cloudAccountInUse = (accounts: CloudAccount[], engine: CloudEngine) =>
   countedAccounts(accounts ?? []).find((a) => a.engine === engine && a.inUse) ?? null;
 
 /**
@@ -317,7 +323,7 @@ export function threadPlace(
   if (item.needsMac) return 'needs';
   if (item.onMac) return 'kept';
   if (session?.where === 'cloud') return 'cloud';
-  if (engine && cloud.noCloudSignIn?.includes(engine as 'claude' | 'codex')) return null;
+  if (engine && cloud.noCloudSignIn?.includes(engine as CloudEngine)) return null;
   const taken = !!cloud.projects?.includes(item.product);
   if (!cloudIsOn(cloud)) return taken ? 'off' : null;
   if (cloud.movable?.includes(item.id)) return 'move';

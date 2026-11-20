@@ -14,6 +14,6 @@ export function accountName({ email = null, engine = 'claude', index = 0, total 
   total?: number;
 } = {}): string {
   if (email) return email;
-  const word = engine === 'codex' ? 'Codex' : 'Claude';
+  const word = engine === 'codex' ? 'Codex' : engine === 'antigravity' ? 'Antigravity' : 'Claude';
   return `${word} account${total > 1 ? ` ${index + 1}` : ''}`;
 }

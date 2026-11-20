@@ -27,6 +27,7 @@ const args = process.argv.slice(3);
 const mode = process.env.FAKE_VENDOR_MODE || '';
 export const TOKEN = 'sk-ant-oat01-' + 'Q'.repeat(60); // public-check: allow (made up)
 export const ORG = '00000000-0000-4000-8000-0000000000aa'; // public-check: allow (made up)
+export const AGY_REFRESH = '1//0-fake-google-refresh-token-' + 'R'.repeat(40); // public-check: allow (made up)
 
 const jwt = (exp) => ['e30', Buffer.from(JSON.stringify({ exp })).toString('base64url'), 'sig'].join('.');
 
@@ -157,6 +158,33 @@ if (name === 'claude' && args[0] === 'setup-token') {
     fs.writeFileSync(file, JSON.stringify(auth));
   }
   process.stdout.write('ok\n');
+} else if (name === 'agy' && args[0] === 'acp' && args.includes('--login')) {
+  // As agy 1.5.13 does through a pipe (measured 2026-11-20 in a container):
+  // the Google link, a code read as a line, then "Logged in as" and exit 0, or
+  // a refused exchange and exit 1. Its login lands under HOME/.gemini.
+  process.stdout.write('Open this link in a browser to log in with Google:\n\n');
+  process.stdout.write('  https://accounts.google.com/o/oauth2/auth?access_type=offline&client_id=x&code_challenge=c&code_challenge_method=S256&prompt=consent&redirect_uri=https%3A%2F%2Fantigravity.google%2Foauth-callback&response_type=code&scope=s&state=st\n\n');
+  process.stdout.write('Then paste the authorization code, or the full URL of the page you land on, and press Enter:\n');
+  let got = '';
+  process.stdin.on('data', (d) => {
+    got += String(d);
+    if (!got.includes('\n')) return;
+    if (got.trim() !== 'good-agy-code') { process.stderr.write('couldn\'t log in: token exchange failed: oauth2: "invalid_grant" "Bad Request"\n'); process.exit(1); }
+    const dir = path.join(process.env.HOME, '.gemini', 'antigravity-cli');
+    fs.mkdirSync(path.join(dir, 'log'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'fake-login.json'), JSON.stringify({ refresh_token: AGY_REFRESH }));
+    fs.writeFileSync(path.join(dir, 'log', 'acp-login.log'), 'a log that is not the login\n');
+    process.stdout.write('Logged in as person@example.com.\n');
+    process.exit(0);
+  });
+} else if (name === 'agy' && args[0] === 'models') {
+  const signedIn = fs.existsSync(path.join(process.env.HOME, '.gemini', 'antigravity-cli', 'fake-login.json')) && mode !== 'agy-refuses';
+  if (!signedIn) { process.stderr.write('Error: Please sign in to view available models. Launch the CLI without arguments to sign in.\n'); process.exit(1); }
+  process.stdout.write('Fetching available models...\ngemini-4-neon-high\tGemini 4 Neon (High)\n');
+} else if (direct && name === 'agy') {
+  // A run: what an agent could print about its own sign-in.
+  const file = process.env.FAKE_AGY_LOGIN;
+  process.stdout.write(`${JSON.stringify({ login: file && fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null })}\n`);
 } else if (direct && mode === 'write-token') {
   // A run that writes its login into the project, and commits it.
   fs.writeFileSync('debug.txt', `token=${process.env.CLAUDE_CODE_OAUTH_TOKEN}\n`);

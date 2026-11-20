@@ -568,6 +568,8 @@ export const api = {
             // &cloudcodex adds a Codex login in the cloud, so the Codex page draws its cloud rows.
             // &cloudcodex=<email> names it.
             ...(params.has('cloudcodex') ? [{ engine: 'codex' as const, key: 'c1', name: params.get('cloudcodex') || null, ready: true, state: 'ready' as const }] : []),
+            // &cloudagy=<email> adds an Antigravity login in the cloud.
+            ...(params.get('cloudagy') ? [{ engine: 'antigravity' as const, key: 'g1', name: params.get('cloudagy'), ready: true, state: 'ready' as const }] : []),
             // &cloudonly adds a Claude login signed in nowhere here, whose last look failed.
             // Its email is unknown: the cloud's token cannot read it, and no folder here names it.
             ...(params.has('cloudonly') ? [{
@@ -584,10 +586,15 @@ export const api = {
             .map((a) => (params.has('cloudstopped') && a.key === 'a2' ? { ...a, ready: false, state: 'broken' as const } : a))
             // Marked as the app marks it (Supervisor#_cloudAccounts): the first of each engine that still works.
             .map((a, _, all) => ({ ...a, inUse: all.find((b) => b.engine === a.engine && b.state !== 'broken') === a })),
-          // &cloudsigning has a Claude sign-in waiting on its code, as Add to cloud leaves one.
+          // &cloudsigning has a Claude sign-in waiting on its code, as Add to cloud leaves one
+          // (&cloudsigning=antigravity an Antigravity one, on Google's page).
           signIns: params.has('cloudsigning')
-            ? [{ engine: 'claude' as const, key: 'acct-new', state: 'needs-code' as const, url: 'https://claude.ai/oauth/authorize', code: null, message: null, attempt: 'signin-1' }]
+            ? [params.get('cloudsigning') === 'antigravity'
+              ? { engine: 'antigravity' as const, key: 'acct-new', state: 'needs-code' as const, url: 'https://accounts.google.com/o/oauth2/auth', code: null, message: null, attempt: 'signin-1' }
+              : { engine: 'claude' as const, key: 'acct-new', state: 'needs-code' as const, url: 'https://claude.ai/oauth/authorize', code: null, message: null, attempt: 'signin-1' }]
             : [],
+          // &cloudagy is a Mac that runs Antigravity, so the setup offers its account too.
+          kinds: params.has('cloudagy') ? ['claude', 'codex', 'antigravity'] : ['claude', 'codex'],
         } as typeof base.cloud;
       } else if (cloud === 'new') {
         // &cloud=new draws Agentbox Cloud offered with nobody signed in: the
@@ -1777,7 +1784,7 @@ export const api = {
   },
 
   /** The cloud menu's sign-in for one account, made in the cloud: start, paste Claude's code, or cancel. */
-  async cloudSignIn(p: { action: 'start' | 'code' | 'cancel' | 'remove'; engine: 'claude' | 'codex'; key?: string | null; code?: string }): Promise<{ ok: boolean; key?: string | null; error?: string }> {
+  async cloudSignIn(p: { action: 'start' | 'code' | 'cancel' | 'remove'; engine: 'claude' | 'codex' | 'antigravity'; key?: string | null; code?: string }): Promise<{ ok: boolean; key?: string | null; error?: string }> {
     const zero = window.zero;
     if (!zero?.cloudSignIn) return { ok: false, error: RESTART_NOTE };
     return zero.cloudSignIn(p);
