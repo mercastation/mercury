@@ -1,0 +1,68 @@
+/* The Demands place. Its tabs, rows, title and thread list are the inbox's own
+   classes (threads/pages.css, styles.css, phone.css); this sheet holds only
+   what a demand adds: the mark a thread, the project's colour, and the two
+   words that sit in different cells on a desk and on a phone. */
+
+.dm-sw { display: inline-block; flex: none; width: 9px; height: 9px; margin-right: 7px; border-radius: 50%; }
+.dm-dot { display: inline-block; flex: none; width: 6px; height: 6px; margin-right: 9px; border-radius: 50%; background: var(--accent); vertical-align: middle; transform: translateY(-2px); }
+
+.dm-pips { display: inline-flex; flex: none; align-items: center; gap: 3px; }
+.dm-pips i { width: 4px; height: 11px; border-radius: 1px; background: var(--text-faint); }
+.dm-pips i.now { background: var(--accent); }
+.dm-pips i.off { background: transparent; box-shadow: inset 0 0 0 1px var(--line-strong); }
+.dm-count { flex: none; margin-left: 8px; font: 11px/20px var(--mono); letter-spacing: .05em; color: var(--text-faint); }
+
+.dm-row { cursor: pointer; }
+.th-table .row.dm-row .dm-title { display: flex; align-items: baseline; min-width: 0; }
+.dm-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dm-title > .th-aside { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dm-threads { text-transform: none; letter-spacing: normal; }
+.dm-on-phone { display: none; }
+
+.dm-week { padding: 14px 16px 2px 44px; font: 11px/1.7 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--text-faint); }
+.dm-week b { font-weight: 400; color: var(--text); }
+
+/* A demand's page, in a thread's page. */
+.dm-page .one-col .dm-sw { vertical-align: baseline; }
+.dm-sec { margin: 22px 0 0; }
+.dm-sec > .ts-h { margin-bottom: 8px; font-size: 11px; }
+.dm-sec .ts-trail { font-size: 14px; line-height: 21px; }
+.dm-sec .ts-step { margin-bottom: 8px; }
+.dm-sec .ts-step::before { top: 8px; }
+.dm-page .made { margin-top: 22px; }
+.dm-end { margin-top: 28px; }
+
+/* Picked for today: the button an open thread has for Done, lit when it is on. */
+.ts-done.dm-today.on { color: var(--text); }
+
+/* The place's two names. On a desk the sidebar is the way between them, so the top bar names only where you are. */
+.workspace-title.dm-places { display: flex; gap: 18px; white-space: nowrap; }
+.dm-place { padding: 0; border: 0; background: none; font: inherit; letter-spacing: inherit; color: var(--text-faint); cursor: pointer; }
+.dm-place.on { color: var(--text); cursor: default; }
+.dm-place:not(.on) { display: none; }
+
+/* A thread's demand, on its row in the inbox. */
+.th-demand { color: var(--text-faint); }
+
+@media (max-width: 700px), (max-height: 520px) {
+  :root:root:root .dm-place:not(.on) { display: inline; }
+  :root:root:root .dm-on-desk { display: none; }
+  :root:root:root .dm-on-phone { display: inline; }
+  :root:root:root .dm-week { padding: 14px 16px 2px; }
+
+  /* A demand's row: its name with its project beside it, then the state line. */
+  :root:root:root:root .th-grid > .dm-title { display: flex; flex-wrap: wrap; align-items: baseline; -webkit-line-clamp: unset; overflow: visible; }
+  :root:root:root .dm-title > .th-aside { font-size: calc(13.5px * var(--phone-type, 1)); }
+  :root:root:root .dm-title > .dm-out { display: block; flex: 1 0 100%; margin-top: 4px; font-size: calc(13.5px * var(--phone-type, 1)); line-height: 1.5; color: var(--text-faint); white-space: normal; }
+  :root:root:root:root .th-grid > .dm-last { display: flex; align-items: center; min-width: 0; }
+  :root:root:root .dm-last > .dm-what { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(12.5px * var(--phone-type, 1)); }
+  :root:root:root .dm-last > .dm-progress { display: inline-flex; align-items: center; flex: none; margin-left: auto; padding-left: 14px; }
+
+  /* The new thread card names its rows by their place in the bar; Demand sits between Project and Priority. */
+  :root:root:root:root .tc-card > .tc-bar > .tc-anchor.tc-demand::before { content: 'Demand'; }
+  :root:root:root:root .tc-card > .tc-bar > .tc-anchor.tc-demand + .tc-anchor::before { content: 'Priority'; }
+
+  /* A thread's demand sits at the right end of its state line. */
+  :root:root:root:root .th-grid > .th-cell-when:has(.th-demand) { display: flex; align-items: center; min-width: 0; }
+  :root:root:root .th-demand { margin-left: auto; padding-left: 12px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11px var(--mono); letter-spacing: .05em; text-transform: uppercase; }
+}

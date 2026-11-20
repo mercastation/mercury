@@ -49,9 +49,11 @@ function SearchGlyph() {
  *  deselected tab that is --text-faint at 400, exactly the word Inbox beside it;
  *  on the active one it is --text at 500. There is one rule rather than two.
  */
-export function WorkspaceNavigation({ view, collapsed, onView, onSearch: _onSearch, onCompose: _onCompose, inboxCount = 0, scheduledCount: _scheduledCount = 0, usage, onSettings, onInstructions, page: pageIn, hasTeam = false, onTeam, teamPage = false, team = null, onInvite, statuses = true, onAccount, onSignIn, onFeedback, onSignOut, update = null, onUpdate, move = null, onMove, meeting = null, onMeeting, onRecord, invisible = null, inboxLabel = 'Inbox', onPalette, rail = false, onHover, groups = null, onGroupsPage = false, onTeammatesPage = false, onFiles, filesPage = false, onConnections, connectionsPage = false, onTasks, tasksPage = false, onHome, homePage = false }: {
+export function WorkspaceNavigation({ view, collapsed, onView, onSearch: _onSearch, onCompose: _onCompose, inboxCount = 0, scheduledCount: _scheduledCount = 0, usage, onSettings, onInstructions, page: pageIn, hasTeam = false, onTeam, teamPage = false, team = null, onInvite, statuses = true, onAccount, onSignIn, onFeedback, onSignOut, update = null, onUpdate, move = null, onMove, meeting = null, onMeeting, onRecord, invisible = null, inboxLabel = 'Inbox', onPalette, rail = false, onHover, groups = null, onGroupsPage = false, onTeammatesPage = false, onDemands, demandsPage = false, onFiles, filesPage = false, onConnections, connectionsPage = false, onTasks, tasksPage = false, onHome, homePage = false }: {
   /** Whether one of the teammates' pages is up, which unlights Threads. */
   onTeammatesPage?: boolean;
+  /** The Demands place, and whether it is the page. */
+  onDemands?: () => void; demandsPage?: boolean;
   /** The Files place, and whether it is the page. */
   onFiles?: () => void; filesPage?: boolean;
   onConnections?: () => void; connectionsPage?: boolean;
@@ -127,7 +129,7 @@ export function WorkspaceNavigation({ view, collapsed, onView, onSearch: _onSear
   // ONE PAGE OF YOUR THREADS (approved 2026-10-01). In progress, Scheduled and
   // Closed are tabs on the Inbox now, not places in the sidebar, so the Inbox
   // tab is lit on every one of them.
-  const inboxLit = !homePage && !page && !onGroupsPage && !onTeammatesPage && !filesPage && !connectionsPage && (['inbox', 'progress', 'snoozed', 'done'] as string[]).includes(view);
+  const inboxLit = !homePage && !page && !onGroupsPage && !onTeammatesPage && !filesPage && !connectionsPage && !demandsPage &&(['inbox', 'progress', 'snoozed', 'done'] as string[]).includes(view);
   // A pointer passing over on its way somewhere else does not open it.
   const hoverAt = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hover = rail && onHover ? {
@@ -183,6 +185,9 @@ export function WorkspaceNavigation({ view, collapsed, onView, onSearch: _onSear
         <svg className="workspace-nav-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 10.4 12 5l7 5.4v8.6a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z"/><path d="M10 20v-4.6a2 2 0 0 1 4 0V20"/></svg><span>Home</span>
       </button>}
       <button data-tab="inbox" className={`workspace-tab${inboxLit ? ' active' : ''}${waiting > 0 ? ' has-count' : ''}`} aria-label={inboxLabel} aria-current={inboxLit ? 'page' : undefined} title={waiting > 0 ? `${inboxLabel} · ${waitingDescription}` : collapsed ? inboxLabel : undefined} onClick={() => onView('inbox')}>{onHome ? <svg className="workspace-nav-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h9"/></svg> : <SidebarIcon view="inbox" />}<span>{inboxLabel}</span>{waiting > 0 && <small className="workspace-running" aria-label={waitingDescription}>{waiting}</small>}</button>
+      {onDemands && <button data-tab="demands" className={`workspace-tab${demandsPage ? ' active' : ''}`} aria-label="Demands" aria-current={demandsPage ? 'page' : undefined} title={collapsed ? 'Demands' : undefined} onClick={onDemands}>
+        <svg className="workspace-nav-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6.5 20V4.5"/><path d="M6.5 5.5h10.5l-2.2 3.5 2.2 3.5H6.5"/></svg><span>Demands</span>
+      </button>}
       {/* THERE IS NO TEAM TAB (w-05ff3d1438, 2026-10-01). The Team page and
           the Inbox were one question on two pages, so they are one page: the
           faces at the end of the Inbox's tab bar pick whose threads are on

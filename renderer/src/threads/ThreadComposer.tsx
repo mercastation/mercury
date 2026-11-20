@@ -35,6 +35,7 @@ import { SEND } from '../this-keyboard';
 import { Fragment, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 import { PRACTICE_TASK } from '../../../shared/first-run-practice.mts';
 import type { BranchList, Product, TeamMessageFile, WorkItem } from '../types';
+import type { DemandRecord } from '../demands/demand-rules';
 import type { Engine } from '../../../shared/engines.mts';
 import { ENGINES } from '../../../shared/engines.mts';
 import { api } from '../api';
@@ -109,7 +110,7 @@ export interface ThreadSent {
   given?: boolean;
 }
 
-type MenuKey = 'to' | 'model' | 'dueOn' | 'blockedBy' | 'project' | 'branch' | 'priority' | 'visibility' | 'later';
+type MenuKey = 'to' | 'model' | 'dueOn' | 'blockedBy' | 'project' | 'branch' | 'demand' | 'priority' | 'visibility' | 'later';
 
 /** What a card opens on. Project, model and priority need no field: the card
  *  reads them from what was last picked and from the saved draft. */
@@ -134,6 +135,8 @@ export interface ComposeStart {
   continueFrom?: { personId: string; threadId: string };
   /** The project it starts in, ahead of the default. */
   product?: string | null;
+  /** The demand it starts in, when the card is opened from one. */
+  demand?: string | null;
   /** No project is taken for granted: Send waits for one to be picked. */
   chooseProject?: boolean;
   /** The box on the page moving into the dialog: the plain card's draft, wherever it is addressed. */
@@ -143,7 +146,7 @@ export interface ComposeStart {
 }
 
 export function ThreadComposer({
-  products, items, engines, workspaceEngine, codexModels, codexModelDefault, defaultProduct, initial, scripted, onOpenMenu, onClose, onSent, onSending, onFailed, onOpenConversation, toChat, onReorderProjects, onNewProject, selectProject, agentMates, onToTeammate, inline = false, onWriting, handOver, statusLine, ideas, askFolder = false, onSendToAgent, blockChoicesFor,
+  products, items, demands, engines, workspaceEngine, codexModels, codexModelDefault, defaultProduct, initial, scripted, onOpenMenu, onClose, onSent, onSending, onFailed, onOpenConversation, toChat, onReorderProjects, onNewProject, selectProject, agentMates, onToTeammate, inline = false, onWriting, handOver, statusLine, ideas, askFolder = false, onSendToAgent, blockChoicesFor,
 }: {
   /** The default agent from Settings, which every new card opens on. */
   workspaceEngine?: string | null;
@@ -166,6 +169,8 @@ export function ThreadComposer({
   onToTeammate?: (to: string, text: string, product: string | null) => Promise<string | null>;
   products: Product[];
   items: WorkItem[];
+  /** Every demand; the card offers the picked project's. */
+  demands?: readonly DemandRecord[];
   /** The coding agents this Mac really offers, off the snapshot. Absent means Claude Code alone. */
   engines?: Engine[];
   /** Codex's models as read off this Mac, with their own effort levels. */
@@ -331,6 +336,8 @@ export function ThreadComposer({
   // its tag (../priority.ts says why the last pick is no longer carried over).
   const [prio, setPrio] = useState<PriorityChoice>(() => startingPriority(opened.current.priority));
   const pickPrio = (id: PriorityChoice) => { setPrio(id); };
+  // The demand the thread starts in; none picked leaves the app to place it.
+  const [demandPick, setDemandPick] = useState<string | null>(initial?.demand ?? null);
 
   /* ---------------------------- send later ------------------------------ */
   // A row of Send later sets when it goes, and Send sends it, so there is still
@@ -709,6 +716,7 @@ export function ThreadComposer({
         });
         recording.forEach((a) => forgetVoiceDraft(a.draftId));
         dropComposeDraft(taken, undefined, place);
+        if (demandPicked && made?.id) void api.placeInDemand({ product: product.slug, thread: made.id, demand: demandPicked.id }).catch(() => {});
         if (initial?.continueFrom) void api.teamContinued(initial.continueFrom);
         onSent(made, { kind: 'task', product: product.slug, title: message.title, draft: taken, ...(when.runAt ? { runAt: when.runAt } : {}), ...(when.start ? { start: when.start } : {}) });
       }
@@ -1153,6 +1161,28 @@ export function ThreadComposer({
     </span>
   );
 
+  const demandsHere = (demands ?? []).filter((d) => d.product === product?.slug);
+  const demandPicked = demandsHere.find((d) => d.id === demandPick) ?? null;
+  const demandChip = demandsHere.length > 0 && (
+    <span className="tc-anchor tc-demand" ref={anchor('demand')}>
+      <button type="button" data-trigger className={`tc-chip ${open === 'demand' ? 'open' : ''}`} title="Demand"
+        aria-haspopup="listbox" aria-expanded={open === 'demand'} onClick={() => toggle('demand')} onKeyDown={triggerKeys('demand')}>
+        <span className="tc-chip-name">{demandPicked?.name ?? AGENT_DECIDES.label}</span>
+      </button>
+      {open === 'demand' && (
+        <div className="tc-menu tc-rise" role="listbox" aria-label="Demand" onKeyDown={menuKeys}>
+          <span className="tc-menu-head">Demand</span>
+          {[null, ...demandsHere].map((d) => (
+            <button key={d?.id ?? 'agent'} type="button" data-item className={`tc-row ${(d?.id ?? null) === (demandPicked?.id ?? null) ? 'on' : ''}`} onPointerMove={hover}
+              onClick={() => { setDemandPick(d?.id ?? null); close('text'); }}>
+              <span className="tc-row-label">{d?.name ?? AGENT_DECIDES.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </span>
+  );
+
   // WHO SEES IT: three rows, and Chosen people turns the menu into the same
   // people list the To field uses. Ticking a name stays open (she is naming a
   // few people, and closing on the first makes her open it three times); Done
@@ -1569,6 +1599,7 @@ export function ThreadComposer({
                 {open === 'branch' && branchMenu}
               </span>
             )}
+            {demandChip}
             {priorityChip}
             {team && (
               <span className="tc-anchor" ref={anchor('visibility')}>

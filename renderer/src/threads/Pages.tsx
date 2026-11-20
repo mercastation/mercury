@@ -142,6 +142,8 @@ export function RunningMark({ cloud = false }: { cloud?: boolean }) {
 /** How many tasks each thread filed are waiting for a yes, by `product/id`
  *  (App.tsx provides it, off `waitingCounts` in ../threads-made). */
 export const WaitingContext = createContext<Map<string, number>>(new Map());
+/** Each thread's demand, by `project:id` (demands/demand-rules.ts). */
+export const DemandsContext = createContext<Map<string, { name: string }>>(new Map());
 /** Your rows, so a row that waits on another can name it. */
 export const ItemsContext = createContext<readonly WorkItem[]>([]);
 
@@ -653,7 +655,7 @@ export const RepeatMark = () => <svg className="th-repeat" width="13" height="13
   <path d="M13 6.5A5.5 5.5 0 0 0 3.2 4.8M3 2.5v2.6h2.6" /><path d="M3 9.5a5.5 5.5 0 0 0 9.8 1.7M13 13.5v-2.6h-2.6" />
 </svg>;
 
-export function RowCells({ status, retry, lead, title, hidden = false, lock = false, shared = false, chosen = 0, held = false, pinned = false, aside, late = false, where, person, priority, updatedAt, when, now, action }: {
+export function RowCells({ status, retry, lead, title, hidden = false, lock = false, shared = false, chosen = 0, held = false, pinned = false, aside, late = false, where, person, priority, updatedAt, when, now, action, demand }: {
   /** Try again, on a thread nothing will start (TryAgainButton). */
   retry?: ReactNode;
   /** Pinned to the top of the list (w-20323283e6): a faint pin after the title. */
@@ -680,13 +682,15 @@ export function RowCells({ status, retry, lead, title, hidden = false, lock = fa
   priority: number | null; updatedAt: number; now: number; action?: ReactNode;
   /** Words for the time cell instead of how long ago: a repeating task's next run. */
   when?: string;
+  /** The demand this thread serves: after its title on a desk, at the end of its state line on a phone (demands/demands.css). */
+  demand?: string;
 }) {
   const id = rowPriorityId(priority);
   return <div className={`row-main th-grid${person !== undefined ? ' with-person' : ''}`}>
     {/* THE MARK SAYS WHICH KIND OF SHARED, QUIETLY (w-41ff964775): the two
         people with a small count beside them for a thread only a few people
         see. The whole team, the default, carries nothing (2026-10-02). */}
-    <div className={`th-cell-title subject${hidden ? ' hidden' : ''}${aside ? ' with-aside' : ''}`}>{lead}{aside ? <span className="th-title-text">{title}</span> : title}{aside && <span className="th-aside-box"><span className={`th-aside${late ? ' late' : ''}`}>{aside}</span></span>}{held && <span className="th-aside">not started</span>}{shared && <SharedMark label={chosen ? `Visible to ${chosen} ${chosen === 1 ? 'person' : 'people'}` : 'Visible to the team'} />}{chosen > 0 && <span className="th-shared-n" aria-hidden="true">{chosen}</span>}{lock && <LockMark />}{pinned && <PinMark size={13} className="th-pin" />}</div>
+    <div className={`th-cell-title subject${hidden ? ' hidden' : ''}${aside ? ' with-aside' : ''}`}>{lead}{aside ? <span className="th-title-text">{title}</span> : title}{aside && <span className="th-aside-box"><span className={`th-aside${late ? ' late' : ''}`}>{aside}</span></span>}{held && <span className="th-aside">not started</span>}{shared && <SharedMark label={chosen ? `Visible to ${chosen} ${chosen === 1 ? 'person' : 'people'}` : 'Visible to the team'} />}{chosen > 0 && <span className="th-shared-n" aria-hidden="true">{chosen}</span>}{lock && <LockMark />}{pinned && <PinMark size={13} className="th-pin" />}{demand && <span className="th-aside th-demand dm-on-desk">{demand}</span>}</div>
     <div className={`th-cell-state${status?.why ? ' has-card' : ''}${retry ? ' can-retry' : ''}`} title={status?.why ? undefined : status?.title}>{status && <><StatusMark status={status} />{status.word}</>}{retry}
       {status?.why && <span className="th-why-card" role="tooltip"><b>{status.why.head}</b><span>{status.why.body}</span></span>}</div>
     <div className="th-cell-proj th-col-proj">{where}</div>
@@ -694,7 +698,7 @@ export function RowCells({ status, retry, lead, title, hidden = false, lock = fa
     <div className={`th-cell-prio th-col-prio${id === 'urgent' ? ' urgent' : ''}`}>{id && <><PriorityMark id={id} />{priorityLabelOf(id)}</>}</div>
     {/* The row's one hover action, if it has one, covers the time while the
         pointer is on the row (pages.css .th-row-act). */}
-    <div className={`th-cell-when num${action ? ' has-act' : ''}`}><span className="th-when">{when ?? updatedWords(updatedAt, now)}</span>{action}</div>
+    <div className={`th-cell-when num${action ? ' has-act' : ''}`}><span className="th-when">{when ?? updatedWords(updatedAt, now)}</span>{demand && <span className="th-demand dm-on-phone">↳ {demand}</span>}{action}</div>
   </div>;
 }
 
@@ -732,6 +736,7 @@ export function ThreadCells({ item, product, now, person, tab }: {
   // return time that is not one. The row says "not started" beside its name.
   const back = tab === 'snoozed' ? backWords(item, now) : undefined;
   const waiting = useContext(WaitingContext);
+  const demands = useContext(DemandsContext);
   const freeWait = useContext(FreeAgentContext);
   const team = useContext(TeamContext);
   // WHAT IS HAPPENING ON IT, for the Status column. `inProgress` is the tab
@@ -828,7 +833,7 @@ export function ThreadCells({ item, product, now, person, tab }: {
       priority={shownPriority(item)} updatedAt={when} when={CAUSE_BACK_WORDS} now={now} />;
   }
   return <RowCells status={status} retry={retry} lead={handedFace ?? <TeammateLead item={item} />} title={rowTitle(item)} aside={asideBesides(rowTitle(item), commented ?? (toApproveWords(waiting.get(`${item.product}/${item.id}`)) || null)) ?? undefined} shared={seen === 'people'} chosen={chosen} lock={lock} held={notStarted(item)} pinned={!!item.pinned && item.status !== 'done'} where={product?.name ?? ''} person={person}
-    priority={shownPriority(item)} updatedAt={when} when={back} now={now} action={action} />;
+    priority={shownPriority(item)} updatedAt={when} when={back} now={now} action={action} demand={demands.get(`${item.product}:${item.id}`)?.name} />;
 }
 
 /* ------------------------------------------------------------ the board */

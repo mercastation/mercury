@@ -99,7 +99,46 @@ export function demandRows(demands: readonly DemandRecord[], items: readonly Wor
   return demands.map((d) => rowOf(d, byKey, where, now));
 }
 
+/* ------------------------------ a demand's page ----------------------------- */
+
+const ORDER: (Place | null)[] = ['needs', 'progress', 'later', null, 'done'];
+
+/** Its threads, what waits on the person first and what is done last. */
+export function threadsInOrder(row: DemandRow): DemandThread[] {
+  const rank = (t: DemandThread) => ORDER.indexOf(t.place) * 2 + (t.place === 'later' && !t.toStart ? 1 : 0);
+  return [...row.threads].sort((a, b) => rank(a) - rank(b) || (b.item.updatedAt ?? 0) - (a.item.updatedAt ?? 0));
+}
+
+export function wordForPlace(t: DemandThread): string {
+  if (t.place === 'needs') return 'Needs you';
+  if (t.place === 'progress') return 'Working';
+  if (t.place === 'later') return t.toStart ? 'To start' : 'Later';
+  return t.place === 'done' ? 'Done' : 'Open';
+}
+
+const LINES_SHOWN = 6;
+
+/** What was delivered: the demand's own words, else the threads that are done, oldest first. */
+export function deliveredLines(row: DemandRow): string[] {
+  if (row.demand.delivered?.length) return row.demand.delivered;
+  return row.threads.filter((t) => t.place === 'done').sort((a, b) => (a.item.updatedAt ?? 0) - (b.item.updatedAt ?? 0)).map((t) => t.name).slice(-LINES_SHOWN);
+}
+
+/** What waits on the person, then how far along the demand is. */
+export function demandSentence(row: DemandRow): string {
+  if (!row.total) return 'No thread yet.';
+  if (row.state === 'delivered') return row.total === 1 ? 'Its thread is done.' : `All ${row.total} threads are done.`;
+  const at = (place: Place) => row.threads.filter((t) => t.place === place);
+  const [needs, working, toStart] = [at('needs').length, at('progress').length, row.threads.filter((t) => t.toStart).length];
+  const lead = needs ? (needs === 1 ? '1 thread needs you' : `${needs} threads need you`)
+    : working ? (working === 1 ? 'An agent is on 1 thread' : `Agents are on ${working} threads`)
+    : toStart ? (toStart === 1 ? '1 thread waits to start' : `${toStart} threads wait to start`)
+    : 'Waiting in Later';
+  return `${lead}. ${row.done} of ${row.total} ${row.done === 1 || row.total === 1 ? 'is' : 'are'} done.`;
+}
+
 export interface DemandTabs { today: DemandRow[]; progress: DemandRow[]; todo: DemandRow[]; delivered: DemandRow[] }
+export type DemandTabId = keyof DemandTabs;
 
 const newest = (a: DemandRow, b: DemandRow) => (b.deliveredAt ?? b.demand.updatedAt) - (a.deliveredAt ?? a.demand.updatedAt);
 /** What waits on the person first, then the newest. */

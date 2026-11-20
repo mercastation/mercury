@@ -12,7 +12,7 @@
 // demand's row for every case, which tab a demand is under, the day pick, the
 // week's count, and a thread that names its demand.
 import { describe, it, expect } from 'vitest';
-import { demandRows, demandTabs, demandByThread, finishedThisWeek, type Place } from '../renderer/src/demands/demand-rules';
+import { demandRows, demandTabs, demandByThread, finishedThisWeek, demandSentence, deliveredLines, threadsInOrder, wordForPlace, type Place } from '../renderer/src/demands/demand-rules';
 import { dayKey } from '../shared/demands.mts';
 
 const NOW = new Date(2026, 10, 20, 12, 0, 0).getTime();
@@ -143,6 +143,49 @@ describe('the week', () => {
       thread('w-5', { status: 'done', updatedAt: NOW - 2 * DAY, product: 'studio', productName: 'Studio' }),
     ];
     expect(finishedThisWeek(items as never, NOW)).toEqual({ total: 3, byProject: [{ name: 'Shop', count: 2 }, { name: 'Studio', count: 1 }] });
+  });
+});
+
+describe('a demand\'s own page', () => {
+  const items = [
+    thread('w-done-old', { status: 'done', label: 'Refund copy', updatedAt: NOW - 5 * DAY }),
+    thread('w-done-new', { status: 'done', label: 'Refund template', updatedAt: NOW - DAY }),
+    thread('w-needs', { label: 'Tax lines' }),
+    thread('w-agent', { label: 'Receipt email' }),
+    thread('w-start', { label: 'Invoice footer', parent: 'w-needs' }),
+    thread('w-later', { label: 'Old receipts' }),
+  ];
+  const map: Record<string, Place> = { 'w-done-old': 'done', 'w-done-new': 'done', 'w-needs': 'needs', 'w-agent': 'progress', 'w-start': 'later', 'w-later': 'later' };
+  const all = ['w-done-old', 'w-needs', 'w-later', 'w-agent', 'w-start', 'w-done-new'];
+
+  it('says in one sentence what waits on the person, then how far along it is', () => {
+    expect(demandSentence(one(all, items, map))).toBe('1 thread needs you. 2 of 6 are done.');
+    expect(demandSentence(one(['w-needs', 'w-agent'], [...items, thread('w-agent', {})], { ...map }))).toBe('1 thread needs you. 0 of 2 are done.');
+    expect(demandSentence(one(['w-agent', 'w-done-new'], items, map))).toBe('An agent is on 1 thread. 1 of 2 is done.');
+    expect(demandSentence(one(['w-start', 'w-done-new'], items, map))).toBe('1 thread waits to start. 1 of 2 is done.');
+    expect(demandSentence(one(['w-later'], items, map))).toBe('Waiting in Later. 0 of 1 is done.');
+  });
+
+  it('says so when it is delivered, and when it has no thread', () => {
+    expect(demandSentence(one(['w-done-old', 'w-done-new'], items, map))).toBe('All 2 threads are done.');
+    expect(demandSentence(one(['w-done-new'], items, map))).toBe('Its thread is done.');
+    expect(demandSentence(one([], items, map))).toBe('No thread yet.');
+  });
+
+  it('lists its threads with what waits on the person first and what is done last', () => {
+    const row = one(all, items, map);
+    expect(threadsInOrder(row).map((t) => t.item.id)).toEqual(['w-needs', 'w-agent', 'w-start', 'w-later', 'w-done-new', 'w-done-old']);
+    expect(threadsInOrder(row).map(wordForPlace)).toEqual(['Needs you', 'Working', 'To start', 'Later', 'Done', 'Done']);
+  });
+
+  it('says what was delivered in the demand\'s own words when it has them', () => {
+    const row = one(all, items, map, { delivered: ['Refund email rewritten', 'Template shipped'] });
+    expect(deliveredLines(row)).toEqual(['Refund email rewritten', 'Template shipped']);
+  });
+
+  it('falls back to the names of the threads that are done, oldest first', () => {
+    expect(deliveredLines(one(all, items, map))).toEqual(['Refund copy', 'Refund template']);
+    expect(deliveredLines(one(['w-needs'], items, map))).toEqual([]);
   });
 });
 

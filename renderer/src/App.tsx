@@ -162,6 +162,9 @@ import { needsByWho, readFolded, readNeedsGroup, stackRows, toggleFolded, whoIsW
 import { FeedbackCard } from './components/FeedbackCard';
 import { canRecord, meetingCard } from './meeting-card';
 import { searchFieldInStrip, workspaceDestinations, workspacePageTitle } from './workspace-navigation.ts';
+import { DemandCrumb, DemandPage, DemandsList, PlaceTitle, TodayButton, demandKey } from './demands/DemandsPlace';
+import { demandByThread, demandRows, demandTabs, finishedThisWeek, type DemandRecord, type DemandTabId, type Place as ThreadPlace } from './demands/demand-rules';
+import { dayKey } from '../../shared/demands.mts';
 import { UsagePill } from './components/UsagePill';
 import { engineWordFor } from './byline';
 import { lastUsedEngine } from './usage-last-used';
@@ -231,7 +234,7 @@ import { FaceHover } from './team/status';
 import { TeamPage } from './team/TeamPage';
 import { TeamBilling } from './team/TeamBilling';
 import { ProjectShare, ProjectWho } from './team/ProjectShare';
-import { ConnectComputer, EmptyTab, FilteredEmpty, HeaderActions, INBOX_TABS, InboxBoard, InboxClear, ItemsContext, LiveContext, CloudContext, SavedKeysContext, MoveToCloudContext, CloudOfferContext, FreeAgentContext, StateTabs, TryAgainContext, WaitingContext } from './threads/Pages';
+import { ConnectComputer, EmptyTab, FilteredEmpty, HeaderActions, INBOX_TABS, InboxBoard, InboxClear, ItemsContext, LiveContext, CloudContext, SavedKeysContext, MoveToCloudContext, CloudOfferContext, FreeAgentContext, StateTabs, TryAgainContext, DemandsContext,WaitingContext } from './threads/Pages';
 import { offersTryAgain, tryAgainWords } from './try-again';
 import { cloudOffer, type OfferGo } from './cloud-upgrade';
 import { FleetContext, queuedWithHeld, stoppedIds, type Fleet } from './fleet';
@@ -2670,6 +2673,21 @@ export default function App() {
   const [repeats, setRepeats] = useState<RepeatRule[]>([]);
   useEffect(() => { api.repeats().then(setRepeats).catch(() => {}); }, [snap?.items?.length, view]);
 
+  // Demands: records of their own that threads serve (shared/demands.mts). A
+  // thread's place in one is the inbox tab it is already under.
+  const [demands, setDemands] = useState<DemandRecord[]>([]);
+  const loadDemands = useCallback(() => { api.demands().then(setDemands).catch(() => {}); }, []);
+  useEffect(loadDemands, [snap, loadDemands]);
+  const demandPlace = useMemo(() => {
+    const at = new Map<string, ThreadPlace>();
+    const put = (rows: readonly { product?: string; id?: string }[], place: ThreadPlace) => { for (const r of rows) if (r.product && r.id) at.set(`${r.product}:${r.id}`, place); };
+    put(snoozed, 'later'); put(progress, 'progress'); put(inbox, 'needs'); put(done, 'done');
+    return (i: WorkItem) => at.get(`${i.product}:${i.id}`) ?? null;
+  }, [snoozed, progress, inbox, done]);
+  const demandRowsNow = useMemo(() => demandRows(demands, items, demandPlace, now), [demands, items, demandPlace, now]);
+  const demandTabsNow = useMemo(() => demandTabs(demandRowsNow), [demandRowsNow]);
+  const demandOfThread = useMemo(() => demandByThread(demands), [demands]);
+
   // What the Scheduled tab counts, and it is exactly what the page lists.
   const scheduledCount = snoozed.length + repeats.length;
 
@@ -3009,6 +3027,8 @@ export default function App() {
   const [shippedOpen, setShippedOpen] = useState(false);
   // The Files place, on a project's page or (null) on every file.
   const [filesPage, setFilesPage] = useState<{ project: string | null } | null>(null);
+  // The Demands place: the tab it is on and the demand that is open, by project and id.
+  const [demandsPage, setDemandsPage] = useState<{ tab: DemandTabId; open: string | null } | null>(null);
   // Home is where the app opens on a computer; any other page put in front of
   // it hides it, and closing that page brings it back. A phone has no Home and
   // no skies.
@@ -4383,14 +4403,25 @@ export default function App() {
   const nothingToActOn = !focused && !pointed && (listCovered || (!multiSel.size && !keyLead && !stops.length));
   // A teammate's thread opened from a page in Team is still in Team.
   const cardFromPlace = homeLayout === 'chats' && !!chatsPlace && !!openCard;
-  useEffect(() => { if (roomsUi.openId || teammatesUi.open) { setFilesPage(null); setConnectionsPage(null); } }, [roomsUi.openId, teammatesUi.open]);
+  useEffect(() => { if (roomsUi.openId || teammatesUi.open) { setFilesPage(null); setConnectionsPage(null); setDemandsPage(null); } }, [roomsUi.openId, teammatesUi.open]);
   const openFiles = (project: string | null) => {
     roomsUi.leave(); teammatesUi.leave(); setChatsPlace(null); setTeamOpen(false); setSettingsOpen(false); setSettingsPane(null);
-    closeSearch(); setFocused(null); setFocusedRepeat(null); setConnectionsPage(null); setFilesPage({ project });
+    closeSearch(); setFocused(null); setFocusedRepeat(null); setConnectionsPage(null); setDemandsPage(null); setFilesPage({ project });
   };
   const openConnectionsPage = (focus: string | null) => {
     roomsUi.leave(); teammatesUi.leave(); setChatsPlace(null); setTeamOpen(false); setSettingsOpen(false); setSettingsPane(null);
-    closeSearch(); setFocused(null); setFocusedRepeat(null); setFilesPage(null); setConnectionsPage({ focus });
+    closeSearch(); setFocused(null); setFocusedRepeat(null); setFilesPage(null); setDemandsPage(null); setConnectionsPage({ focus });
+  };
+  /** Demands, on the tab it was left on; `open` is one demand's own page. */
+  const openDemands = (open: string | null = null) => {
+    roomsUi.leave(); teammatesUi.leave(); setChatsPlace(null); setTeamOpen(false); setOpenCard(null); setSettingsOpen(false); setSettingsPane(null); setHomeOpen(false);
+    closeSearch(); setFocused(null); setFocusedRepeat(null); setFilesPage(null); setConnectionsPage(null);
+    setDemandsPage((was) => ({ tab: was?.tab ?? 'today', open }));
+  };
+  const demandsShown = !!demandsPage && !teammatesShown && !roomShown && !settingsOpen && !teamShown && !focused && !focusedRepeat && search === null;
+  const demandOpen = demandsShown && demandsPage?.open ? demandRowsNow.find((r) => demandKey(r.demand) === demandsPage.open) ?? null : null;
+  const changeDemand = (row: { demand: DemandRecord }, patch: Parameters<typeof api.setDemand>[0]['patch']) => {
+    void api.setDemand({ product: row.demand.product, id: row.demand.id, patch }).then(loadDemands).catch((e: Error) => showToast(e.message));
   };
   const openConnectionsRef = useRef(openConnectionsPage);
   openConnectionsRef.current = openConnectionsPage;
@@ -4406,7 +4437,7 @@ export default function App() {
   // With teammates on, Groups is Chats: your AI teammates, people and groups
   // in one list, and the sidebar's row opens the chat you had open last.
   const openChatsPlace = (key: string) => {
-    roomsUi.leave(); teammatesUi.leave(); setChatsDirect(null); setFilesPage(null); setConnectionsPage(null); setTeamOpen(false);
+    roomsUi.leave(); teammatesUi.leave(); setChatsDirect(null); setFilesPage(null); setConnectionsPage(null); setDemandsPage(null); setTeamOpen(false);
     setSettingsOpen(false); setSettingsPane(null); closeSearch(); setFocused(null); setFocusedRepeat(null); setEvPick(null);
     if (key.startsWith('person:')) {
       const direct = personDirect(key.slice('person:'.length));
@@ -7374,7 +7405,7 @@ export default function App() {
 
   // Leaving Chats forgets which conversation was open there, or the same row
   // opened from Needs you lands back on the Chats screen with another reply box.
-  const openView = (next: View) => { roomsUi.leave(); setChatsDirect(null); teammatesUi.leave(); setFilesPage(null); setConnectionsPage(null); setTeamOpen(false); setOpenCard(null); setSettingsOpen(false); setSettingsPane(null); closeSearch(); setView(next); setFocused(null); setFocusedRepeat(null); setSelected(0); setMultiSel(new Set()); setEvPick(null); setTodayOn(false); setTasksOn(false); setChatsPlace(null); setHomeOpen(false); };
+  const openView = (next: View) => { roomsUi.leave(); setChatsDirect(null); teammatesUi.leave(); setFilesPage(null); setConnectionsPage(null); setDemandsPage(null); setTeamOpen(false); setOpenCard(null); setSettingsOpen(false); setSettingsPane(null); closeSearch(); setView(next); setFocused(null); setFocusedRepeat(null); setSelected(0); setMultiSel(new Set()); setEvPick(null); setTodayOn(false); setTasksOn(false); setChatsPlace(null); setHomeOpen(false); };
 
   // BACK AND FORWARD, on every computer. Above the early returns below, because
   // it is a hook; `homeShown` is worked out again here for the same reason.
@@ -8061,6 +8092,7 @@ export default function App() {
     <ChatsContext.Provider value={chatsValue}>
     <FreeAgentContext.Provider value={freeWaitIds}>
     <TryAgainContext.Provider value={tryAgain}>
+    <DemandsContext.Provider value={demandOfThread}>
     <CloudOfferContext.Provider value={cloudOfferNow ? { offer: cloudOfferNow, onGo: (go) => void onCloudGo(go) } : null}>
     <div data-design-toolbar={toolbarExploration ? designToolbar : 'corner'} data-preview-treatment={previewTreatment} data-reading-width={readingWidth} data-artifact-layout={openDoc ? artifactView : undefined} data-chrome={fullScreenDoc ? (chromeUp ? 'up' : 'away') : undefined} className={`app workspace-layout${narrowSidebar ? ` gt-rail gt-inset gt-sumleft${sideFolded ? '' : ' gt-rail-open'}` : ''}${focused && !settingsOpen && !inChats ? ' workspace-task' : ''}${settingsOpen ? ' workspace-settings' : ''}${teamShown ? ' workspace-team' : ''}${backForward ? ' back-forward-on' : ''}${sideFolded ? ' workspace-collapsed' : ''}${panelShown ? ' panel-up' : ''}${openDoc ? ' doc-open' : ''}${notesShown ? ' notes-open' : ''}${notesClosed ? ' notes-closed' : ''}${inPractice ? ' banded' : ''}${modal === 'reply' ? ' composing' : ''}${cardOnScreen ? ' asking' : ''}${(queueSpot || onePage) && focused ? ' one-at-a-time' : ''}${homeShown ? ' home-shown sky-shown' : skyOnInbox ? (onBoard ? ' sky-shown sky-board' : ' sky-shown') : ''}${skyOnPlace ? ' sky-shown sky-place' : ''}`}>
 
@@ -8126,7 +8158,7 @@ export default function App() {
         onAccount={() => { setTeamOpen(false); setOpenCard(null); closeSearch(); setFocused(null); setInviteFocus(false); setSettingsPane('team'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}
         onSignOut={() => { void api.teamSignOut().then(() => refresh()); }}
         onTeam={() => { setSettingsOpen(false); setSettingsPane(null); closeSearch(); setFocused(null); setOpenCard(null); setTeamOpen(true); }} onSettings={() => { setTeamOpen(false); setSettingsPane(null); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }} inboxCount={inboxCount} scheduledCount={scheduledCount} view={view} collapsed={sideFolded} onSearch={openSearch} onCompose={() => setModal('compose')} onView={openView}
-        onHome={homeOn ? goHome : undefined} homePage={homeShown} onTeammatesPage={teammatesShown} onFiles={() => openFiles(null)} filesPage={filesShown} tasksPage={tasksShown} onConnections={() => openConnectionsPage(null)} connectionsPage={connectionsShown} rail={narrowSidebar} onHover={setRailOpen} onGroupsPage={roomShown || directOpen}
+        onHome={homeOn ? goHome : undefined} homePage={homeShown} onTeammatesPage={teammatesShown} onDemands={() => openDemands()} demandsPage={demandsShown} onFiles={() => openFiles(null)} filesPage={filesShown} tasksPage={tasksShown} onConnections={() => openConnectionsPage(null)} connectionsPage={connectionsShown} rail={narrowSidebar} onHover={setRailOpen} onGroupsPage={roomShown || directOpen}
         /* Without Groups the one row under Threads is Chats, and only while there are teammates. */
         groups={roomsUi.live ? roomsUi.sidebarGroups(roomShown || directOpen || teammatesShown || chatsPlaceShown || cardFromPlace, teammatesUi.live || homeLayout === 'chats' ? openChats : undefined, homeLayout === 'chats' ? 'Team' : undefined) : teammatesUi.rail(teammatesShown)} />
       {/* THE REACH (w-5dcff78971). The corner is transparent and it is the
@@ -8202,7 +8234,7 @@ export default function App() {
               <CrossIcon />
             </button>
           </nav>
-        ) : (settingsOpen ? <div className="workspace-page-heading"><button className="workspace-back" aria-label="Back to previous page" title="Back to previous page (Esc)" onClick={() => { setSettingsOpen(false); setSettingsPane(null); }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button><h1 className="workspace-title">{settingsPage === 'projects' ? 'Projects' : settingsPage === 'team' ? 'Team' : 'Settings'}</h1></div> : focused ? (inChats ? <><div className="gc-head"><div className="gc-head-col"><span className="workspace-title gc-col-title">{homeLayout === 'chats' ? 'Team' : 'Chats'}</span></div><div className="workspace-task-header cx-task-header" ref={setTaskHeader} /></div><div className="workspace-artifact-header" ref={setArtifactHeader} /></> : <><div className="workspace-task-header" ref={setTaskHeader} /><div className="workspace-artifact-header" ref={setArtifactHeader} /></>) : (filesShown ? <h1 className="workspace-title">Files</h1> : connectionsShown ? <h1 className="workspace-title">Connections</h1> : chatsPlaceShown ? <h1 className="workspace-title">Team</h1> : teamShown ? <h1 className="workspace-title">{openCard ? (cardFromPlace ? 'Team' : 'Inbox') : 'Team'}</h1> : evOn ? <h1 className="workspace-title">Inbox</h1> : teammatesShown ? teammatesUi.title : roomsUi.live && !roomShown ? <h1 className="workspace-title">Inbox</h1> : roomShown && roomsUi.heading ? roomsUi.heading.title : <h1 className="workspace-title">Inbox</h1>))}
+        ) : (settingsOpen ? <div className="workspace-page-heading"><button className="workspace-back" aria-label="Back to previous page" title="Back to previous page (Esc)" onClick={() => { setSettingsOpen(false); setSettingsPane(null); }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button><h1 className="workspace-title">{settingsPage === 'projects' ? 'Projects' : settingsPage === 'team' ? 'Team' : 'Settings'}</h1></div> : focused ? (inChats ? <><div className="gc-head"><div className="gc-head-col"><span className="workspace-title gc-col-title">{homeLayout === 'chats' ? 'Team' : 'Chats'}</span></div><div className="workspace-task-header cx-task-header" ref={setTaskHeader} /></div><div className="workspace-artifact-header" ref={setArtifactHeader} /></> : <><div className="workspace-task-header" ref={setTaskHeader} /><div className="workspace-artifact-header" ref={setArtifactHeader} /></>) : (demandsShown ? (demandOpen ? <div className="workspace-task-header"><DemandCrumb row={demandOpen} onBack={() => openDemands(null)} onRename={async (name) => { await api.setDemand({ product: demandOpen.demand.product, id: demandOpen.demand.id, patch: { name } }); loadDemands(); return true; }} /></div> : <PlaceTitle here="demands" onInbox={() => openView('inbox')} />) : filesShown ? <h1 className="workspace-title">Files</h1> : connectionsShown ? <h1 className="workspace-title">Connections</h1> : chatsPlaceShown ? <h1 className="workspace-title">Team</h1> : teamShown ? <h1 className="workspace-title">{openCard ? (cardFromPlace ? 'Team' : 'Inbox') : 'Team'}</h1> : evOn ? <h1 className="workspace-title">Inbox</h1> : teammatesShown ? teammatesUi.title : roomsUi.live && !roomShown ? <h1 className="workspace-title">Inbox</h1> : roomShown && roomsUi.heading ? roomsUi.heading.title : <PlaceTitle here="inbox" onDemands={() => openDemands()} />))}
         {/* THE PLUS, THE COMMAND MARK AND THE COG STEP OFF WHILE SHE IS
             SEARCHING, and that is the half of the chosen design that is not the
             cross. It is forced, not chosen: .topbar and .body carry the same 22px
@@ -8251,6 +8283,7 @@ export default function App() {
               state and Summary button were left standing in their header. */}
           {focused && !settingsOpen && !teamShown && <span style={{display:'contents'}} ref={setCornerHeaderTarget}/>}
           {connectionsShown && <span style={{display:'contents'}} ref={setConnectionsCorner}/>}
+          {demandOpen && <TodayButton on={demandOpen.today} onToggle={() => changeDemand(demandOpen, { today: demandOpen.today ? '' : dayKey(now) })} />}
           {/* SEARCH, NEW THREAD AND DISPLAY (approved 2026-10-01): the whole of
               the right end on the Inbox, which is the one page of threads now
               (w-05ff3d1438). Display holds the view, the sort and the filters.
@@ -8259,7 +8292,7 @@ export default function App() {
               (w-3c51d02de5) until an iPhone clipped it out of sight there,
               because that row scrolls sideways (w-33511040d7). */}
           {filesShown && !focused && <div className="th-right" id="fp-head-slot" />}
-          {!focused && !settingsOpen && !teamShown && !filesShown && !connectionsShown && (teammatesShown && !evOn ? teammatesUi.right : roomShown && roomsUi.heading?.right !== undefined ? roomsUi.heading.right : (
+          {!focused && !settingsOpen && !teamShown && !filesShown && !connectionsShown && !demandOpen && (teammatesShown && !evOn ? teammatesUi.right : roomShown && roomsUi.heading?.right !== undefined ? roomsUi.heading.right : (
             <HeaderActions
               page="inbox"
               display={headerDisplay}
@@ -8371,7 +8404,7 @@ export default function App() {
         </div>
       )}
       <div ref={setArtifactBody} hidden={settingsOpen || teamShown} className="body">
-            <main className={`list-pane${focused || focusedRepeat ? ' pinned' : ''}${roomShown ? ' rm-open' : ''}${teammatesShown || chatsPlaceShown ? ' tq-open' : ''}${placeEl ? ' pl-open' : ''}`}>
+            <main className={`list-pane${focused || focusedRepeat || demandOpen ? ' pinned' : ''}${roomShown ? ' rm-open' : ''}${teammatesShown || chatsPlaceShown ? ' tq-open' : ''}${placeEl ? ' pl-open' : ''}`}>
               {/* AND A RUNNING AGENT IS PROOF THE SENTENCE IS FALSE. Whatever
                   the probe decided, a page drawing a live run cannot also say
                   agents cannot start. The bar is back the moment nothing is
@@ -8381,7 +8414,15 @@ export default function App() {
               {homeShown && sky && <SkyBackdrop art={sky.home ?? sky.art} from={sky.dark || sky.home ? 40 : 150} span={sky.dark || sky.home ? 300 : 240} />}
               {skyOnInbox && sky && <InboxSky art={sky.art} />}
               {skyOnPlace && sky && <InboxSky art={sky.art} />}
-              {homeShown ? (
+              {demandsShown ? (demandOpen ? (
+                <DemandPage row={demandOpen}
+                  onOpenThread={(item) => { setFocused(item); markSeen(item); }}
+                  onNewThread={() => { setComposeInitial({ product: demandOpen.demand.product, demand: demandOpen.demand.id }); setModal('compose'); }}
+                  onEnd={() => { changeDemand(demandOpen, { endedAt: now }); openDemands(null); }} />
+              ) : (
+                <DemandsList tabs={demandTabsNow} tab={demandsPage!.tab} onTab={(tab) => setDemandsPage({ tab, open: null })}
+                  week={finishedThisWeek(items, now)} now={now} onOpen={(row) => openDemands(demandKey(row.demand))} />
+              )) : homeShown ? (
                 <HomePage hello={greeting(new Date(now).getHours(), snap.team?.me?.name ?? null)} now={now}
                   needs={homeNeeds} needsCount={needsList.length} inboxCount={needsYouCount.inbox} progressCount={mineShown ? shownCount(progressTab) : 0}
                   team={homeTeam} progress={homeProgress} slot={setClearSlot}
@@ -8832,6 +8873,7 @@ export default function App() {
           when it opens. */}
       {(modal === 'compose' || clearSlot) && drawnIn(
         <ThreadComposer
+          demands={demands}
           statusLine={snap.phoneStatus}
           key={`${modal === 'compose' ? 'card' : 'page'}${tourTask ? '-practice' : ''}`}
           inline={modal !== 'compose'}
@@ -9993,6 +10035,7 @@ export default function App() {
       <FindBar />
     </div>
     </CloudOfferContext.Provider>
+    </DemandsContext.Provider>
     </TryAgainContext.Provider>
     </FreeAgentContext.Provider>
     </ChatsContext.Provider>
