@@ -15,6 +15,16 @@ export function threadsMade<T extends Row>(items: readonly T[], thread: Pick<Wor
     .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
 }
 
+/**
+ * The rows a thread's page lists, what waits on a press first. A thread that
+ * serves a demand lists only those: the rest are on the demand's own page
+ * (demands/DemandsPlace.tsx), one level deep with every other thread of it.
+ */
+export function madeShown<T>(rows: readonly T[], canPress: (row: T) => boolean, { inDemand = false }: { inDemand?: boolean } = {}): T[] {
+  const asks = rows.filter(canPress);
+  return inDemand ? asks : [...asks, ...rows.filter((r) => !canPress(r))];
+}
+
 // The list's own tab names, so a row says what the tab it sits in says.
 const WORDS: Record<ThreadStateWord, string> = { waiting: 'Needs you', running: 'In progress', scheduled: 'Later', done: 'Done' };
 

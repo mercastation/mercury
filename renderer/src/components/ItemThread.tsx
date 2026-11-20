@@ -21,6 +21,7 @@
 // are read, and the marks a Z left on this Mac (../undo-marks).
 
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { DemandsContext, threadKey } from '../demands/demands-context';
 import { createPortal } from 'react-dom';
 import { ThreadPanel } from '../team/ThreadPanel';
 import { TeamContext } from '../team/people';
@@ -397,9 +398,10 @@ export function ItemThread({ onOpenFileMark, item, engine, engineChoice, codexMo
   // are that list's. Everything belonging to the newest turn comes back in
   // `atFoot` and is drawn under the checkpoint, which is that turn's last word.
   const made = filedOnTurn(events, filed);
+  const inDemand = useContext(DemandsContext).has(threadKey(item));
   const routeAt = events.findIndex((e) => e.kind !== 'work' && e.who === 'you');
   const madeList = (rows: typeof filed) => (
-    <ThreadsMade rows={rows} label="Filed from this thread" onOpen={(id) => onOpenFiled?.(id)} onApprove={onApproveFiled} onHere={onHereFiled} onDismiss={onDismissFiled} onStartAll={onStartAllFiled} onDismissAll={onDismissAllFiled} />
+    <ThreadsMade rows={rows} inDemand={inDemand} label="Filed from this thread" onOpen={(id) => onOpenFiled?.(id)} onApprove={onApproveFiled} onHere={onHereFiled} onDismiss={onDismissFiled} onStartAll={onStartAllFiled} onDismissAll={onDismissAllFiled} />
   );
   const askTurn = closeAsk ? askTurnOf(made) : -1;
   const askHere = closeAsk && <div ref={askRef} className="close-ask-at-task">{closeAsk.strip}</div>;

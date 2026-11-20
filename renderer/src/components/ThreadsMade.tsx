@@ -51,7 +51,7 @@
 // The press to open is its own control filling the row, so the row looks
 // identical and the presses can never be mistaken for each other.
 import type { ThreadStateWord } from '../types';
-import { stateWord } from '../threads-made';
+import { madeShown, stateWord } from '../threads-made';
 import './threads-made.css';
 
 export interface MadeRow {
@@ -71,7 +71,7 @@ export const DISMISS_ALL = 'Dismiss all';
 /** "2 proposals waiting on you". */
 export const waitingWords = (n: number): string => `${n} proposal${n === 1 ? '' : 's'} waiting on you`;
 
-export function ThreadsMade({ rows, onOpen, onApprove, onHere, onDismiss, onStartAll, onDismissAll, label }: {
+export function ThreadsMade({ rows, onOpen, onApprove, onHere, onDismiss, onStartAll, onDismissAll, label, inDemand = false }: {
   rows: MadeRow[];
   onOpen: (id: string) => void;
   /** Start it as its own thread: the approval that has always been here. */
@@ -88,15 +88,17 @@ export function ThreadsMade({ rows, onOpen, onApprove, onHere, onDismiss, onStar
   /** Drop every proposal in this list. */
   onDismissAll?: (ids: string[]) => void;
   label?: string;
+  /** Its thread serves a demand, whose page lists the threads that are not waiting on a press (threads-made.ts `madeShown`). */
+  inDemand?: boolean;
 }) {
-  if (!rows.length) return null;
   // Only a row this list can actually answer counts, so a list drawn without
   // the press, or one holding a review, stays quiet. The waiting rows come
   // first (w-d2744c6daa).
   const canPress = (r: MadeRow) => !!onApprove && !!r.approve;
   const asks = rows.filter(canPress);
   const waiting = asks.length > 0;
-  const shown = waiting ? [...asks, ...rows.filter((r) => !canPress(r))] : rows;
+  const shown = madeShown(rows, canPress, { inDemand });
+  if (!shown.length) return null;
   const heading = waiting ? waitingWords(asks.length) : label;
   const ids = asks.map((r) => r.id);
   const all = asks.length > 1 && !!onStartAll;

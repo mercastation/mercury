@@ -189,6 +189,7 @@ import { accountName } from '../shared/account-names.mts';
 import { nameRow, wantsName, waitsForItsSubject, namesTaken, askSmallModel, smallModelPictures } from './row-label.mts';
 import { placePrompt, readPlace, wantsPlace } from './demand-sorter.mts';
 import { reportPrompt, readReport, wantsReport } from './demand-report.mts';
+import { demandBriefBlock } from './demand-brief.mts';
 import type { DemandStore } from './demands.mts';
 import type { Demand } from '../shared/demands.mts';
 import { catchUpRow, catchUpResult } from './catch-up.mts';
@@ -13279,7 +13280,23 @@ export class Supervisor {
 
   /** The other threads these words name, summed up (shared/named-threads.mts). */
   namedThreadsBlock(item: WorkItem, product: Product | null | undefined, texts: unknown[]) {
-    return [this._namedThreads(item, product, texts), this.teammateNamedBlock(item, texts)].filter(Boolean).join('\n\n');
+    return [this._namedThreads(item, product, texts), this.teammateNamedBlock(item, texts), this.demandBlock(item)].filter(Boolean).join('\n\n');
+  }
+
+  /** The demand this thread serves and where its other threads stand (main/demand-brief.mts). */
+  demandBlock(item: WorkItem | null | undefined) {
+    const demands = this.store?.demands;
+    if (!demands || !item?.id || !item.product) return '';
+    try {
+      const demand = demands.of(this.store.productDir(item.product), item.id);
+      if (!demand) return '';
+      const siblings = demand.threads.filter((id) => id !== item.id)
+        .map((id) => { try { return this.store.readItem?.(item.product, id) ?? null; } catch { return null; } })
+        .filter((t): t is WorkItem => !!t);
+      return demandBriefBlock(demand, siblings);
+    } catch {
+      return '';
+    }
   }
 
   _namedThreads(item: WorkItem, product: Product | null | undefined, texts: unknown[]) {

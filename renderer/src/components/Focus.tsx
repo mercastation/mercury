@@ -30,6 +30,7 @@ import { providerCommand } from '../../../shared/provider-commands.mts';
 // a docked composer, never a modal over the text.
 
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as BoxKeyEvent, type ReactNode } from 'react';
+import { DemandsContext, threadKey } from '../demands/demands-context';
 import { Face, TeamContext, firstName } from '../team/people';
 import { handedInitials, handedTo, isDirect, taskHandedFrom, peopleInConversation, peopleToAdd, workAudience } from '../threads/page-rules';
 import {
@@ -922,6 +923,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // A TASK GIVEN TO A PERSON has no agent on it, so nothing says one is not running.
   const teamCtx = useContext(TeamContext);
   const chatAgents = useContext(ChatAgentsContext);
+  const demandsOfThreads = useContext(DemandsContext);
   const heldByPerson = teamHeld(item, teamCtx);
 
   // A ROW THAT STANDS FOR A RUNNING AGENT, not for work in a ledger. Almost
@@ -2381,6 +2383,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
         {(made || agent) && (
           <ThreadsMade
             rows={filed}
+            inDemand={demandsOfThreads.has(threadKey(item))}
             label="Filed from this thread"
             onOpen={openFiled}
             onApprove={onApproveFiled && approveFiled}

@@ -53,6 +53,7 @@ import { brokenAccounts, buttonAsksSignIn, menuSetupLine, readBrokenSeen, seenAf
 import type { Offer, OfferGo } from '../cloud-upgrade';
 import { isCause, causeOf, waitingOn, causeWord, causeWhere, CAUSE_WAIT_WORD, CAUSE_BACK_WORDS } from '../../../shared/causes.mts';
 import './pages.css';
+import { DemandsContext } from '../demands/demands-context';
 
 // Before the frame is drawn in the app; a plain effect where there is no
 // window (the tests draw the board to a string, and React warns otherwise).
@@ -142,8 +143,6 @@ export function RunningMark({ cloud = false }: { cloud?: boolean }) {
 /** How many tasks each thread filed are waiting for a yes, by `product/id`
  *  (App.tsx provides it, off `waitingCounts` in ../threads-made). */
 export const WaitingContext = createContext<Map<string, number>>(new Map());
-/** Each thread's demand, by `project:id` (demands/demand-rules.ts). */
-export const DemandsContext = createContext<Map<string, { name: string }>>(new Map());
 /** Your rows, so a row that waits on another can name it. */
 export const ItemsContext = createContext<readonly WorkItem[]>([]);
 
