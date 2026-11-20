@@ -15,6 +15,7 @@ import { stripeClient } from '../cloud/gateway/stripe.mjs';
 import { WEB_APP } from '../shared/cloud-address.mts';
 import { paidHeadline } from '../cloud/gateway/paid-words.mts';
 import { paidPageOf } from '../renderer/src/paid/paid.ts';
+import { Name } from '../shared/product-name.mjs';
 
 const A = '11111111-1111-4111-8111-111111111111';
 const HOST = 'gw.example.on.aws';
@@ -76,13 +77,13 @@ describe('where Stripe sends people back to', () => {
     const { gw } = setup();
     const r = await gw.handle({ method: 'GET', path: '/v1/paid?plan=team', headers: {} });
     expect(r.status).toBe(200);
-    expect(r.body).toContain('You’re on Agentbox Cloud for your team');
+    expect(r.body).toContain(`You’re on ${Name} Cloud for your team`);
   });
 });
 
 describe('the page on the web app', () => {
   it('is /paid on the web app, and nowhere else', () => {
-    expect(paidPageOf('/paid', '?plan=team', true)).toEqual({ head: 'You’re on Agentbox Cloud for your team' });
+    expect(paidPageOf('/paid', '?plan=team', true)).toEqual({ head: `You’re on ${Name} Cloud for your team` });
     expect(paidPageOf('/paid/', '', true)).not.toBeNull();
     expect(paidPageOf('/paid', '?plan=team', false)).toBeNull();
     expect(paidPageOf('/paidx', '', true)).toBeNull();
@@ -90,12 +91,12 @@ describe('the page on the web app', () => {
   });
 
   it("says what the server's page said", () => {
-    expect(paidHeadline(new URLSearchParams('plan=pro'))).toBe('You’re on Agentbox Cloud Pro');
-    expect(paidHeadline(new URLSearchParams('plan=team'))).toBe('You’re on Agentbox Cloud for your team');
+    expect(paidHeadline(new URLSearchParams('plan=pro'))).toBe(`You’re on ${Name} Cloud Pro`);
+    expect(paidHeadline(new URLSearchParams('plan=team'))).toBe(`You’re on ${Name} Cloud for your team`);
     expect(paidHeadline(new URLSearchParams('cancelled=1'))).toBe('Nothing was charged');
     expect(paidHeadline(new URLSearchParams('billing=1'))).toBe('All done on Stripe');
-    expect(paidHeadline(new URLSearchParams('plan=toString'))).toBe('You’re on Agentbox Cloud');
-    expect(paidHeadline(new URLSearchParams('plan=none'))).toBe('You’re on Agentbox Cloud');
+    expect(paidHeadline(new URLSearchParams('plan=toString'))).toBe(`You’re on ${Name} Cloud`);
+    expect(paidHeadline(new URLSearchParams('plan=none'))).toBe(`You’re on ${Name} Cloud`);
   });
 
   it('opens before the web app asks anyone to sign in, and its button goes back to the app', () => {

@@ -20,6 +20,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { snapshotRepo, changeFromRepo, whereTheWorkStands } from '../main/git-change.mts';
+import { taskBranch } from '../main/task-folders.mts';
 import { writeChangeForRun, changeFromTranscript, standsAcross } from '../main/code-change.mts';
 import { machineryPath } from '../main/store/home.mts';
 import { changePath } from '../main/code-change.mts';
@@ -42,7 +43,7 @@ describe('what the folder says a run left behind', () => {
     fs.writeFileSync(path.join(dir, 'strutils.py'), 'def reverse(s):\n    return s[::-1]\n');
     run(dir, 'git', ['add', '-A']);
     run(dir, 'git', ['commit', '-qm', 'base']);
-    run(dir, 'git', ['checkout', '-q', '-b', 'agentbox/w-5b58a4d743']);
+    run(dir, 'git', ['checkout', '-q', '-b', taskBranch('w-5b58a4d743')]);
   });
   afterEach(() => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch {} });
 
@@ -118,7 +119,7 @@ describe('the change saved for a thread carries it', () => {
     fs.writeFileSync(path.join(dir, 'strutils.py'), 'def reverse(s):\n    return s[::-1]\n');
     run(dir, 'git', ['add', '-A']);
     run(dir, 'git', ['commit', '-qm', 'base']);
-    run(dir, 'git', ['checkout', '-q', '-b', 'agentbox/w-5b58a4d743']);
+    run(dir, 'git', ['checkout', '-q', '-b', taskBranch('w-5b58a4d743')]);
   });
   afterEach(() => {
     for (const d of [dir, docs]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch {} }

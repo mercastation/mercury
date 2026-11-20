@@ -13,6 +13,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { snapshotRepo, changeFromRepo } from '../main/git-change.mts';
+import { taskBranch } from '../main/task-folders.mts';
 
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, encoding: 'utf8' });
 const lines = (n: number, word = 'line'): string => Array.from({ length: n }, (_, i) => `${word} ${i + 1}`).join('\n') + '\n';
@@ -36,7 +37,7 @@ describe('a run that merges main in shows only its own change', () => {
     edit('app.mts', 'line 20\n', 'main changed 20\n');
     write('main-only.mts', lines(300, 'main'));
     commit('main moves on');
-    git(dir, 'checkout', '-q', 'agentbox/w-1');
+    git(dir, 'checkout', '-q', taskBranch('w-1'));
   };
 
   beforeEach(() => {
@@ -47,7 +48,7 @@ describe('a run that merges main in shows only its own change', () => {
     write('app.mts', lines(30));
     for (let i = 0; i < 40; i++) write(`lib/f${i}.mjs`, lines(10));
     commit('base');
-    git(dir, 'checkout', '-q', '-b', 'agentbox/w-1');
+    git(dir, 'checkout', '-q', '-b', taskBranch('w-1'));
   });
   afterEach(() => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch {} });
 

@@ -12,6 +12,7 @@ import { inviteEmail, DOWNLOAD, JOIN_PAGE } from '../cloud/supabase/functions/_s
 import { invitedPageOf } from '../renderer/src/invited/invited.ts';
 import { ourLink } from '../shared/room-links.mts';
 import { WEB_APP } from '../shared/cloud-address.mts';
+import { nameSlug } from '../shared/product-name.mjs';
 
 const mail = inviteEmail({ email: 'theo@northwind.test', team: 'Northwind', inviter: 'Dana Reyes' }, { from: 'Agentbox <hi@agentbox.ac>' });
 
@@ -42,7 +43,7 @@ describe('the page', () => {
   it('opens the app with a link every release already brings to the front, and offers the download', () => {
     const page = fs.readFileSync('renderer/src/invited/InvitedPage.tsx', 'utf8');
     expect(page).toMatch(/href=\{`\$\{JOIN_SCHEME\}:\/\/cloud`\}/);
-    expect(ourLink('agentbox://cloud')).toBe(true);
+    expect(ourLink(`${nameSlug}://cloud`)).toBe(true);
     expect(fs.readFileSync('main/main.mts', 'utf8')).toMatch(/app\.on\('open-url', \(e, url\) => \{ e\.preventDefault\(\); if \(ourLink\(url\)\) showWindow\(\);/);
     expect(page).toMatch(/href=\{SITE\}/);
     expect(fs.readFileSync('renderer/src/shared-file/SharedFilePage.tsx', 'utf8')).toContain(`export const SITE = '${DOWNLOAD}';`);
