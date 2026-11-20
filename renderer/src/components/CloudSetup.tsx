@@ -87,8 +87,8 @@ export function CloudSetup({ cloud, onMode, onClose, signInAs = null, plan = nul
   cloud: CloudStatus;
   onMode: (mode: CloudMode) => void;
   onClose: () => void;
-  /** The account a Claude sign-in started from Settings is for. */
-  signInAs?: string | null;
+  /** The account a sign-in started from Settings is for, and its agent. */
+  signInAs?: { engine: CloudEngine; email: string } | null;
   /** Agentbox Cloud's plan as last read; unpaid, the screen asks for it first. */
   plan?: CloudPlan | null;
 }) {
@@ -166,7 +166,7 @@ export function CloudSetup({ cloud, onMode, onClose, signInAs = null, plan = nul
 
   let body: JSX.Element;
   if (shown) {
-    body = <SignIn s={shown} existing={accounts.some((a) => a.key === shown.key)} as={shown.engine === 'claude' ? signInAs : null} />;
+    body = <SignIn s={shown} existing={accounts.some((a) => a.key === shown.key)} as={signInAs && shown.engine === signInAs.engine ? signInAs.email : null} />;
   } else if (step === 'loading') {
     body = <div className="fr-stack fr-stack-folders cs-loading">
       <p className="fr-lede"><Busy />{SETUP.loadingLede}</p>

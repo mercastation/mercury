@@ -20,6 +20,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { snapshotRepo, changeFromRepo, whereTheWorkStands } from '../main/git-change.mts';
+import { taskBranch } from '../main/task-folders.mts';
 import { writeChangeForRun, changeFromTranscript, standsAcross } from '../main/code-change.mts';
 import { machineryPath } from '../main/store/home.mts';
 import { changePath } from '../main/code-change.mts';
@@ -42,7 +43,7 @@ describe('what the folder says a run left behind', () => {
     fs.writeFileSync(path.join(dir, 'strutils.py'), 'def reverse(s):\n    return s[::-1]\n');
     run(dir, 'git', ['add', '-A']);
     run(dir, 'git', ['commit', '-qm', 'base']);
-    run(dir, 'git', ['checkout', '-q', '-b', 'agentbox/w-5b58a4d743']);
+    run(dir, 'git', ['checkout', '-q', '-b', taskBranch('w-5b58a4d743')]);
   });
   afterEach(() => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch {} });
 
@@ -74,7 +75,8 @@ describe('what the folder says a run left behind', () => {
     fs.appendFileSync(path.join(dir, 'strutils.py'), '\ndef is_palindrome(s):\n    return True\n');
     run(dir, 'git', ['commit', '-qam', 'palindrome']);
     const before = snapshotRepo(dir);
-    expect(changeFromRepo(before).files).toHaveLength(0);
+    // The thread's own branch: its change is what is waiting to ship.
+    expect(changeFromRepo(before).files).toHaveLength(1);
     expect(changeFromRepo(before).stands).toEqual({ committed: true, uncommitted: false });
   });
 
@@ -117,7 +119,7 @@ describe('the change saved for a thread carries it', () => {
     fs.writeFileSync(path.join(dir, 'strutils.py'), 'def reverse(s):\n    return s[::-1]\n');
     run(dir, 'git', ['add', '-A']);
     run(dir, 'git', ['commit', '-qm', 'base']);
-    run(dir, 'git', ['checkout', '-q', '-b', 'agentbox/w-5b58a4d743']);
+    run(dir, 'git', ['checkout', '-q', '-b', taskBranch('w-5b58a4d743')]);
   });
   afterEach(() => {
     for (const d of [dir, docs]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch {} }
@@ -163,7 +165,7 @@ describe('the change saved for a thread carries it', () => {
     expect(saved().committed).toBe(false);
     const second = snapshotRepo(dir);
     run(dir, 'git', ['commit', '-qam', 'palindrome']);
-    expect(endRun(second)).toBe(null);
+    expect(endRun(second)).toBeTruthy();
     expect(saved().committed).toBe(true);
     expect(saved().uncommitted).toBe(false);
     // And the change itself is untouched: she can still read what was done.

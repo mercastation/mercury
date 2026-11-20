@@ -554,6 +554,8 @@ export interface TeamState {
   seen?: Record<string, Record<string, number>>;
   lastSyncAt: number | null;
   error: string | null;
+  /** False only when the cloud said this person's team is not let into multiplayer yet. */
+  multiplayer?: boolean | null;
   /** Rooms (alpha), while switched on in Alpha features (main/team/rooms.mts). */
   rooms?: RoomsState | null;
 }
@@ -762,7 +764,7 @@ export interface TeamChatLine {
 }
 export interface TeamRunLine {
   id: string; kind: 'run'; teammate: string; item: string; product: string; title: string;
-  verb: 'picked' | 'passed' | 'queued' | 'sent' | 'answered' | 'finished' | 'stopped'; by?: string; byName?: string; waiting?: boolean; answered?: boolean;
+  verb: 'picked' | 'passed' | 'queued' | 'sent' | 'answered' | 'finished' | 'stopped' | 'opened'; by?: string; byName?: string; waiting?: boolean; answered?: boolean;
   /** Your words, on an `answered` line. */
   text?: string; ts: number;
   /** The first thing it said, on a `sent` line. */
@@ -1595,7 +1597,14 @@ export interface WorkspaceSettings {
   codexModels?: Array<{ id: string; label: string; levels?: string[]; defaultLevel?: string | null }>;
   codexModelDefault?: string | null;
   /** Antigravity's card (main/settings.mts `antigravityState`); `signedIn` null until agy has been asked. */
-  antigravity?: { found: boolean; certain: boolean; bin: string; url: string; chosen?: boolean; signedIn: boolean | null };
+  antigravity?: {
+    found: boolean; certain: boolean; bin: string; url: string; chosen?: boolean; signedIn: boolean | null;
+    /** Whose Google sign-in it is, once agy's log said (main/antigravity-models.mts). */
+    email?: string | null;
+    /** The mode its runs start in here, and in the cloud ('same' is this computer's). */
+    mode?: 'auto' | 'accept-edits' | 'default' | 'plan' | 'full-access';
+    cloudMode?: 'same' | 'auto' | 'accept-edits' | 'default' | 'plan' | 'full-access';
+  };
   antigravityModels?: Array<{ id: string; label: string; levels?: string[] }>;
   /** Set when every Codex login offered is on ChatGPT's free plan; `endedAt` is when the latest paid plan ended. */
   codexFreePlan?: { endedAt: number | null } | null;
@@ -1805,7 +1814,7 @@ declare global {
       compact(p: { product: string; id: string }): Promise<{state: string; at: number}>;
       remoteControl(p: {product: string; id: string; action?: string}): Promise<{state: string; at: number; text?: string; url?: string; mayBeActive?: boolean} | null>;
       compactionStatus(p: {product: string; id: string}): Promise<{state: string; at: number} | null>;
-      answer(p: { product: string; id: string; answer?: string; status?: string; priority?: number; permissionMode?: string | null; model?: string | null; effort?: string | null; now?: boolean; inReplyTo?: string; closeUnshipped?: boolean; runAt?: number }): Promise<WorkItem>;
+      answer(p: { product: string; id: string; answer?: string; status?: string; priority?: number; permissionMode?: string | null; model?: string | null; effort?: string | null; now?: boolean; inReplyTo?: string; closeUnshipped?: boolean; runAt?: number; putAway?: boolean; reopenAs?: { status?: string; mine?: boolean } }): Promise<WorkItem>;
       sendNow(p: { product: string; id: string }): Promise<{ ok: boolean; interrupted: boolean }>;
       setProductOrder(p: { order: string[] }): Promise<unknown>;
       setThreadPlaces(p: { places: Record<string, number | null> }): Promise<unknown>;
@@ -2012,6 +2021,7 @@ declare global {
       onFind?(fn: (p: { step?: number }) => void): () => void;
       onZoomPercent?(fn: (p: { percent?: number }) => void): () => void;
       onPhoneChanged?(fn: () => void): () => void;
+      onModelsChanged?(fn: () => void): () => void;
       // A press on a recording (main/meetings.mts); what it changes rides the snapshot.
       meeting?(p: { action: 'record' | 'stop' | 'model' | 'open' | 'dismiss' | 'get'; product?: string }): Promise<unknown>;
       phoneLink?(p:{ action: 'status' | 'on' | 'off' | 'reset' | 'via' | 'stop-alerts'; via?: PhoneRoute; device?: string }): Promise<PhoneLink>;

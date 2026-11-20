@@ -22,6 +22,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { snapshotRepo, changeFromRepo, gitKnowsYou } from '../main/git-change.mts';
+import { taskBranch } from '../main/task-folders.mts';
 import { writeChangeForRun, knowsYouAcross } from '../main/code-change.mts';
 import { machineryPath } from '../main/store/home.mts';
 import { changePath } from '../main/code-change.mts';
@@ -110,7 +111,7 @@ describe('whether git in this folder can name an author', () => {
     try {
       run(dir, 'add', '-A');
       run(dir, '-c', 'user.name=Base', '-c', 'user.email=base@example.test', 'commit', '-qm', 'base');
-      run(dir, 'checkout', '-q', '-b', 'agentbox/w-139');
+      run(dir, 'checkout', '-q', '-b', taskBranch('w-139'));
       const before = snapshotRepo(dir);
       fs.appendFileSync(path.join(dir, 'README.md'), '\n## Usage\n');
       const endRun = (snap) => writeChangeForRun({
@@ -129,7 +130,7 @@ describe('whether git in this folder can name an author', () => {
       run(dir, 'config', 'user.name', 'Example Developer');
       run(dir, 'config', 'user.email', 'developer@example.test');
       run(dir, 'commit', '-qam', 'usage');
-      expect(endRun(second)).toBe(null);
+      expect(endRun(second)).toBeTruthy();
       expect(savedChange()).toMatchObject({ committed: true, uncommitted: false, knowsYou: true });
     } finally { fs.rmSync(docs, { recursive: true, force: true }); }
   }, 30_000);

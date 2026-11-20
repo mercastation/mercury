@@ -1256,7 +1256,7 @@ export function fixtureEngineSettings(world: FixtureEngineWorld | null): Partial
       accounts: [{ profile: 'default', email: 'you@example.com', name: null, plan: 'Plus', accountId: null, signedIn: true, chosen: false }],
     },
     // What `agy models` listed on 2026-11-19, folded as main/antigravity-models.mts folds it.
-    antigravity: { found: true, certain: true, bin: '/Users/you/.local/bin/agy', url: 'https://antigravity.google/docs/cli/install', signedIn: true },
+    antigravity: { found: true, certain: true, bin: '/Users/you/.local/bin/agy', url: 'https://antigravity.google/docs/cli/install', signedIn: true, email: 'you@example.com', mode: 'auto' as const, cloudMode: 'same' as const },
     antigravityModels: [
       { id: 'gemini-4-neon', label: 'Gemini 4 Neon', levels: ['high', 'xhigh', 'medium', 'low'] },
       { id: 'gemini-4-argon', label: 'Gemini 4 Argon', levels: ['medium', 'high', 'low'] },

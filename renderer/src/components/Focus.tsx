@@ -83,7 +83,7 @@ import { connectedReply, lateReply, needsIn, needId, keysOf, type Need } from '.
 import type { KeySource } from '../../../shared/cloud-key-sources.mts';
 import { keyLabel, keyWords } from '../../../shared/cloud-keys.mts';
 import { referencedFiles, isImagePath } from '../referenced-files';
-import { pictureRoots } from '../message-folders';
+import { pictureRoots, taskFolder } from '../message-folders';
 import { changePathFor } from '../code-artifact';
 import { fileCount, figuresFrom, figuresLabel, signed, type ChangeFigures } from '../change-figures';
 import { embeddedDocuments, isBookkeeping, messageDocuments } from '../message-artifacts';
@@ -97,7 +97,7 @@ import { fileNewsFor, shownName, type ThreadLine } from '../../../shared/artifac
 import { whereAFileOpens } from '../artifact-layout';
 import { carryLine, type CarryState } from '../../../shared/carried-files.mts';
 import { watchScrollGutter } from '../scroll-gutter';
-import { CODE_PATH, artifactUrlTransform, isMediaPath, productPath, remarkArtifactPaths } from '../remark-artifact-paths';
+import { CODE_PATH, artifactUrlTransform, isMediaPath, remarkArtifactPaths, shortPath } from '../remark-artifact-paths';
 import { api } from '../api';
 import { draftKey, readDraft, saveDraft, clearDraft, readDraftAttachments, saveDraftAttachments, readDraftPick, saveDraftPick, readDraftWhen, saveDraftWhen, type SentDraft } from '../drafts';
 import { ReplyLater } from './ReplyLater';
@@ -145,8 +145,7 @@ import { HandedLine } from '../team/HandedBy';
 import {
   PriorityPicker, priorityIdOf, priorityValueOf, type PriorityId,
 } from './Priority';
-import { SummaryPanel, SummaryRail, ThreadCrumb, ThreadStateMark, useSummaryOpen, useSummaryShortcut, type RepeatHandle } from '../threads/Summary';
-import { summaryFits, summaryPlace } from '../room';
+import { ThreadCrumb, ThreadStateMark, type RepeatHandle } from '../threads/Summary';
 import { ThreadMenu, type PlaceAct, type ThreadPlace } from '../threads/ThreadMenu';
 import { ThreadFilesButton } from '../threads/ThreadFiles';
 import { filesMadeHere } from '../threads/thread-files';
@@ -154,7 +153,7 @@ import { ThreadsMade, type MadeRow } from './ThreadsMade';
 import { ChatAgentsContext, useChatMentions } from '../team/ChatAgents';
 import { useThreadMentions } from './ThreadMentions';
 import { AGENT_SCHEME } from '../team/agent-mentions';
-import { defaultModelFor, engineModelLabel } from '../models';
+import { antigravityModelRows, defaultModelFor, engineModelLabel } from '../models';
 import { defaultEffortFor, effortChoicesFor, effortShown } from '../effort';
 import { ENGINES } from '../../../shared/engines.mts';
 import { lookAgainAfter } from '../picture-looks-again';
@@ -745,12 +744,12 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   /** The repeating task this thread is a run of, drawn in its summary. */
   repeat?: RepeatHandle | null;
   /** A ⌘K row that acts on this thread's own page (../thread-commands.ts):
-   *  fold the summary, open its people list, or open the name box. A new `at`
+   *  open the name box. A new `at`
    *  is a new press; `onAsked` says it has been carried out. */
-  pageAsk?: { what: 'summary' | 'people' | 'rename'; at: number } | null;
+  pageAsk?: { what: 'rename'; at: number } | null;
   onAsked?: () => void;
   /** What this page draws that ⌘K offers rows for. */
-  onShown?: (shown: { key: string; change: boolean; summary: 'open' | 'closed' | null; ship: ParsedOption[] | null }) => void;
+  onShown?: (shown: { key: string; change: boolean; ship: ParsedOption[] | null }) => void;
   /** Drawn right above the reply box: where a reply that moved her here went (./SentLine). */
   aboveDock?: ReactNode;
   /** An AI teammate's questions asked in this thread, at the foot of its turn. */
@@ -1003,18 +1002,9 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // frozen on a permission prompt, and that is now the only one without a box.
   const replyBlocked = agent ? replyIsSwallowed(agent) : false;
 
-  // THE THREAD'S SUMMARY (approved 2026-10-01, w-e731ca9376): the panel beside
-  // the conversation, folded to a rail when closed (w-a3482b8c2c).
-  //
-  // NOT ON A MESSAGE FROM A PERSON. A message between two people lives in a
-  // record of its own (main/team/projects.mts makeDirect), is not work, and is
-  // never carded for the team, so it has no state to report and nothing to
-  // summarise. Not on the rows with no ledger behind them either: a running
-  // agent's row, the trouble row and the update row have no fields to keep.
-  //
-  // AND IT GIVES WAY TO A DOCUMENT. With a file open beside the task the pane
-  // is a narrow column, and a 352 point panel inside it would leave the words
-  // no room; the button goes with it, so nothing on screen does nothing.
+  // A SUMMARISED THREAD is work with a ledger: not a message between two people
+  // (main/team/projects.mts makeDirect), and not a running agent's row, the
+  // trouble row or the update row, which have no fields to keep.
   const direct = teamCtx?.products.get(item.product)?.team?.direct === true;
   // A task given to a person is drawn as talk between the two of them, under its own name.
   const givenTask = isGivenTask(item, teamCtx?.products.get(item.product));
@@ -1043,8 +1033,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   const handedName = handedTo(item);
   const handedTask = handedName ? taskHandedFrom(items ?? [], item.id, teamCtx?.me ?? null) : null;
   const summarised = !agent && !made && !direct;
-  // The pane's own width decides whether the summary has room (../room.ts),
-  // read before the first paint so a narrow window never flashes it open.
+  // Read before the first paint, so the thread's width is right from the start.
   const paneRef = useRef<HTMLDivElement>(null);
   const [paneWidth, setPaneWidth] = useState(Infinity);
   useLayoutEffect(() => {
@@ -1096,8 +1085,6 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
     return () => window.removeEventListener('keydown', key, true);
   }, [openThread]);
   useEffect(() => { if (openDoc) setOpenThread(null); }, [openDoc]);
-  const [summaryOpen, toggleSummary] = useSummaryOpen(paneWidth);
-  // One thing at a time keeps its summary on top of the page, so no panel beside it.
   const page = !!queue || !!onePage;
   // The choices at the foot fold away from a small arrow and leave a sign on
   // the reply box. A fold holds this thread's current choices only.
@@ -1108,17 +1095,9 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
     try { localStorage.setItem(CHOICES_FOLDED, JSON.stringify(now)); } catch { /* storage full or off */ }
     return now;
   });
-  const summaryOffered = summarised && !openDoc && !page;
   // On this page the line saying where an answer went sits in the bar's empty
   // middle, where it covers nothing and takes no row from the answer.
   const sentUp = page && !!cornerHeaderTarget && !onPhone();
-  const summaryShown = summaryOffered && summaryOpen;
-  useSummaryShortcut(toggleSummary, summaryOffered);
-  useEffect(() => {
-    if (!pageAsk || !summaryOffered) return;
-    if (pageAsk.what === 'summary') { toggleSummary(); onAsked?.(); }
-    else if (pageAsk.what === 'people' && !summaryOpen) toggleSummary();
-  }, [pageAsk?.at, summaryOffered]);
   // THE MODEL, IN THE REPLY BOX AND NOT THE HEADER. The folded box says which
   // model picks up what she sends next, at its right end, and pressing the word
   // opens the box with the model drawer already open: the same drawer and the
@@ -1337,7 +1316,6 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
     const settled = session ? null : setTimeout(() => clearInterval(timer), FOLDER_SETTLES_MS);
     return () => { live = false; clearInterval(timer); if (settled) clearTimeout(settled); };
   }, [item.product, item.id, item.updatedAt, session?.startedAt, agent]);
-  const summaryNow = summaryOffered ? (summaryShown ? 'open' : 'closed') : null;
 
   // Parent callbacks change on polling and when a document opens. Keep the
   // current actions without making them React component identities: replacing
@@ -1510,10 +1488,10 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
         if (!className && ticketReference(value)) return <code>{children}</code>;
         const source = !className && sourceReference(value);
         if (source) return <ArtifactLink kind="code" product={product} src={source} fallback={resolveSrc(source)} onOpen={(click, from) => openHref(source, from, click)}>{mentionName(value)}</ArtifactLink>;
-        // Written out in full into this product's folder counts as the short
-        // path it names, the same rule a full path in a sentence follows.
+        // Written out in full into this product's folder, or the thread's own,
+        // counts as the short path it names, as a full path in a sentence does.
         const shown = value.trim();
-        const path = (!className && productDir && productPath(shown, productDir)) || shown;
+        const path = (!className && shortPath(shown, productDir, taskFolder(repoDir, item.id))) || shown;
         if (!className && (PATH_RE.test(path) || (conversing && path.startsWith('/') && PATH_RE.test(path.slice(1))))) {
           if (/\.(png|jpe?g|gif|webp)$/i.test(path)) {
             return <ArtifactImg key={path} src={path} alt={shown} roots={roots} onOpen={openHref} find={find} />;
@@ -1547,8 +1525,8 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   }, [productDir, repoDir, item.id, item.result, item.note, item.body, item.answer, direct, product]);
 
   const mdPlugins = useMemo(
-    () => [remarkGfm, remarkTicketReferences, [remarkArtifactPaths, { dir: productDir ?? null, anyFull: direct }], remarkMediaUnderSentences] as NonNullable<Parameters<typeof ReactMarkdown>[0]['remarkPlugins']>,
-    [productDir, direct],
+    () => [remarkGfm, remarkTicketReferences, [remarkArtifactPaths, { dir: productDir ?? null, anyFull: direct, folder: taskFolder(repoDir, item.id) }], remarkMediaUnderSentences] as NonNullable<Parameters<typeof ReactMarkdown>[0]['remarkPlugins']>,
+    [productDir, direct, repoDir, item.id],
   );
 
   // WHAT A CLOUD RUN ASKED FOR is a card in its message (NeedCard.tsx). A saved
@@ -1753,8 +1731,8 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // The app's own offer goes up with it because only this page knows it is
   // there, and a number has to answer what is on the screen.
   useEffect(() => {
-    onShown?.({ key: `${item.product}/${item.id}`, change: !!figures, summary: summaryNow, ship: shipAsk?.options ?? null });
-  }, [item.product, item.id, !!figures, summaryNow, shipOffer]);
+    onShown?.({ key: `${item.product}/${item.id}`, change: !!figures, ship: shipAsk?.options ?? null });
+  }, [item.product, item.id, !!figures, shipOffer]);
   // AND WHERE IT IS DRAWN (w-560647d4db). Almost always in the pane, at the foot
   // of the turn that made the offer, which is the whole of this round: pinned to
   // the reply card it followed the reader down the page.
@@ -1871,12 +1849,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
         // rather than by inventing a second definition of under way.
         inProgress: stoppable,
       }}
-      /* THE STATE IS SAID ONCE (w-a3482b8c2c). The rail says it while the
-         summary is closed and the Status row while it is open, so the line
-         under the title leads with it only when neither is on screen, which
-         is while a document fills the thread. */
-      lead={summarised && !summaryOffered ? <ThreadStateMark item={item} /> : null}
-      stateShown={summarised && summaryOffered}
+      lead={summarised ? <ThreadStateMark item={item} /> : null}
       /* ADD PEOPLE, beside the faces (w-71e6af492d). A conversation only: the
          control decides that for itself off the record on screen, so nothing
          here has to ask again. Where the corner's menu offers it, that is
@@ -2093,7 +2066,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // turned that guard off silently.
   return (
     <TicketNavigation.Provider value={{open: openTicket, name: ticketName}}>
-    <div className="focus-pane" ref={paneRef} data-file-previews={page && !inChats ? 'page' : undefined} data-summary={summaryPlace({ offered: summaryOffered, shown: summaryShown, fits: summaryFits(paneWidth) })}>
+    <div className="focus-pane" ref={paneRef} data-file-previews={page && !inChats ? 'page' : undefined}>
     {/* THERE IS NO WAY-OUT CONTROL ON AN OPENED TASK ANY MORE.
 
         Both faults were real and both are measured on this row. With a
@@ -2702,16 +2675,6 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
         </div>
       </div>
     </div>
-    {/* THE SUMMARY, beside the conversation and the dock rather than inside
-        either: both give up its width (`data-summary` above, summary.css), so
-        the words narrow instead of running under it, and it scrolls on its own. */}
-    {/* `onFinish` is the SAME ONE the three-dot menu's Mark done row takes
-        (`canFinish ? onResolve : null` above), so the Status row's Done and
-        that row and E are one action with one undo and one toast. */}
-    {/* Opened without room, it lies over the words, and a click on them puts it away. */}
-    {summaryShown && !summaryFits(paneWidth) && <div className="ts-scrim" aria-hidden="true" onClick={toggleSummary} />}
-    {summaryShown && <SummaryPanel item={item} team={teamCtx} onFinish={canFinish ? onResolve : null} onClose={toggleSummary} repeat={repeat} peopleAsk={pageAsk?.what === 'people' ? pageAsk.at : 0} onAsked={onAsked} />}
-    {summaryOffered && !summaryOpen && <SummaryRail item={item} team={teamCtx} onOpen={toggleSummary} />}
     {!direct && <TaskTerminal key={`${item.product}:${item.id}`} product={item.product} id={item.id} onOpenChange={setTerminalOpen}/>}
     </div>
     </TicketNavigation.Provider>
@@ -3039,11 +3002,13 @@ function DockComposer({ item, onItsWay = null, runningMode, runningEngine, codex
   const engineNow: Harness = asHarness(runningEngine) ?? 'claude';
   const engineShown: Harness = asHarness(engineChosen) ?? engineNow;
   const pick: ModelPick = { engine: engineShown, model: model ?? defaultModelFor(engineShown, codexModelDefault) };
+  // agy's list lands seconds after launch (main/ipc.mts), as a new array, so the rows follow it.
+  const agyRows = antigravityModelRows();
   const recent = useMemo(
     () => recentModels(items, { codexModels, codexDefault: codexModelDefault, codexOffered, claudeOffered, antigravityOffered }),
-    [items, codexModels, codexModelDefault, codexOffered, claudeOffered, antigravityOffered],
+    [items, codexModels, codexModelDefault, codexOffered, claudeOffered, antigravityOffered, agyRows],
   );
-  const every = useMemo(() => allModels({ codexModels, codexOffered, claudeOffered, antigravityOffered }), [codexModels, codexOffered, claudeOffered, antigravityOffered]);
+  const every = useMemo(() => allModels({ codexModels, codexOffered, claudeOffered, antigravityOffered }), [codexModels, codexOffered, claudeOffered, antigravityOffered, agyRows]);
   const effortRows = effortChoicesFor(engineShown, pick.model, modelOpts);
   const effortLit = effortShown(effort, effortRows, defaultEffortFor(engineShown, pick.model, modelOpts));
   // A LEVEL BELONGS TO THE MODEL IT WAS PICKED FOR, so crossing to the other

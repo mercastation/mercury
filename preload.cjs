@@ -369,6 +369,12 @@ contextBridge.exposeInMainWorld('zero', {
     ipcRenderer.on('zero:phone-changed', handler);
     return () => ipcRenderer.removeListener('zero:phone-changed', handler);
   },
+  // A model list changed in main (agy's lands seconds after launch), so the pickers read them again.
+  onModelsChanged: (fn) => {
+    const handler = () => fn();
+    ipcRenderer.on('zero:models-changed', handler);
+    return () => ipcRenderer.removeListener('zero:models-changed', handler);
+  },
   // What was just decided, and on which card. The Cmd+Y chord is caught in the
   // main process (it has to outrank the game), so this is the only way the page
   // can know a press landed; the card's exit is drawn from it.

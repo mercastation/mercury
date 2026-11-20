@@ -58,7 +58,7 @@ import { cardPick, clearComposeDraft, composeDraftIsEmpty, dropComposeDraft, mar
 import { codeProjectFor, LAST_PRODUCT_KEY, rememberedProject } from '../compose-project';
 import { practiceRefusal, noProjectYet } from '../compose-says';
 import { onCloudPhone } from '../phone-screen';
-import { defaultModelFor, engineModelLabel, readLastModel, writeLastModel, type ModelChoice } from '../models';
+import { antigravityModelRows, defaultModelFor, engineModelLabel, readLastModel, writeLastModel, type ModelChoice } from '../models';
 import { defaultEffortFor, effortChoicesFor, effortPicked, effortShown, readLastEffort, writeLastEffort } from '../effort';
 import { ENGINE_CHOSEN, startingEngine, writeLastEngine } from '../engines';
 import { repeatPresets } from '../components/When';
@@ -422,11 +422,13 @@ export function ThreadComposer({
   const labelOf = (p: ModelPick) => engineModelLabel(p.engine, p.model, modelOpts);
   // Recent rows say which agent runs them, where there are two.
   const engineTags = agentChoices(engineRows).length > 0;
+  // agy's list lands seconds after launch (main/ipc.mts), as a new array, so the rows follow it.
+  const agyRows = antigravityModelRows();
   const recent = useMemo(
     () => recentModels(items, { codexModels, codexDefault, codexOffered, claudeOffered, antigravityOffered }),
-    [items, codexModels, codexDefault, codexOffered, claudeOffered, antigravityOffered],
+    [items, codexModels, codexDefault, codexOffered, claudeOffered, antigravityOffered, agyRows],
   );
-  const every = useMemo(() => allModels({ codexModels, codexOffered, claudeOffered, antigravityOffered }), [codexModels, codexOffered, claudeOffered, antigravityOffered]);
+  const every = useMemo(() => allModels({ codexModels, codexOffered, claudeOffered, antigravityOffered }), [codexModels, codexOffered, claudeOffered, antigravityOffered, agyRows]);
   const more = moreCount(recent, every);
 
   /* ------------------------------ menus --------------------------------- */

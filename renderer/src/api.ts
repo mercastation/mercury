@@ -19,6 +19,7 @@ import { fixtureDemands } from './demands/fixture-demands';
 import type { DemandPatch, DemandRecord } from './demands/demand-rules';
 import { NAME, Name } from '../../shared/product-name.mjs';
 import type { CarryState } from '../../shared/carried-files.mts';
+import type { WasBeforeClose } from '../../shared/reopen-as-it-was.mts';
 
 // Preload calls the bridge type in types.ts does not list yet.
 interface LaterBridge {
@@ -1026,7 +1027,7 @@ export const api = {
   // once instead of after it (main/claude-input.mts `interrupt`).
   // `inReplyTo` is the uid of the message a reply in a thread answers
   // (w-920461cbe6); main keeps it only in a conversation between people.
-  async answer(p: { product: string; id: string; answer?: string; status?: string; priority?: number; permissionMode?: AnswerMode | null; engine?: string | null; model?: string | null; effort?: string | null; now?: boolean; inReplyTo?: string; closeUnshipped?: boolean; runAt?: number; putAway?: boolean }): Promise<WorkItem | null> {
+  async answer(p: { product: string; id: string; answer?: string; status?: string; priority?: number; permissionMode?: AnswerMode | null; engine?: string | null; model?: string | null; effort?: string | null; now?: boolean; inReplyTo?: string; closeUnshipped?: boolean; runAt?: number; putAway?: boolean; reopenAs?: WasBeforeClose }): Promise<WorkItem | null> {
     if (useFixtures) return null;
     return window.zero!.answer(p);
   },
@@ -2211,5 +2212,12 @@ export const api = {
     const zero = window.zero;
     if (useFixtures || !zero?.onPhoneChanged) return () => {};
     return zero.onPhoneChanged(fn);
+  },
+
+  /** Main says a model list changed (agy's lands seconds after launch). */
+  onModelsChanged(fn: () => void): () => void {
+    const zero = window.zero;
+    if (useFixtures || !zero?.onModelsChanged) return () => {};
+    return zero.onModelsChanged(fn);
   },
 };

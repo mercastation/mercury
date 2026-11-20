@@ -97,6 +97,7 @@ import { handedOnByReply, isGivenTask, visibilityWhenMade } from '../shared/team
 import { closeRefusal, closedAnywayNote } from '../shared/not-shipped.mts';
 import { lightRunning, snapshotSender } from '../shared/snapshot-delta.mts';
 import { wakesItselfAt } from '../shared/answers.mts';
+import type { WasBeforeClose } from '../shared/reopen-as-it-was.mts';
 import { traceAnswer } from '../shared/trace-delta.mts';
 import { saveAttachments } from './save-attachments.mts';
 import { stageAttachment, stageAttachmentPart } from './stage-attachment.mts';
@@ -926,8 +927,14 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
   // answered at once (supervisor.sendNow).
   ipcMain.handle('zero:send-now', (_e, { product, id }: { product: string; id: string }) => supervisor.sendNow(product, id));
 
-  ipcMain.handle('zero:answer', async (_e, { product, id, answer, status, priority, permissionMode, engine, model, effort, now, inReplyTo, fromPhone, closeUnshipped, runAt, putAway }: AnswerInput & { product: string; id: string; now?: unknown; inReplyTo?: unknown; closeUnshipped?: boolean; runAt?: number; putAway?: unknown }) => {
+  ipcMain.handle('zero:answer', async (_e, { product, id, answer, status, priority, permissionMode, engine, model, effort, now, inReplyTo, fromPhone, closeUnshipped, runAt, putAway, reopenAs }: AnswerInput & { product: string; id: string; now?: unknown; inReplyTo?: unknown; closeUnshipped?: boolean; runAt?: number; putAway?: unknown; reopenAs?: WasBeforeClose }) => {
     if (isAgentRow(id)) return { ok: false };
+    if (reopenAs && status === 'open' && !answer) {
+      const out = store.reopenAsItWas(product, id, reopenAs);
+      push();
+      if (out?.status === 'open') { supervisor.liftBrakeForHer?.(); supervisor.wake(); }
+      return out;
+    }
     // Out of your own Needs you, on a task between people: no reply, no close, no run.
     if (typeof putAway === 'boolean' && !answer && !status) {
       const out = store.answerItem(product, id, { putAway });
@@ -2194,8 +2201,14 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
   // Antigravity's model list and whether it is signed in are one call, and
   // only `agy` can answer either; asked in the background at launch.
   const readAntigravity = async () => {
-    const { signedIn } = await readAntigravityModels(config.antigravityBin);
+    const { signedIn, email } = await readAntigravityModels(config.antigravityBin);
     if (signedIn !== null) config.antigravitySignedIn = signedIn;
+    // Whose it is, for its tile and for matching it to its cloud sign-in.
+    if (signedIn !== null) config.antigravityEmail = signedIn ? email : null;
+    // AND THE PICKERS ARE TOLD (2026-11-20: "não está mostrando os modelos do
+    // antigravity"). agy answers over the network, seconds after launch, and
+    // the screen had read the lists once already and got none.
+    if (!window.isDestroyed()) window.webContents.send('zero:models-changed');
     return signedIn;
   };
   if (config.antigravityBin) void readAntigravity();
