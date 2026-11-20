@@ -34,15 +34,21 @@ export function wantsReport(demand: Pick<Demand, 'wroteAt'>, threads: readonly R
 }
 
 /** PURE. The one message the report call gets. */
-export function reportPrompt(demand: Pick<Demand, 'name'>, threads: readonly ReportThread[]): string {
+export function reportPrompt(demand: Pick<Demand, 'name'>, threads: readonly ReportThread[], { voice = [] }: { voice?: readonly string[] } = {}): string {
   const cut = (s: unknown, n: number) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
   const steps = (s: unknown) => String(s ?? '').split('\n').map((l) => l.trim()).filter(Boolean).join('; ').slice(0, 500);
   const allDone = threads.length > 0 && threads.every((t) => t.status === 'done');
   return [
     'A person keeps their work as demands: a demand is one thing they want delivered, and',
     'threads are the pieces of work that serve it. Below is a demand and what its threads',
-    'say they did. Write its report in the language the threads are written in, for',
-    'someone busy who will not open the threads:',
+    // The threads' notes are an agent's, not always in the person's language (main/row-label.mts `howThePersonWrites`).
+    ...(voice.length ? [
+      'say they did. Write its report in the language the person writes in, shown at the end,',
+      'whatever language the threads\' notes are in, for someone busy who will not open the threads:',
+    ] : [
+      'say they did. Write its report in the language the threads are written in, for',
+      'someone busy who will not open the threads:',
+    ]),
     'ABOUT: one plain sentence saying what the demand is.',
     'DELIVERED: up to five lines, one per thing actually delivered so far, each a phrase',
     'of under fifteen words that says the outcome and not the steps. Keep a ticket id or',
@@ -62,6 +68,7 @@ export function reportPrompt(demand: Pick<Demand, 'name'>, threads: readonly Rep
       ...(cut(t.problem, 1) ? [`Context: ${cut(t.problem, 400)}`] : []),
       ...(steps(t.progress) ? [`Done: ${steps(t.progress)}`] : !cut(t.problem, 1) && cut(t.result, 1) ? [`Said: ${cut(t.result, 300)}`] : []),
     ]),
+    ...(voice.length ? ['--- how the person writes ---', ...voice] : []),
     '---',
   ].join('\n');
 }

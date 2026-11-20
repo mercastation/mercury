@@ -187,7 +187,7 @@ import { connectionLine, filesComeFirst } from '../shared/connections-catalog.mt
 import { codexDefaultModel, codexHome, codexKnownSlugs, codexModelLevels, codexModels } from './codex-models.mts';
 import { codexAccount, codexPlanEnded, ensureCodexHome } from './codex-account.mts';
 import { accountName } from '../shared/account-names.mts';
-import { nameRow, wantsName, waitsForItsSubject, namesTaken, askSmallModel, smallModelPictures } from './row-label.mts';
+import { nameRow, wantsName, waitsForItsSubject, namesTaken, howThePersonWrites, askSmallModel, smallModelPictures } from './row-label.mts';
 import { placePrompt, readPlace, wantsPlace } from './demand-sorter.mts';
 import { reportPrompt, readReport, wantsReport } from './demand-report.mts';
 import { demandBriefBlock } from './demand-brief.mts';
@@ -5114,7 +5114,8 @@ export class Supervisor {
     if (!next) return undefined;
     this._naming = true;
     const others = namesTaken(next, items);
-    return this._askSmall((opts) => nameRow(next, { ...opts, others }), { product: next.product })
+    const voice = howThePersonWrites(next, items);
+    return this._askSmall((opts) => nameRow(next, { ...opts, others, voice }), { product: next.product })
       .then((label) => {
         if (!label) { this._nameMisses.set(key(next), now); return; }
         this._nameMisses.delete(key(next));
@@ -5158,7 +5159,8 @@ export class Supervisor {
     const dir = this.store.productDir(next.product);
     const open = demands.list(dir);
     this._placing = true;
-    return this._askSmall((opts) => askSmallModel(placePrompt(next, open), (t) => (readPlace(t, open.length) ? t : ''), opts), { product: next.product })
+    const voice = howThePersonWrites(next, items);
+    return this._askSmall((opts) => askSmallModel(placePrompt(next, open, { voice }), (t) => (readPlace(t, open.length) ? t : ''), opts), { product: next.product })
       .then((text) => {
         const place = readPlace(text, open.length);
         if (!place) {
@@ -5204,7 +5206,8 @@ export class Supervisor {
     const { slug, dir, demand, threads } = next;
     const key = `${slug}:${demand.id}`;
     this._reporting = true;
-    return this._askSmall((opts) => askSmallModel(reportPrompt(demand, threads), (t) => (readReport(t) ? t : ''), opts), { product: slug })
+    const voice = howThePersonWrites({ id: demand.id, product: slug }, items);
+    return this._askSmall((opts) => askSmallModel(reportPrompt(demand, threads, { voice }), (t) => (readReport(t) ? t : ''), opts), { product: slug })
       .then((text) => {
         const report = readReport(text);
         if (!report) {

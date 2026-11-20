@@ -45,7 +45,7 @@ export function wantsPlace(item: PlaceItem, placed: ReadonlySet<string>, now: nu
 }
 
 /** PURE. The one message the placing call gets. */
-export function placePrompt(item: PlaceItem, demands: readonly { name: string; about?: string }[]): string {
+export function placePrompt(item: PlaceItem, demands: readonly { name: string; about?: string }[], { voice = [] }: { voice?: readonly string[] } = {}): string {
   const cut = (s: unknown, n: number) => String(s ?? '').replace(/\r/g, '').trim().slice(0, n);
   const about = cut(item.problem, 400);
   return [
@@ -58,8 +58,14 @@ export function placePrompt(item: PlaceItem, demands: readonly { name: string; a
     '- NEW: and a name for a new demand, when it is work toward something none of them',
     '  covers. Name it wide enough that later threads on the same piece of work fit under',
     '  it: the feature or the goal, never the ticket or the step. 2 to 6 words, sentence',
-    '  case, in the language the demands below are named in, or with none yet, in the',
-    '  language the thread is written in;',
+    // A thread is mostly an agent's notes, not always in the person's language (main/row-label.mts `howThePersonWrites`).
+    ...(voice.length ? [
+      '  case, in the language the person writes in, shown at the end, whatever language the',
+      '  thread\'s notes or the other demands are in;',
+    ] : [
+      '  case, in the language the demands below are named in, or with none yet, in the',
+      '  language the thread is written in;',
+    ]),
     '- NONE when it is a passing question or housekeeping that delivers nothing of its own.',
     '',
     '--- the thread ---',
@@ -69,6 +75,7 @@ export function placePrompt(item: PlaceItem, demands: readonly { name: string; a
     ...(about ? ['--- what it is about ---', about] : []),
     '--- the demands ---',
     ...(demands.length ? demands.map((d, i) => `${i + 1}. ${d.name}${d.about ? `: ${cut(d.about, 200)}` : ''}`) : ['(none yet)']),
+    ...(voice.length ? ['--- how the person writes ---', ...voice] : []),
     '---',
   ].join('\n');
 }

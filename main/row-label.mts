@@ -186,15 +186,43 @@ export function namesTaken(item: RowItem, items: readonly RowItem[]): string[] {
   return [...names];
 }
 
+/** How many of the person's own asks the model is shown, and how much of each. */
+const VOICE_SHOWN = 4;
+const VOICE_CHARS = 120;
+/** Rows the app writes for itself (main/demand-sorter.mts leaves the same kinds out). */
+const APP_KINDS = new Set(['question', 'review', 'cause']);
+
+/**
+ * PURE. A few of the person's own latest asks, this thread's project first: the
+ * language they write in. A thread is mostly an agent's notes, and those are
+ * sometimes in another language. An ask that is a link or a ticket and a word
+ * or two tells no language, so it is left out.
+ */
+export function howThePersonWrites(item: Pick<RowItem, 'id' | 'product'>, items: readonly RowItem[]): string[] {
+  const said = (i: RowItem) => String(i.body || i.title || '').replace(/https?:\/\/\S+/g, ' ').replace(new RegExp(TICKET.source, 'g'), ' ').replace(/\s+/g, ' ').trim();
+  const newest = (a: RowItem, b: RowItem) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0);
+  const theirs = items.filter((i) => i.id !== item.id && (i.labels ?? []).includes('founder') && !APP_KINDS.has(String(i.kind)) && !askedByRecordingAlone(i));
+  const lines: string[] = [];
+  for (const i of [...theirs.filter((t) => t.product === item.product).sort(newest), ...theirs.filter((t) => t.product !== item.product).sort(newest)]) {
+    const words = said(i);
+    if (words.split(' ').filter((w) => /\p{L}{2,}/u.test(w)).length < 3) continue;
+    lines.push(words.slice(0, VOICE_CHARS).trim());
+    if (lines.length === VOICE_SHOWN) break;
+  }
+  return lines;
+}
+
 /**
  * PURE. The one message the naming call gets. The user's words first, then the last
  *  thing written on the row, which is what makes the name describe the thread
  *  rather than its opening line. Truncated hard: a name does not get better for
  *  having read six thousand words, and this is spawned on a timer. */
-export function namePrompt(item?: RowItem | null, { others = [] }: { others?: readonly string[] } = {}) {
+export function namePrompt(item?: RowItem | null, { others = [], voice = [] }: { others?: readonly string[]; voice?: readonly string[] } = {}) {
   const cut = (s: unknown, n: number) => String(s ?? '').replace(/\r/g, '').trim().slice(0, n);
   const latest = cut(item?.result || item?.note, 700);
   const about = cut(item?.problem, 400);
+  // A thread asked by its ticket alone is named from an agent's notes, which are not always in the person's language.
+  const theirs = askedByTicketAlone(item) ? voice : [];
   return [
     'Here is a work thread: the message that opened it, and the latest thing',
     'written on it. Write a short name for the thread AS IT STANDS NOW: 3 to 6',
@@ -209,6 +237,8 @@ export function namePrompt(item?: RowItem | null, { others = [] }: { others?: re
       'The opening line only says a meeting was recorded, so name what the meeting was about,',
       'from what is written below, and never by its time. Write it in the language that is written in,',
       'not the opening line\'s.',
+    ] : theirs.length ? [
+      'Write it in the language the person writes in, shown at the end, whatever language the notes below are in.',
     ] : ['Write it in the language the opening message is written in.']),
     'If the opening line names the work only by a ticket or card id, name what the',
     'ticket is about, from what is written below, and put the id last in brackets,',
@@ -233,6 +263,7 @@ export function namePrompt(item?: RowItem | null, { others = [] }: { others?: re
     '--- latest ---',
     latest || '(nothing written yet)',
     ...(others.length ? ['--- names already taken ---', others.join('\n')] : []),
+    ...(theirs.length ? ['--- how the person writes ---', ...theirs] : []),
     '---',
   ].join('\n');
 }
@@ -284,9 +315,9 @@ function codexArgs(prompt: string) {
  * is not a name. Never throws and never rejects, because this is called from a
  * timer whose only correct behaviour on failure is to leave the row alone.
  */
-export function nameRow(item: RowItem | null | undefined, opts: SmallModelOptions & { others?: readonly string[] } = {}) {
-  const { others, ...small } = opts;
-  return askSmallModel(namePrompt(item, { others }), cleanName, small);
+export function nameRow(item: RowItem | null | undefined, opts: SmallModelOptions & { others?: readonly string[]; voice?: readonly string[] } = {}) {
+  const { others, voice, ...small } = opts;
+  return askSmallModel(namePrompt(item, { others, voice }), cleanName, small);
 }
 
 /**
