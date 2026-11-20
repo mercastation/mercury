@@ -11468,7 +11468,11 @@ export class Supervisor {
     const relay = () => {
       const proc = this._spawnCloudRelay(['--agentbox-agy', ...launch.args], {
         cwd,
-        env: { ...env, STORE_ACCOUNT_ID: this.config.accountId, ...storeRootEnv(this.config.storeRoot), ZERO_PRODUCT: item.product, ZERO_ITEM: item.id, ...this._cloudDocsEnv(item) },
+        env: {
+          ...env, STORE_ACCOUNT_ID: this.config.accountId, ...storeRootEnv(this.config.storeRoot), ZERO_PRODUCT: item.product, ZERO_ITEM: item.id, ...this._cloudDocsEnv(item),
+          // The conversation a reply resumes goes up with the start (main/cloud/run.mts).
+          ...(plan.resumeId ? { AGENTBOX_AGY_RESUME: String(plan.resumeId) } : {}),
+        },
       });
       proc.once('exit', (code, signal) => relayExit({ code, signal }));
       proc.once('error', () => relayExit({ code: 1, signal: null }));

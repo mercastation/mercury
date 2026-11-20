@@ -1347,6 +1347,14 @@ export async function cloudRun({
     if (!fs.existsSync(t)) say(`no transcript for ${resumeId} on this Mac; the cloud run starts without it`);
     else { conversations.add(t); sending.push(sendFile(t)); }
   }
+  // AN ANTIGRAVITY CONVERSATION GOES WITH THE START, like a transcript, so the
+  // sandbox hands it to the agent with the rest of the agy home. Sent when its
+  // `session/resume` went by, its folders were made by the sandbox's root and
+  // agy could not open it: "Failed to read session" (2026-11-20, first real
+  // reply in the cloud). The supervisor names it (AGENTBOX_AGY_RESUME).
+  const agyResume = agy ? agyConversationFor(agyHome, env.AGENTBOX_AGY_RESUME) : null;
+  if (agyResume && !fs.existsSync(agyResume)) say(`no Antigravity conversation ${path.basename(agyResume, '.db')} on this Mac; the cloud run starts without it`);
+  else if (agyResume) sending.push(sendFile(agyResume));
   // Her saved memories for this project, where Claude Code in the cloud looks.
   const saved = engine !== 'claude' ? null : plain ? folderWithFiles(path.join(projectsDir, 'memory')) : memoryFolderFor(cwd, configDir);
   if (saved) sending.push(sendFolder(saved, path.join(projectsDir, '.memory.tgz'), path.join(projectsDir, 'memory')));
@@ -2504,12 +2512,15 @@ export function acpLineForTheCloud(line: string, { stubPath = STUB, agyHome, kee
     prompt.append = typeof prompt.append === 'string' && prompt.append ? `${prompt.append}\n\n${note}` : note;
   }
   const files: string[] = [];
-  const id = params.sessionId;
-  if (msg.method !== 'session/new' && agyHome && typeof id === 'string' && /^[A-Za-z0-9-]+$/.test(id)) {
-    const db = path.join(agyHome, 'antigravity-cli', 'conversations', `${id}.db`);
-    if (fs.existsSync(db)) files.push(db);
-  }
+  const db = msg.method === 'session/new' ? null : agyConversationFor(agyHome, params.sessionId);
+  if (db && fs.existsSync(db)) files.push(db);
   return { line: JSON.stringify(msg) + (line.endsWith('\n') ? '\n' : ''), files };
+}
+
+/** Where agy keeps one conversation under the agy home a run was given, or null for an id that is not one. */
+export function agyConversationFor(agyHome: string | null | undefined, id: unknown): string | null {
+  if (!agyHome || typeof id !== 'string' || !/^[A-Za-z0-9-]+$/.test(id)) return null;
+  return path.join(agyHome, 'antigravity-cli', 'conversations', `${id}.db`);
 }
 
 /** Which engine the relay was started for, and what it runs in the sandbox (./run-cli.mts). */
