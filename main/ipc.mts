@@ -2185,8 +2185,10 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
   // Antigravity's model list and whether it is signed in are one call, and
   // only `agy` can answer either; asked in the background at launch.
   const readAntigravity = async () => {
-    const { signedIn } = await readAntigravityModels(config.antigravityBin);
+    const { signedIn, email } = await readAntigravityModels(config.antigravityBin);
     if (signedIn !== null) config.antigravitySignedIn = signedIn;
+    // Whose it is, for its tile and for matching it to its cloud sign-in.
+    if (signedIn !== null) config.antigravityEmail = signedIn ? email : null;
     return signedIn;
   };
   if (config.antigravityBin) void readAntigravity();

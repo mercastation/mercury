@@ -870,7 +870,7 @@ export default function App() {
   const closeAccountSignIn = useCallback(() => { setPhoneSignInOpen(false); setShareSignInOpen(false); }, []);
   useEffect(() => { if (snap?.team?.signedIn) { setPhoneSignInOpen(false); setShareSignInOpen(false); } }, [snap?.team?.signedIn]);
   // The account a cloud sign-in started from Settings is for, so its page can say whom to sign in as.
-  const [cloudSignInAs, setCloudSignInAs] = useState<string | null>(null);
+  const [cloudSignInAs, setCloudSignInAs] = useState<{ engine: 'claude' | 'antigravity'; email: string } | null>(null);
   const floatingRef = useRef<OpenOverTheApp>(NOTHING_OVER_THE_APP);
   floatingRef.current = { modal, settings: settingsOpen, importAgents, newProject, teamShown, setupPlan: !!setupPlan };
   // WHICH PAGE OF SETTINGS A PRESS ASKED FOR, when it asked for one. ⌘K's
@@ -9363,9 +9363,9 @@ export default function App() {
           onSetTune={setTune}
           onResetTune={resetTune}
           cloud={snap.cloud?.setUp ? snap.cloud : null}
-          onCloudSignIn={(key, email) => {
-            void api.cloudSignIn({ action: 'start', engine: 'claude', key });
-            setCloudSignInAs(email);
+          onCloudSignIn={(key, email, engine = 'claude') => {
+            void api.cloudSignIn({ action: 'start', engine, key });
+            setCloudSignInAs(email ? { engine, email } : null);
             setCloudSetupOpen(true);
           }}
           cloudPlans={snap.cloud?.managed || snap.cloud?.offered ? {

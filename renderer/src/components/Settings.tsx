@@ -57,6 +57,7 @@ import { readySkin } from '../look-switch';
 import { MatchMark } from './MatchMark';
 import { MODE_ORDER, MODE_SENTENCE, MODE_WORDS, RULES_ALWAYS_APPLY } from '../modes';
 import { CODEX_MODES, CODEX_MODE_ORDER } from '../codex-modes';
+import { ANTIGRAVITY_DEFAULT_MODE, ANTIGRAVITY_MODES, ANTIGRAVITY_MODE_ORDER, type AntigravityModeId } from '../../../shared/antigravity-modes.mts';
 import { ProductMark } from './ProductMark';
 import { SHORTCUTS } from '../shortcuts';
 import { chord, chords } from '../this-keyboard';
@@ -553,6 +554,43 @@ export function cloudPlaceAccounts(cloud: CloudStatus, engine: 'claude' | 'codex
       : state;
     return { key: a.key, name: accountLabel(a, all), plan: a.plan ?? null, about: [about], inUse: live, limits: a.limits ?? null, meters: read, checkedAt: read ? a.readAt : null };
   });
+}
+
+/**
+ * ANTIGRAVITY'S TILES, DRAWN AS CLAUDE CODE'S ARE (2026-11-20: "não está igual
+ * ao do claude code"): the account by its email, In use, a tag for each place
+ * it works, and the cloud sign-in it is missing. agy holds one sign-in on a
+ * Mac; its cloud login is the one with the same email, or the first while the
+ * Mac does not know whose it is (supervisor `_cloudAccountOfThisMac`). Any
+ * other cloud login is a tile of its own. agy reports no usage, so no meters
+ * are promised.
+ */
+export function antigravityTiles(here: { signedIn: boolean | null; email?: string | null }, cloud: CloudStatus | null, { onSignIn, onCloudSignIn }: {
+  onSignIn: () => void;
+  onCloudSignIn?: (key: string | null, email: string | null) => void;
+}): PlaceAccount[] {
+  const all = cloud?.setUp ? countedAccounts(cloud.accounts ?? []).filter((a) => a.engine === 'antigravity') : [];
+  const email = here.email?.toLowerCase() ?? null;
+  const mine = here.signedIn ? (email ? all.find((a) => a.name?.toLowerCase() === email) : all[0]) ?? null : null;
+  const broken = (a: { state?: string }) => a.state === 'broken';
+  const signIn = (word: string, key: string | null, who: string | null) => (onCloudSignIn ? { word, onUse: () => onCloudSignIn(key, who) } : null);
+  const name = here.email ?? mine?.name ?? 'Google account';
+  const tile: PlaceAccount = {
+    key: 'antigravity-here', name,
+    about: here.signedIn === false ? ['Not signed in'] : here.signedIn == null ? ['Not checked yet'] : [],
+    inUse: here.signedIn === true,
+    use: here.signedIn ? null : { word: 'Sign in', onUse: onSignIn },
+    places: cloud?.setUp && here.signedIn ? ['here', ...(mine && !broken(mine) ? ['cloud' as const] : [])] : [],
+    cloudAct: !cloud?.setUp || !here.signedIn ? null : mine && broken(mine) ? signIn('Sign in to cloud again', mine.key, name) : !mine ? signIn('Add to cloud', null, here.email ?? null) : null,
+    meters: false,
+  };
+  const others: PlaceAccount[] = all.filter((a) => a !== mine).map((a) => ({
+    key: a.key, name: accountLabel(a, all), about: [],
+    places: broken(a) ? [] : ['cloud'],
+    cloudAct: broken(a) ? signIn('Sign in to cloud again', a.key, a.name ?? null) : null,
+    meters: false,
+  }));
+  return [tile, ...others];
 }
 
 /**
@@ -1187,6 +1225,10 @@ const PERMISSION_OPTIONS: Array<{ value: PermissionMode; label: string }> = MODE
 const CODEX_MODE_OPTIONS: Array<{ value: CodexModeId; label: string }> = CODEX_MODE_ORDER.map(
   (value) => ({ value, label: CODEX_MODES[value].label }),
 );
+// AND ANTIGRAVITY'S FOUR, in agy's own names (shared/antigravity-modes.mts).
+const ANTIGRAVITY_MODE_OPTIONS: Array<{ value: AntigravityModeId; label: string }> = ANTIGRAVITY_MODE_ORDER.map(
+  (value) => ({ value, label: ANTIGRAVITY_MODES[value].label }),
+);
 
 
 /* -------------------- the model is not asked here ------------------------- */
@@ -1783,8 +1825,8 @@ export function Settings({ look, onSetLook, onSkyTheme, tune, onSetTune, onReset
   onFeedback?: (start: string) => void;
   /** The cloud, when this Mac is set up for it: its own logins are listed on the agent's page. */
   cloud?: CloudStatus | null;
-  /** Signs a Claude account in to the cloud (a login's key to sign it in again), on the cloud's own screen. */
-  onCloudSignIn?: (key: string | null, email: string | null) => void;
+  /** Signs a Claude (or, named, an Antigravity) account in to the cloud (a login's key to sign it in again), on the cloud's own screen. */
+  onCloudSignIn?: (key: string | null, email: string | null, engine?: 'claude' | 'antigravity') => void;
   /** Agentbox Cloud's plans, where this copy offers it: the Cloud page. */
   /** `teamPlan`: a team's own Plan and Billing page, handed in like `teamPane` so this screen holds no team code. */
   cloudPlans?: { signedIn: boolean; onSignIn: () => void; teamPlan?: (page: TeamPlanPage) => ReactNode } | null;
@@ -1907,6 +1949,7 @@ export function Settings({ look, onSetLook, onSkyTheme, tune, onSetTune, onReset
   const [codexReading, setCodexReading] = useState<Usage | null>(null);
   const [codexReadings, setCodexReadings] = useState<AccountUsageReading[]>([]);
   const [codexRefreshing, setCodexRefreshing] = useState(false);
+  const [agyChecking, setAgyChecking] = useState(false);
   // Only the button asks Codex (and so OpenAI); opening the page reads what
   // this computer has. The accounts are read after, so they carry the answer.
   const refreshCodex = useCallback(async (ask = false) => {
@@ -2252,27 +2295,36 @@ export function Settings({ look, onSetLook, onSkyTheme, tune, onSetTune, onReset
     );
   };
 
-  // ANTIGRAVITY HAS ONE SIGN-IN, the Google account agy holds itself, so its
-  // page is that one tile and the terminal that signs it in.
+  // ANTIGRAVITY'S PAGE IS CLAUDE CODE'S PAGE (2026-11-20): Signed in, with the
+  // account's tile and its places; Cloud once it has a cloud sign-in; and
+  // Permissions, in agy's own modes. agy holds one Google sign-in, so there is
+  // no Add account: signing in again replaces it.
   const antigravityPage = () => {
     const a = w?.antigravity;
     if (!a) return null;
     const recheck = async () => {
-      await api.antigravityRefresh();
-      await load();
+      setAgyChecking(true);
+      try {
+        await api.antigravityRefresh();
+        await load();
+      } finally {
+        setAgyChecking(false);
+      }
       window.dispatchEvent(new Event('agent-models-changed'));
     };
     const signIn = async () => {
       const r = await api.antigravitySignIn();
       setAdding(r.ok ? { engine: 'antigravity', name: 'your Google account', command: r.command } : { engine: 'antigravity', name: 'your Google account', error: r.error });
     };
-    const tile: PlaceAccount = {
-      key: 'antigravity',
-      name: 'Google account',
-      about: [a.signedIn ? 'Signed in' : a.signedIn === false ? 'Not signed in' : 'Not checked yet'],
-      meters: false,
-      use: a.signedIn ? null : { word: 'Sign in', onUse: () => void signIn() },
-    };
+    const cloudHere = cloud?.setUp && (cloud.accounts ?? []).some((x) => x.engine === 'antigravity') ? cloud : null;
+    const cloudLogins = cloudHere ? countedAccounts(cloudHere.accounts ?? []).filter((x) => x.engine === 'antigravity') : [];
+    const cloudInUse = cloudHere ? cloudAccountInUse(cloudHere.accounts ?? [], 'antigravity') : null;
+    const tiles = antigravityTiles(a, cloud, {
+      onSignIn: () => void signIn(),
+      onCloudSignIn: onCloudSignIn ? (key, email) => onCloudSignIn(key, email, 'antigravity') : undefined,
+    });
+    const mode = a.mode ?? ANTIGRAVITY_DEFAULT_MODE;
+    const cloudMode = a.cloudMode ?? 'same';
     return (
       <Page title="Antigravity">
         {(!a.found || a.chosen) && <AntigravityCli found={a.found} certain={a.certain} bin={a.bin} chosen={!!a.chosen} url={a.url} onChecked={load} />}
@@ -2281,9 +2333,30 @@ export function Settings({ look, onSetLook, onSkyTheme, tune, onSetTune, onReset
             <Place
               id="usage"
               name="Signed in"
-              action={<span className="acct-place-act"><button type="button" className="set-ghost" onClick={() => void recheck()}>Refresh</button></span>}
-              accounts={[tile]}
+              action={(
+                <span className="acct-place-act">
+                  <button type="button" className="set-ghost" disabled={agyChecking} onClick={() => void recheck()}>{agyChecking ? 'Refreshing…' : 'Refresh'}</button>
+                </span>
+              )}
+              accounts={tiles}
+              now={now}
             />
+            {cloudHere && (
+              <Group id="cloud-accounts" label="Cloud">
+                <Row label="Use the cloud" desc={cloudRunsLine(cloudHere.mode, cloudInUse ? accountLabel(cloudInUse, cloudLogins) : null)}>
+                  <Switch
+                    on={cloudHere.mode !== 'mac'}
+                    label="Use the cloud"
+                    onChange={() => void write(api.setWorkspaceSetting({ key: 'cloudRuns', value: cloudToggleTarget(cloudHere) }))}
+                  />
+                </Row>
+              </Group>
+            )}
+            {cloudHere && !!cloudHere.keys?.length && (
+              <Group id="cloud-keys" label="Keys for cloud threads">
+                {cloudHere.keys.map((k) => <CloudKeyRow key={k.name} name={k.name} label={k.label ?? null} savedAt={k.savedAt} />)}
+              </Group>
+            )}
             {adding && adding.engine === 'antigravity' && (
               <div className="ac-adding">
                 <div className="ac-adding-top">
@@ -2296,6 +2369,30 @@ export function Settings({ look, onSetLook, onSkyTheme, tune, onSetTune, onReset
                 {!adding.error && <SettingsTerminal command={adding.command} onFinished={() => void recheck()} />}
               </div>
             )}
+            <Group id="permissions" label="Permissions">
+              <Row label={cloudHere ? 'On this computer' : 'Permission mode'} desc={ANTIGRAVITY_MODES[mode].what}>
+                <Picker
+                  bare
+                  label="Permission mode"
+                  title="Antigravity's own modes. The starting point for every Antigravity agent, and a single reply can be sent in another."
+                  value={mode}
+                  options={ANTIGRAVITY_MODE_OPTIONS}
+                  onChange={(v) => setWorkspace('antigravityMode', v)}
+                />
+              </Row>
+              {cloudHere && (
+                <Row label="In the cloud" desc={cloudMode !== 'same' ? ANTIGRAVITY_MODES[cloudMode].what : sameAsHere()}>
+                  <Picker
+                    bare
+                    label="Permission mode in the cloud"
+                    title="The mode every cloud run starts in."
+                    value={cloudMode}
+                    options={[{ value: 'same', label: 'Same as this computer' }, ...ANTIGRAVITY_MODE_OPTIONS]}
+                    onChange={(v) => write(api.setWorkspaceSetting({ key: 'cloudAntigravityMode', value: v }))}
+                  />
+                </Row>
+              )}
+            </Group>
           </>
         )}
       </Page>

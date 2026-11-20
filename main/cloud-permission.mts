@@ -3,6 +3,7 @@
 // already import the harnesses.
 import { CLAUDE_PERMISSION_MODES } from '../shared/work-items.mts';
 import { isCodexMode } from '../shared/codex-modes.mts';
+import { isAntigravityMode } from '../shared/antigravity-modes.mts';
 
 const SKIP_FLAGS = ['--dangerously-skip-permissions'];
 
@@ -27,6 +28,15 @@ export function cloudCodexMode(setting: string | null | undefined, threadMode: s
   if (isCodexMode(threadMode)) return threadMode;
   if (setting === CLOUD_SAME) return here;
   return isCodexMode(setting) ? setting : CLOUD_CODEX_DEFAULT;
+}
+
+/**
+ * The Antigravity mode a cloud run starts in. agy has no mode that skips its
+ * questions, so unset it is this computer's; a mode set on the thread wins.
+ */
+export function cloudAntigravityMode(setting: string | null | undefined, threadMode: string | null | undefined, here: string | null | undefined) {
+  if (isAntigravityMode(threadMode)) return threadMode;
+  return isAntigravityMode(setting) ? setting : here ?? null;
 }
 
 /**

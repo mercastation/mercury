@@ -249,7 +249,10 @@ Google sign-in:
   (without a keyring its release notes say it keeps a file; not yet seen).
   `agy acp --login` signs in
   (a browser, or a link and a pasted code without one). There is no status
-  command; `agy models` exits 1 signed out. A Gemini key or Google Cloud
+  command; `agy models` exits 1 signed out. Nothing says whose account it is
+  but agy's log: `agy --log-file <f> models` wrote "authenticated successfully
+  as <email>", which names the Settings tile and matches it to its cloud
+  sign-in. A Gemini key or Google Cloud
   credentials in its environment would bill something else, so the worker
   scrub takes `GEMINI_*`, `GOOGLE_*` and `CLOUDSDK_*`.
 - **A home of the app's own.** `--gemini-dir <dir>` moves its whole config,
@@ -267,7 +270,10 @@ Google sign-in:
 - **Mode.** A session starts in `default`, which asks before every edit and
   command. Workers run in `auto`: commands run in agy's sandbox (in the folder,
   no network) and it asks to leave it (`BypassSandbox`), the equivalent of
-  Codex's Auto. Deleting a folder inside the workspace did not ask.
+  Codex's Auto. Deleting a folder inside the workspace did not ask. Settings
+  can start them in any of agy's four (`auto`, `accept-edits`, `default`,
+  `plan`), here and in the cloud (shared/antigravity-modes.mts); agy has none
+  that skips every question, so the cloud's default is this computer's.
 - **Resume.** `session/resume` reopened a conversation in a new process, after
   a `kill -9` mid-turn, without replaying it.
 - **Models and levels** are `configOptions` `model` and `thought_level`;

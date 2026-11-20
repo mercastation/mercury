@@ -175,7 +175,8 @@ import { codexBackAt } from '../shared/codex-usage.mts';
 import { createCodexWorker, mcpServerNames, resumeThreadParams, workerThreadParams } from './codex-session.mts';
 import type { CodexServerClient, ConnectionServer, ConnectionServers } from './codex-session.mts';
 import { CODEX_DEFAULT_MODE, isCodexMode } from '../shared/codex-modes.mts';
-import { cloudCodexMode } from './cloud-permission.mts';
+import { cloudAntigravityMode, cloudCodexMode } from './cloud-permission.mts';
+import { isAntigravityMode } from '../shared/antigravity-modes.mts';
 import { createCodexApprovals } from './codex-approvals.mts';
 import { createAntigravityWorker } from './antigravity-worker.mts';
 import type { AcpMcpServer, AntigravityWorker } from './antigravity-worker.mts';
@@ -329,6 +330,9 @@ export interface SupervisorConfig {
   claudeBin?: string | null;
   antigravityBin?: string | null;
   antigravitySignedIn?: boolean | null;
+  antigravityEmail?: string | null;
+  antigravityMode?: string | null;
+  cloudAntigravityMode?: string | null;
   codexHome?: string | null;
   codexModel?: string | null;
   codexMode?: string | null;
@@ -6711,8 +6715,12 @@ export class Supervisor {
     const profile = this._profilesFor(which)[0];
     if (!profile) return null;
     const logins = listCloudLogins(which, { home: this.config.home }).filter((r) => !r.duplicateOf);
-    // agy has one sign-in on a Mac and says nothing of whose, so its cloud account is its cloud login.
-    if (which === 'antigravity') return logins[0]?.key ?? null;
+    // agy has one sign-in on a Mac. Its log names whose (main/antigravity-models.mts),
+    // and then it is matched as Codex's is; until it has, it is the first cloud login.
+    if (which === 'antigravity') {
+      const email = this.config.antigravityEmail?.toLowerCase();
+      return (email ? logins.find((r) => r.email?.toLowerCase() === email) : logins[0])?.key ?? null;
+    }
     if (which === 'codex') {
       const email = codexAccount(this._codexProfileHome(profile))?.email?.toLowerCase();
       return (email && logins.find((r) => r.email?.toLowerCase() === email)?.key) || null;
@@ -11481,7 +11489,9 @@ export class Supervisor {
       resumeSessionId: plan.resumeId ?? null,
       model: typeof plan.model === 'string' ? plan.model : null,
       effort: typeof plan.effort === 'string' ? plan.effort : null,
-      mode: antigravityMode(plan.answerMode),
+      // A reply's own mode, else the one set in Settings (here, or in the cloud).
+      mode: ((asked, here) => (cloud ? cloudAntigravityMode(this.config.cloudAntigravityMode, asked, here) : asked ?? here))(
+        antigravityMode(plan.answerMode), isAntigravityMode(this.config.antigravityMode) ? this.config.antigravityMode : null),
       pictures: Array.isArray(plan.pictures) ? plan.pictures : [],
       onApproval: cards.handle,
     });

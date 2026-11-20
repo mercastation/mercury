@@ -43,6 +43,7 @@ import { codexAccount, codexFreePlan, codexLoginCommand, makeCodexHome } from '.
 import { codexDefaultModel, codexModelsAcross } from './codex-models.mts';
 import { hasBranch } from './project-branches.mts';
 import { CODEX_DEFAULT_MODE, isCodexMode } from '../shared/codex-modes.mts';
+import { ANTIGRAVITY_DEFAULT_MODE, isAntigravityMode } from '../shared/antigravity-modes.mts';
 import { CLOUD_SAME, CLOUD_CLAUDE_DEFAULT, CLOUD_CODEX_DEFAULT } from './cloud-permission.mts';
 import { claudeModels } from './claude-models.mts';
 import { forgetCodexBin, INSTALL_URL as CODEX_INSTALL_URL } from './codex-bin.mts';
@@ -68,6 +69,9 @@ export interface SettingsConfig {
   antigravityBin?: string | null;
   antigravityBinConfigured?: string | null;
   antigravitySignedIn?: boolean | null;
+  antigravityEmail?: string | null;
+  antigravityMode?: string | null;
+  cloudAntigravityMode?: string | null;
   engineChoice?: unknown;
   outsideAgents?: unknown;
   sessionArgs?: string[] | null;
@@ -561,6 +565,11 @@ export function antigravityState(config: SettingsConfig, { search = true }: { se
     url: ANTIGRAVITY_INSTALL_URL,
     chosen: found.from === 'settings',
     signedIn: typeof config.antigravitySignedIn === 'boolean' ? config.antigravitySignedIn : null,
+    // Whose sign-in it is, once agy's log has said (main/antigravity-models.mts).
+    email: config.antigravitySignedIn === true && typeof config.antigravityEmail === 'string' ? config.antigravityEmail : null,
+    // The mode its runs start in, here and in the cloud (shared/antigravity-modes.mts).
+    mode: isAntigravityMode(config.antigravityMode) ? config.antigravityMode : ANTIGRAVITY_DEFAULT_MODE,
+    cloudMode: isAntigravityMode(config.cloudAntigravityMode) ? config.cloudAntigravityMode : CLOUD_SAME,
   };
 }
 
@@ -1474,8 +1483,9 @@ export function setWorkspaceSetting({ config, supervisor, store }: SettingsDeps,
     // THE CLOUD'S OWN MODE PER ENGINE, CLOUD_SAME for this computer's, or null
     // for the cloud's default (main/cloud-permission.mts).
     case 'cloudPermission':
-    case 'cloudCodexMode': {
-      const known = key === 'cloudPermission' ? CLAUDE_MODES.includes(value as string) : isCodexMode(value);
+    case 'cloudCodexMode':
+    case 'cloudAntigravityMode': {
+      const known = key === 'cloudPermission' ? CLAUDE_MODES.includes(value as string) : key === 'cloudCodexMode' ? isCodexMode(value) : isAntigravityMode(value);
       if (value != null && value !== CLOUD_SAME && !known) throw new Error(`unknown permission mode: ${value}`);
       const patch = { [key]: value ?? null };
       saveConfig(config, patch);
@@ -1586,6 +1596,11 @@ export function setWorkspaceSetting({ config, supervisor, store }: SettingsDeps,
     case 'codexMode':
       if (!isCodexMode(value)) throw new Error(`unknown codex mode: ${value}`);
       saveConfig(config, { codexMode: value });
+      break;
+    // AND ANTIGRAVITY'S, in agy's own modes (shared/antigravity-modes.mts).
+    case 'antigravityMode':
+      if (!isAntigravityMode(value)) throw new Error(`unknown antigravity mode: ${value}`);
+      saveConfig(config, { antigravityMode: value });
       break;
     // WHICH CODING AGENT PICKS A TASK UP when the task itself says nothing.
     // Refused rather than coerced if it is not one of the engines, for the same

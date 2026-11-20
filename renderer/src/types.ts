@@ -1594,7 +1594,14 @@ export interface WorkspaceSettings {
   codexModels?: Array<{ id: string; label: string; levels?: string[]; defaultLevel?: string | null }>;
   codexModelDefault?: string | null;
   /** Antigravity's card (main/settings.mts `antigravityState`); `signedIn` null until agy has been asked. */
-  antigravity?: { found: boolean; certain: boolean; bin: string; url: string; chosen?: boolean; signedIn: boolean | null };
+  antigravity?: {
+    found: boolean; certain: boolean; bin: string; url: string; chosen?: boolean; signedIn: boolean | null;
+    /** Whose Google sign-in it is, once agy's log said (main/antigravity-models.mts). */
+    email?: string | null;
+    /** The mode its runs start in here, and in the cloud ('same' is this computer's). */
+    mode?: 'auto' | 'accept-edits' | 'default' | 'plan';
+    cloudMode?: 'same' | 'auto' | 'accept-edits' | 'default' | 'plan';
+  };
   antigravityModels?: Array<{ id: string; label: string; levels?: string[] }>;
   /** Set when every Codex login offered is on ChatGPT's free plan; `endedAt` is when the latest paid plan ended. */
   codexFreePlan?: { endedAt: number | null } | null;
