@@ -174,11 +174,12 @@ fn said_by(m: &Message, now: f64) -> El {
     head
 }
 
-/// What a person typed is drawn as typed, line breaks and all, never as markdown.
+/// What a person typed is drawn as typed, line breaks and all, never as markdown, and never
+/// wider than 760 points however wide the column grows.
 fn typed(words: &str, m: &Measure) -> El {
     let line = kept(1.55 * m.size);
     let font = TextStyle::new(m.size, 500.0).lh(line);
-    col().children(words.split('\n').map(|words| if words.is_empty() { el().h(line) } else { text(words).font(font).color(ink()).wrap() }))
+    col().max_w(760.0).children(words.split('\n').map(|words| if words.is_empty() { el().h(line) } else { text(words).font(font).color(ink()).wrap() }))
 }
 
 /// One message, and how much of what it holds reaches under it.

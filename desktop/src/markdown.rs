@@ -280,16 +280,21 @@ fn list(start: Option<u64>, items: Vec<Vec<Node>>, p: Page) -> Block {
 }
 
 fn code_block(code: &str, p: Page) -> Block {
-    // The lines stand on the paragraph's own line height and on its baseline, which is a
-    // point lower than a 13 point line's own would be.
-    let lines = text(code).font(mono(CODE, p.line())).color(ink());
+    // The lines are the block's own, and the block's font is not the code's: it is the
+    // system's monospace (Menlo, 0.928 em up and 0.236 down, each on a device pixel of a 2x
+    // screen) at the reading size and line height. Geist Mono at 13 points sits on that line's
+    // baseline, about a point lower than a line of its own would put it.
+    let line = p.line();
+    let (up, down) = ((0.928 * 2.0 * p.size).round() / 2.0, (0.236 * 2.0 * p.size).round() / 2.0);
+    let drop = ((line - up - down) / 2.0 + up) - ((line - 1.3 * CODE) / 2.0 + 1.005 * CODE);
+    let lines = text(code).font(mono(CODE, line)).color(ink());
     let block = el()
         .fill(rgba(40, 38, 37, 0.9))
         .border(1.0, edge())
         .border_layout()
         .radius(6.0)
         .clip_rounded(6.0)
-        .child(row().scroll_x().child(el().pt(13.0).pb(11.0).px(14.0).child(lines)));
+        .child(row().scroll_x().child(el().pt(12.0 + drop).pb(12.0 - drop).px(14.0).child(lines)));
     Block::leaf(10.0, 10.0, block)
 }
 
