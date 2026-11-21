@@ -53,22 +53,22 @@ The fix is on main as \`a41c9e2\` and every checkout test passes. The 37 refunds
 
 // The ledger a thread like this leaves behind, one line per write, and the row those lines
 // fold into (shared/work-items.mts): the newest value of each field, and who wrote it when.
-function conversation(item) {
-  const [asked, found, replied, shipped] = [item.createdAt, item.createdAt + 38 * MIN, item.updatedAt - 17 * MIN, item.updatedAt];
+function conversation(item, found) {
+  const [asked, checked, replied, shipped] = [item.createdAt, item.createdAt + 38 * MIN, item.updatedAt - 17 * MIN, item.updatedAt];
   const { id, title } = item;
   const lines = [
     { id, ts: asked, source: 'founder', patch: { title, body: ASK, status: 'open', kind: 'directive', priority: item.priority, labels: item.labels } },
     { id, ts: asked + MIN, source: 'agent', epoch: 1, claim: { holder: 'mcp-40122', leaseUntil: asked + 31 * MIN }, patch: { status: 'claimed' } },
-    { id, ts: found, source: 'agent', epoch: 1, patch: { status: 'blocked', note: FOUND } },
+    { id, ts: checked, source: 'agent', epoch: 1, patch: { status: 'blocked', note: found } },
     { id, ts: replied, source: 'founder', patch: { answer: REPLY, status: 'open' } },
     { id, ts: replied + MIN, source: 'agent', epoch: 2, claim: { holder: 'mcp-40131', leaseUntil: replied + 31 * MIN }, patch: { status: 'claimed' } },
     { id, ts: shipped, source: 'agent', epoch: 2, patch: { status: 'done', result: SHIPPED } },
   ];
   const row = {
-    ...item, body: ASK, note: FOUND, answer: REPLY, result: SHIPPED,
+    ...item, body: ASK, note: found, answer: REPLY, result: SHIPPED,
     wrote: {
       title: { ts: asked, source: 'founder' }, body: { ts: asked, source: 'founder' },
-      note: { ts: found, source: 'agent' }, answer: { ts: replied, source: 'founder' },
+      note: { ts: checked, source: 'agent' }, answer: { ts: replied, source: 'founder' },
       result: { ts: shipped, source: 'agent' }, status: { ts: shipped, source: 'agent' },
     },
   };
@@ -76,15 +76,16 @@ function conversation(item) {
 }
 
 // `unfold` presses the line under the title, so the picture is of the whole conversation
-// and not of its newest answer alone.
-export async function open(h, { unfold }) {
+// and not of its newest answer alone. `found` is the agent's first answer, for a scene that
+// wants other markdown in it.
+export async function open(h, { unfold, found = FOUND }) {
   const snapshot = await h.evaluate('window.__SNAP__');
   // The Inbox opens on its first row; the snapshot's first thread is not always that one.
   await toInbox(h);
   const first = await h.evaluate(`document.querySelector('.list .row.selected .mark')?.getAttribute('aria-label') ?? ''`);
   const at = snapshot.items.findIndex((i) => first === `Select ${i.title}`);
   if (at < 0) throw new Error(`thread scene: the Inbox's first row ("${first}") is not in the snapshot`);
-  const { row, lines } = conversation(snapshot.items[at]);
+  const { row, lines } = conversation(snapshot.items[at], found);
   snapshot.items[at] = row;
   // Keyed as the page asks: product and id. Each answer is under its channel's name.
   const threads = {

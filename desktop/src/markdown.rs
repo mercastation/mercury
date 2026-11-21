@@ -260,11 +260,12 @@ fn marker(number: Option<u64>, p: Page) -> El {
     match number {
         // A browser sets a list's numbers in figures of one width.
         Some(n) => row().absolute(-60.0, 0.0).w(60.0).justify_end().child(text(format!("{n}.\u{a0}")).font(p.body().features("'tnum' 1")).color(p.ink)),
+        // A disc, a ring one level in (a point wider, as the browser draws it), then a square.
         None => {
             let dot = el().absolute(-14.09 * em, 10.5 * em).size(5.5 * em, 5.5 * em);
             match p.depth {
                 0 => dot.radius(2.75 * em).fill(p.ink),
-                1 => dot.radius(2.75 * em).border(1.0, p.ink),
+                1 => el().absolute(-14.59 * em, 10.0 * em).size(6.5 * em, 6.5 * em).radius(3.25 * em).border(1.0, p.ink),
                 _ => dot.fill(p.ink),
             }
         }
@@ -301,7 +302,9 @@ fn code_block(code: &str, p: Page) -> Block {
         .radius(6.0)
         .clip_rounded(6.0)
         .child(row().scroll_x().child(el().pt(12.0 + drop).pb(12.0 - drop).px(14.0).child(lines)));
-    Block::leaf(10.0, 10.0, block)
+    // The margins are the block's inside a wrapper that has none, so they reach through it
+    // even where a message drops its last block's own.
+    Block { own: [0.0, 0.0], through: [10.0, 10.0], el: block }
 }
 
 fn number_like() -> Regex {
@@ -395,7 +398,8 @@ fn lay(nodes: Vec<Node>, p: Page) -> Vec<Block> {
             Node::Code(code) => code_block(&code, p),
             Node::List(start, items) => list(start, items, p),
             Node::Table(head, rows) => table(&head, &rows, p),
-            Node::Rule => Block::leaf(0.0, 0.0, el().h(1.0).fill(edge())),
+            // The browser's own rule, which the app leaves as it is: grey above and near white below.
+            Node::Rule => Block::leaf(0.0, 0.0, col().child(el().h(1.0).fill(rgb(154, 154, 154))).child(el().h(1.0).fill(rgb(238, 238, 238)))),
         })
         .collect()
 }

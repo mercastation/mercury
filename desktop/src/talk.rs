@@ -186,10 +186,10 @@ fn events(lines: &[Line]) -> Vec<Said> {
                 continue;
             }
             // The ask, rewritten by the side that wrote it. The other side's never lands.
-            if let Some(Said::Message(ask)) = out.iter_mut().find(|e| e.message().is_some_and(|m| m.field == Field::Body)) {
-                if ask.mine == mine {
-                    ask.text = text.clone();
-                }
+            if let Some(Said::Message(ask)) = out.iter_mut().find(|e| e.message().is_some_and(|m| m.field == Field::Body))
+                && ask.mine == mine
+            {
+                ask.text = text.clone();
             }
             if !patch.contains_key("title") {
                 continue;

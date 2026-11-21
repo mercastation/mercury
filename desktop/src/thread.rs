@@ -110,7 +110,8 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
         .border_sides([0.0, 0.0, 1.0, 0.0], edge())
         .border_layout()
         .child(square(&icons::INBOX, 15.0, 26.0, ink()).mr(10.0).on_press(|s: &mut State| s.go(View::Inbox)))
-        .child(square(&icons::BACK, 15.0, 26.0, ink()).ml(2.0).opacity(if s.history.is_empty() { 0.45 } else { 1.0 }).on_press(|s: &mut State| s.back()))
+        // Back is where the person came from, and a thread opened from nowhere came from the Inbox.
+        .child(square(&icons::BACK, 15.0, 26.0, ink()).ml(2.0).on_press(|s: &mut State| if s.history.is_empty() { s.go(View::Inbox) } else { s.back() }))
         .child(square(&icons::FORWARD, 15.0, 26.0, muted()).ml(2.0).opacity(0.45))
         .child(
             row().grow(1.0)
@@ -147,7 +148,7 @@ fn when(at: f64, now: f64) -> String {
         1 => "Yesterday".to_string(),
         _ => format!("{}, {} {}", DAYS[(day_of(at) + 4).rem_euclid(7) as usize], MONTHS[(t.month as usize).clamp(1, 12) - 1], t.day),
     };
-    let hour = if t.hour % 12 == 0 { 12 } else { t.hour % 12 };
+    let hour = if t.hour.is_multiple_of(12) { 12 } else { t.hour % 12 };
     format!("{day} {hour}:{:02}{}", t.minute, if t.hour < 12 { "am" } else { "pm" })
 }
 
@@ -179,7 +180,7 @@ fn said_by(m: &Message, now: f64) -> El {
 fn typed(words: &str, m: &Measure) -> El {
     let line = kept(1.55 * m.size);
     let font = TextStyle::new(m.size, 500.0).lh(line);
-    col().max_w(760.0).children(words.split('\n').map(|words| if words.is_empty() { el().h(line) } else { readable(text(words).font(font).color(ink()).wrap()) }))
+    col().max_w(760.0).children(words.split('\n').map(|words| if words.is_empty() { el().h(line) } else { readable(text(words).font(font).color(ink()).wrap_anywhere()) }))
 }
 
 /// One message, and how much of what it holds reaches under it.
@@ -242,7 +243,7 @@ fn conversation(said: &[Said], now: f64, m: &Measure) -> El {
 /// The line under the title that folds and unfolds the rest: small, quiet and underlined.
 fn toggle(words: &str, thread: String, m: &Measure) -> El {
     let size = (0.7 * m.size).max(12.5);
-    let line = 1.6 * size;
+    let line = kept(1.6 * size);
     // The underline sits 4 points under the baseline, which Geist puts 1.005 of the size down,
     // on the nearest device pixel of a 2x screen.
     let under = (((line - 1.3 * size) / 2.0 + 1.005 * size + 4.0) * 2.0).round() / 2.0;
@@ -285,8 +286,8 @@ fn answer_alone(answer: &Message, title: &str, m: &Measure) -> Vec<Block> {
 /// What the engine answered about this thread. A fixture carries it; with nothing to read,
 /// the row itself still says what was asked and what came back.
 fn ledger(s: &State, item: &Item) -> Vec<Line> {
-    let kept = s.fixture.get("threads").and_then(|t| t.get(key(&item.product, &item.id))).cloned();
-    if let Some(answers) = kept.and_then(|v| serde_json::from_value::<Answers>(v).ok()) {
+    let answered = s.fixture.get("threads").and_then(|t| t.get(key(&item.product, &item.id))).cloned();
+    if let Some(answers) = answered.and_then(|v| serde_json::from_value::<Answers>(v).ok()) {
         return answers.history.lines;
     }
     let wrote = |field: &str| item.rest.get("wrote").and_then(|w| w.get(field)).cloned().unwrap_or(Value::Null);
@@ -375,10 +376,11 @@ pub fn view(s: &State, id: &str, product: &str) -> El {
                 let (body, top, bottom) = markdown::stack(outcome(answer, answer.field == Field::Result && closed_by_agent, &m), false);
                 blocks.push(markdown::block(top.max(28.0), bottom.max(8.0), body));
             }
-            if !talk.after.is_empty() {
-                blocks.push(markdown::block(22.0, 0.0, col().gap(9.0).children(talk.after.iter().map(step))));
-            }
         }
+    }
+    // What the person did after the answer, under it and in order.
+    if !talk.after.is_empty() {
+        blocks.push(markdown::block(22.0, 0.0, col().gap(9.0).children(talk.after.iter().map(step))));
     }
     let (body, _, under) = markdown::stack(blocks, false);
     // A browser scrolls a page that is a whole number of points tall, whatever its lines add
