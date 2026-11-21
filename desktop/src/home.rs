@@ -3,7 +3,7 @@
 
 use rune::{El, Icon, ScrollSpec, TextCase, TextStyle, col, el, icon, row, spacer, text};
 
-use crate::data::{Priority, Row, ago_short};
+use crate::data::{Priority, Row};
 use crate::theme::*;
 use crate::{State, View, icons};
 
@@ -119,7 +119,7 @@ enum Card {
     Progress,
 }
 
-fn task_row(r: &Row, first: bool, now: f64, card: Card) -> El {
+fn task_row(r: &Row, first: bool, card: Card) -> El {
     // A thread not yet read has its title a step heavier (`.hm-row.unread .hm-text b`).
     let title = text(r.title.as_str()).font(TextStyle::new(14.5, if r.unread && card == Card::Needs { 500.0 } else { 400.0 }).lh(20.0)).color(ink()).truncate();
     let under = match card {
@@ -134,7 +134,7 @@ fn task_row(r: &Row, first: bool, now: f64, card: Card) -> El {
             tags
         }
         // Who is working on it and where, in one faint line (`.hm-text small`).
-        Card::Progress => row().child(text(r.line.as_str()).font(TextStyle::new(12.5, 400.0).lh(17.0)).color(dim()).truncate()),
+        Card::Progress => row().child(pen(text(format!("{} · {}", r.engine, r.project)).font(TextStyle::new(12.5, 400.0).lh(17.0)).color(dim()).truncate(), 12.5)),
     };
     let mut face = row().size(28.0, 28.0).radius(14.0).center().fill(white(0.12)).child(label(r.letter, 12.0, 500.0, ink()));
     if card == Card::Progress {
@@ -150,7 +150,8 @@ fn task_row(r: &Row, first: bool, now: f64, card: Card) -> El {
     line.on_press(move |s: &mut State| s.go(View::Thread { id: id.clone(), product: product.clone() }))
         .child(face)
         .child(col().grow(1.0).min_w(0.0).child(title).child(under))
-        .child(label(&r.at.map(|at| ago_short(at, now)).unwrap_or_default(), 12.5, 400.0, dim()))
+        // The age in the Inbox's own words, "6 min ago" (`updatedWords`).
+        .child(label(&r.when, 12.5, 400.0, dim()))
 }
 
 /// One of Home's two cards: a head with a link out, and what is in it.
@@ -195,7 +196,7 @@ pub fn view(s: &State) -> El {
         if rows.is_empty() {
             el().py(14.0).px(18.0).child(label(empty, 13.5, 400.0, dim()))
         } else {
-            col().children(rows.iter().enumerate().map(|(i, r)| task_row(r, i == 0, s.now, card)))
+            col().children(rows.iter().enumerate().map(|(i, r)| task_row(r, i == 0, card)))
         }
     };
     // Home shows the first eighty that need the person and the first sixty in progress (`App.tsx`).

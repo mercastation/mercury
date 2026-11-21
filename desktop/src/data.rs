@@ -306,23 +306,3 @@ impl Snapshot {
         crate::rules::lists(self, now, local)
     }
 }
-
-/// The first line of a text that is a line and not a heading for one, without its markdown
-/// (`firstRealLine` in `renderer/src/format.ts`).
-pub fn first_real_line(s: &str) -> String {
-    crate::rules::format::first_real_line(s)
-}
-
-/// How long ago, in the command bar's short words (`agoShort` in `renderer/src/home/home-model.ts`).
-/// Home's rows and the Inbox table say it at length: `Row::when`.
-pub fn ago_short(at: f64, now: f64) -> String {
-    let m = ((now - at) / 60_000.0).floor().max(0.0) as i64;
-    if m < 1 {
-        return "now".into();
-    }
-    if m < 60 {
-        return format!("{m} min");
-    }
-    let h = m / 60;
-    if h < 24 { format!("{h} hr") } else { format!("{} d", h / 24) }
-}

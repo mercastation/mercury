@@ -51,7 +51,7 @@ fn item<'a>(s: &'a State, id: &str, product: &str) -> Option<&'a Item> {
 }
 
 fn name(item: &Item) -> String {
-    crate::data::first_real_line(item.label.as_deref().or(item.title.as_deref()).unwrap_or(""))
+    crate::rules::title::row_title(item)
 }
 
 /// The name as the top strip shows it: whole up to 59 letters, else cut at a word with no
