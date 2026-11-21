@@ -17,6 +17,7 @@ mod home;
 mod icons;
 mod inbox;
 mod markdown;
+mod rules;
 mod sky;
 mod source;
 mod talk;
@@ -345,6 +346,13 @@ fn watch_door(args: &[String]) -> bool {
 }
 
 fn main() {
+    // `--rows <out.json>` writes the lists a fixture gives and opens no window.
+    if let Some(written) = rules::rows_from_args(&std::env::args().collect::<Vec<_>>()) {
+        return written.unwrap_or_else(|e| {
+            eprintln!("{e}");
+            std::process::exit(1)
+        });
+    }
     if watch_door(rune::tooling::extra_args()) {
         return;
     }

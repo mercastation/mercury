@@ -1,8 +1,9 @@
 //! What the engine hands a window: the snapshot (`zero:snapshot`), and the lists the screens
-//! draw from it. The shapes follow `renderer/src/types.ts`; a field this app does not read yet
-//! is kept in `rest`, so nothing is lost on the way through.
+//! draw from it. The shapes follow `renderer/src/types.ts`; a field with no name here is kept
+//! in `rest`, so nothing is lost on the way through. Which thread goes in which list, in what
+//! order and with which words is `rules`.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 #[derive(Deserialize, Default, Clone, Debug)]
@@ -67,6 +68,82 @@ pub struct Run {
     pub rest: Map<String, Value>,
 }
 
+/// Who last set one field of a thread, and when (`wrote` in `renderer/src/types.ts`).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Wrote<'a> {
+    /// Absent on a line folded before times were kept; the rules then read it as 0.
+    pub ts: Option<f64>,
+    /// `founder`, `agent` or `system`.
+    pub source: &'a str,
+    /// The teammate whose words these are, on a team.
+    pub teammate: Option<&'a str>,
+    /// The person who wrote it, once someone is signed in. With nobody signed in no line carries one.
+    pub by: Option<&'a str>,
+}
+
+impl Wrote<'_> {
+    pub fn at(&self) -> f64 {
+        self.ts.unwrap_or(0.0)
+    }
+}
+
+/// The fields the list rules read besides the ones above. They stay in `rest`, where a screen
+/// may already be reading them, and are read through here by the name the web app gives them.
+impl Item {
+    /// A text field, when it holds any text: JavaScript reads an empty one as absent.
+    pub fn text(&self, field: &str) -> Option<&str> {
+        self.rest.get(field).and_then(Value::as_str).filter(|s| !s.is_empty())
+    }
+    /// A text field as it came, empty or not: what `??` in the web app falls through on is
+    /// only a missing one.
+    pub fn string(&self, field: &str) -> Option<&str> {
+        self.rest.get(field).and_then(Value::as_str)
+    }
+    pub fn number(&self, field: &str) -> Option<f64> {
+        self.rest.get(field).and_then(Value::as_f64)
+    }
+    /// Whether JavaScript would call the field truthy.
+    pub fn truthy(&self, field: &str) -> bool {
+        truthy(self.rest.get(field))
+    }
+    pub fn object(&self, field: &str) -> Option<&Map<String, Value>> {
+        self.rest.get(field).and_then(Value::as_object)
+    }
+    pub fn list(&self, field: &str) -> &[Value] {
+        self.rest.get(field).and_then(Value::as_array).map_or(&[], Vec::as_slice)
+    }
+    pub fn wrote(&self, field: &str) -> Option<Wrote<'_>> {
+        let w = self.object("wrote")?.get(field)?.as_object()?;
+        let text = |field: &str| w.get(field).and_then(Value::as_str).filter(|s| !s.is_empty());
+        Some(Wrote { ts: w.get("ts").and_then(Value::as_f64), source: w.get("source").and_then(Value::as_str).unwrap_or(""), teammate: text("teammate"), by: text("by") })
+    }
+    /// When `field` was last written, or 0 (`wrote?.[field]?.ts ?? 0`).
+    pub fn wrote_at(&self, field: &str) -> f64 {
+        self.wrote(field).map_or(0.0, |w| w.at())
+    }
+    pub fn has_label(&self, label: &str) -> bool {
+        self.labels.iter().any(|l| l == label)
+    }
+    /// The answer, unless it was taken back (`liveAnswer` in `renderer/src/list-rules.ts`).
+    pub fn live_answer(&self) -> Option<&str> {
+        self.text("answer").filter(|a| *a != "(withdrawn)")
+    }
+    pub fn result_text(&self) -> Option<&str> {
+        self.result.as_deref().filter(|s| !s.is_empty())
+    }
+}
+
+/// JavaScript's truthiness, for a value read off the snapshot.
+pub fn truthy(v: Option<&Value>) -> bool {
+    match v {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(b)) => *b,
+        Some(Value::Number(n)) => n.as_f64().is_some_and(|n| n != 0.0),
+        Some(Value::String(s)) => !s.is_empty(),
+        Some(_) => true,
+    }
+}
+
 /// A fixture file: the snapshot a reference picture was taken with, and the clock it was taken at,
 /// so the native screen can be drawn from the very same data (`tools/reference.mjs` writes it).
 #[derive(Deserialize, Default, Clone, Debug)]
@@ -92,21 +169,41 @@ pub struct Local {
     pub unread_since: f64,
     /// `zero.seenAt`: when each thread was last opened, by id.
     pub seen_at: std::collections::HashMap<String, f64>,
+    /// `zero.seen`: the threads opened at least once. An imported conversation stays on top until it is.
+    pub seen: Vec<String>,
+    /// `zero.snooze`: the old put-off times, by id. Never written any more, still honoured.
+    pub snooze: std::collections::HashMap<String, f64>,
+    /// `zero.troubleClosed`: the pile of stuck tasks the person dismissed, named by when it began.
+    pub trouble_closed: f64,
 }
 
 /// The lists every screen draws, worked out once from a snapshot.
-#[derive(Default, Clone, Debug)]
+#[derive(Default, Clone, Debug, Serialize)]
 pub struct Lists {
-    /// The Inbox: what waits on the person.
+    /// The Inbox: what waits on the person, in the order Home and the Inbox page draw it. Home
+    /// lists the first eighty and counts them all.
     pub needs: Vec<Row>,
-    /// What an agent is working on, or will without being asked.
+    /// What an agent is working on, or will without being asked, in the order it will run:
+    /// Home's order, of which it lists the first sixty. The Inbox page's own tab reads
+    /// `in_progress_tab`.
     pub progress: Vec<Row>,
-    /// What is finished and put away.
+    /// What is finished and put away, newest finished first.
     pub done: Vec<Row>,
 }
 
+impl Lists {
+    /// In progress as the Inbox page's tab draws it: pinned first, then newest sent first
+    /// (`order` in `renderer/src/threads/page-rules.ts`). Rows that tie keep Home's order.
+    pub fn in_progress_tab(&self) -> Vec<&Row> {
+        let mut rows: Vec<&Row> = self.progress.iter().collect();
+        rows.sort_by(|a, b| b.pinned.cmp(&a.pinned).then(b.at.unwrap_or(0.0).total_cmp(&a.at.unwrap_or(0.0))));
+        rows
+    }
+}
+
 /// How strongly a row asks for attention, as the web app's priority marks draw it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Priority {
     Urgent,
     High,
@@ -115,34 +212,87 @@ pub enum Priority {
 }
 
 impl Priority {
+    /// The level a stored number shows as. Nought, or none, is untagged and runs as Medium
+    /// (`itemPriority` in `shared/rank.mts`, `priorityIdOf` in `renderer/src/priority.ts`).
     pub fn of(n: Option<f64>) -> Priority {
-        match n.unwrap_or(5.0) {
+        match n.filter(|n| n.is_finite() && *n > 0.0).unwrap_or(5.0) {
             n if n >= 9.0 => Priority::Urgent,
             n if n >= 7.0 => Priority::High,
-            n if n >= 4.0 => Priority::Medium,
-            _ => Priority::Low,
+            n if n <= 2.0 => Priority::Low,
+            _ => Priority::Medium,
+        }
+    }
+    /// The word the Inbox table writes beside the mark; nothing at Medium, which wears no mark.
+    pub fn label(self) -> &'static str {
+        match self {
+            Priority::Urgent => "Urgent",
+            Priority::High => "High",
+            Priority::Medium => "",
+            Priority::Low => "Low",
         }
     }
 }
 
+/// The mark the Inbox table draws before a Status word, which it does only for a word about an
+/// agent (`StatusMark` in `renderer/src/threads/Pages.tsx`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Mark {
+    /// The word is the thread's own state: no mark.
+    #[default]
+    None,
+    /// An agent is on it now, on this Mac: the turning half-dot.
+    Running,
+    /// An agent is on it now, in the cloud.
+    Cloud,
+    /// Waiting its turn, which resolves itself.
+    Queued,
+    /// Nothing starts it until something changes: the accent ring.
+    Held,
+    /// Someone's words on it wait on the person: the solid dot.
+    Need,
+}
+
 /// One row of a list: the same few facts Home and the Inbox both show.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Row {
     pub id: String,
     pub product: String,
     /// C for Claude Code, X for Codex, A for Antigravity.
     pub letter: &'static str,
     pub title: String,
+    /// The project's name, as Home's tag says it.
     pub project: String,
     pub priority: Priority,
     /// When the person last sent it (`sentAt` in `renderer/src/threads/page-rules.ts`).
     pub at: Option<f64>,
-    /// The agent's answer, or for a running thread what it is doing.
+    /// The line a list prints under the title where it prints one: the agent's answer, or the
+    /// ask while nothing has answered it (`rowSummary` in `renderer/src/list-rules.ts`).
     pub line: String,
-    /// The Inbox table's Status word: Done, Answered, Waiting on you, Working…
+    /// The Inbox table's Status word: Done, Answered, Waiting on you, Working… Empty where the
+    /// tab already says it.
     pub status: String,
     pub unread: bool,
     pub pinned: bool,
+    /// The mark before the Status word.
+    pub mark: Mark,
+    /// Faint words after the title in the Inbox table: a comment on a link, a wait that ended,
+    /// how many tasks it filed still wait for a yes.
+    pub aside: String,
+    /// Written down in Later and not begun: the table says "not started" after the title.
+    pub held: bool,
+    /// The Inbox table's Project cell. The project's name, except on a cause row, which names
+    /// where most of the threads behind it are and counts the other projects in `place_more`.
+    pub place: String,
+    pub place_more: usize,
+    /// The coding agent it is on: Claude Code, Codex or Antigravity. Home's In progress row
+    /// says it before the project, "Claude Code · Storefront".
+    pub engine: &'static str,
+    /// The time both pages write, "6 min ago", "Yesterday", "Sep 28", told from `shown_at`.
+    pub when: String,
+    /// The moment `when` tells: when it was finished on Done, `at` everywhere else.
+    pub shown_at: f64,
 }
 
 impl Snapshot {
@@ -150,88 +300,21 @@ impl Snapshot {
         self.items.iter().find(|i| i.id == id)
     }
 
-    fn product_name(&self, item: &Item) -> String {
-        item.product_name.clone().or_else(|| self.products.iter().find(|p| p.slug == item.product).map(|p| p.name.clone())).unwrap_or_else(|| item.product.clone())
-    }
-
-    fn is_running(&self, item: &Item) -> bool {
-        self.supervisor.running.iter().any(|r| r.item_id == item.id && r.product == item.product)
-    }
-
-    fn letter(&self, item: &Item) -> &'static str {
-        let engine = self.supervisor.running.iter().find(|r| r.item_id == item.id && r.product == item.product).and_then(|r| r.engine.as_deref()).or(item.engine.as_deref());
-        match engine {
-            Some("codex") => "X",
-            Some("antigravity") => "A",
-            _ => "C",
-        }
-    }
-
-    fn row(&self, item: &Item) -> Row {
-        Row {
-            id: item.id.clone(),
-            product: item.product.clone(),
-            letter: self.letter(item),
-            title: first_real_line(item.label.as_deref().or(item.title.as_deref()).unwrap_or("")),
-            project: self.product_name(item),
-            priority: Priority::of(item.priority),
-            at: item.created_at.or(item.updated_at),
-            line: first_real_line(item.result.as_deref().unwrap_or("")),
-            status: match item.status.as_str() {
-                "done" => "Done",
-                "blocked" => "Waiting on you",
-                "claimed" => "Working",
-                _ => "Not started",
-            }
-            .to_string(),
-            unread: false,
-            pinned: false,
-        }
-    }
-
-    fn visible(&self, item: &Item) -> bool {
-        !self.supervisor.hidden_products.contains(&item.product)
-    }
-
-    /// Where a product stands in the person's own order; one they never placed goes last.
-    fn product_rank(&self, slug: &str) -> usize {
-        self.supervisor.product_order.iter().position(|p| p == slug).unwrap_or(usize::MAX)
-    }
-
-    /// Every list at once, as of `now`. The one door the screens come through, so the rules
-    /// behind it can grow (they are a first cut of `renderer/src/list-rules.ts`) without a
-    /// screen changing.
-    pub fn lists(&self, _now: f64, _local: &Local) -> Lists {
-        let needs = self.needs_you();
-        let progress: Vec<Row> = self.in_progress().into_iter().filter(|p| !needs.iter().any(|n| n.id == p.id && n.product == p.product)).collect();
-        Lists { needs, progress, done: Vec::new() }
-    }
-
-    /// The threads waiting on the person: answered and not running, their products in the
-    /// person's order, the most pressing first and the newest first among equals.
-    fn needs_you(&self) -> Vec<Row> {
-        let mut items: Vec<&Item> = self.items.iter().filter(|i| self.visible(i) && i.status == "done" && !self.is_running(i)).collect();
-        items.sort_by(|a, b| {
-            self.product_rank(&a.product)
-                .cmp(&self.product_rank(&b.product))
-                .then(b.priority.unwrap_or(5.0).total_cmp(&a.priority.unwrap_or(5.0)))
-                .then(b.updated_at.unwrap_or(0.0).total_cmp(&a.updated_at.unwrap_or(0.0)))
-        });
-        items.into_iter().map(|i| self.row(i)).collect()
-    }
-
-    /// The threads an agent is working on right now.
-    fn in_progress(&self) -> Vec<Row> {
-        self.supervisor.running.iter().filter_map(|r| self.items.iter().find(|i| i.id == r.item_id && i.product == r.product)).filter(|i| self.visible(i)).map(|i| self.row(i)).collect()
+    /// Every list at once, as of `now`. The one door the screens come through; the rules behind
+    /// it are `renderer/src/list-rules.ts` and its neighbours, ported in `rules`.
+    pub fn lists(&self, now: f64, local: &Local) -> Lists {
+        crate::rules::lists(self, now, local)
     }
 }
 
-/// The first line of a text that says something, without the markdown around it.
+/// The first line of a text that is a line and not a heading for one, without its markdown
+/// (`firstRealLine` in `renderer/src/format.ts`).
 pub fn first_real_line(s: &str) -> String {
-    s.lines().map(|l| l.trim().trim_start_matches('#').trim().replace("**", "")).find(|l| !l.is_empty()).unwrap_or_default()
+    crate::rules::format::first_real_line(s)
 }
 
-/// How long ago, as Home says it (`agoShort` in `renderer/src/home/home-model.ts`).
+/// How long ago, in the command bar's short words (`agoShort` in `renderer/src/home/home-model.ts`).
+/// Home's rows and the Inbox table say it at length: `Row::when`.
 pub fn ago_short(at: f64, now: f64) -> String {
     let m = ((now - at) / 60_000.0).floor().max(0.0) as i64;
     if m < 1 {
