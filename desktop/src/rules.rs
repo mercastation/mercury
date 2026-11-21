@@ -52,7 +52,7 @@ struct World<'a> {
     saved_keys: Vec<String>,
 }
 
-fn ids<'a>(list: Option<&'a Value>) -> impl Iterator<Item = &'a str> {
+fn ids(list: Option<&Value>) -> impl Iterator<Item = &str> {
     list.and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str)
 }
 
@@ -252,7 +252,12 @@ fn row(w: &World, i: &Item, tab: &str, to_approve: &HashMap<String, usize>) -> R
     };
     let (place, place_more, aside, held, pinned) = match &behind {
         Some(behind) => {
-            let name_of = |slug: &str| w.snap.products.iter().find(|p| p.slug == slug).map_or_else(|| slug.to_string(), |p| p.name.clone());
+            // A project this window does not know is said by its slug, and the cause's own by nothing.
+            let name_of = |slug: &str| match w.snap.products.iter().find(|p| p.slug == slug) {
+                Some(p) => p.name.clone(),
+                None if slug == i.product => String::new(),
+                None => slug.to_string(),
+            };
             let (name, more) = kinds::cause_place(i, behind, name_of);
             (name, more, None, false, i.truthy("pinned"))
         }
@@ -314,7 +319,7 @@ pub fn lists(snap: &Snapshot, now: f64, local: &Local) -> Lists {
         .enumerate()
         .filter(|(at, i)| {
             let key = format!("{}/{}", i.product, i.id);
-            !hide.contains(&key) && (own.contains(at) || (lift.contains(&key) && !(hidden_at[*at] > now)))
+            !hide.contains(&key) && (own.contains(at) || (lift.contains(&key) && hidden_at[*at] <= now))
         })
         .map(|(_, i)| i)
         .collect();
@@ -397,4 +402,127 @@ pub fn rows_from_args(args: &[String]) -> Option<Result<(), String>> {
         let json = serde_json::json!({ "now": now, "needs": lists.needs, "progress": lists.progress, "progressTab": lists.in_progress_tab(), "done": lists.done });
         std::fs::write(out, serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?).map_err(|e| format!("{out}: {e}"))
     })())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    const NOW: f64 = 1_784_000_000_000.0;
+    const MIN: f64 = 60_000.0;
+
+    /// A thread the person wrote `ago` minutes before now.
+    fn thread(id: &str, product: &str, ago: f64, extra: Value) -> Value {
+        let at = NOW - ago * MIN;
+        let mut v = json!({ "id": id, "product": product, "productName": product.to_uppercase(), "status": "open", "kind": "directive", "title": format!("Thread {id}"), "labels": ["founder"],
+            "priority": 0, "createdAt": at, "updatedAt": at, "wrote": { "title": { "ts": at, "source": "founder" }, "body": { "ts": at, "source": "founder" } } });
+        for (k, value) in extra.as_object().unwrap() {
+            v[k] = value.clone();
+        }
+        v
+    }
+
+    /// The same thread, answered and closed by its agent `ago` minutes before now.
+    fn finished(id: &str, product: &str, ago: f64, by: &str, extra: Value) -> Value {
+        let mut v = thread(id, product, ago + 30.0, extra);
+        v["status"] = json!("done");
+        v["result"] = json!("Fixed.");
+        v["updatedAt"] = json!(NOW - ago * MIN);
+        v["wrote"]["result"] = json!({ "ts": NOW - ago * MIN, "source": "agent" });
+        v["wrote"]["status"] = json!({ "ts": NOW - ago * MIN, "source": by });
+        v
+    }
+
+    fn lists_of(items: Vec<Value>, supervisor: Value) -> Lists {
+        let snap: Snapshot = serde_json::from_value(json!({
+            "products": [{ "slug": "shop", "name": "Storefront" }, { "slug": "desk", "name": "Front desk" }],
+            "items": items, "supervisor": supervisor,
+        }))
+        .unwrap();
+        lists(&snap, NOW, &Local::default())
+    }
+
+    fn ids(rows: &[Row]) -> Vec<&str> {
+        rows.iter().map(|r| r.id.as_str()).collect()
+    }
+
+    #[test]
+    fn every_thread_lands_in_one_list_in_the_order_its_page_draws() {
+        let lists = lists_of(
+            vec![
+                finished("news-old", "shop", 50.0, "agent", json!({})),
+                finished("news-new", "shop", 6.0, "agent", json!({})),
+                finished("news-desk", "desk", 5.0, "agent", json!({ "priority": 9 })),
+                finished("news-low", "shop", 4.0, "agent", json!({ "priority": 2 })),
+                finished("archived-old", "shop", 40.0, "founder", json!({})),
+                finished("archived-new", "desk", 3.0, "founder", json!({})),
+                thread("queued-low", "shop", 20.0, json!({ "priority": 2 })),
+                thread("queued-desk", "desk", 30.0, json!({ "priority": 9 })),
+                thread("queued-pinned", "desk", 45.0, json!({ "pinned": true })),
+                thread("running", "shop", 10.0, json!({ "status": "claimed", "claim": { "holder": "mcp-1" } })),
+                thread("later", "shop", 10.0, json!({ "start": "later" })),
+            ],
+            json!({ "productOrder": ["shop", "desk"], "queued": ["queued-low"], "running": [{ "itemId": "running", "product": "shop", "startedAt": NOW - MIN }] }),
+        );
+        // The first project's threads by level and then newest, then the second project's.
+        assert_eq!(ids(&lists.needs), ["news-new", "news-old", "news-low", "news-desk"]);
+        // Home: in the order the fleet runs them. The tab: pinned first, then newest sent.
+        assert_eq!(ids(&lists.progress), ["running", "queued-low", "queued-desk", "queued-pinned"]);
+        assert_eq!(lists.in_progress_tab().iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), ["queued-pinned", "running", "queued-low", "queued-desk"]);
+        assert_eq!(ids(&lists.done), ["archived-new", "archived-old"]);
+
+        let news = &lists.needs[0];
+        assert_eq!((news.title.as_str(), news.status.as_str(), news.project.as_str(), news.place.as_str()), ("Thread news-new", "Done", "SHOP", "Storefront"));
+        // The time is when the person last wrote, not when the agent answered.
+        assert_eq!((news.when.as_str(), news.priority, news.letter, news.unread), ("36 min ago", Priority::Medium, "C", true));
+        assert_eq!(lists.needs[3].priority, Priority::Urgent);
+        let working = &lists.progress[0];
+        assert_eq!((working.status.as_str(), working.mark, working.engine, working.when.as_str()), ("Working", Mark::Running, "Claude Code", "10 min ago"));
+        assert_eq!((lists.progress[1].status.as_str(), lists.progress[1].mark), ("Queued", Mark::Queued));
+        assert!(lists.progress[3].pinned);
+        // Done is dated by its close, and nothing in it is unread.
+        assert_eq!((lists.done[0].when.as_str(), lists.done[0].unread), ("3 min ago", false));
+    }
+
+    #[test]
+    fn a_thread_says_how_many_of_its_tasks_wait_for_a_yes() {
+        let lists = lists_of(
+            vec![
+                finished("parent", "shop", 5.0, "agent", json!({})),
+                json!({ "id": "task-1", "product": "shop", "status": "open", "kind": "directive", "title": "Add a retry", "labels": [], "parent": "parent", "createdAt": NOW - 4.0 * MIN, "updatedAt": NOW - 4.0 * MIN }),
+                json!({ "id": "task-2", "product": "shop", "status": "open", "kind": "directive", "title": "Add a log line", "labels": [], "parent": "parent", "createdAt": NOW - 3.0 * MIN, "updatedAt": NOW - 3.0 * MIN }),
+                // One already approved is on its way, and no longer waits.
+                json!({ "id": "task-3", "product": "shop", "status": "open", "kind": "directive", "title": "Add a test", "labels": [], "parent": "parent", "answer": "Approved. Run it.", "createdAt": NOW - 2.0 * MIN, "updatedAt": NOW - 2.0 * MIN }),
+            ],
+            json!({}),
+        );
+        // The proposals wait in Later; the thread that filed them shows them.
+        assert_eq!(ids(&lists.needs), ["parent"]);
+        assert_eq!(lists.needs[0].aside, "2 tasks to approve");
+        assert_eq!(ids(&lists.progress), ["task-3"]);
+    }
+
+    #[test]
+    fn the_row_that_says_tasks_cannot_run_is_first_until_it_is_closed() {
+        let trouble = json!({ "spawnTrouble": { "since": NOW - 9.0 * MIN, "cause": "signed-out", "message": "", "remedy": "", "count": 2 } });
+        let items = || vec![finished("news", "shop", 5.0, "agent", json!({ "priority": 9 }))];
+        let lists = lists_of(items(), trouble.clone());
+        assert_eq!(ids(&lists.needs), ["trouble", "news"]);
+        assert_eq!((lists.needs[0].title.as_str(), lists.needs[0].line.as_str(), lists.needs[0].project.as_str(), lists.needs[0].when.as_str()), ("2 tasks have not been able to run", "2 need a login", "", "9 min ago"));
+        let snap: Snapshot = serde_json::from_value(json!({ "items": items(), "supervisor": trouble })).unwrap();
+        let closed = Local { trouble_closed: NOW - 9.0 * MIN, ..Local::default() };
+        assert_eq!(ids(&super::lists(&snap, NOW, &closed).needs), ["news"]);
+    }
+
+    #[test]
+    fn a_thread_opened_since_its_answer_is_read() {
+        let snap: Snapshot = serde_json::from_value(json!({ "items": [finished("a", "shop", 5.0, "agent", json!({})), finished("b", "shop", 6.0, "agent", json!({}))] })).unwrap();
+        let local = Local { seen_at: HashMap::from([("a".to_string(), NOW - MIN)]), unread_since: NOW - 60.0 * MIN, ..Local::default() };
+        let lists = lists(&snap, NOW, &local);
+        assert_eq!(lists.needs.iter().map(|r| (r.id.as_str(), r.unread)).collect::<Vec<_>>(), [("a", false), ("b", true)]);
+        // Finished before answers started being delivered here: it was never news.
+        let late = Local { delivered_through: NOW, ..Local::default() };
+        assert!(super::lists(&snap, NOW, &late).needs.is_empty());
+    }
 }

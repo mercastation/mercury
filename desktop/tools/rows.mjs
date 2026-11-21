@@ -184,14 +184,14 @@ function tableRows(dump) {
 
 /* ------------------------------------------------------------ the native rows */
 
-function nativeLists(fixture) {
-  const out = path.join(os.tmpdir(), `mercury-rows-${process.pid}.json`);
+// Written beside the dump it answers, so the two can be read together and nothing of a real
+// thread leaves the folder the dumps are in.
+function nativeLists(scene) {
+  const out = path.join(dir, `${scene}-rows.json`);
   const bin = path.join(here, '..', 'target', 'debug', 'mercury');
-  const run = spawnSync(bin, ['--fixture', fixture, '--rows', out], { encoding: 'utf8' });
+  const run = spawnSync(bin, ['--fixture', path.join(dir, `${scene}-fixture.json`), '--rows', out], { encoding: 'utf8' });
   if (run.status !== 0) throw new Error(`mercury --rows failed: ${run.stderr || run.error}`);
-  const lists = JSON.parse(fs.readFileSync(out, 'utf8'));
-  fs.rmSync(out);
-  return lists;
+  return JSON.parse(fs.readFileSync(out, 'utf8'));
 }
 
 const LABEL = { urgent: 'Urgent', high: 'High', medium: '', low: 'Low' };
@@ -232,11 +232,10 @@ let differences = 0;
 let checked = 0;
 for (const scene of SCENES) {
   const dumpFile = path.join(dir, `${scene}-dump.json`);
-  const fixture = path.join(dir, `${scene}-fixture.json`);
-  if (!fs.existsSync(dumpFile) || !fs.existsSync(fixture)) continue;
+  if (!fs.existsSync(dumpFile) || !fs.existsSync(path.join(dir, `${scene}-fixture.json`))) continue;
   checked += 1;
   const dump = JSON.parse(fs.readFileSync(dumpFile, 'utf8'));
-  const native = nativeLists(fixture);
+  const native = nativeLists(scene);
   if (scene === 'home') {
     const drawn = homeRows(dump);
     // Home shows the first eighty that need the person and the first sixty in progress.

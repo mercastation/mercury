@@ -67,6 +67,13 @@ export function snapshot(now) {
   status(answered(thread('Done, a clean run of a repeating task: goes to Done', { labels: ['founder', 'repeat:r-1', 'clean'] }), 'Nothing to report.'), 'done', 'agent');
   status(answered(thread('Done, a run of a repeating task with news', { labels: ['founder', 'repeat:r-1'] }), 'Two bookings failed overnight.'), 'done', 'agent');
 
+  // Thirty more, an hour apart: Home shows the first eighty, and the times run from hours ago
+  // through Yesterday to a date.
+  for (let k = 0; k < 30; k += 1) status(answered(thread(`One of thirty more finished threads, number ${k + 1}`, { ago: (6 + 2 * k) * hour }), 'Fixed.', (5 + 2 * k) * hour), 'done', 'agent', (5 + 2 * k) * hour);
+  status(answered(thread('Done, shipped by the app, and you said it did not', { shippedAt: 0 }), 'Fixed.', 2 * hour), 'done', 'founder', hour);
+  items.at(-1).note = 'Shipped to main as 0a1b2c3.';
+  items.at(-1).wrote.note = by('system', now - 30 * min);
+
   /* ---------- open threads the agent answered ---------- */
   answered(thread('Answered and left open: says Answered'), 'The export writes one file per clinic now.');
   answered(thread('Answered with a question: says Waiting on you'), 'I can do either. Which clinic should go first?');
@@ -108,6 +115,7 @@ export function snapshot(now) {
   set(answered(thread('A reminder you set, then answered past: back'), 'Fixed.', 3 * hour), 'snoozedUntil', now + day, 'founder', 2 * hour);
   replied(items.at(-1), 'Never mind, go on', hour);
   thread('Written down in Later and not begun', { start: 'later' });
+  thread('Written down in Later, with a comment on its link: says not started', { start: 'later', linkComments: [{ name: 'Ines', file: 'plan.md', text: 'When does this start?', ts: now - 5 * min, place: { kind: 'time', s: 75.4 } }] });
 
   /* ---------- questions, reviews and proposals ---------- */
   thread('A question from an agent, unanswered', { who: 'agent', kind: 'question', body: 'Which clinic first?\n\n## Options\n1. Riverside (recommended)\n2. Northgate' });
@@ -131,6 +139,8 @@ export function snapshot(now) {
   set(status(answered(thread('Waits on a thread that is gone: needs you'), 'Waiting.'), 'blocked', 'agent'), 'blockedBy', ['w-gone'], 'agent', 50 * min);
   set(status(answered(thread('Waits on the print shop, in plain words: Later'), 'Waiting.'), 'blocked', 'agent'), 'blockedBy', ['name:the print shop'], 'agent', 50 * min);
   answered(thread('What it waited on has ended: back, and says so', { waitEnded: { said: '“The other thread” finished', at: now - 10 * min } }), 'Fixed.');
+  answered(thread('Wait for the export job', { waitEnded: { said: '“Wait for the export job” finished', at: now - 10 * min } }), 'Fixed.');
+  answered(thread('Handed over from the cloud, and says so', { handedOver: { said: 'Carried on from the cloud run', at: now - 10 * min } }), 'Fixed.');
   const cause = thread('GitHub is signed out', { who: 'system', kind: 'cause', labels: ['cause'], product: 'desk' });
   for (const product of ['shop', 'shop', 'lab']) set(status(thread(`Stuck behind the cause, in ${nameOf(product)}`, { product }), 'blocked', 'agent'), 'blockedBy', [cause.id], 'agent', 40 * min);
 
@@ -158,6 +168,14 @@ export function snapshot(now) {
   thread('Nothing is on it and nothing is coming', { ago: 25 * min });
   thread('Sent a moment from now: reads Queued', { ago: -10 * min, epoch: 0 });
   thread('Claimed by an agent outside this window', { ago: 26 * min, status: 'claimed', claim: { holder: 'mcp-9' } });
+  thread('Claimed by a cloud run outside this window', { ago: 26 * min, status: 'claimed', claim: { holder: 'mcp-cloud-9' } });
+  thread('Claimed, but the claim has run out', { ago: 26 * min, status: 'claimed', claim: { holder: 'mcp-8' }, claimExpired: true });
+  const moving = thread('Running here, on its way to the cloud', { ago: 13 * min, status: 'claimed', claim: { holder: 'mcp-6' } });
+  const stalledWithWords = thread('Its worker died and someone commented: the solid dot', { ago: 22 * min, linkComments: [{ name: 'Rui', file: 'notes.md', text: 'Any news?', ts: now - 5 * min }] });
+  thread('Pinned and waiting its turn: first under In progress', { ago: 5 * hour, pinned: true });
+  thread('Waiting its turn in the second project, urgent', { ago: 6 * hour, product: 'desk', priority: 9 });
+  thread('Waiting its turn in a project never placed, urgent', { ago: 7 * hour, product: 'lab', priority: 9 });
+  thread('Sent to Auto, which asks who takes it', { ago: 28 * min, labels: ['founder', 'auto'], routed: { ask: ['t-1', 't-2'] } });
   thread('In the practice project, where nothing starts', { ago: 27 * min, product: 'practice' });
   thread('Sent to Auto, being assigned', { ago: 28 * min, labels: ['founder', 'auto'] });
   thread('A chat just brought in, being written up', { ago: 29 * min, who: 'agent', labels: ['catch-up', 'thread-import'], kind: 'question' });
@@ -171,7 +189,10 @@ export function snapshot(now) {
 
   return {
     products, items,
-    approvals: [{ id: 'a-1', item: asking.id }, { id: 'a-2', item: null }],
+    approvals: [
+      { id: 'a-1', at: now - 4 * min, product: asking.product, item: asking.id, tool: 'Bash', input: { command: 'npm test', description: 'Run the tests' } },
+      { id: 'a-2', at: now - 3 * min, product: null, item: null, tool: 'Bash', input: { command: 'ls', description: 'List the folder' } },
+    ],
     engines: { workspace: 'claude', byItem: { [routed.id]: 'antigravity' } },
     supervisor: {
       paused: false, pausedProducts: [], scheduled: [], hiddenProducts: [], personalProducts: [], capacity: 4,
@@ -183,6 +204,7 @@ export function snapshot(now) {
         { itemId: runningAsks.id, product: runningAsks.product, startedAt: now - 5 * min },
         { itemId: runningDone.id, product: runningDone.product, startedAt: now - 5 * min },
         { itemId: asking.id, product: asking.product, startedAt: now - 5 * min },
+        { itemId: moving.id, product: moving.product, startedAt: now - 5 * min },
       ],
       starting: [starting.id],
       queued: [queued.id, next.id, asleep.id],
@@ -190,10 +212,10 @@ export function snapshot(now) {
       cannotStart: { [asleep.id]: { why: 'asleep', tool: 'Claude Code' } },
       atLimit: { [limited.id]: { tool: 'Claude Code', until: now + 2 * hour } },
       shipping: [shipping.id],
-      stalled: [stalled.id, signedOut.id],
+      stalled: [stalled.id, signedOut.id, stalledWithWords.id],
       signInNeeded: { [signedOut.id]: 'Claude Code' },
       silent: { [silent.id]: { runs: 1, endedAt: now - 20 * min } },
-      whyNotCloud: { [runningKept.id]: { at: 'mac', why: 'needs-mac' } },
+      whyNotCloud: { [runningKept.id]: { at: 'mac', why: 'needs-mac' }, [moving.id]: { at: 'mac', why: 'moving' } },
       spawnTrouble: {
         since: now - 3 * hour, cause: 'mixed', message: '', remedy: '', retryAt: now + hour, count: 2,
         byCause: [{ cause: 'signed-out', count: 1, what: 'Claude Code is signed out', next: 'Sign in again.', act: null, hers: true }, { cause: 'interrupted', count: 1, what: 'A run was cut off', next: 'It retries.', act: null, hers: false }],
