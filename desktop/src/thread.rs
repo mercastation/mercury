@@ -14,6 +14,7 @@ use serde_json::{Value, json};
 
 use crate::data::Item;
 use crate::markdown::{self, Block};
+use crate::rules::place;
 use crate::talk::{self, Answers, Field, Line, Message, Said, Step, Talk};
 use crate::theme::*;
 use crate::{State, View, chrome, icons};
@@ -102,6 +103,22 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
     let finished = item(s, id, product).is_some_and(|i| i.status == "done");
     let close = row().h(30.0).items_center().gap(7.0).pl(9.0).pr(12.0).radius(6.0).border(1.0, edge()).border_layout();
     let close = if finished { close.child(label("Reopen", 13.0, 400.0, dim())) } else { close.child(icon(&icons::DONE, 16.0).color(dim())).child(label("Done", 13.0, 400.0, dim())) };
+    // Where the thread runs, for one the cloud could take (`PlaceButton.tsx`): a cloud or a Mac,
+    // faded while the whole cloud is off, dotted when it was handed back for something.
+    let place = item(s, id, product).and_then(|i| place::thread_place(&s.snap, i).map(|p| place::mark(&s.snap, i, p))).map(|m| {
+        let glyph = icon(if m.cloud { &icons::PLACE_CLOUD } else { &icons::PLACE_MAC }, 16.0).color(dim()).opacity(if m.faded { 0.7 } else { 1.0 });
+        let button = row().size(30.0, 30.0).radius(6.0).center().border(1.0, edge()).child(glyph);
+        if m.dot { button.child(el().absolute(20.0, 4.0).size(6.0, 6.0).radius(3.0).fill(accent())) } else { button }
+    });
+    let mut actions = row()
+        .ml(16.0)
+        .items_center()
+        .child(step(&icons::UP, at.and_then(|a| a.checked_sub(1)).and_then(|a| s.lists.needs.get(a))))
+        .child(step(&icons::DOWN, at.and_then(|a| s.lists.needs.get(a + 1))));
+    if let Some(place) = place {
+        actions = actions.child(place.ml(10.0));
+    }
+    let actions = actions.child(close.ml(10.0)).child(square(&icons::MORE, 16.0, 30.0, dim()).ml(10.0).border(1.0, edge()));
     row().absolute(chrome::CARD[0], chrome::CARD[1])
         .size(card_w, 56.0)
         .items_center()
@@ -123,14 +140,7 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
                 .child(text("/").font(crumbs).color(muted()).ml(5.0).mr(7.0))
                 .child(row().min_w(0.0).px(6.0).child(text(crumb(&title)).font(crumbs).text_case(TextCase::Uppercase).color(dim()).truncate())),
         )
-        .child(
-            row().ml(16.0)
-                .items_center()
-                .child(step(&icons::UP, at.and_then(|a| a.checked_sub(1)).and_then(|a| s.lists.needs.get(a))))
-                .child(step(&icons::DOWN, at.and_then(|a| s.lists.needs.get(a + 1))))
-                .child(close.ml(10.0))
-                .child(square(&icons::MORE, 16.0, 30.0, dim()).ml(10.0).border(1.0, edge())),
-        )
+        .child(actions)
 }
 
 /// "Today 12:16pm": the day, then the clock (`when` in `Thread.tsx`).

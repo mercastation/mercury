@@ -1,8 +1,9 @@
 //! What every screen stands on: the dotted page, the main card with the sky painted on it, the
 //! folded rail, and back and forward. Sizes follow the window; the insets are the web app's.
 
-use rune::{El, Icon, col, el, icon, row};
+use rune::{El, Icon, TextCase, TextStyle, col, el, icon, row, text};
 
+use crate::rules::window;
 use crate::theme::*;
 use crate::{State, View, icons};
 
@@ -80,7 +81,18 @@ fn rail_button(glyph: &'static Icon, active: bool) -> El {
     b.child(icon(glyph, 18.0).color(if active { ink() } else { muted() }))
 }
 
-/// The folded rail: the mark, search, the places, and feedback and settings at the foot.
+/// The person's own face at the rail's end: two letters on a light disc (`.tm-av.you`).
+fn my_face(letters: &str) -> El {
+    row()
+        .size(22.0, 22.0)
+        .radius(11.0)
+        .center()
+        .fill(dim())
+        .child(text(letters).font(TextStyle::new(9.0, 500.0).mono().lh(20.0).tracking(0.18)).text_case(TextCase::Uppercase).color(page()))
+}
+
+/// The folded rail: the mark, search, the places, and a foot that holds what this person's
+/// Mercury has: Record meeting, feedback, settings, what is left of the limit, their own face.
 pub fn rail(s: &State) -> El {
     let on_home = s.view == View::Home;
     let on_inbox = matches!(s.view, View::Inbox | View::Thread { .. });
@@ -90,20 +102,52 @@ pub fn rail(s: &State) -> El {
         // Something in the Inbox is waiting.
         inbox = inbox.child(el().absolute(25.0, 8.0).size(6.0, 6.0).radius(3.0).fill(accent()));
     }
-    el().pin(Some(22.0), Some(50.0), None, Some(22.0))
+    let mut places = col()
+        .absolute(0.0, 98.0)
+        .gap(3.0)
+        .child(rail_button(&icons::HOME, on_home).on_press(|s: &mut State| s.go(View::Home)))
+        .child(inbox)
+        .child(rail_button(&icons::DEMANDS, false));
+    // With teammates the one row under the threads is Chats (`teammatesUi.rail`).
+    if window::teammates_live(&s.snap) {
+        places = places.child(rail_button(&icons::CHATS, false));
+    }
+    places = places.child(rail_button(&icons::CONNECTIONS, false)).child(rail_button(&icons::FILES, false));
+
+    // The foot stands on the rail's end and grows upward: the person's face under a hairline,
+    // over it the usage button, over that the buttons everyone has (`.workspace-bottom`).
+    let me = window::my_letters(&s.snap);
+    let usage = window::usage_shown(&s.snap, s.now);
+    let face_room = if me.is_some() { 54.0 } else { 0.0 };
+    let mut buttons = col().pin(Some(0.0), None, None, Some(face_room + if usage { 50.0 } else { 12.0 })).gap(2.0);
+    if window::update_waits(&s.snap) {
+        // Restart to update stands first, with the room its card rises from (`.sb-update-slot`).
+        buttons = buttons.child(el().pb(9.0).child(rail_button(&icons::RESTART, false)));
+    }
+    if window::can_record(&s.snap) {
+        buttons = buttons.child(rail_button(&icons::RECORD, false));
+    }
+    if window::takes_feedback(&s.snap) {
+        buttons = buttons.child(rail_button(&icons::FEEDBACK, false));
+    }
+    buttons = buttons.child(rail_button(&icons::SETTINGS, false));
+
+    let mut rail = el()
+        .pin(Some(22.0), Some(50.0), None, Some(22.0))
         .w(38.0)
         .child(el().absolute(13.0, 11.0).child(app_mark()))
         .child(row().absolute(0.0, 52.0).size(38.0, 32.0).items_center().pl(10.0).child(icon(&icons::SEARCH, 18.0).color(muted())))
-        .child(
-            col().absolute(0.0, 98.0)
-                .gap(3.0)
-                .child(rail_button(&icons::HOME, on_home).on_press(|s: &mut State| s.go(View::Home)))
-                .child(inbox)
-                .child(rail_button(&icons::DEMANDS, false))
-                .child(rail_button(&icons::CONNECTIONS, false))
-                .child(rail_button(&icons::FILES, false)),
-        )
-        .child(col().pin(Some(0.0), None, None, Some(12.0)).gap(2.0).child(rail_button(&icons::FEEDBACK, false)).child(rail_button(&icons::SETTINGS, false)))
+        .child(places)
+        .child(buttons);
+    if usage {
+        rail = rail.child(el().pin(Some(0.0), None, None, Some(face_room + 12.0)).child(rail_button(&icons::USAGE, false)));
+    }
+    if let Some(letters) = me {
+        rail = rail
+            .child(el().pin(Some(0.0), None, Some(0.0), Some(45.0)).h(1.0).fill(edge()))
+            .child(el().pin(Some(8.0), None, None, Some(7.5)).child(my_face(&letters)));
+    }
+    rail
 }
 
 /// One quiet line at the card's foot when the engine cannot be read, so an empty inbox is never

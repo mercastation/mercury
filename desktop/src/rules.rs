@@ -18,11 +18,13 @@ pub mod list;
 pub mod needs;
 pub mod nowhere;
 pub mod page;
+pub mod place;
 pub mod rank;
 pub mod shipping;
 pub mod status;
 pub mod title;
 pub mod waits;
+pub mod window;
 
 use std::collections::{HashMap, HashSet};
 

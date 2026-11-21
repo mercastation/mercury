@@ -46,8 +46,41 @@ stroked!(
     "1.25",
     r#"<path d="M4.5 8h8M16.5 8h3M4.5 16h3M11.5 16h8"/><circle cx="14.5" cy="8" r="2"/><circle cx="9.5" cy="16" r="2"/>"#
 );
+// What the rail has only for some, or only sometimes: Chats with teammates, Record meeting,
+// Restart while a new version waits, what is left of the limit.
+stroked!(
+    CHATS,
+    "m-chats",
+    "1.25",
+    r#"<circle cx="9" cy="8.5" r="3"/><path d="M3.5 19c.5-3.2 2.7-5 5.5-5s5 1.8 5.5 5"/><path d="M15 5.8a3 3 0 0 1 0 5.4M16.8 14.2c2 .6 3.3 2.2 3.7 4.8"/>"#
+);
+pub static RECORD: Icon = Icon {
+    name: "m-record",
+    view: 24.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(12 12) scale(.8) translate(-12 -12)" stroke-width="1.5625"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></g></g>"#,
+};
+pub static RESTART: Icon = Icon {
+    name: "m-restart",
+    view: 24.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4.5v4h-4"/></g>"#,
+};
+pub static USAGE: Icon = Icon {
+    name: "m-usage",
+    view: 24.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M4.5 16.5a7.5 7.5 0 1 1 15 0"/><path d="m12 16.5 3.6-4.2"/></g>"#,
+};
 
-// Home's two doors.
+// Where a conversation runs, beside Done: the cloud, or this Mac (`CloudMark`, `MacMark`).
+stroked!(PLACE_CLOUD, "m-place-cloud", "1.4", r#"<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>"#);
+stroked!(PLACE_MAC, "m-place-mac", "1.4", r#"<rect x="3" y="5" width="18" height="12"/><path d="M8 21h8M12 17v4"/>"#);
+
+// Home's doors. Team is there only for someone with teammates.
+stroked!(
+    DOOR_TEAM,
+    "m-door-team",
+    "1.8",
+    r#"<circle cx="12" cy="7.5" r="2.5"/><circle cx="6" cy="10" r="2"/><circle cx="18" cy="10" r="2"/><path d="M8 19c0-2.5 1.8-4.5 4-4.5s4 2 4 4.5"/><path d="M3 18c0-2 1.3-3.5 3-3.5M21 18c0-2-1.3-3.5-3-3.5"/>"#
+);
 pub static DOOR_INBOX: Icon = Icon {
     name: "m-door-inbox",
     view: 24.0,

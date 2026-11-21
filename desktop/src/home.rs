@@ -4,6 +4,7 @@
 use rune::{El, Icon, ScrollSpec, TextCase, TextStyle, col, el, icon, row, spacer, text};
 
 use crate::data::{Priority, Row};
+use crate::rules::window;
 use crate::theme::*;
 use crate::{State, View, icons};
 
@@ -15,22 +16,25 @@ fn label(s: &str, size: f32, weight: f32, c: rune::Color) -> El {
     pen(crate::theme::label(s, size, weight, c), size)
 }
 
-/// The greeting follows the clock, as `renderer/src/home/home-model.ts` has it.
-fn greeting(now_ms: f64) -> &'static str {
-    match rune::time::LocalTime::at(now_ms as i64).hour {
+/// The greeting follows the clock and names whoever is signed in, as
+/// `renderer/src/home/home-model.ts` has it.
+fn greeting(now_ms: f64, name: Option<&str>) -> String {
+    let part = match rune::time::LocalTime::at(now_ms as i64).hour {
         4..=11 => "Good morning",
         12..=17 => "Good afternoon",
         _ => "Good evening",
-    }
+    };
+    name.map_or(part.to_string(), |first| format!("{part}, {first}"))
 }
 
 /// `.hm-glass`: a faint white wash over the page. The web app also blurs the page behind it;
 /// Rune blurs four surfaces a frame (`MAX_BACKDROP_BLURS`) and Home has five, so the three
 /// cards take the blur, where the sky's streak runs, and the two small doors go without.
-fn door(glyph: &'static Icon, name: &str, count: usize, hot: bool) -> El {
+/// A door with no count (Team) is its icon and its name.
+fn door(glyph: &'static Icon, name: &str, count: Option<usize>, hot: bool) -> El {
     // A Rune that blurs five or more gives the doors theirs back with no change here.
     let glass = if rune::MAX_BACKDROP_BLURS >= 5 { row().backdrop_blur(20.0) } else { row() };
-    glass
+    let door = glass
         .h(32.0)
         .items_center()
         .gap(8.0)
@@ -43,23 +47,28 @@ fn door(glyph: &'static Icon, name: &str, count: usize, hot: bool) -> El {
         .box_shadow(shadow(0.0, 1.0, 0.0, 0.0, white(0.06), true))
         .opacity(0.9)
         .child(icon(glyph, 14.0).color(ink()).opacity(0.65))
-        .child(label(name, 13.5, 400.0, ink()))
-        .child(text(count.to_string()).font(figures(12.0, 400.0)).color(if hot { ink() } else { muted() }))
+        .child(label(name, 13.5, 400.0, ink()));
+    match count {
+        Some(n) => door.child(text(n.to_string()).font(figures(12.0, 400.0)).color(if hot { ink() } else { muted() })),
+        None => door,
+    }
 }
 
 fn chip(children: Vec<El>) -> El {
     row().h(28.0).items_center().gap(8.0).px(10.0).radius(6.0).fill(white(0.03)).border(1.0, edge()).border_layout().children(children)
 }
 
-/// The composer: what do you need done, who does it, and Send. Phase 1 only draws it.
-fn composer(project: &str) -> El {
+/// The composer: what do you need done, who does it, and Send. Phase 1 only draws it. `to` is
+/// the chip for who gets the thread, there only when someone besides the agent could.
+fn composer(project: &str, swatch: rune::Color, to: bool) -> El {
     let send_fill = rgba(239, 235, 231, 0.15);
-    let bar = row()
-        .pt(14.0)
-        .items_center()
-        .gap(8.0)
+    let mut bar = row().pt(14.0).items_center().gap(8.0);
+    if to {
+        bar = bar.child(chip(vec![label("Agent", 13.0, 400.0, dim())]));
+    }
+    let bar = bar
         .child(chip(vec![label("Opus 5.5", 13.0, 400.0, dim())]))
-        .child(chip(vec![row().size(17.0, 17.0).center().child(el().size(9.0, 9.0).radius(4.5).fill(accent())), label(project, 13.0, 400.0, dim())]))
+        .child(chip(vec![row().size(17.0, 17.0).center().child(el().size(9.0, 9.0).radius(4.5).fill(swatch)), label(project, 13.0, 400.0, dim())]))
         .child(chip(vec![bars(&[4.0, 7.5, 11.0], rgb(82, 80, 79)), label("Agent Decides", 13.0, 400.0, dim())]))
         .child(spacer())
         .child(row().size(30.0, 30.0).radius(6.0).center().child(icon(&icons::ATTACH, 16.0).color(muted())))
@@ -155,7 +164,7 @@ fn task_row(r: &Row, first: bool, card: Card) -> El {
 }
 
 /// One of Home's two cards: a head with a link out, and what is in it.
-fn home_card(title: &str, count: Option<usize>, link: &str, to: View, body: El, height: f32) -> El {
+fn home_card(title: &str, count: Option<usize>, link: &str, to: Option<View>, body: El, height: f32) -> El {
     let mut name = row().items_center().child(label(title, 14.0, 500.0, ink()));
     if let Some(n) = count {
         name = name.child(text(n.to_string()).font(figures(14.0, 400.0)).color(muted()).ml(8.0));
@@ -169,7 +178,12 @@ fn home_card(title: &str, count: Option<usize>, link: &str, to: View, body: El, 
         .border_sides([0.0, 0.0, 1.0, 0.0], white(0.07))
         .border_layout()
         .child(name)
-        .child(label(link, 13.0, 400.0, dim()).on_press(move |s: &mut State| s.go(to.clone())));
+        .child(label(link, 13.0, 400.0, dim()).on_press(move |s: &mut State| {
+            // A link to a page this window does not have yet goes nowhere.
+            if let Some(to) = &to {
+                s.go(to.clone());
+            }
+        }));
     glass(col())
         .h(height)
         .radius(10.0)
@@ -203,29 +217,44 @@ pub fn view(s: &State) -> El {
     let rows = list(&needs[..needs.len().min(80)], "Nothing needs you.", Card::Needs);
     let working = list(&progress[..progress.len().min(60)], "No agent is working right now.", Card::Progress);
     let count = |n: usize| (n > 0).then_some(n);
-    let project = s.snap.products.first().map(|p| p.name.clone()).unwrap_or_default();
+    let first = s.snap.products.first();
+    let project = first.map(|p| p.name.clone()).unwrap_or_default();
+    let (r, g, b) = window::swatch(first.map_or("", |p| p.slug.as_str()));
+    // With teammates the second card is the team's week, and Team is a third door (`HomePage.tsx`).
+    let team = window::team_mode(&s.snap);
+    let mut doors = row()
+        .mt(16.0)
+        .gap(8.0)
+        // Only the Inbox's count is lit, and only above zero (`.hm-door.hot`).
+        .child(door(&icons::DOOR_INBOX, "Inbox", Some(needs.len()), !needs.is_empty()).on_press(|s: &mut State| s.go(View::Inbox)))
+        .child(door(&icons::DOOR_PROGRESS, "In progress", Some(progress.len()), false));
+    if team {
+        doors = doors.child(door(&icons::DOOR_TEAM, "Team", None, false));
+    }
+    let second = if team {
+        // The team's rows are the Team page's, which this window does not have yet: the card
+        // says so when nobody else is on the team, and is bare otherwise.
+        let nobody = if window::team_has_others(&s.snap) { el() } else { el().py(14.0).px(18.0).child(label("Nobody else on your team yet.", 13.5, 400.0, dim())) };
+        home_card("Team this week", None, "Open Team →", None, nobody, cards_h)
+    } else {
+        home_card("In progress", count(progress.len()), "Open →", Some(View::Inbox), working, cards_h)
+    };
 
     let page = col()
         .w(column)
         .pt(24.0)
         .pb(40.0)
         .child(el().h(44.3984))
-        .child(text(greeting(s.now)).font(TextStyle::new(30.0, 500.0).lh(36.0).tracking(-0.36)).color(ink()))
-        .child(
-            row()
-                .mt(16.0)
-                .gap(8.0)
-                .child(door(&icons::DOOR_INBOX, "Inbox", needs.len(), true).on_press(|s: &mut State| s.go(View::Inbox)))
-                .child(door(&icons::DOOR_PROGRESS, "In progress", progress.len(), !progress.is_empty())),
-        )
-        .child(el().mt(22.0).child(composer(&project).w_full()))
+        .child(text(greeting(s.now, window::greeted(&s.snap))).font(TextStyle::new(30.0, 500.0).lh(36.0).tracking(-0.36)).color(ink()))
+        .child(doors)
+        .child(el().mt(22.0).child(composer(&project, rgb(r, g, b), window::to_offered(&s.snap)).w_full()))
         .child(
             row()
                 .mt(24.0)
                 .gap(22.0)
                 // `grid-template-columns: 1.35fr 1fr`: the shares are of the row less its gap.
-                .child(home_card("Needs you", count(needs.len()), "Open inbox →", View::Inbox, rows, cards_h).w((column - 22.0) * 1.35 / 2.35))
-                .child(home_card("In progress", count(progress.len()), "Open →", View::Inbox, working, cards_h).w((column - 22.0) / 2.35)),
+                .child(home_card("Needs you", count(needs.len()), "Open inbox →", Some(View::Inbox), rows, cards_h).w((column - 22.0) * 1.35 / 2.35))
+                .child(second.w((column - 22.0) / 2.35)),
         );
     row().w_full().justify_center().child(page)
 }

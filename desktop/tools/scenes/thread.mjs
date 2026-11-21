@@ -82,9 +82,11 @@ export async function open(h, { unfold, found = FOUND }) {
   const snapshot = await h.evaluate('window.__SNAP__');
   // The Inbox opens on its first row; the snapshot's first thread is not always that one.
   await toInbox(h);
-  const first = await h.evaluate(`document.querySelector('.list .row.selected .mark')?.getAttribute('aria-label') ?? ''`);
-  const at = snapshot.items.findIndex((i) => first === `Select ${i.title}`);
-  if (at < 0) throw new Error(`thread scene: the Inbox's first row ("${first}") is not in the snapshot`);
+  // Found by the row's own id: a thread named by subject is not drawn under its title, and a
+  // real one's words stay out of whatever this prints.
+  const first = await h.evaluate(`document.querySelector('.list .row.selected')?.dataset.itemId ?? ''`);
+  const at = snapshot.items.findIndex((i) => i.id === first || `${i.product}/${i.id}` === first);
+  if (at < 0) throw new Error('thread scene: the Inbox\'s first row is not in the snapshot');
   const { row, lines } = conversation(snapshot.items[at], found);
   snapshot.items[at] = row;
   // Keyed as the page asks: product and id. Each answer is under its channel's name.

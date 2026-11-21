@@ -11,7 +11,8 @@
 //                         and whatever else the scene's `go` returns
 //
 // A scene is a file in tools/scenes/<name>.mjs exporting `go(h)`, which takes the page from Home
-// to the screen to photograph (h is the harness: evaluate, call, wait). Home needs none.
+// to the screen to photograph (h is the harness: evaluate, call, wait). Home needs none. A scene
+// may also export `dress(snapshot, now)`, which returns the invented inbox with more on it.
 //
 // Read-only: the page is fed an invented inbox through the same bridge the other shot scripts
 // use, and no store or agent is touched. MERCURY_REAL=1 feeds it the person's real threads
@@ -31,7 +32,8 @@ fs.mkdirSync(outDir, { recursive: true });
 
 const { openInbox, herSnapshot } = await import(path.join(mercury, 'scripts/lib/inbox-harness.mjs'));
 const sceneFile = path.join(path.dirname(fileURLToPath(import.meta.url)), 'scenes', `${scene}.mjs`);
-const go = fs.existsSync(sceneFile) ? (await import(pathToFileURL(sceneFile).href)).go : null;
+const sceneOwn = fs.existsSync(sceneFile) ? await import(pathToFileURL(sceneFile).href) : {};
+const go = sceneOwn.go ?? null;
 
 // A fixed clock, so the row ages read the same on every run.
 const now = Date.now();
@@ -139,7 +141,9 @@ const DUMP = `(() => {
 
 // MERCURY_SNAPSHOT names a snapshot to feed as it is: the one `rows.mjs --door` leaves, say.
 const shown = process.env.MERCURY_SNAPSHOT ? JSON.parse(fs.readFileSync(process.env.MERCURY_SNAPSHOT, 'utf8'))
-  : process.env.MERCURY_REAL === '1' ? herSnapshot() : snapshot;
+  : process.env.MERCURY_REAL === '1' ? herSnapshot()
+  // A scene may dress the invented inbox before the page opens: a team, a meeting, a reading of usage.
+  : sceneOwn.dress ? sceneOwn.dress(snapshot, now) : snapshot;
 const h = await openInbox({ dist: path.join(mercury, 'renderer/dist'), width, height, snapshot: shown });
 try {
   await h.goto(h.origin);
