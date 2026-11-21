@@ -5,13 +5,30 @@ import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createAcpClient, rejectionOption, ACP_PROTOCOL_VERSION } from './acp.mts';
-import { MESSAGE_DONE, TURN_DONE } from './antigravity.mts';
+import { LEFT_RUNNING_MS, MESSAGE_DONE, TURN_DONE } from './antigravity.mts';
+import type { AcpUpdate } from './antigravity.mts';
+import { stillRunningNote } from './claude-input.mts';
+import type { BackgroundTask } from './claude-input.mts';
 import { ACP_PERMISSION } from './codex-approvals.mts';
 
 /** agy's sandboxed mode that asks before leaving the sandbox, as Codex's Auto does. */
 export const WORKER_MODE = 'auto';
 /** How long a cancelled turn has to wind down before its process is closed. */
 export const CANCEL_GRACE_MS = 5_000;
+/**
+ * How long agy may stay silent, once its agent's newest step ended with no
+ * tool call, before what it woke for counts as finished. A step's tool calls
+ * come in the same millisecond as the `usage_update` that ends it.
+ */
+export const IDLE_SETTLE_MS = 10_000;
+/**
+ * Nothing left running and no word from agy for this long: the run ends
+ * anyway, for a wake that never came or an end it could not read. Measured
+ * wakes came four to five seconds after the command ended.
+ */
+export const QUIET_END_MS = 5 * 60_000;
+// What agy sends while its agent works. Its commands, titles and modes are not that.
+const AGENT_WORK = new Set(['agent_message_chunk', 'agent_thought_chunk', 'tool_call', 'tool_call_update', 'plan', 'usage_update']);
 const PICTURE_CAP = 20 * 1024 * 1024;
 const MIME: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' };
 
@@ -60,8 +77,13 @@ interface Opened {
   configOptions?: (ConfigOption | null)[] | null;
 }
 
+interface Answer { stopReason?: unknown; usage?: unknown }
+type Settled = 'idle' | 'quiet' | 'cap' | 'stopped' | 'gone';
+
 const text = (value: unknown) => (typeof value === 'string' ? value : '');
 const valuesOf = (option: ConfigOption | undefined) => (option?.options ?? []).map(o => o?.value).filter((v): v is string => typeof v === 'string');
+// What a running tool call is, in agy's own summary of it when it gave one.
+const jobName = (u: AcpUpdate) => text(u.rawInput?.toolSummary).trim() || text(u.title).trim();
 
 export function createAntigravityWorker(o: AntigravityWorkerOptions): AntigravityWorker {
   const worker = new EventEmitter() as AntigravityWorker;
@@ -88,8 +110,26 @@ export function createAntigravityWorker(o: AntigravityWorkerOptions): Antigravit
   let lastSaid = '';
   let replaying = false;
   let inTurn = false;
+  // From the first prompt until the turn's end is said, however it ends.
+  let answering = false;
+  let waiting = false;
   let stopping = false;
   let ended = false;
+  // WHAT THE AGENT STARTED AND HAS NOT HEARD BACK FROM: its tool calls still
+  // open, by id, named as agy names them. A step's calls start after the
+  // `usage_update` that ends it and finish before the next step's, so one
+  // still open when a step ends was sent to the background (`outlived`).
+  const running = new Map<string, string>();
+  const outlived = new Set<string>();
+  // Jobs the agent has been told are still out, and how far its work has got:
+  // how many updates it has sent, and whether the newest ended a step
+  // (`usage_update`), ended a background job, or was more work.
+  const named = new Set<string>();
+  let heard = 0;
+  let newest: 'usage' | 'done' | 'work' = 'work';
+  let poke = () => {};
+  let stopped: BackgroundTask[] = [];
+  const jobs = (all = false): BackgroundTask[] => [...running].filter(([id]) => all || outlived.has(id)).map(([task_id, description]) => ({ task_id, description }));
 
   const flush = () => {
     const said = talking.trim();
@@ -99,21 +139,47 @@ export function createAntigravityWorker(o: AntigravityWorkerOptions): Antigravit
     worker.emit('event', MESSAGE_DONE, { sessionId: worker.sessionId, text: said });
   };
 
+  const see = (kind: string, u: AcpUpdate) => {
+    heard += 1;
+    if (kind === 'usage_update') {
+      newest = 'usage';
+      for (const id of running.keys()) outlived.add(id);
+      // A step's end ends its prose too, between the turns agy starts itself.
+      if (waiting && !inTurn) flush();
+      return;
+    }
+    newest = 'work';
+    if (kind !== 'tool_call' && kind !== 'tool_call_update') return;
+    const id = text(u.toolCallId);
+    if (!id) return;
+    if (u.status === 'completed' || u.status === 'failed') {
+      running.delete(id);
+      if (outlived.delete(id)) newest = 'done';
+      return;
+    }
+    if (kind === 'tool_call' || u.status === 'in_progress' || u.status === 'pending') running.set(id, jobName(u) || running.get(id) || 'a command');
+  };
+
   const client = createAcpClient({
     transport: child,
     clientInfo: { name: 'mercury', version: '1.0.0' },
     permissionTimeoutMs: 0,
     onNotification: (method, params) => {
       if (replaying) return;
-      const u = (params as { update?: { sessionUpdate?: unknown; content?: { text?: unknown } } } | null)?.update;
-      if (method === 'session/update' && u?.sessionUpdate === 'agent_message_chunk') talking += text(u.content?.text);
-      else if (method === 'session/update' && (u?.sessionUpdate === 'tool_call' || u?.sessionUpdate === 'tool_call_update')) flush();
+      const u = (params as { update?: AcpUpdate | null } | null)?.update;
+      const kind = text(u?.sessionUpdate);
+      if (method === 'session/update' && kind === 'agent_message_chunk') talking += text((u?.content as { text?: unknown } | null)?.text);
+      else if (method === 'session/update' && (kind === 'tool_call' || kind === 'tool_call_update')) flush();
+      if (method === 'session/update' && u && AGENT_WORK.has(kind)) see(kind, u);
       worker.emit('event', method, params);
+      poke();
     },
     onPermission: async (request) => {
       const options = Array.isArray(request.options) ? request.options : [];
       const allow = options.find(option => option?.kind === 'allow_once')?.optionId ?? null;
       const deny = rejectionOption(options);
+      // A card in front of the person holds the half-hour limit while it waits.
+      poke();
       if (stopping || !o.onApproval) return deny;
       let answer: unknown = null;
       try {
@@ -184,6 +250,73 @@ export function createAntigravityWorker(o: AntigravityWorkerOptions): Antigravit
     }
   };
 
+  // One prompt and its answer, and the prose it ended on.
+  const turn = async (sessionId: string, blocks: unknown[]) => {
+    inTurn = true;
+    const answer = await client.prompt({ sessionId, blocks }) as Answer | null;
+    inTurn = false;
+    flush();
+    return answer;
+  };
+
+  // UNTIL AGY HAS FINISHED WHAT IT WOKE FOR. agy marks no end to the work it
+  // starts itself, so this reads one from its updates: its agent's newest step
+  // ended (`usage_update`) and nothing followed for IDLE_SETTLE_MS. Or nothing
+  // is left running and agy has said nothing for QUIET_END_MS; or something is
+  // still running and agy has said nothing for LEFT_RUNNING_MS; or the run was
+  // stopped, or agy went. No clock runs while a card waits on the person.
+  const settled = () => new Promise<Settled>(resolve => {
+    const from = heard;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const after = (ms: number, why: Settled) => { timer = setTimeout(() => end(why), ms); timer.unref?.(); };
+    const end = (why: Settled) => { clearTimeout(timer); poke = () => {}; resolve(why); };
+    const look = () => {
+      clearTimeout(timer);
+      if (stopping) return end('stopped');
+      if (client.closed()) return end('gone');
+      if (heard > from && newest === 'usage') after(IDLE_SETTLE_MS, 'idle');
+      else if (client.openPermissions()) return;
+      else if (!running.size) after(QUIET_END_MS, 'quiet');
+      else after(LEFT_RUNNING_MS, 'cap');
+    };
+    poke = look;
+    look();
+  });
+
+  // A TURN CAN END WITH A COMMAND STILL RUNNING: agy sends one past its
+  // WaitMsBeforeAsync (at most 10 s) to the background, its prompt tells its
+  // model to say so and end the turn, and agy wakes its agent itself when the
+  // command ends. Closing agy there would stop the command. So the run stays
+  // open while anything sent to the background is running, or one ended after
+  // the turn's last step (agy wakes for that one too), and the agent is told
+  // once, by name, as a Claude Code run is (main/claude-input.mts), since only
+  // it knows whether it waits on a job or forgot it.
+  const afterTheTurn = async (sessionId: string, first: Answer | null) => {
+    let answer = first;
+    waiting = true;
+    try {
+      while (answer?.stopReason === 'end_turn' && (jobs().length || newest === 'done')) {
+        if (stopping) return { ...answer, stopReason: 'cancelled' };
+        const out = jobs();
+        if (out.some(job => !named.has(job.task_id!))) {
+          for (const job of out) named.add(job.task_id!);
+          answer = await turn(sessionId, [{ type: 'text', text: stillRunningNote(out) }]);
+          continue;
+        }
+        const why = await settled();
+        flush();
+        if (why === 'stopped') return { ...answer, stopReason: 'cancelled' };
+        if (why === 'gone') throw Error(client.closed() || 'Antigravity went while it was waiting on a command.');
+        // Closing agy, as the run ends, stops them.
+        if (why === 'cap') { stopped = jobs(true); return answer; }
+        if (why === 'quiet') return answer;
+      }
+      return answer;
+    } finally {
+      waiting = false;
+    }
+  };
+
   const run = async () => {
     let code = 1;
     let startedAt = 0;
@@ -215,15 +348,16 @@ export function createAntigravityWorker(o: AntigravityWorkerOptions): Antigravit
       const pictures = o.pictures?.length ? (client.can('image') ? pictureBlocks() : []) : [];
       if (o.pictures?.length && !client.can('image')) say('This Antigravity takes no pictures, so the ones attached were left off.');
       startedAt = Date.now();
-      inTurn = true;
-      const answer = await client.prompt({ sessionId, blocks: [{ type: 'text', text: o.prompt }, ...pictures] }) as { stopReason?: unknown; usage?: unknown } | null;
-      inTurn = false;
+      answering = true;
+      const answer = await afterTheTurn(sessionId, await turn(sessionId, [{ type: 'text', text: o.prompt }, ...pictures]));
+      answering = false;
       flush();
-      worker.emit('event', TURN_DONE, { sessionId, stopReason: answer?.stopReason ?? null, usage: answer?.usage ?? null, text: lastSaid, durationMs: Date.now() - startedAt });
+      worker.emit('event', TURN_DONE, { sessionId, stopReason: answer?.stopReason ?? null, usage: answer?.usage ?? null, text: lastSaid, durationMs: Date.now() - startedAt, ...(stopped.length ? { stopped } : {}) });
       code = answer?.stopReason === 'end_turn' ? 0 : 1;
     } catch (error) {
       const why = (error as Error)?.message ?? String(error);
-      if (inTurn) {
+      if (answering) {
+        answering = false;
         inTurn = false;
         flush();
         worker.emit('event', TURN_DONE, { sessionId: worker.sessionId, error: why, text: lastSaid, durationMs: Date.now() - startedAt });
@@ -238,6 +372,10 @@ export function createAntigravityWorker(o: AntigravityWorkerOptions): Antigravit
     }
   };
 
+  // agy going ends a wait too; its own handlers have marked the client closed by now.
+  child.once?.('exit', () => poke());
+  child.stdout?.on('end', () => poke());
+
   worker.kill = () => {
     if (ended || stopping) return;
     stopping = true;
@@ -245,8 +383,10 @@ export function createAntigravityWorker(o: AntigravityWorkerOptions): Antigravit
       client.cancel(worker.sessionId);
       setTimeout(() => client.close('The run was stopped.'), CANCEL_GRACE_MS).unref?.();
     } else {
+      // Closing stops what agy left running (agy 1.5.13's release notes).
       client.close('The run was stopped.');
     }
+    poke();
   };
   worker.done = run();
   return worker;

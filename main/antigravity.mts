@@ -2,14 +2,22 @@
 // `session/update` notifications pass through untranslated. Two frames are the
 // worker's own, because ACP has no "message finished" event and the stateless
 // trace and summary readers need whole messages: `turn/message` when a run of
-// prose ends, and `session/prompt`, the prompt request's own answer, when the
-// turn ends. Shapes read off agy 1.5.13.
+// prose ends, and `session/prompt` when the turn is over: the prompt request's
+// own answer, or, for a turn that ended with a command still running, the end
+// of what agy woke for once it finished (main/antigravity-worker.mts). Shapes
+// read off agy 1.5.13.
 import { SAYING_CAP } from './codex.mts';
-import { nameSlugs } from '../shared/product-name.mjs';
+import { helperNames } from './claude-input.mts';
+import type { BackgroundTask } from './claude-input.mts';
+import { Name, nameSlugs } from '../shared/product-name.mjs';
 import type { AntigravityModeId } from '../shared/antigravity-modes.mts';
 
 export const MESSAGE_DONE = 'turn/message';
 export const TURN_DONE = 'session/prompt';
+// A command agy left running, with no word from it for this long and no card
+// waiting on the person, is stopped with the run (main/antigravity-worker.mts).
+// Half an hour, as Claude Code's own limit on a background command.
+export const LEFT_RUNNING_MS = 30 * 60_000;
 
 /** The store server's names, which every run is given (main/supervisor.mts STORE_SERVER). */
 export const STORE_SERVERS: readonly string[] = nameSlugs;
@@ -36,6 +44,8 @@ export interface AcpFrame {
   error?: unknown;
   durationMs?: unknown;
   usage?: unknown;
+  /** The commands the run stopped because agy had left them running (LEFT_RUNNING_MS). */
+  stopped?: unknown;
 }
 
 export interface AntigravitySession {
@@ -69,6 +79,21 @@ export function turnTrouble(frame: AcpFrame): string | null {
   return TROUBLE[reason] ?? `The turn ended early (${reason}).`;
 }
 
+/** What the thread says when the run stopped what agy had left running. */
+export function leftRunningAnswer(said: string, stopped: BackgroundTask[]): string {
+  const one = stopped.length === 1;
+  return '**Reply to carry on.**\n\n'
+    + `Antigravity left ${helperNames(stopped)} running and said nothing for ${LEFT_RUNNING_MS / 60_000} minutes, so ${Name} stopped ${one ? 'it' : 'them'}. `
+    + `Anything ${one ? 'it' : 'they'} had not saved is gone.${said.trim() ? `\n\nIts last message: ${said.trim()}` : ''}`;
+}
+
+const stoppedOf = (frame: AcpFrame): BackgroundTask[] => (Array.isArray(frame.stopped) ? frame.stopped.filter(Boolean) as BackgroundTask[] : []);
+// The answer a finished turn leaves: its trouble, what the run stopped, or its last message.
+const answerOf = (frame: AcpFrame) => {
+  const stopped = stoppedOf(frame);
+  return turnTrouble(frame) ?? (stopped.length ? leftRunningAnswer(text(frame.text), stopped) : text(frame.text));
+};
+
 export function captureAntigravityEvent(session: AntigravitySession | null | undefined, method: string, params: unknown): void {
   try {
     if (!session || typeof method !== 'string') return;
@@ -83,6 +108,7 @@ export function captureAntigravityEvent(session: AntigravitySession | null | und
       if (p.usage) session.antigravityUsage = p.usage;
       const trouble = turnTrouble(p);
       if (trouble) { session.result = trouble; session.resultIsError = true; }
+      else if (stoppedOf(p).length) { session.result = answerOf(p); session.resultIsError = false; }
     }
   } catch { /* a reader that throws kills a run that was going fine */ }
 }
@@ -169,7 +195,7 @@ export function traceAntigravityEvent(method: string, params: unknown): string |
       const trouble = turnTrouble(p);
       const reason = text(p.stopReason) || 'error';
       const span = Number.isFinite(p.durationMs) ? `${((p.durationMs as number) / 1000).toFixed(1)}s` : '?s';
-      return `\n${at}  == RESULT (${reason}${trouble ? ' ERROR' : ''} · ${span}) ==\n${(trouble ?? text(p.text)).slice(0, 4000)}`;
+      return `\n${at}  == RESULT (${reason}${trouble ? ' ERROR' : ''} · ${span}) ==\n${answerOf(p).slice(0, 4000)}`;
     }
     if (method !== 'session/update' || !toolUpdate(p.update) || !finished(p.update?.status)) return null;
     const tool = toolWordOf(p.update, STORE_SERVERS);
@@ -185,7 +211,7 @@ export function summarizeAntigravityEvent(method: string, params: unknown): stri
   try {
     const p = frameOf(params);
     if (method === MESSAGE_DONE) return text(p.text).trim().slice(0, 300) || null;
-    if (method === TURN_DONE) return `done: ${(turnTrouble(p) ?? text(p.text)).slice(0, 200)}`;
+    if (method === TURN_DONE) return `done: ${answerOf(p).slice(0, 200)}`;
     if (method !== 'session/update' || !toolUpdate(p.update) || p.update?.status !== 'completed') return null;
     const tool = toolWordOf(p.update, STORE_SERVERS);
     return tool ? `tool: ${tool.word}` : null;
