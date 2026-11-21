@@ -44,6 +44,7 @@ function startHost({ dir, sock, pages, userDir }: Parameters<StartHost>[0]): voi
       cwd: pages,
       detached: true,
       stdio: ['ignore', log, log],
+      windowsHide: true,
     });
     proc.on('error', () => {});
     proc.unref();
@@ -101,7 +102,7 @@ function installTestBrowser({ ms = INSTALL_MS }: { ms?: number } = {}): Promise<
   return new Promise((resolve) => {
     let cli: string;
     try { cli = path.join(path.dirname(createRequire(import.meta.url).resolve('playwright-core/package.json')), 'cli.js'); } catch { resolve(false); return; }
-    const proc = spawn(process.execPath, [cli, 'install', 'chromium', '--no-shell', '--no-remove'], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, stdio: 'ignore' });
+    const proc = spawn(process.execPath, [cli, 'install', 'chromium', '--no-shell', '--no-remove'], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, stdio: 'ignore', windowsHide: true });
     const deadline = setTimeout(() => { try { proc.kill('SIGTERM'); } catch { /* gone */ } }, ms);
     const done = (ok: boolean) => { clearTimeout(deadline); resolve(ok); };
     proc.once('error', () => done(false));

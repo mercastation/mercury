@@ -133,7 +133,7 @@ export function threadMenuRows({ change, terminal, finish, runNow = false, share
   if (rename) rows.push({ id: 'rename', label: 'Rename', key: null });
   if (move) rows.push({ id: 'move', label: 'Move to another project', key: null });
   if (pin) rows.push({ id: 'pin', label: pin === 'pinned' ? 'Unpin thread' : 'Pin thread', key: null });
-  if (give) rows.push({ id: 'give', label: 'Give it to someone else…', key: null });
+  if (give) rows.push({ id: 'give', label: 'Ask or hand off…', key: null });
   if (wait) rows.push({ id: 'wait', label: wait === 'blocked' ? 'Blocked by…' : 'Waits on…', key: null });
   if (shipped) rows.push({ id: 'shipped', label: shipped === 'marked' ? 'Not shipped after all' : 'Mark as shipped', key: null });
   if (stopRepeat) rows.push({ id: 'stop-repeat', label: 'Stop repeating', key: null });
@@ -271,7 +271,7 @@ function BlockWords({ onPick }: { onPick: (id: string) => void }) {
 
 /* ----------------------------------------------------------------- button */
 
-export function ThreadMenu({ share = null, onCopyLink, onSendTo, onSee, onChoose, change = null, codeButton = null, codeOpen = false, onViewChange, addPeople = null, onAddPeople, terminal = null, onToggleTerminal, onFinish = null, onCloseTask = null, onStopRepeating = null, onReopen = null, handedTo = null, onRunNow = null, onLater = null, priority = null, onPriority, demand = null, onDemand, pinned = null, onPin, place = null, placeFacts = {}, onPlace, giveTo = [], onGive, onRename = null, onMove = null, shipped = null, onShipped, waitChoices = [], waitsNow = false, onWait, blocks = false, files = null }: {
+export function ThreadMenu({ share = null, onCopyLink, onSendTo, onSee, onChoose, change = null, codeButton = null, codeOpen = false, onViewChange, addPeople = null, onAddPeople, terminal = null, onToggleTerminal, onFinish = null, onCloseTask = null, onStopRepeating = null, onReopen = null, handedTo = null, onRunNow = null, onLater = null, priority = null, onPriority, demand = null, onDemand, pinned = null, onPin, place = null, placeFacts = {}, onPlace, giveTo = [], onGive, onAsk, onRename = null, onMove = null, shipped = null, onShipped, waitChoices = [], waitsNow = false, onWait, blocks = false, files = null }: {
   /** What Share… offers, or null where the thread cannot be shared. */
   share?: { link: string | null; people: readonly Person[]; last?: string | null; seen: SeenBy; seenWord: string; teamName: string; chosen?: readonly string[] } | null;
   /** Puts the link on the clipboard; false when it could not. */
@@ -293,9 +293,11 @@ export function ThreadMenu({ share = null, onCopyLink, onSendTo, onSee, onChoose
   /** Null stops waiting. */
   onWait?: (id: string | null) => void;
   /** Who it can be handed on to; the row is only there when somebody is. */
-  giveTo?: readonly { id: string; name: string }[];
+  giveTo?: readonly { id: string; name: string; detail?: string }[];
   /** `note`: what the giver wants from a person; empty for an AI teammate. */
   onGive?: (to: { id: string; name: string }, note: string) => void;
+  /** Help or a review from a person, keeping the thread; `step` is the message picked, if one was. */
+  onAsk?: (to: { id: string; name: string }, kind: 'help' | 'review', note: string, step: string | null) => void;
   /** Opens the name box, on a conversation, whose bar has no name to press. */
   onRename?: (() => void) | null;
   /** The change figures, or null when this run changed no code. */
@@ -352,12 +354,14 @@ export function ThreadMenu({ share = null, onCopyLink, onSendTo, onSee, onChoose
   const [placing, setPlacing] = useState(false);
   const [sharing, setSharing] = useState<null | 'list' | 'send' | 'copied' | 'see' | 'choose'>(null);
   const [sendTo, setSendTo] = useState<string[]>([]);
+  const [step, setStep] = useState<string | null>(null);
   const wrap = useRef<HTMLSpanElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   const close = useCallback((refocus: boolean) => {
     setOpen(false);
     setGiving(false);
     setGivingTo(null);
+    setStep(null);
     setWaiting(false);
     setAdding(false);
     setLeveling(false);
@@ -377,6 +381,13 @@ export function ThreadMenu({ share = null, onCopyLink, onSendTo, onSee, onChoose
     window.addEventListener('zero:add-people', askToAdd);
     return () => window.removeEventListener('zero:add-people', askToAdd);
   }, [askToAdd]);
+  // "Ask about this step" on one of the agent's messages opens the people list with that message as the step.
+  useEffect(() => {
+    if (!onAsk || !giveTo.length) return undefined;
+    const askAbout = (e: Event) => { setStep(String((e as CustomEvent<string>).detail ?? '') || null); setGiving(true); setOpen(true); };
+    window.addEventListener('zero:ask-step', askAbout);
+    return () => window.removeEventListener('zero:ask-step', askAbout);
+  }, [!!onAsk, giveTo.length]);
   // ⌘K's Share with chosen people… opens the same list Share → Chosen people does.
   useEffect(() => {
     if (!share) return undefined;
@@ -397,6 +408,8 @@ export function ThreadMenu({ share = null, onCopyLink, onSendTo, onSee, onChoose
     const away = (e: PointerEvent) => { if (!wrap.current?.contains(e.target as Node)) close(false); };
     const keys = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); close(true); return; }
+      // A note being written keeps every key: Tab to its button, arrows through its lines, ⌘↵ to send.
+      if (document.activeElement?.tagName === 'TEXTAREA' && wrap.current?.contains(document.activeElement)) return;
       const items = [...(wrap.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? [])];
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Home' || e.key === 'End') {
         e.preventDefault();
@@ -557,13 +570,16 @@ export function ThreadMenu({ share = null, onCopyLink, onSendTo, onSee, onChoose
         onPick={(to) => { if (to === 'people') { setSharing('choose'); return; } close(false); if (to !== share.seen) onSee?.(to); }} />}
       {open && share && sharing === 'choose' && <ChooseList people={share.people} chosen={share.seen === 'people' ? share.chosen ?? [] : []} onPick={(id) => onChoose?.(id)} />}
       {open && !waiting && !adding && !leveling && !placing && !sharing && (giving && givingTo
-        ? <GiveSheet to={givingTo} onGive={(note) => { close(false); onGive?.(givingTo, note); }} />
+        ? <GiveSheet to={givingTo} step={step} onGive={(note) => { close(false); onGive?.(givingTo, note); }}
+          onAsk={onAsk ? (kind, note) => { const s = step; close(false); onAsk(givingTo, kind, note, s); } : undefined} />
         : giving
-        ? <div className="th-menu ts-more-menu" role="menu" aria-label="Give it to">
-          <p className="ts-menu-say">A person gets it as a task in their Needs you. An AI teammate starts on it.</p>
+        ? <div className="th-menu ts-more-menu" role="menu" aria-label="Ask or hand off">
+          <p className="ts-menu-say">{(onAsk ? 'Ask a person for help or a review, or hand it over.' : 'A person gets it as a task in their Needs you.')
+            + (giveTo.some((p) => p.id.startsWith('mate:')) ? ' An AI teammate starts on it.' : '')}</p>
           {giveTo.map((p) => <button key={p.id} type="button" role="menuitem" tabIndex={-1} className="row-i ts-more-row" onClick={() => { if (p.id.startsWith('mate:')) { close(false); onGive?.(p, ''); } else setGivingTo(p); }}>
             <span className="ico"><GiveMark /></span>
             <span className="ts-more-label">{p.name}</span>
+            {p.detail && <kbd>{p.detail}</kbd>}
           </button>)}
         </div>
         : <ThreadMenuList rows={rows} change={change} onPick={pick} />)}

@@ -21,7 +21,7 @@ export function branchesIn(repoPath: string | null | undefined): Promise<Project
   return new Promise((resolve) => {
     if (!repoPath) { resolve({ branches: [], main: null }); return; }
     execFile('git', ['for-each-ref', '--sort=-committerdate', '--format=%(refname:short)', 'refs/heads'],
-      { cwd: repoPath, encoding: 'utf8', timeout: GIT_MS }, (error, out) => {
+      { cwd: repoPath, encoding: 'utf8', timeout: GIT_MS, windowsHide: true }, (error, out) => {
         const branches = error ? [] : listed(out);
         resolve({ branches, main: ['main', 'master'].find((b) => branches.includes(b)) ?? null });
       });
@@ -32,6 +32,6 @@ export function branchesIn(repoPath: string | null | undefined): Promise<Project
 export function hasBranch(repoPath: string | null | undefined, name: unknown): Promise<boolean> {
   return new Promise((resolve) => {
     if (!repoPath || typeof name !== 'string' || !name.trim()) { resolve(false); return; }
-    execFile('git', ['rev-parse', '--verify', '-q', `refs/heads/${name}`], { cwd: repoPath, timeout: GIT_MS }, (error) => resolve(!error));
+    execFile('git', ['rev-parse', '--verify', '-q', `refs/heads/${name}`], { cwd: repoPath, timeout: GIT_MS, windowsHide: true }, (error) => resolve(!error));
   });
 }

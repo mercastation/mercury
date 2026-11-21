@@ -281,6 +281,23 @@ Google sign-in:
   nothing is ever asked. A reply in Bypass Permissions runs in Full access.
 - **Resume.** `session/resume` reopened a conversation in a new process, after
   a `kill -9` mid-turn, without replaying it.
+- **Background commands** (2026-11-21). A `run_command` that outlives its
+  `WaitMsBeforeAsync` (the model picks it, at most 10 s) becomes a background
+  task, and agy's prompt tells its model to say so and end the turn. Its
+  `tool_call` stays `in_progress` past the prompt's answer; its
+  `tool_call_update` (`completed`) comes later with no prompt standing, and
+  agy wakes its agent itself, four to five seconds later, and streams that
+  work with no end marker: each step ends with a `usage_update`, the step's
+  tool calls in the same millisecond. A command that ends while a turn is still
+  going is answered inside that turn, and `session/list` says nothing about
+  any of it. So a run stays open while a call that outlived a step is still
+  running: the agent is told once, by name, that its answer waits until
+  nothing it started is running (the note a Claude Code run gets), and the run
+  ends once nothing is left running and ten seconds pass after a step that
+  ended with no tool call.
+  Something left running with no word from agy for half an hour is stopped
+  with the run (closing agy stops what it started), and the thread says so. A
+  reply typed while it waits goes to the next run, as on any Antigravity run.
 - **Models and levels** are `configOptions` `model` and `thought_level`;
   `agy models` lists them as `<model>-<level>`. A model with no levels (the
   orchestrators) has no `thought_level` option.
@@ -311,7 +328,8 @@ Google sign-in:
   that runs Antigravity. Seen end to end on 2026-11-20 with a real Google
   sign-in: a first turn (store tools, a commit that came home) and a reply that
   resumed it. agy exits as soon as its input closes, even mid-turn, so an app
-  that quits ends an Antigravity cloud turn, as it ends a Codex one (a Claude
+  that quits ends an Antigravity cloud turn, and the commands it was waiting
+  on, as it ends a Codex one (a Claude
   Code run is left going), and the thread is picked up after the restart. The
   image installs the newest agy when it is built, and nothing compares it with
   the computer's (shared/cloud-versions.mts covers Claude Code and Codex).

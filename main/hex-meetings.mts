@@ -46,7 +46,7 @@ export type HexReply = { ok: true; code: null; message: null; body: HexBody } | 
 /** The transcript as Markdown, which is text and not JSON. */
 export type HexText = { ok: true; code: null; message: null; body: string } | HexFailed;
 
-type Run = (bin: string, args: string[], options: { timeout: number; maxBuffer: number }, done: (err: (Error & { code?: unknown; killed?: boolean }) | null, stdout: string, stderr: string) => void) => unknown;
+type Run = (bin: string, args: string[], options: { timeout: number; maxBuffer: number; windowsHide?: boolean }, done: (err: (Error & { code?: unknown; killed?: boolean }) | null, stdout: string, stderr: string) => void) => unknown;
 
 export function findHex({ home = os.homedir(), exists = fs.existsSync }: { home?: string; exists?: (file: string) => boolean } = {}): string | null {
   return [path.join('/Applications', BINARY), path.join(home, 'Applications', BINARY)].find((file) => exists(file)) ?? null;
@@ -58,7 +58,7 @@ function parsed(text: string): HexBody | null {
 
 export function hexCli(bin: string, { run = execFile as unknown as Run }: { run?: Run } = {}) {
   const raw = (args: string[], timeout = ANSWER_MS) => new Promise<{ err: (Error & { killed?: boolean }) | null; out: string; said: string }>((resolve) => {
-    run(bin, args, { timeout, maxBuffer: LONGEST_REPLY }, (err, out, said) => resolve({ err, out: String(out ?? ''), said: String(said ?? '') }));
+    run(bin, args, { timeout, maxBuffer: LONGEST_REPLY, windowsHide: true }, (err, out, said) => resolve({ err, out: String(out ?? ''), said: String(said ?? '') }));
   });
 
   const refused = (err: { killed?: boolean } | null, said: string, body: HexBody | null): HexFailed => {
@@ -113,7 +113,7 @@ type ServiceChild = {
   once(event: 'exit' | 'error', fn: (...args: unknown[]) => void): unknown;
   kill(signal?: NodeJS.Signals): unknown;
 };
-type Spawn = (bin: string, args: string[], options: { stdio: ['pipe', 'pipe', 'ignore'] }) => ServiceChild;
+type Spawn = (bin: string, args: string[], options: { stdio: ['pipe', 'pipe', 'ignore']; windowsHide?: boolean }) => ServiceChild;
 
 function readyLine(child: ServiceChild): Promise<{ url: string; token: string }> {
   return new Promise((resolve, reject) => {
@@ -138,7 +138,7 @@ function readyLine(child: ServiceChild): Promise<{ url: string; token: string }>
  * (docs/specs/local-transcription-service.md in its repository).
  */
 export async function hexService(bin: string, { spawn = spawnChild as unknown as Spawn, fetchImpl = fetch }: { spawn?: Spawn; fetchImpl?: typeof fetch } = {}): Promise<HexService> {
-  const child = spawn(bin, ['service', '--embedded'], { stdio: ['pipe', 'pipe', 'ignore'] });
+  const child = spawn(bin, ['service', '--embedded'], { stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
   let ended = false;
   const close = () => {
     if (ended) return;

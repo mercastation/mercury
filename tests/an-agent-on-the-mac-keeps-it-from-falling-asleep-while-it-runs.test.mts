@@ -67,7 +67,7 @@ describe('keeping the Mac awake', () => {
   it('asks macOS to keep from idle sleep until that pid ends, and nothing more', () => {
     const { made, spawnImpl } = recorder();
     keepAwakeWhile(4242, { platform: 'darwin', spawnImpl });
-    expect(made).toEqual([{ bin: '/usr/bin/caffeinate', args: ['-i', '-w', '4242'], opts: { stdio: 'ignore' } }]);
+    expect(made).toEqual([{ bin: '/usr/bin/caffeinate', args: ['-i', '-w', '4242'], opts: { stdio: 'ignore', windowsHide: true } }]);
   });
 
   it('does nothing off a Mac, or with no pid', () => {
