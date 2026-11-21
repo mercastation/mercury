@@ -4,7 +4,7 @@
 //!   cargo run -- --door http://127.0.0.1:7777 --token <key>          # live, from the engine
 //!   cargo run -- --fixture shots/home-fixture.json --snap shots/home.png --size 1280x760 --scale 2
 //!   cargo run -- --fixture shots/inbox-fixture.json --view inbox --snap shots/inbox.png --size 1280x760 --scale 2
-//!   cargo run -- --fixture shots/inbox-fixture.json --view inbox --tab later --snap shots/inbox-later.png --size 1280x760 --scale 2
+//!   cargo run -- --fixture shots/inbox-later-kinds-fixture.json --view inbox --tab later --snap shots/inbox-later-kinds.png --size 1280x760 --scale 2
 //!   cargo run -- --fixture shots/thread-fixture.json --thread --snap shots/thread.png --size 1280x760 --scale 2
 //!
 //! Every size, colour, border and shadow was read off the running renderer, so a screen here

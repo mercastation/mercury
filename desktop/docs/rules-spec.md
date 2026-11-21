@@ -1,4 +1,4 @@
-# How the web window derives Home, the Inbox, In progress and Done
+# How the web window derives Home, the Inbox, In progress, Later and Done
 
 A spec for one person with no team, read off Mercury `cb4a455ca`, so the native window shows the
 same rows in the same order. `R` = `renderer/src`, `S` = `shared`. `now` is the clock at render.
@@ -26,12 +26,15 @@ Renderer state in `R/App.tsx`, from localStorage:
 - `seenAt{id→ms}`: `zero.seenAt`. `seen` set: `zero.seen` (an imported conversation stays on top until opened).
 - `snoozes{id→ms}`: legacy `zero.snooze`, read and never written.
 - `troubleClosed`: `zero.troubleClosed`, the `since` of the trouble row the person dismissed.
+- `cloudBrokenSeen`: `zero.cloudBrokenSeen`, the stopped cloud accounts already looked at in the
+  cloud menu, as `engine:key` (section 9, the cloud button).
 - `pendingIds` / `startingIds`: undo-window sets; empty here.
 - Assumed: no onboarding walk, `scope = null`, display = `DEFAULT_DISPLAY.inbox` (a list, sorted by
   priority, no filter; `R/threads/page-rules.ts`), box filter off, search closed.
 
-`desktop/src/data.rs` `Local` carries all five. `tools/reference.mjs` writes the first three into a
-fixture; a fresh profile has the other two empty.
+`desktop/src/data.rs` `Local` carries all six. `tools/reference.mjs` writes the first three and the
+cloud's into a fixture; a fresh profile has the others empty. The running app's local door hands
+over the first three only.
 
 ## 1. Data read
 
@@ -219,11 +222,34 @@ not live and not shipping, sorted by `updatedAt` desc, then re-sorted by the pag
 where `finishedAt = wrote.status?.ts || updatedAt`. Its time cell is `updatedWords(finishedAt)`, no
 row is unread, and no pin is drawn.
 
-**Later** is not drawn natively yet, but it decides one thing that is: `tabState` (inbox wins, then In
-progress, Later, Done) says where each thread sits, and a thread an agent filed under another counts
-toward that thread's "N tasks to approve" only while it sits in Needs you or Later (`waitingCounts`,
-`approvableFiled` in `R/threads-made.ts`). Later holds: `start=='later'`, a proposal, and what is put
-off or waits (`putOffInLater`) with no run on it or queued for it; less what the person closed.
+**Later** (`snoozed` in `App.tsx`; the tab's name in the code is still `snoozed`)
+
+```
+inLater(i):
+  if start=='later' && teammateIdOf(i)                   → no    // an AI teammate's queued run (queuedTeammateRun)
+  if status=='done' && wrote.status?.source=='founder'   → no    // closed by the person
+  → start=='later' || isProposal(i) || putOffInLater(i)
+putOffInLater = (hiddenAt(i) > now || waitsInLater(i, waitingOn(i)))
+                && !(liveIds.has(id) || queued.includes(id) || shippingIds.has(id))     list-rules
+whenShown(i)  = start=='later' || waitsInLater(i, waitingOn(i)) ? Number.MAX_SAFE_INTEGER : hiddenAt(i)
+snoozed       = inLater items, stable-sorted by whenShown ascending
+drawn         = sorted(snoozed, 'snoozed')     // step 2 of section 4: pinned, rankScore, placedAt
+```
+
+- The page's sort is the Inbox's, so `whenShown` only orders rows that tie on all of it. A proposal
+  is not named in `whenShown` and has no `hiddenAt`, so among ties it comes first, not with the rest
+  that wait on a person as the comment over it says.
+- A thread put off with a run still queued for it is in no tab: not Later (`runOnIt`), not In
+  progress (`hiddenAt > now`), not the inbox.
+- A thread its agent finished while `start=='later'` is in Later and in Done at once.
+- Not ported: the two other kinds of row the web window lists here. Repeating tasks are rules on a
+  channel of their own (`zero.repeats`); they are drawn above the threads and counted in the tab's
+  number (`snoozed.length + repeats.length`). A terminal agent put off (`agentList`) joins the list
+  when the setting lists such agents at all.
+
+`tabState` (inbox wins, then In progress, Later, Done) says where each thread sits, and a thread an
+agent filed under another counts toward that thread's "N tasks to approve" only while it sits in
+Needs you or Later (`waitingCounts`, `approvableFiled` in `R/threads-made.ts`).
 
 ## 6. Home's Needs-you row (`homeNeeds` in `App.tsx`, `R/home/home-needs.ts`, `R/home/HomePage.tsx`)
 
@@ -297,6 +323,27 @@ unread   = (wrote.result?.ts ?? createdAt ?? 0) > (seenAt[id] ?? unreadSince)   
 - **Project:** `products.find(slug == i.product)?.name ?? ''` (Home uses `i.productName`).
 - **Priority:** the same `rowPriorityId(itemPriority(i))`; mark plus label `Urgent` / `High` / `Low`; empty at Medium.
 - **Sent:** `updatedWords(sentAt(i), now)`; on Done, of `finishedAt(i)`.
+- **Under Later** three things change (`tab === 'snoozed'` in `ThreadCells`):
+  - Status starts from `laterCell(i)`, which is `statusCell` with the state fixed as `scheduled`:
+    `Scheduled`, or `Not started` when `start == 'later'`, even on a thread whose status is `done`.
+    The words ahead of the state in `statusCell` are still said: `Getting ready`, `Assigning`,
+    `Asks you who`, `Signed out`, `Stopped`. No tab drops a word here (`cellUnderTab`).
+  - The time column is headed `Back` and says when the thread comes back:
+    `backWords(i) = dayAndTime(max(hiddenUntil(i), runAt ?? 0))`, or nothing when that is 0 (written
+    down and never started, a proposal, a wait on another thread). `hiddenUntil` is asked without
+    the legacy `zero.snooze`, so a thread put off only there has an empty cell.
+  - A thread behind an open cause (`causeOf`, `S/causes.mts`: `status == 'blocked'` and a
+    `blockedBy` naming a cause row that is not done) is a row of its own shape: Status `Waiting`
+    with the mark the cell had, the aside is the cause's `title` as filed, the time cell says
+    `When fixed`, and it wears no pin and no `not started`.
+- A column no row fills is not drawn, heading included; a table 915 points wide or less gives up
+  Priority, and one 785 or less gives up Project and narrows Status to 160 (`@container th`).
+- A time's words are set to the right of a 96 point column. Wider words (a dated Back) start at the
+  column's left and run out past its right, through the row's padding and under the card's edge.
+- The title cell is a line of text unless the row has an aside. Too long for the cell, the line is
+  cut from its end: the pin goes, then `not started`, then the title's own words. With an aside the
+  cell is a row of boxes: the aside takes what the title leaves and is cut first, and `not started`
+  and the pin keep their room while the title gives way.
 - **Unread:** row class `unread` on the inbox tab only, same rule as Home.
 - A row whose label is `codex-import` (a Codex conversation asking to come in) is not drawn as a
   table row at all: it keeps a title, a line and two keys. Not ported.
@@ -326,9 +373,14 @@ updatedWords (Home and the Inbox table, page-rules.ts):
   else Intl {month:'short', day:'numeric'} in the system locale ("Sep 28")
 agoShort (the command bar, R/home/home-model.ts):
   m=max(0,floor((now-at)/60000)); m<1 'now'; m<60 `${m} min`; h=floor(m/60); h<24 `${h} hr`; else `${floor(h/24)} d`
+dayAndTime (Later's Back column, R/format.ts):
+  days = whole local days from today to ts's day
+  0 <= days < 7 → Intl {weekday:'short', hour:'numeric', minute:'2-digit'}                 "Sun 5:24 PM"
+  else          → Intl {weekday:'short', month:'short', day:'numeric', hour, minute}       "Mon, Nov 30, 5:24 PM"
 ```
 
-The port writes the date in English. The reference Chrome on this Mac does too.
+The port writes the dates in English, with a twelve-hour clock. The reference Chrome on this Mac
+does too.
 
 ## 9. Counts
 
@@ -340,12 +392,37 @@ The port writes the date in English. The reference Chrome on this Mac does too.
 | "Needs you" card head | `needsList.length`, uncapped (the list shows 80) | only if > 0 |
 | "In progress" door and card head | `progressTab.length` | door always; head only if > 0 |
 | Rail's Inbox dot | `inbox.length` | only if > 0 |
+| The page's Needs you, In progress and Later tabs | `inbox.length`, `progressTab.length`, `snoozed.length` (+ repeating tasks) | only if > 0 |
+| The page's Done tab | none | a word alone (`COUNTED` in `Pages.tsx`) |
+
+**The tab strip** (`StateTabsRow`): Needs you, In progress, Later, Done. Later is drawn only while
+`laterTabShown`: its count is over 0, or it is the open tab, or the walkthrough is on
+(`R/later-tab.ts`). An empty tab's one line is `emptyTabWords`.
+
+**The cloud button** (`HeaderActions` and `CloudButton` in `Pages.tsx`), between New thread and the
+display button, from the snapshot's `cloud`:
+
+```
+drawn       = cloud?.setUp || cloud?.offered
+count       = cloud.running > 0 ? cloud.running : null                     R/cloud-menu.ts cloudButtonCount
+on          = cloud.mode != 'mac'                                          cloudIsOn
+nobodyReady = !cloud.accounts?.length && !cloud.signIns?.length
+setup       = any signIn 'failed' || any signIn 'checking' || any account 'broken'     R/cloud-setup.ts menuSetupLine
+asks        = !nobodyReady && accounts 'broken', as engine:key, not all in cloudBrokenSeen     buttonAsksSignIn
+lit         = on && !nobodyReady            // the cloud, and the count, in the accent colour
+inside      = asks ? 'Sign in again' : count ? count : nobodyReady ? 'Cloud' : nothing
+dot         = asks || (!count && (nobodyReady || setup))
+```
+
+A bare square of 32 points; with a count 9 points, the cloud, 7, the number, 10; with a word 9, the
+cloud, 7, the word, 14, so the dot has room in the corner. New thread stands 10 points to its left.
 
 ## 10. Held against the web window
 
-`node tools/rows.mjs <dir> --shoot <checkout>` photographs four scenes (Home and the page's three
+`node tools/rows.mjs <dir> --shoot <checkout>` photographs five scenes (Home and the page's four
 tabs) with `tools/reference.mjs`, reads the rows out of the dumps and compares them with
-`mercury --fixture … --rows`, field by field. `--cases` feeds both the invented threads in
+`mercury --fixture … --rows`, field by field. Under each tab it also holds the strip of tabs with
+their numbers, the time column's heading and the cloud button (`--rows --tab <name>` says them). `--cases` feeds both the invented threads in
 `tools/rows.cases.mjs`, one for each branch above; `--real` the person's real threads; `--real --stir`
 the same with a busy fleet invented around them.
 
