@@ -78,12 +78,15 @@ pub fn sky(s: &State) -> El {
 const SHADOWS: [f32; 5] = [8.0, 5.0, 3.0, 1.5, 0.5];
 
 /// Words over the sky sit in a soft patch of the sky's own dark. `draw(true)` is the words
-/// alone, in that dark; `draw(false)` is the thing itself, which lands on top. The shadows are
-/// gathered in one layer before they reach the screen: each is too faint by itself to move a
-/// pixel a whole level, and drawn one at a time the wide ones would round away to nothing.
+/// alone, in that dark; `draw(false)` is the thing itself, which lands on top.
 fn shaded(draw: impl Fn(bool) -> El) -> El {
     let shadows = SHADOWS.iter().map(|sigma| el().absolute(0.0, 0.0).blur(*sigma).child(draw(true)));
-    el().child(el().pin(Some(0.0), Some(0.0), None, None).cache().layer_opacity(0.999).children(shadows)).child(draw(false))
+    // The shadows are gathered in one layer before they reach the screen, which an opacity just
+    // short of whole asks Rune for: each is too faint by itself to move a pixel a whole level,
+    // and drawn one at a time the wide ones round away to nothing. The patch is a picture of the
+    // words, so the pointer passes through it and a screen reader is told them once.
+    let patch = el().pin(Some(0.0), Some(0.0), None, None).cache().layer_opacity(0.999).inert().a11y_hidden().children(shadows);
+    el().child(patch).child(draw(false))
 }
 
 /// A square button of the strip: the sky's dark at 82% over the sky blurred behind it.
@@ -166,11 +169,14 @@ struct Columns {
     priority: Option<f32>,
 }
 
+/// Between two columns, and the time's own column at the row's end.
 const GAP: f32 = 16.0;
 const WHEN: f32 = 96.0;
 
 impl Columns {
     fn of(rows: &[Row], table: f32) -> Columns {
+        // The steps are the table's own width (`@container th`): Priority goes at 915 points,
+        // Project at 785, where Status also gives the title 16 points back.
         let state = rows.iter().any(|r| !r.status.is_empty()).then_some(if table <= 785.0 { 160.0 } else { 176.0 });
         let project = (table > 785.0 && rows.iter().any(|r| !r.project.is_empty())).then_some(150.0);
         let priority = (table > 915.0 && rows.iter().any(|r| r.priority != Priority::Medium)).then_some(112.0);
@@ -191,6 +197,7 @@ impl Columns {
     }
 }
 
+/// A column's name, at the head of the table.
 fn heading(s: &str) -> El {
     row().child(capitals(s, 10.5, 20.0, 0.84, muted()))
 }
@@ -225,7 +232,7 @@ fn start_of_day(now: f64) -> f64 {
 
 /// When a thread was sent, in plain words: "just now", "6 min ago", "4 hours ago", "Yesterday",
 /// "Sep 28" (`updatedWords` in `renderer/src/threads/page-rules.ts`).
-pub fn sent_words(at: f64, now: f64) -> String {
+fn sent_words(at: f64, now: f64) -> String {
     const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     let min = ((now - at) / 60_000.0).floor().max(0.0) as i64;
     if min < 1 {
@@ -259,6 +266,7 @@ fn thread(r: &Row, at: usize, cols: &Columns, now: f64) -> El {
     let face = row().size(18.0, 18.0).radius(9.0).center().border(1.0, rgba(239, 235, 231, 0.12)).child(icon(&icons::AGENT_EYES, 16.0).color(dim()));
     let mut title = row().items_center().child(face.mr(10.0)).child(el().shrink().child(words).child(line));
     if r.pinned {
+        // A thread kept at the top wears a small pin after its words, 3 points under their line.
         title = title.child(el().ml(9.0).child(icon(&icons::PIN, 13.0).color(muted()).mt(3.0)));
     }
     let small = |s: &str, c: Color| row().items_center().child(capitals(s, 11.5, 20.0, 0.575, c).truncate());
@@ -288,10 +296,11 @@ fn thread(r: &Row, at: usize, cols: &Columns, now: f64) -> El {
     e
 }
 
-/// The one quiet line an empty tab carries, in the middle of what the tabs leave of the page.
+/// The one quiet line an empty tab carries (`.th-empty`), in the middle of what the tabs leave
+/// of the page, less 12% of the window's height at its foot.
 fn empty(words: &str, s: &State) -> El {
     let (_, page_h) = s.page_size();
-    row().h((page_h - 52.0).max(120.0))
+    row().min_h((page_h - 52.0).max(0.0))
         .pt(32.0)
         .px(24.0)
         .pb(0.12 * s.size.1)
@@ -301,6 +310,9 @@ fn empty(words: &str, s: &State) -> El {
 
 pub fn view(s: &State) -> El {
     let (page_w, _) = s.page_size();
+    // Each tab's rows, what its time column is called, and its words when it has none
+    // (`emptyTabWords`). The web app's empty Inbox is a page of its own, a sky over the whole card
+    // and a box to write in, which this window does not draw while it only reads.
     let (rows, sent, nothing) = match s.inbox_tab {
         1 => (&s.lists.progress, "Sent", match s.lists.needs.len() {
             0 => "Nothing is running.".to_string(),

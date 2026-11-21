@@ -105,7 +105,7 @@ pub fn back_forward(s: &State) -> El {
     let arrows = row().absolute(126.0, 58.5).gap(2.0).child(arrow(&icons::BACK, !s.history.is_empty()).on_press(|s: &mut State| s.back())).child(arrow(&icons::FORWARD, false));
     // The Inbox's title and buttons stand in the same strip as the arrows.
     if s.view == View::Inbox {
-        return el().absolute(0.0, 0.0).child(arrows).child(crate::inbox::strip(s));
+        return el().absolute(0.0, 0.0).child(crate::inbox::strip(s)).child(arrows);
     }
     arrows
 }
