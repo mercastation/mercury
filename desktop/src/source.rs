@@ -64,8 +64,15 @@ pub fn from_args(args: &[String]) -> Source {
     let token = flag(args, "--token").or_else(|| std::env::var("MERCURY_TOKEN").ok());
     match (url, token) {
         (Some(url), Some(token)) => Source::Door { url: url.trim_end_matches('/').to_string(), token },
-        _ => Source::Nothing,
+        // Told nothing, look for the running app's own door (`main/local-door.mts` leaves the note).
+        _ => running_app_note().and_then(|path| door_file(&path)).unwrap_or(Source::Nothing),
     }
+}
+
+/// Where the desktop app leaves its door's note: its own folder under Application Support.
+fn running_app_note() -> Option<String> {
+    let home = std::env::var("HOME").ok()?;
+    Some(format!("{home}/Library/Application Support/Mercury/local-door.json"))
 }
 
 /// A fixture is read at once, before the first frame, so a headless picture has its data.

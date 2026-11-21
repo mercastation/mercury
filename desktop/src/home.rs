@@ -161,12 +161,17 @@ pub fn view(s: &State) -> El {
     let column = COLUMN.min((page_w - 64.0).max(320.0));
     let cards_h = (page_h - 24.0 - 40.0 - 326.3984).max(300.0);
 
-    let rows = col().children(needs.iter().enumerate().map(|(i, r)| task_row(r, i == 0, s.now)));
-    let working = if progress.is_empty() {
-        el().py(14.0).px(18.0).child(label("No agent is working right now.", 13.5, 400.0, dim()))
-    } else {
-        col().children(progress.iter().enumerate().map(|(i, r)| task_row(r, i == 0, s.now)))
+    // An empty card says so in one line (`HomePage.tsx`), and a head shows its count only above zero.
+    let list = |rows: &[Row], empty: &str| {
+        if rows.is_empty() {
+            el().py(14.0).px(18.0).child(label(empty, 13.5, 400.0, dim()))
+        } else {
+            col().children(rows.iter().enumerate().map(|(i, r)| task_row(r, i == 0, s.now)))
+        }
     };
+    let rows = list(needs, "Nothing needs you.");
+    let working = list(progress, "No agent is working right now.");
+    let count = |n: usize| (n > 0).then_some(n);
     let project = s.snap.products.first().map(|p| p.name.clone()).unwrap_or_default();
 
     let page = col()
@@ -188,8 +193,8 @@ pub fn view(s: &State) -> El {
                 .mt(24.0)
                 .gap(22.0)
                 // `grid-template-columns: 1.35fr 1fr`: the shares are of the row less its gap.
-                .child(home_card("Needs you", Some(needs.len()), "Open inbox →", View::Inbox, rows, cards_h).w((column - 22.0) * 1.35 / 2.35))
-                .child(home_card("In progress", None, "Open →", View::Inbox, working, cards_h).w((column - 22.0) / 2.35)),
+                .child(home_card("Needs you", count(needs.len()), "Open inbox →", View::Inbox, rows, cards_h).w((column - 22.0) * 1.35 / 2.35))
+                .child(home_card("In progress", count(progress.len()), "Open →", View::Inbox, working, cards_h).w((column - 22.0) / 2.35)),
         );
     row().w_full().justify_center().child(page)
 }

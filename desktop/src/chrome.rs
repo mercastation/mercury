@@ -99,6 +99,21 @@ pub fn rail(s: &State) -> El {
         .child(col().pin(Some(0.0), None, None, Some(12.0)).gap(2.0).child(rail_button(&icons::FEEDBACK, false)).child(rail_button(&icons::SETTINGS, false)))
 }
 
+/// One quiet line at the card's foot when the engine cannot be read, so an empty inbox is never
+/// mistaken for a finished one.
+pub fn notice(s: &State) -> Option<El> {
+    let said = match (&s.source, &s.error) {
+        (crate::source::Source::Nothing, _) => "Mercury is not running, so there is nothing to show yet.",
+        (_, Some(_)) => "Mercury is not answering. This will catch up by itself when it does.",
+        _ => return None,
+    };
+    Some(
+        row().pin(Some(CARD[0]), None, Some(CARD[2]), Some(CARD[3] + 14.0))
+            .justify_center()
+            .child(row().h(28.0).px(12.0).items_center().radius(6.0).fill(rgba(17, 16, 15, 0.7)).border(1.0, edge()).child(label(said, 12.5, 400.0, dim()))),
+    )
+}
+
 /// Back and forward, at the head of the card. Dim while there is nowhere to go.
 pub fn back_forward(s: &State) -> El {
     let arrow = |glyph: &'static Icon, live: bool| row().size(26.0, 26.0).radius(6.0).center().opacity(if live { 1.0 } else { 0.45 }).child(icon(glyph, 15.0).color(muted()));

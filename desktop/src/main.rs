@@ -232,7 +232,7 @@ fn view(s: &State, _: &mut Cx<State>) -> El {
         View::Inbox => inbox::view(s),
         View::Thread { id, product } => thread::view(s, id, product),
     };
-    el().w_full()
+    let root = el().w_full()
         .h_full()
         .fill(theme::page())
         .on_layout(resized)
@@ -246,7 +246,11 @@ fn view(s: &State, _: &mut Cx<State>) -> El {
                 .clip_corners([0.0, 0.0, 6.0, 6.0])
                 .scroll(ScrollSpec { stick_bottom: false })
                 .child(page),
-        )
+        );
+    match chrome::notice(s) {
+        Some(notice) => root.child(notice),
+        None => root,
+    }
 }
 
 static FONTS: &[&[u8]] = &[include_bytes!("../assets/fonts/Geist-Variable.ttf"), include_bytes!("../assets/fonts/GeistMono-Variable.ttf")];
