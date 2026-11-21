@@ -5306,9 +5306,9 @@ export class Supervisor {
 
   async _askSmall<T>(ask: (opts: SmallModelAsk) => Promise<T> | T, { product = null }: { product?: string | null } = {}): Promise<T | ''> {
     const home = this._homeEngine();
-    const engines = this._projectProfile(product)
+    const engines = (this._projectProfile(product)
       ? [DEFAULT_ENGINE]
-      : [home, ...this.engineChoices().map(e => e.id).filter(id => id !== home)];
+      : [home, ...this.engineChoices().map(e => e.id).filter(id => id !== home)]).filter((id) => supportsHarnessOperation(id, 'smallModelArgs'));
     for (const engine of engines) {
       for (const env of this._smallModelEnvs(engine, product)) {
         const answer = await ask({ claudeBin: this.config?.claudeBin, codexBin: this.config?.codexBin, engine, env });
@@ -8189,6 +8189,9 @@ export class Supervisor {
   // (tests/a-cloud-run-the-app-restarted-under-still-reaches-its-thread). It
   // shows once it speaks: a run that had already ended only comes home.
   _followComingHome({ itemId, rec }: { itemId: string; rec: LiveSessionRecord }, child: ChildProcess) {
+    // Only a line stream reads back. An Antigravity run spoke ACP to a worker
+    // that is gone, and agy ends a turn when its input closes.
+    if (engineOf(rec.engine) !== 'codex' && engineOf(rec.engine) !== 'claude') return null;
     const engine = engineOf(rec.engine) === 'codex' ? 'codex' : 'claude';
     const { capture, stream, summarize, trace: traceOne, activity } = engine === 'codex' ? codexLineReaders(harnessFor('codex').readers() as FrameReaders) : harnessFor('claude').readers() as FrameReaders;
     const joinedAt = Date.now();

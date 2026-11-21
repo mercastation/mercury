@@ -127,7 +127,8 @@ describe('the card', () => {
   const app = read('renderer/src/App.tsx');
   const card = app.slice(app.indexOf('const view = approvalView(a.input, a.tool);'), app.indexOf("{modal === 'snooze' && snoozeItem && ("));
   it('names the agent and the thread first, and opens the thread from there', () => {
-    expect(card).toContain("harnessOf(row) === 'codex' ? 'Codex' : 'Claude Code'");
+    // Each agent by its own name, Antigravity's included.
+    expect(card).toContain('engineLabel(harnessOf(row))');
     expect(card.indexOf('approval-from')).toBeLessThan(card.indexOf('approval-lede'));
     expect(card).toContain('onClick={() => openApprovalRow(a.item)}');
   });

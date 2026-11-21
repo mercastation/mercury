@@ -209,6 +209,7 @@ import { priorityCommands, priorityIdOf, priorityLabelOf, type PriorityId } from
 import { runNowCommands } from './run-now';
 import { withOlder } from './older-threads';
 import { NO_FILTER, filterBox, harnessOf, isFiltering, type BoxFilter as BoxFilterState, type Harness } from './box-filter';
+import { engineLabel } from '../../shared/engines.mts';
 import { URGENT_PRIORITY, itemPriority, shownPriority, moveProduct, placeScore, placedScore } from '../../shared/rank.mts';
 import { rankProducts } from './project-priority';
 import { threadsMade, approvableFiled, doItHereWrites, answerAllWrites, RUN_IT } from './threads-made';
@@ -9914,7 +9915,7 @@ export default function App() {
                 {(() => {
                   const row = approvalRow(a.item);
                   const mcp = a.tool.startsWith('mcp__');
-                  const agent = row ? (harnessOf(row) === 'codex' ? 'Codex' : 'Claude Code') : null;
+                  const agent = row ? engineLabel(harnessOf(row)) : null;
                   const asker = approvalAsker(row ? rowTitle(row) : null, snap.products.find((p) => p.slug === a.product)?.name ?? a.product ?? 'An agent');
                   const input = a.input as ApprovalInput | undefined;
                   const cwd = !mcp && input?.cwd ? String(input.cwd) : null;

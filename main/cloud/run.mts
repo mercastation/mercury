@@ -1347,11 +1347,9 @@ export async function cloudRun({
     if (!fs.existsSync(t)) say(`no transcript for ${resumeId} on this Mac; the cloud run starts without it`);
     else { conversations.add(t); sending.push(sendFile(t)); }
   }
-  // AN ANTIGRAVITY CONVERSATION GOES WITH THE START, like a transcript, so the
-  // sandbox hands it to the agent with the rest of the agy home. Sent when its
-  // `session/resume` went by, its folders were made by the sandbox's root and
-  // agy could not open it: "Failed to read session" (2026-11-20, first real
-  // reply in the cloud). The supervisor names it (AGENTBOX_AGY_RESUME).
+  // An Antigravity conversation goes with the start, like a transcript, so the
+  // sandbox hands it to the agent with the rest of the agy home; a file placed
+  // later sits in folders the agent does not own. The supervisor names it.
   const agyResume = agy ? agyConversationFor(agyHome, env.AGENTBOX_AGY_RESUME) : null;
   if (agyResume && !fs.existsSync(agyResume)) say(`no Antigravity conversation ${path.basename(agyResume, '.db')} on this Mac; the cloud run starts without it`);
   else if (agyResume) sending.push(sendFile(agyResume));

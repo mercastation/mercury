@@ -51,6 +51,15 @@ const freeze = <T,>(value: T): T => {
 // Git Bash's path is kept, since Claude Code on Windows needs it to find a
 // shell and it is neither a login nor a mark of the session that started this.
 const CLAUDE_CODE = '^CLAUDE_CODE_(?!GIT_BASH_PATH$)';
+// Every vendor's provider keys, for a tool that would bill one it found in its
+// environment instead of the person's plan (docs/harnesses.md, "Credentials").
+const EVERY_PROVIDER_KEY = [
+  '^ANTHROPIC_', CLAUDE_CODE, '^CLAUDECODE$', '^CLAUDE_PID$', '^CLAUDE_EFFORT$', '^CLAUDE_CONFIG_DIR$', '^CLAUDE_SECURESTORAGE_CONFIG_DIR$',
+  '^OPENAI_', '^CODEX_', '^OPENROUTER_', '^GEMINI_', '^GOOGLE_',
+  '^AWS_', '^AZURE_', '^GROQ_', '^MISTRAL_', '^DEEPSEEK_', '^XAI_', '^CEREBRAS_',
+  '^TOGETHER_', '^FIREWORKS_', '^DEEPINFRA_', '^BASETEN_', '^NVIDIA_', '^GITLAB_TOKEN$',
+  '_API_KEY$', '_ACCESS_TOKEN$',
+];
 export const HARNESS_DEFINITIONS: readonly HarnessDefinition[] = freeze([
   {
     id: 'claude', label: 'Claude Code', word: 'Claude Code', binKey: 'claudeBin',
@@ -132,13 +141,7 @@ export const HARNESS_DEFINITIONS: readonly HarnessDefinition[] = freeze([
     installer: { shell: '/bin/bash', url: 'https://opencode.ai/install', pipe: 'bash' },
     loginArgs: ['auth', 'login'], statusArgs: ['auth', 'list'],
     credentialFiles: ['auth.json'],
-    scrubPatterns: [
-      '^ANTHROPIC_', CLAUDE_CODE, '^CLAUDECODE$', '^CLAUDE_PID$', '^CLAUDE_EFFORT$', '^CLAUDE_CONFIG_DIR$', '^CLAUDE_SECURESTORAGE_CONFIG_DIR$',
-      '^OPENAI_', '^CODEX_', '^OPENCODE_', '^OPENROUTER_', '^GEMINI_', '^GOOGLE_',
-      '^AWS_', '^AZURE_', '^GROQ_', '^MISTRAL_', '^DEEPSEEK_', '^XAI_', '^CEREBRAS_',
-      '^TOGETHER_', '^FIREWORKS_', '^DEEPINFRA_', '^BASETEN_', '^NVIDIA_', '^GITLAB_TOKEN$',
-      '_API_KEY$', '_ACCESS_TOKEN$',
-    ],
+    scrubPatterns: [...EVERY_PROVIDER_KEY, '^OPENCODE_'],
     // NO USAGE AND NO PLAN. There is no endpoint on the server and no command
     // on the CLI that reports what is left of anything, because OpenCode bills
     // through whichever provider the user connected and does not know. Per-run
@@ -169,12 +172,9 @@ export const HARNESS_DEFINITIONS: readonly HarnessDefinition[] = freeze([
     installer: { shell: '/bin/bash', url: 'https://antigravity.google/cli/install.sh', pipe: 'bash' },
     loginArgs: ['acp', '--login'], statusArgs: ['models'],
     credentialFiles: [],
-    // A Gemini key (`gemini-api-key`) or Google Cloud credentials
-    // (`agent-platform`) in its environment would bill something other than the person's plan.
-    scrubPatterns: [
-      '^ANTHROPIC_', CLAUDE_CODE, '^CLAUDECODE$', '^CLAUDE_PID$', '^CLAUDE_EFFORT$', '^CLAUDE_CONFIG_DIR$', '^CLAUDE_SECURESTORAGE_CONFIG_DIR$',
-      '^OPENAI_', '^CODEX_', '^GEMINI_', '^GOOGLE_', '^CLOUDSDK_',
-    ],
+    // A Gemini key (`gemini-api-key`), Google Cloud credentials (`agent-platform`)
+    // or a custom model's key would bill something other than the person's plan.
+    scrubPatterns: [...EVERY_PROVIDER_KEY, '^CLOUDSDK_'],
     capabilities: { nativeCommands: false, fork: false, nativeReview: false, remoteControl: false, inlineImages: true, claudeEffort: false, planLimits: false },
     imageInstruction: 'Each one is attached to this message as an image, and is also on disk at the absolute path below.',
   },

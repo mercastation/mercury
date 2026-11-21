@@ -183,9 +183,9 @@ const CODE_ANSWER_MS = 60_000;
 // A link is taken only once something ends it: a half-read link is not one.
 const CLAUDE_SIGNIN_URL = /(https:\/\/claude\.(?:com|ai)\/\S*oauth\/authorize\?[^\s"'<>]+)\s/;
 const CODEX_DEVICE_URL = /(https:\/\/auth\.openai\.com\/[^\s"'<>]+)\s/;
-// ANTIGRAVITY'S SIGN-IN, `agy acp --login` through a pipe (agy 1.5.13,
-// measured 2026-11-20 in a container): a Google link, the code read as a line,
-// then "Logged in as <email>." and exit 0, or "couldn't log in" and exit 1.
+// Antigravity's sign-in, `agy acp --login` through a pipe (agy 1.5.13): a
+// Google link, the code read as a line, then "Logged in as <email>." and exit 0,
+// or "couldn't log in" and exit 1.
 const AGY_SIGNIN_URL = /(https:\/\/accounts\.google\.com\/o\/oauth2\/[^\s"'<>]+)\s/;
 const AGY_LOGGED_IN = /Logged in as (\S+?)\.?\s/;
 const AGY_SIGNED_OUT = /Please sign in|not logged in/i;
@@ -2220,12 +2220,9 @@ async function stageTails(r, dir, staging) {
   return staging;
 }
 
-// The transcripts that come home, with the login's text taken out of them.
-// A FILE THAT IS NOT TEXT KEEPS ITS SHAPE (2026-11-20): Antigravity's
-// conversation is a SQLite database, and rewriting it as text turned every
-// byte that is not UTF-8 into U+FFFD, so the copy that came home could not be
-// opened and a reply could not resume it. In such a file a secret is masked
-// byte for byte, the same length, so nothing around it moves.
+// The transcripts that come home, with the login's text taken out of them. A
+// file that is not text (a SQLite conversation) is masked byte for byte, the
+// same length, since rewritten as text it would no longer open.
 export function redactFolder(dir, secrets) {
   const walk = (d) => {
     let entries = [];
@@ -2256,11 +2253,9 @@ export function redactFolder(dir, secrets) {
   walk(dir);
 }
 
-// WHAT IN AN ANTIGRAVITY SIGN-IN IS SECRET: the values its JSON files keep
-// under a key that names a token, a secret or a password, and a file that is
-// itself a token. Not every long string: the sign-in's project id is one, and
-// it is written into every conversation, so taking it for a secret had the
-// conversations rewritten on their way home (2026-11-20).
+// What in an Antigravity sign-in is secret: the values its JSON files keep under
+// a key that names a token, a secret or a password, and a file that is itself a
+// token. Not every long string: its project id is in every conversation.
 export function agyLoginSecrets(rel, body) {
   const out = [];
   const keep = (v) => { if (typeof v === 'string' && v.length >= 20 && !/\s/.test(v)) out.push(v); };

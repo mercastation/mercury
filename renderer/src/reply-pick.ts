@@ -97,9 +97,9 @@ export function pickToSend(
 ): ReplyPick {
   // Claude Code has an alias for every row in the drawer, so there is no way to
   // say "clear it" there and nothing is lost by naming what she picked. Codex
-  // has no alias for its default and "Codex's own" is a real row, so null is
-  // her saying her config.toml decides.
-  const model = engine === 'codex' ? pick.model : (pick.model ?? DEFAULT_MODEL);
+  // and Antigravity have no alias for their default, so null is her saying the
+  // tool's own configuration decides.
+  const model = engine === 'codex' || engine === 'antigravity' ? pick.model : (pick.model ?? DEFAULT_MODEL);
   const moves = engineCount > 1 && !!was && !!engine && engine !== was;
   return { model, effort: pick.effort, ...(moves ? { engine } : {}) };
 }

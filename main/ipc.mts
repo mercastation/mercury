@@ -2205,9 +2205,7 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
     if (signedIn !== null) config.antigravitySignedIn = signedIn;
     // Whose it is, for its tile and for matching it to its cloud sign-in.
     if (signedIn !== null) config.antigravityEmail = signedIn ? email : null;
-    // AND THE PICKERS ARE TOLD (2026-11-20: "não está mostrando os modelos do
-    // antigravity"). agy answers over the network, seconds after launch, and
-    // the screen had read the lists once already and got none.
+    // agy answers seconds after launch, after the screen has read the lists.
     if (!window.isDestroyed()) window.webContents.send('zero:models-changed');
     return signedIn;
   };

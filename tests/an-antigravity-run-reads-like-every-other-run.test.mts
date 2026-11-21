@@ -130,4 +130,18 @@ describe('an Antigravity run on the thread', () => {
     expect(readers.took('session/update', command('in_progress'))).toBe(true);
     expect(readers.took(MESSAGE_DONE, { sessionId: SID, text: 'Done.' })).toBe(true);
   });
+
+  // 2026-11-21, measured on agy 1.5.13: right after `session/new`, before any
+  // prompt, agy sends `available_commands_update` and `usage_update`. Counted as
+  // answering, a reply was marked heard before its prompt went out, so a run
+  // that died in between would never have it delivered again.
+  it('does not count what agy announces when a session opens', () => {
+    const took = harnessFor('antigravity').readers().took;
+    for (const kind of ['available_commands_update', 'usage_update', 'session_info_update', 'current_mode_update', 'config_option_update']) {
+      expect(took('session/update', update({ sessionUpdate: kind }))).toBe(false);
+    }
+    expect(took('session/update', thought('Thinking.'))).toBe(true);
+    expect(took('session/update', command('completed', { again: true }))).toBe(true);
+    expect(took('session/update', update({ sessionUpdate: 'plan', entries: [] }))).toBe(true);
+  });
 });

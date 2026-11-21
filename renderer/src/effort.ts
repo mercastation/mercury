@@ -129,7 +129,7 @@ export const LAST_EFFORT_KEY = 'zero.lastEffort';
  * Code keeps the original key, so a level she has already chosen survives.
  */
 export function lastEffortKey(engine: string | null = null): string {
-  return engine === 'codex' ? `${LAST_EFFORT_KEY}.codex` : LAST_EFFORT_KEY;
+  return engine === 'codex' ? `${LAST_EFFORT_KEY}.codex` : engine === 'antigravity' ? `${LAST_EFFORT_KEY}.antigravity` : LAST_EFFORT_KEY;
 }
 
 // Remembered the moment she picks, like the level, the project and the model.
@@ -144,7 +144,7 @@ export function readLastEffort(
 ): string | null {
   try {
     const raw = store?.getItem(lastEffortKey(engine));
-    const ok = engine === 'codex' ? isEffortWord(raw) : isEffort(raw);
+    const ok = engine === 'codex' || engine === 'antigravity' ? isEffortWord(raw) : isEffort(raw);
     return ok ? (raw as string) : null;
   } catch { return null; }
 }
@@ -155,7 +155,7 @@ export function writeLastEffort(
   engine: string | null = null,
 ): void {
   try {
-    const ok = engine === 'codex' ? isEffortWord(id) : isEffort(id);
+    const ok = engine === 'codex' || engine === 'antigravity' ? isEffortWord(id) : isEffort(id);
     if (!ok) store?.removeItem(lastEffortKey(engine));
     else store?.setItem(lastEffortKey(engine), id as string);
   } catch { /* a refused store is not a reason to lose the send */ }

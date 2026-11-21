@@ -557,9 +557,7 @@ export function cloudPlaceAccounts(cloud: CloudStatus, engine: 'claude' | 'codex
 }
 
 /**
- * ANTIGRAVITY'S TILES, DRAWN AS CLAUDE CODE'S ARE (2026-11-20: "não está igual
- * ao do claude code"): the account by its email, In use, a tag for each place
- * it works, and the cloud sign-in it is missing. agy holds one sign-in on a
+ * Antigravity's tiles, drawn as Claude Code's are. agy holds one sign-in on a
  * Mac; its cloud login is the one with the same email, or the first while the
  * Mac does not know whose it is (supervisor `_cloudAccountOfThisMac`). Any
  * other cloud login is a tile of its own. agy reports no usage, so no meters
@@ -2297,10 +2295,8 @@ export function Settings({ look, onSetLook, onSkyTheme, tune, onSetTune, onReset
     );
   };
 
-  // ANTIGRAVITY'S PAGE IS CLAUDE CODE'S PAGE (2026-11-20): Signed in, with the
-  // account's tile and its places; Cloud once it has a cloud sign-in; and
-  // Permissions, in agy's own modes. agy holds one Google sign-in, so there is
-  // no Add account: signing in again replaces it.
+  // Claude Code's page, for agy. It holds one Google sign-in, so there is no
+  // Add account: signing in again replaces it.
   const antigravityPage = () => {
     const a = w?.antigravity;
     if (!a) return null;

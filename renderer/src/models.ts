@@ -279,11 +279,6 @@ export const LAST_MODEL_KEY = 'zero.lastModel';
  * `codexModelRefusal` stops that run rather than picking a stand-in. Claude
  * Code keeps the original key, so a model she has already chosen survives this
  * change untouched.
- *
- * AND ANTIGRAVITY HAS ITS OWN (2026-11-21). It shared Claude Code's, so picking
- * `gemini-4-neon` made it Claude Code's remembered model: the next card opened
- * on Claude Code with a Gemini model, and the thread it filed ran on Claude
- * Code, which refused the model.
  */
 export function lastModelKey(engine: string | null = null): string {
   return engine === 'codex' ? `${LAST_MODEL_KEY}.codex` : engine === 'antigravity' ? `${LAST_MODEL_KEY}.antigravity` : LAST_MODEL_KEY;

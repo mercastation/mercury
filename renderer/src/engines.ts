@@ -70,6 +70,14 @@ export function startingEngine(last: string | null, choices: Engine[] | undefine
   return offered === 'codex' || offered === 'antigravity' ? offered : 'claude';
 }
 
+/**
+ * Whether Send now can cut a running step on this engine. Only Claude Code
+ * takes a message mid-step; Codex and Antigravity take it when the turn ends.
+ */
+export function cutsARunningStep(engine: string | null | undefined): boolean {
+  return (engine ?? DEFAULT_ENGINE) === DEFAULT_ENGINE;
+}
+
 // Remembered the moment she picks, exactly like the project, the level and the
 // model: a card that forgets what you chose the second it closes makes you
 // choose again (hers).

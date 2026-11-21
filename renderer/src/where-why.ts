@@ -7,7 +7,7 @@ import type { WhyNotCloud } from './types';
 
 export interface WhyCard { head: string; body: string }
 
-const ENGINE: Record<string, string> = { claude: 'Claude', codex: 'Codex' };
+const ENGINE: Record<string, string> = { claude: 'Claude', codex: 'Codex', antigravity: 'Antigravity' };
 const engineName = (e: unknown) => ENGINE[String(e)] ?? 'this agent';
 
 function local(why: string, detail: WhyNotCloud['detail']): string {

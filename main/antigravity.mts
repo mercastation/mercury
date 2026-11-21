@@ -3,7 +3,7 @@
 // worker's own, because ACP has no "message finished" event and the stateless
 // trace and summary readers need whole messages: `turn/message` when a run of
 // prose ends, and `session/prompt`, the prompt request's own answer, when the
-// turn ends. Shapes read off agy 1.5.13 on 2026-11-19.
+// turn ends. Shapes read off agy 1.5.13.
 import { SAYING_CAP } from './codex.mts';
 import { nameSlugs } from '../shared/product-name.mjs';
 import type { AntigravityModeId } from '../shared/antigravity-modes.mts';
@@ -87,9 +87,15 @@ export function captureAntigravityEvent(session: AntigravitySession | null | und
   } catch { /* a reader that throws kills a run that was going fine */ }
 }
 
-/** The agent has begun answering; `session/new` and `session/resume` come before it. */
-export function antigravityTookTheWords(method: string, _params?: unknown): boolean {
-  return method === 'session/update' || method === MESSAGE_DONE;
+// What agy sends only while it works a prompt. It also announces its commands
+// and usage as a session opens, before any prompt, and those are not an answer.
+const ANSWERING = new Set(['agent_message_chunk', 'agent_thought_chunk', 'tool_call', 'tool_call_update', 'plan']);
+
+/** The agent has begun answering the prompt it was given. */
+export function antigravityTookTheWords(method: string, params?: unknown): boolean {
+  if (method === MESSAGE_DONE) return true;
+  if (method !== 'session/update') return false;
+  return ANSWERING.has(text((params as { update?: { sessionUpdate?: unknown } } | null)?.update?.sessionUpdate));
 }
 
 // Each message starts from empty, so the live text matches the traced block;

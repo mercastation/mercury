@@ -10,7 +10,9 @@
 // row that was filed).
 import { describe, it, expect } from 'vitest';
 import { LAST_MODEL_KEY, lastModelKey, readLastModel, writeLastModel } from '../renderer/src/models.ts';
-import { harnessOf, recentModels } from '../renderer/src/threads/composer-rules.ts';
+import { harnessFields, harnessOf, recentModels } from '../renderer/src/threads/composer-rules.ts';
+import { pickToSend } from '../renderer/src/reply-pick.ts';
+import { CODEX_OWN } from '../renderer/src/models.ts';
 import { ENGINE_CHOICE_ENABLED, engineFor, isAntigravityModel, isCodexModel } from '../shared/engines.mts';
 
 const memory = () => {
@@ -53,6 +55,17 @@ describe('a model only Antigravity runs', () => {
     expect(engineFor(row, { found: { claude: true, antigravity: false }, enabled: ENGINE_CHOICE_ENABLED })).toBe('claude');
     expect(engineFor({ model: 'sonnet' }, { found: { claude: true, antigravity: true }, enabled: ENGINE_CHOICE_ENABLED })).toBe('claude');
     expect(engineFor({ model: 'claude-opus-5-5', engine: 'antigravity' }, { found: { claude: true, antigravity: true }, enabled: ENGINE_CHOICE_ENABLED })).toBe('antigravity');
+  });
+
+  // 2026-11-21 review: Antigravity's own default is an empty model, as Codex's
+  // is, but the card and the reply sent Claude Code's default in its place, and
+  // agy refuses `opus`.
+  it('is left to agy when none is picked, on a new thread and on a reply', () => {
+    expect(harnessFields({ engine: 'antigravity', model: CODEX_OWN, effort: null, engineCount: 2, codexDefault: null })).toEqual({ engine: 'antigravity' });
+    expect(harnessFields({ engine: 'antigravity', model: 'gemini-4-neon', effort: 'high', engineCount: 2, codexDefault: null })).toEqual({ engine: 'antigravity', model: 'gemini-4-neon', effort: 'high' });
+    expect(harnessFields({ engine: 'claude', model: CODEX_OWN, effort: null, engineCount: 2, codexDefault: null }).model).toBe('opus');
+    expect(pickToSend({ model: null, effort: null }, { engine: 'antigravity', was: 'antigravity', engineCount: 2 }).model).toBeNull();
+    expect(pickToSend({ model: null, effort: null }, { engine: 'claude', was: 'claude', engineCount: 2 }).model).toBe('opus');
   });
 
   it('comes back in the card’s recent models as Antigravity’s, not Claude Code’s', () => {

@@ -238,9 +238,8 @@ export function isCodexModel(model: unknown): boolean {
 /**
  * A model only Antigravity runs: Google's Gemini models and the open GPT-OSS
  * ones, as `agy models` lists them (agy 1.5.13). On a row naming no engine the
- * model is the choice of Antigravity (2026-11-21: a thread filed with
- * `gemini-4-neon` and no engine ran on Claude Code, which refused the model).
- * Antigravity's Claude models are Claude's own ids, so those stay Claude Code's.
+ * model is the choice of Antigravity. Antigravity's Claude models are Claude's
+ * own ids, so those stay Claude Code's.
  */
 export function isAntigravityModel(model: unknown): boolean {
   return typeof model === 'string' && /^(gemini|gpt-oss)-[a-z0-9._-]*$/i.test(model);

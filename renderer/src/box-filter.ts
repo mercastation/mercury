@@ -12,7 +12,7 @@
 // waiting. It also means the menu can count every choice honestly, off the same
 // rows. `tests/a-box-can-be-filtered-by-project-priority-or-agent.test.mts`.
 
-import { engineLabel } from '../../shared/engines.mts';
+import { engineLabel, isAntigravityModel } from '../../shared/engines.mts';
 import { shownPriority } from '../../shared/rank.mts';
 import { PRIORITIES, priorityIdOf, type PriorityId } from './priority';
 import { isTroubleRow } from './trouble-row';
@@ -31,7 +31,7 @@ export type FilterPart = keyof BoxFilter;
 
 export const NO_FILTER: BoxFilter = { project: null, priority: null, harness: null };
 
-const HARNESSES: Harness[] = ['claude', 'codex'];
+const HARNESSES: Harness[] = ['claude', 'codex', 'antigravity'];
 
 // The labels that mark a conversation as Codex's, the same set the byline reads
 // (`bylineFacts`). Exact words, so a label that merely contains "codex" is not one.
@@ -41,16 +41,19 @@ const CODEX_LABELS = new Set(['codex', 'codex-import', 'not-imported']);
  * WHICH AGENT A ROW BELONGS TO. Measured on her store 2026-09-28: 11 rows carry
  * `engine: codex` and about 50 carry a codex label instead (brought in from
  * Codex), and nothing else names Codex at all. Everything unmarked was Claude
- * Code, which is the reading `engineOf` makes in main/supervisor.mts too.
+ * Code, which is the reading `engineOf` makes in main/supervisor.mts too. A row
+ * naming no engine with a model only Antigravity runs is Antigravity's, as
+ * `engineFor` in shared/engines.mts reads it.
  */
-export function harnessOf(item: Pick<WorkItem, 'labels'> & { engine?: string | null }): Harness {
+export function harnessOf(item: Pick<WorkItem, 'labels'> & { engine?: string | null; model?: string | null }): Harness {
   if (item.engine === 'codex') return 'codex';
   if (item.engine === 'antigravity') return 'antigravity';
   if ((item.labels ?? []).some((l) => CODEX_LABELS.has(l) || l.startsWith('codex:'))) return 'codex';
+  if (!item.engine && isAntigravityModel(item.model)) return 'antigravity';
   return 'claude';
 }
 
-type Row = Pick<WorkItem, 'product' | 'priority' | 'labels'> & { engine?: string | null; wrote?: WorkItem['wrote'] };
+type Row = Pick<WorkItem, 'product' | 'priority' | 'labels'> & { engine?: string | null; model?: string | null; wrote?: WorkItem['wrote'] };
 
 // THE LEVEL IT RUNS AT, which is the level the row shows (shared/rank.mts
 // shownPriority). `direct` names the conversation projects, whose level is the
@@ -152,9 +155,10 @@ export function filterMenu(rows: Row[], f: BoxFilter, products: Product[], direc
   const priorities = PRIORITIES.map((p) => ({ value: p.id, label: p.label, count: byLevel.get(p.id) ?? 0, on: f.priority === p.id }));
 
   const byHarness = count('harness', harnessOf);
-  const both = HARNESSES.every((h) => (byHarness.get(h) ?? 0) > 0);
-  const harnesses = both || f.harness
-    ? HARNESSES.map((h) => ({ value: h, label: engineLabel(h), count: byHarness.get(h) ?? 0, on: f.harness === h }))
+  // The agents this box holds work from, and the one picked even when it holds none.
+  const shown = HARNESSES.filter((h) => (byHarness.get(h) ?? 0) > 0 || f.harness === h);
+  const harnesses = shown.length > 1 || f.harness
+    ? shown.map((h) => ({ value: h, label: engineLabel(h), count: byHarness.get(h) ?? 0, on: f.harness === h }))
     : [];
 
   return { projects, moreProjects, priorities, harnesses };

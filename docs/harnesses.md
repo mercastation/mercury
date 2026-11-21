@@ -285,8 +285,14 @@ Google sign-in:
   `agy models` lists them as `<model>-<level>`. A model with no levels (the
   orchestrators) has no `thought_level` option.
 - **Missing, declared so:** usage (agy shows quota only in its own screen),
-  compaction, its slash commands, forking, remote input, updates (agy updates
-  itself).
+  compaction, its slash commands, forking, remote input (so no Send now on its
+  runs), updates (agy updates itself), and the app's small-model questions
+  (`agy -p` takes no home of the app's own, so they would land in the person's
+  own agy history). On the phone its models and its Settings page are not
+  offered, a reply cannot move a thread to it, and a thread of its does not
+  carry on from the phone while the computer is shut: kits are Claude Code's
+  and Codex's. A turn that ended while the app was gone is not read back from
+  its conversation, which is a database; the thread is asked to go on.
 - **In the cloud** (2026-11-20). The sandbox image installs agy with Google's
   installer. Its sign-in is made there, from the cloud setup screen: in a
   Debian container through a pipe, `agy acp --login` printed the Google link,
@@ -298,9 +304,17 @@ Google sign-in:
   servers named in `session/new` and `session/resume` become the stub, the
   cloud note joins the appended instructions, and a conversation is one file,
   `antigravity-cli/conversations/<id>.db` (a fresh agy home given only that
-  file resumed it), so it goes up for a resume and that folder comes home.
-  Offered only on a Mac that runs Antigravity. Not yet seen end to end with a
-  real Google sign-in, nor agy's Auto sandbox inside the container.
+  file resumed it), so it goes up with a resumed run's start and that folder
+  comes home. Only token values in the sign-in's files count as secrets, and
+  a file that is not text is masked byte for byte on its way home: rewritten
+  as text, the conversation database no longer opened. Offered only on a Mac
+  that runs Antigravity. Seen end to end on 2026-11-20 with a real Google
+  sign-in: a first turn (store tools, a commit that came home) and a reply that
+  resumed it. agy exits as soon as its input closes, even mid-turn, so an app
+  that quits ends an Antigravity cloud turn, as it ends a Codex one (a Claude
+  Code run is left going), and the thread is picked up after the restart. The
+  image installs the newest agy when it is built, and nothing compares it with
+  the computer's (shared/cloud-versions.mts covers Claude Code and Codex).
 
 The useful precedent from T3 Code is an adapter between provider behavior and
 orchestration. Herdr keeps agents in normal terminals and uses detection

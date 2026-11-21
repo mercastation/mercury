@@ -1,6 +1,8 @@
 // Antigravity (`agy acp`), the first engine on the ACP transport. Declared
 // missing rather than faked: plan usage (agy reports quota only inside its own
-// screen, `/usage`), compaction, its slash commands, forking and remote input.
+// screen, `/usage`), compaction, its slash commands, forking, remote input, and
+// the app's small-model questions (`agy -p` takes no home of the app's own, so
+// they would land in the person's own agy history).
 import fs from 'node:fs';
 import path from 'node:path';
 import type { EventEmitter } from 'node:events';
@@ -64,8 +66,4 @@ export const antigravityHarness = {
   updateSettings: () => ({}),
   memoryGate: () => ({}),
   updatePlan: () => null,
-  smallModelArgs: (prompt: string, model?: string | null) => ['-p', prompt, '--output-format', 'json', ...(model ? ['--model', model] : [])],
-  smallModelReply: (out: string) => {
-    try { return String((JSON.parse(out) as { response?: unknown }).response ?? '').trim(); } catch { return ''; }
-  },
 };

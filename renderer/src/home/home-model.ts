@@ -1,5 +1,6 @@
 // What Home shows, worked out from data the app already has.
 import { harnessOf } from '../box-filter';
+import { engineLabel } from '../../../shared/engines.mts';
 
 export function greeting(hour: number, name?: string | null): string {
   const part = hour < 4 ? 'Good evening' : hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
@@ -65,12 +66,12 @@ export function rowEngine(
 }
 
 export function engineName(engine: string | undefined): string {
-  return engine === 'codex' ? 'Codex' : 'Claude Code';
+  return engineLabel(engine);
 }
 
-/** The letter on a row's tile: C for Claude Code, X for Codex, so the two read apart. */
+/** The letter on a row's tile: C for Claude Code, X for Codex, A for Antigravity, so they read apart. */
 export function engineLetter(engine: string | undefined): string {
-  return engine === 'codex' ? 'X' : 'C';
+  return engine === 'codex' ? 'X' : engine === 'antigravity' ? 'A' : 'C';
 }
 
 /**

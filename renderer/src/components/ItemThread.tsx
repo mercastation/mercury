@@ -59,6 +59,7 @@ import { gapIndex } from '../../../shared/agents.mts';
 import { askMarkUnread, say } from '../team/chat-events';
 import { seenLine } from '../team/seen-line';
 import { conversationName } from '../threads/page-rules';
+import { cutsARunningStep } from '../engines';
 import { firstName } from '../team/people';
 import { ThreadsMade, type MadeRow } from './ThreadsMade';
 import { TeammatesContext } from '../teammates/row-lead';
@@ -539,11 +540,7 @@ export function ItemThread({ onOpenFileMark, item, engine, engineChoice, codexMo
         onFolds={(runs, lines) => keepPlace(place, { runs, lines })}
         onWhole={() => setWhole(true)}
         onOpenOrigin={onOpenOrigin}
-        // Only a running Claude Code step can be cut; Codex takes her message
-        // at its next step whatever is pressed.
-        onSendNow={session && (session.engine ?? engine) !== 'codex'
-          ? onSendNow
-          : undefined}
+        onSendNow={session && cutsARunningStep(session.engine ?? engine) ? onSendNow : undefined}
         md={md}
         code={changed.length && onOpenDoc
           ? { paths: changed, open: (path) => onOpenDoc(changePathFor(item.id), path) }

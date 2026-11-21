@@ -40,6 +40,18 @@ describe('Antigravity as an engine', () => {
     expect(harnessFor('antigravity').workerEnv(input)).toEqual({ PATH: '/bin', HOME: '/h' });
   });
 
+  // docs/harnesses.md: an ACP worker gets every vendor's provider keys removed,
+  // not only its own engine's. agy takes custom models with keys of their own.
+  it('takes every vendor’s key out, as OpenCode’s worker does', () => {
+    const input = {
+      PATH: '/bin', HOME: '/h', OPENROUTER_API_KEY: 'k', GROQ_API_KEY: 'k', MISTRAL_API_KEY: 'k', DEEPSEEK_API_KEY: 'k',
+      XAI_API_KEY: 'k', CEREBRAS_API_KEY: 'k', TOGETHER_API_KEY: 'k', FIREWORKS_API_KEY: 'k', DEEPINFRA_API_KEY: 'k',
+      BASETEN_API_KEY: 'k', NVIDIA_API_KEY: 'k', GITLAB_TOKEN: 'k', AWS_ACCESS_KEY_ID: 'k', AWS_SECRET_ACCESS_KEY: 'k',
+      AZURE_RESOURCE_NAME: 'k', SOME_OTHER_API_KEY: 'k', HUGGINGFACE_ACCESS_TOKEN: 'k',
+    };
+    expect(harnessFor('antigravity').workerEnv(input)).toEqual({ PATH: '/bin', HOME: '/h' });
+  });
+
   it('signs in, checks the sign-in and installs with agy’s own commands', () => {
     expect(signInCommand('antigravity', '/u/agy')).toEqual({ file: '/u/agy', args: ['acp', '--login'] });
     expect(statusCommand('antigravity', '/u/agy')).toEqual({ file: '/u/agy', args: ['models'] });

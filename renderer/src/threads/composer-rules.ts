@@ -177,8 +177,8 @@ export function toOffered({ people, auto, mates, chosen }: { people: boolean; au
  *  - The Claude model is ALWAYS named, the default included, because this card
  *    is the only place the question is asked and a flag left in zero.config.json
  *    must not answer it instead.
- *  - The Codex default is NOT named, because there the absence of the word is
- *    real: her own ~/.codex/config.toml decides.
+ *  - The Codex and Antigravity defaults are NOT named, because there the
+ *    absence of the word is real: the tool's own configuration decides.
  *  - The engine is named only when this Mac offered a choice, which is when
  *    the supervisor will read it.
  *  - The level only when she picked one this model takes; the caller checks that.
@@ -186,9 +186,9 @@ export function toOffered({ people, auto, mates, chosen }: { people: boolean; au
 export function harnessFields({ engine, model, effort, engineCount, codexDefault }: {
   engine: Harness; model: string; effort: string | null; engineCount: number; codexDefault: string | null;
 }): { engine?: string; model?: string; effort?: string } {
-  const named = engine === 'codex'
-    ? (engineModelPicked('codex', model, codexDefault) ? { model } : {})
-    : { model: model || DEFAULT_MODEL };
+  const named = engine === 'claude'
+    ? { model: model || DEFAULT_MODEL }
+    : (engineModelPicked(engine, model, codexDefault) ? { model } : {});
   return {
     ...(engineCount > 1 ? { engine } : {}),
     ...named,

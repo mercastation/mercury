@@ -117,6 +117,14 @@ describe('whose Antigravity sign-in it is', () => {
 });
 
 describe('Antigravity’s permission modes', () => {
+  // 2026-11-21 review (Codex's finding): Auto said it asks before anything
+  // irreversible, but measured runs in Auto deleted a folder outside the task
+  // without a question. Whether it asks is agy's call, and the words say so.
+  it('promise nothing in Auto that agy does not keep', () => {
+    expect(ANTIGRAVITY_MODES.auto.what).not.toMatch(/asks before/i);
+    expect(ANTIGRAVITY_MODES.auto.what).toMatch(/decides/);
+  });
+
   it('are agy’s own four, Auto first and the default, and Full access last', () => {
     expect(ANTIGRAVITY_MODE_ORDER).toEqual(['auto', 'accept-edits', 'default', 'plan', 'full-access']);
     expect(ANTIGRAVITY_MODE_ORDER.map((m) => ANTIGRAVITY_MODES[m].label)).toEqual(['Auto', 'Accept edits', 'Default', 'Plan', 'Full access']);
