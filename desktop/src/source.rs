@@ -157,6 +157,8 @@ fn fingerprint(snapshot: &Value, keeps: &Option<Local>) -> u64 {
     for part in ["items", "supervisor", "products", "approvals", "engines"] {
         snapshot.get(part).map(Value::to_string).hash(&mut h);
     }
+    // Of the cloud only what its button wears: the rest is hours and readings that tick over.
+    crate::rules::cloud::button(snapshot.get("cloud"), keeps.as_ref().map_or(&[], |local| local.cloud_broken_seen.as_slice())).hash(&mut h);
     if let Some(local) = keeps {
         (local.delivered_through.to_bits(), local.unread_since.to_bits()).hash(&mut h);
         let mut seen: Vec<(&String, u64)> = local.seen_at.iter().map(|(id, at)| (id, at.to_bits())).collect();

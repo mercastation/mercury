@@ -43,6 +43,10 @@ def stats(label, box=None):
     else:
         dd, m, aa, bb = d, mx, a, b
     n = m.size
+    if not n:
+        # A region drawn for a taller or wider window than this picture is of.
+        print(f"{label:26} outside this picture")
+        return
     print(f"{label:26} mean diff {dd.mean():6.2f}/255  | pixels off by >8: {100 * (m > 8).sum() / n:5.1f}%  >24: {100 * (m > 24).sum() / n:5.1f}%  >64: {100 * (m > 64).sum() / n:5.1f}%  | similarity {ssim(aa, bb):.3f}")
 
 stats('whole window')
@@ -60,8 +64,12 @@ HOME = [
     ('sky, right of column', (1060, 300, 190, 430)),
 ]
 import json
-own = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'scenes', f'{name}.regions.json')
-regions = [(label, tuple(box)) for label, box in json.load(open(own))] if os.path.exists(own) else (HOME if name.startswith('home') else [])
+# A scene with no regions of its own is measured by those of the scene it is a kind of:
+# `inbox-later` and `inbox-cloud-count` by `inbox`'s.
+scenes = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'scenes')
+parts = name.split('-')
+own = next((p for p in (os.path.join(scenes, '-'.join(parts[:n]) + '.regions.json') for n in range(len(parts), 0, -1)) if os.path.exists(p)), None)
+regions = [(label, tuple(box)) for label, box in json.load(open(own))] if own else (HOME if name.startswith('home') else [])
 for label, box in regions:
     stats(label, box)
 

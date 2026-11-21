@@ -60,6 +60,20 @@ pub fn waiting_on_cause<'a>(cause: &Item, items: &'a [Item]) -> Vec<&'a Item> {
     items.iter().filter(|i| i.id != cause.id && i.status == "blocked" && i.list("blockedBy").iter().any(|id| id.as_str() == Some(cause.id.as_str()))).collect()
 }
 
+/// The open cause a thread waits behind, or none (`causeOf` in `shared/causes.mts`).
+pub fn cause_of<'a>(i: &Item, items: &'a [Item]) -> Option<&'a Item> {
+    let waits = i.list("blockedBy");
+    if waits.is_empty() || i.status != "blocked" {
+        return None;
+    }
+    items.iter().find(|c| is_cause(c) && c.status != "done" && waits.iter().any(|id| id.as_str() == Some(c.id.as_str())))
+}
+
+/// What a thread behind a cause says on Later, in the Status and Back columns
+/// (`CAUSE_WAIT_WORD` and `CAUSE_BACK_WORDS` in `shared/causes.mts`).
+pub const CAUSE_WAIT_WORD: &str = "Waiting";
+pub const CAUSE_BACK_WORDS: &str = "When fixed";
+
 /// Where the cause is, for the Project column: the project most of its threads are in, and how
 /// many others (`causePlace` in `shared/causes.mts`).
 pub fn cause_place(cause: &Item, waiting: &[&Item], name_of: impl Fn(&str) -> String) -> (String, usize) {
@@ -193,6 +207,26 @@ mod tests {
         assert_eq!(cause_place(&cause, &[], |slug| slug.to_uppercase()), ("DESK".to_string(), 0));
         let by_agent = item(json!({ "kind": "cause", "labels": ["cause"], "wrote": { "kind": { "ts": 1, "source": "agent" } } }));
         assert!(!is_cause(&by_agent));
+    }
+
+    #[test]
+    fn a_blocked_thread_names_the_open_cause_it_waits_behind() {
+        let all: Vec<Item> = [
+            json!({ "id": "w-c", "product": "desk", "kind": "cause", "labels": ["cause"], "status": "open", "title": "GitHub is signed out" }),
+            json!({ "id": "w-old", "product": "desk", "kind": "cause", "labels": ["cause"], "status": "done" }),
+            json!({ "id": "w-other", "product": "desk", "status": "open" }),
+        ]
+        .into_iter()
+        .map(item)
+        .collect();
+        let behind = |status: &str, waits: serde_json::Value| cause_of(&item(json!({ "id": "w-1", "status": status, "blockedBy": waits })), &all).map(|c| c.id.clone());
+        assert_eq!(behind("blocked", json!(["w-other", "w-c"])).as_deref(), Some("w-c"));
+        // A cause already closed holds nothing, a thread that is no cause is an ordinary wait,
+        // and a thread no longer blocked has stopped waiting.
+        assert_eq!(behind("blocked", json!(["w-old"])), None);
+        assert_eq!(behind("blocked", json!(["w-other"])), None);
+        assert_eq!(behind("open", json!(["w-c"])), None);
+        assert_eq!(behind("blocked", json!([])), None);
     }
 
     #[test]

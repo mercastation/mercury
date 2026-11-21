@@ -127,6 +127,16 @@ pub static SLIDERS: Icon = Icon {
     view: 24.0,
     body: r#"<g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></g>"#,
 };
+// Where threads run: the cloud on the strip's button (`CloudIcon` in `threads/Pages.tsx`).
+stroked!(CLOUD, "m-cloud", "1.5", r#"<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>"#);
+// The same cloud before a Status word, while an agent is on the thread in the cloud
+// (`RunningMark`). The web app draws it 14 by 11 from the box "2 5 21 15", which fits it to the
+// width and leaves half a point over and under; here that is the top 11 of a 14 point square.
+pub static CLOUD_MARK: Icon = Icon {
+    name: "m-cloud-mark",
+    view: 14.0,
+    body: r#"<g transform="translate(0 .5) scale(.66667) translate(-2 -5)" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></g>"#,
+};
 stroked!(PIN, "m-pin", "1.4", r#"<path d="M8 3h8l-1.5 6 3.5 3.5H6L9.5 9z"/><path d="M12 12.5V21"/>"#);
 pub static AGENT_EYES: Icon = Icon {
     name: "m-agent-eyes",

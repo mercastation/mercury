@@ -157,6 +157,7 @@ try {
       localStorage.setItem('zero.deliveredThrough', String(k.deliveredThrough ?? 0));
       localStorage.setItem('zero.unreadSince', String(k.unreadSince ?? 0));
       localStorage.setItem('zero.seenAt', JSON.stringify(k.seenAt ?? {}));
+      if (k.cloudBrokenSeen) localStorage.setItem('zero.cloudBrokenSeen', JSON.stringify(k.cloudBrokenSeen));
     })()`);
   }
   await h.goto(h.origin);
@@ -178,7 +179,10 @@ try {
   const local = await h.evaluate(`(() => {
     const num = (k) => Number(localStorage.getItem(k) ?? 0) || 0;
     let seenAt = {}; try { seenAt = JSON.parse(localStorage.getItem('zero.seenAt') ?? '{}') ?? {}; } catch {}
-    return { deliveredThrough: num('zero.deliveredThrough'), unreadSince: num('zero.unreadSince'), seenAt };
+    // And the cloud accounts that stopped working and were already looked at, which decide
+    // whether the cloud button still asks for a sign-in.
+    let cloudBrokenSeen = []; try { cloudBrokenSeen = JSON.parse(localStorage.getItem('zero.cloudBrokenSeen') ?? '[]') ?? []; } catch {}
+    return { deliveredThrough: num('zero.deliveredThrough'), unreadSince: num('zero.unreadSince'), seenAt, cloudBrokenSeen };
   })()`);
   fs.writeFileSync(path.join(outDir, `${scene}-fixture.json`), JSON.stringify({ now: at, snapshot: shown, local, ...fed }));
   console.log(png, 'nodes', dump.nodes.length, 'fonts', JSON.stringify(dump.fonts.map((f) => `${f.family} ${f.weight}`)));

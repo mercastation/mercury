@@ -1,8 +1,8 @@
 //! Which thread goes in which list, in what order, and with which words: the web window's own
 //! rules, ported from its TypeScript one function at a time, so the native window shows the
 //! same rows. `lists` is the chain of lists in `renderer/src/App.tsx` (the inbox, In progress,
-//! Done, and Later for the counts it feeds); `row` is what Home and the Inbox table's
-//! `ThreadCells` (`renderer/src/threads/Pages.tsx`) say about one thread.
+//! Later and Done); `row` is what Home and the Inbox table's `ThreadCells`
+//! (`renderer/src/threads/Pages.tsx`) say about one thread.
 //!
 //! One person, with no team: where a team's rule would hook in is said in a comment at the
 //! place. A terminal agent the app did not start is not listed either (`agentRows` in
@@ -10,6 +10,7 @@
 //! the rows the web window draws from the same snapshot.
 
 pub mod answers;
+pub mod cloud;
 pub mod engine;
 pub mod format;
 pub mod js;
@@ -30,7 +31,7 @@ use std::collections::{HashMap, HashSet};
 
 use serde_json::{Map, Value};
 
-use crate::data::{Item, Lists, Local, Mark, Priority, Row, Snapshot};
+use crate::data::{Item, Lists, Local, Mark, Priority, Row, Snapshot, Tab};
 
 /// Everything the lists read besides one thread: the snapshot, the clock, what the window
 /// keeps for itself, and what the supervisor says about every thread at once.
@@ -232,6 +233,7 @@ fn row(w: &World, i: &Item, tab: &str, to_approve: &HashMap<String, usize>) -> R
         asking: w.asking.contains(id),
         in_progress: tab == "progress",
         practice: product.is_some_and(|p| crate::data::truthy(p.rest.get("practice"))),
+        later: tab == "snoozed",
         now: w.now,
     };
     let cell = status::status_cell(i, &facts);
@@ -249,16 +251,20 @@ fn row(w: &World, i: &Item, tab: &str, to_approve: &HashMap<String, usize>) -> R
 
     // One row per cause: how many threads wait behind it, and from where.
     let behind = (kinds::is_cause(i) && i.status != "done").then(|| kinds::waiting_on_cause(i, &w.snap.items));
-    let (status, mark) = match (&behind, shown) {
-        // The count is said in place of the word, with the mark the row would have worn; a
-        // row whose word the tab dropped keeps the mark of the cell it started from.
-        (Some(behind), Some(_)) => (kinds::cause_word(behind.len()), worded_mark),
-        (Some(behind), None) => (kinds::cause_word(behind.len()), cell.mark),
+    // And on Later a thread behind one says what it waits on, and that it comes back when that
+    // is fixed.
+    let stuck_on = if behind.is_none() && tab == "snoozed" { kinds::cause_of(i, &w.snap.items) } else { None };
+    // Either takes the word's place and keeps the mark the row would have worn; a row whose
+    // word the tab dropped keeps the mark of the cell it started from.
+    let in_its_place = behind.as_ref().map(|behind| kinds::cause_word(behind.len())).or(stuck_on.map(|_| kinds::CAUSE_WAIT_WORD.to_string()));
+    let (status, mark) = match (in_its_place, shown) {
+        (Some(word), Some(_)) => (word, worded_mark),
+        (Some(word), None) => (word, cell.mark),
         (None, Some(word)) => (word, worded_mark),
         (None, None) => (String::new(), Mark::None),
     };
-    let (place, place_more, aside, held, pinned) = match &behind {
-        Some(behind) => {
+    let (place, place_more, aside, held, pinned) = match (&behind, stuck_on) {
+        (Some(behind), _) => {
             // A project this window does not know is said by its slug, and the cause's own by nothing.
             let name_of = |slug: &str| match w.snap.products.iter().find(|p| p.slug == slug) {
                 Some(p) => p.name.clone(),
@@ -268,7 +274,9 @@ fn row(w: &World, i: &Item, tab: &str, to_approve: &HashMap<String, usize>) -> R
             let (name, more) = kinds::cause_place(i, behind, name_of);
             (name, more, None, false, i.truthy("pinned"))
         }
-        None => {
+        // The cause's title as it was filed, with no pin and no "not started" beside it.
+        (None, Some(cause)) => (product.map_or(String::new(), |p| p.name.clone()), 0, cause.title.clone().filter(|t| !t.is_empty()), false, false),
+        (None, None) => {
             // The faint words after the title: a comment on a link, a wait that ended, a
             // hand-over's words, or how many tasks it filed still wait for a yes. A teammate's
             // note and their comment come first on a team.
@@ -281,8 +289,15 @@ fn row(w: &World, i: &Item, tab: &str, to_approve: &HashMap<String, usize>) -> R
     };
 
     let at = page::sent_at(i);
-    // On Done the time is when the thread was finished, which is its order.
-    let shown_at = if tab == "done" { page::finished_at(i) } else { at };
+    // On Done the time is when the thread was finished, which is its order. On Later it is
+    // when the thread comes back, not how long ago it was touched: nothing for one that waits
+    // on a person's go and not on a clock, and for one behind a cause, when that is fixed.
+    let (shown_at, when) = match tab {
+        "done" => (page::finished_at(i), page::updated_words(page::finished_at(i), w.now)),
+        "snoozed" if stuck_on.is_some() => (0.0, kinds::CAUSE_BACK_WORDS.to_string()),
+        "snoozed" => (page::back_at(i), page::back_words(i, w.now)),
+        _ => (at, page::updated_words(at, w.now)),
+    };
     let trouble = (id == nowhere::TROUBLE_ID).then(|| i.body.as_deref().unwrap_or(""));
     Row {
         id: i.id.clone(),
@@ -304,7 +319,7 @@ fn row(w: &World, i: &Item, tab: &str, to_approve: &HashMap<String, usize>) -> R
         place,
         place_more,
         engine: engine::engine_label(engine),
-        when: page::updated_words(shown_at, w.now),
+        when,
         shown_at,
     }
 }
@@ -362,20 +377,39 @@ pub fn lists(snap: &Snapshot, now: f64, local: &Local) -> Lists {
     let mut done: Vec<&Item> = items.iter().filter(|i| i.status == "done" && !needs_you.contains(i.id.as_str()) && !w.live.contains(i.id.as_str()) && !w.shipping.contains(i.id.as_str())).collect();
     done.sort_by(|a, b| b.updated_at.unwrap_or(0.0).partial_cmp(&a.updated_at.unwrap_or(0.0)).unwrap_or(std::cmp::Ordering::Equal));
 
-    // Later, for one thing: where each thread sits decides which of the tasks a thread filed
-    // still wait for a yes (`tabState` and `waitingCounts`). It holds what was written down
-    // and not begun, what an agent proposed, and what is put off or waiting with no run on it.
-    // An AI teammate's run queued behind another is its own queue and not in it.
-    let later = items.iter().zip(&hidden_at).filter(|(i, hidden_at)| {
-        let id = i.id.as_str();
-        let queued_teammate_run = kinds::not_started(i) && title::teammate_id_of(i).is_some();
-        let run_on_it = w.live.contains(id) || w.queued.contains(id) || w.shipping.contains(id);
-        let waits = || list::put_off_in_later(i, **hidden_at, now, &w.waiting_on(i), run_on_it);
-        !queued_teammate_run && (kinds::not_started(i) || list::is_proposal(i) || waits()) && (i.status != "done" || i.wrote("status").is_none_or(|w| w.source != "founder"))
-    });
-    // Needs you wins, then In progress, Later and Done, exactly as the tabs list them.
+    // Later is the future inbox (`snoozed` in `App.tsx`): what was written down and not begun,
+    // what an agent proposed, and what is put off or waiting with no run on it, less what the
+    // person closed. An AI teammate's run queued behind another is its own queue and not in it.
+    // Repeating tasks are rules on a channel of their own, and a terminal agent put off is a
+    // row of another kind; the web window lists both here and this one lists neither.
+    let mut later: Vec<(f64, &Item)> = items
+        .iter()
+        .zip(&hidden_at)
+        .filter_map(|(i, hidden_at)| {
+            let id = i.id.as_str();
+            let queued_teammate_run = kinds::not_started(i) && title::teammate_id_of(i).is_some();
+            let run_on_it = w.live.contains(id) || w.queued.contains(id) || w.shipping.contains(id);
+            let waiting_on = w.waiting_on(i);
+            let held = kinds::not_started(i) || list::is_proposal(i) || list::put_off_in_later(i, *hidden_at, now, &waiting_on, run_on_it);
+            let closed_by_them = i.status == "done" && i.wrote("status").is_some_and(|w| w.source == "founder");
+            if queued_teammate_run || !held || closed_by_them {
+                return None;
+            }
+            // Soonest back first. What waits on a person or on another thread has no moment,
+            // so it sorts after everything with a clock (`whenShown`, which says so with
+            // JavaScript's largest whole number). A proposal has no moment either and is not
+            // named there, so it reads as the moment nought and sorts before them all.
+            let no_clock = kinds::not_started(i) || list::waits_in_later(i, &waiting_on);
+            Some((if no_clock { 9_007_199_254_740_991.0 } else { *hidden_at }, i))
+        })
+        .collect();
+    later.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let later: Vec<&Item> = later.into_iter().map(|(_, i)| i).collect();
+    // Where each thread sits decides which of the tasks a thread filed still wait for a yes
+    // (`tabState` and `waitingCounts`): Needs you wins, then In progress, Later and Done,
+    // exactly as the tabs list them.
     let mut needs_you_or_later: HashMap<&str, bool> = done.iter().map(|i| (i.id.as_str(), false)).collect();
-    needs_you_or_later.extend(later.map(|(i, _)| (i.id.as_str(), true)));
+    needs_you_or_later.extend(later.iter().map(|i| (i.id.as_str(), true)));
     needs_you_or_later.extend(progress.iter().map(|i| (i.id.as_str(), false)));
     needs_you_or_later.extend(inbox.iter().map(|i| (i.id.as_str(), true)));
     let mut to_approve: HashMap<String, usize> = HashMap::new();
@@ -392,13 +426,16 @@ pub fn lists(snap: &Snapshot, now: f64, local: &Local) -> Lists {
         needs: rows(&page::sorted(&inbox, "inbox", order), "inbox"),
         // Home draws In progress in the order it will run; the page's tab re-sorts it.
         progress: rows(&progress_tab, "progress"),
+        // Later keeps the page's sort, as Needs you does: pinned, the project, the level.
+        later: rows(&page::sorted(&later, "snoozed", order), "snoozed"),
         done: rows(&page::sorted(&done, "done", order), "done"),
     }
 }
 
 /// `--rows <out.json>`: the lists a fixture gives, written as JSON, with no window opened.
 /// `tools/rows.mjs` holds them against the rows the web window drew from the same fixture.
-/// None when the flag is not there.
+/// With them goes what the Inbox page draws around its rows with `--tab <name>` open: the
+/// strip of tabs, the time column's heading and the cloud button. None when the flag is not there.
 pub fn rows_from_args(args: &[String]) -> Option<Result<(), String>> {
     let flag = |name: &str| args.iter().position(|a| a == name).and_then(|at| args.get(at + 1));
     let out = flag("--rows")?;
@@ -406,7 +443,10 @@ pub fn rows_from_args(args: &[String]) -> Option<Result<(), String>> {
         let fixture = crate::source::read_fixture(flag("--fixture").ok_or("--rows needs --fixture <file>")?)?;
         let now = fixture.now.ok_or("the fixture has no clock")?;
         let lists = lists(&fixture.snapshot, now, &fixture.local);
-        let json = serde_json::json!({ "now": now, "needs": lists.needs, "progress": lists.progress, "progressTab": lists.in_progress_tab(), "done": lists.done });
+        let open = Tab::from_args(args);
+        let tabs: Vec<Value> = page::tabs(&lists, open).into_iter().map(|t| serde_json::json!({ "label": t.label(), "count": lists.count(t), "on": t == open })).collect();
+        let page = serde_json::json!({ "tabs": tabs, "heading": page::time_heading(open.view()), "cloud": cloud::button(fixture.snapshot.rest.get("cloud"), &fixture.local.cloud_broken_seen) });
+        let json = serde_json::json!({ "now": now, "needs": lists.needs, "progress": lists.progress, "progressTab": lists.in_progress_tab(), "later": lists.later, "done": lists.done, "page": page });
         std::fs::write(out, serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?).map_err(|e| format!("{out}: {e}"))
     })())
 }
@@ -508,6 +548,64 @@ mod tests {
         assert_eq!(ids(&lists.needs), ["parent"]);
         assert_eq!(lists.needs[0].aside, "2 tasks to approve");
         assert_eq!(ids(&lists.progress), ["task-3"]);
+    }
+
+    #[test]
+    fn later_lists_what_comes_back_in_the_pages_order_and_says_when() {
+        const DAY: f64 = 24.0 * 60.0 * MIN;
+        // Put off by the person until `back` from now, `ago` minutes ago.
+        let put_off = |id: &str, ago: f64, back: f64| {
+            let mut v = thread(id, "shop", ago, json!({ "runAt": NOW + back }));
+            v["wrote"]["runAt"] = json!({ "ts": NOW - ago * MIN, "source": "founder" });
+            v
+        };
+        let mut stuck = thread("stuck", "shop", 15.0, json!({ "status": "blocked", "blockedBy": ["cause"] }));
+        stuck["wrote"]["status"] = json!({ "ts": NOW - 15.0 * MIN, "source": "agent" });
+        stuck["wrote"]["blockedBy"] = json!({ "ts": NOW - 15.0 * MIN, "source": "agent" });
+        let lists = lists_of(
+            vec![
+                thread("written-down", "shop", 40.0, json!({ "start": "later" })),
+                thread("pinned-written-down", "shop", 50.0, json!({ "start": "later", "pinned": true })),
+                put_off("tomorrow", 5.0, DAY),
+                // Two put off in the same minute: the one that comes back sooner is first.
+                put_off("day-after", 20.0, 2.0 * DAY),
+                put_off("tomorrow-evening", 20.0, DAY + 60.0 * MIN),
+                finished("parent", "shop", 35.0, "agent", json!({})),
+                json!({ "id": "proposal", "product": "shop", "status": "open", "kind": "directive", "title": "Add a retry", "labels": [], "parent": "parent", "priority": 7, "createdAt": NOW - 30.0 * MIN, "updatedAt": NOW - 30.0 * MIN }),
+                json!({ "id": "cause", "product": "shop", "status": "open", "kind": "cause", "title": "GitHub is signed out", "labels": ["cause"], "createdAt": NOW - 16.0 * MIN, "updatedAt": NOW - 16.0 * MIN, "wrote": { "kind": { "ts": NOW - 16.0 * MIN, "source": "system" } } }),
+                stuck,
+                // A run is still queued for it, so it is not Later's yet; and what the person
+                // closed is Done's alone, where what its agent finished is in both.
+                put_off("queued-put-off", 6.0, DAY),
+                finished("closed-written-down", "shop", 46.0, "founder", json!({ "start": "later" })),
+                finished("finished-written-down", "shop", 45.0, "agent", json!({ "start": "later" })),
+            ],
+            json!({ "productOrder": ["shop", "desk"], "queued": ["queued-put-off"] }),
+        );
+        // Pinned, then the level each row shows, then newest; rows that tie keep soonest back first.
+        assert_eq!(ids(&lists.later), ["pinned-written-down", "proposal", "tomorrow", "stuck", "tomorrow-evening", "day-after", "written-down", "finished-written-down"]);
+        let row = |id: &str| lists.later.iter().find(|r| r.id == id).unwrap();
+        let said = |id: &str| (row(id).status.as_str(), row(id).when.as_str(), row(id).held);
+        // Written down with no moment: it says so twice and names no time.
+        assert_eq!(said("pinned-written-down"), ("Not started", "", true));
+        assert!(row("pinned-written-down").pinned);
+        // Put off: one word for everything that comes back, and when it does.
+        let tomorrow = page::day_and_time(NOW + DAY, NOW);
+        assert_eq!(said("tomorrow"), ("Scheduled", tomorrow.as_str(), false));
+        assert_eq!(row("tomorrow").shown_at, NOW + DAY);
+        assert_eq!(said("proposal"), ("Scheduled", "", false));
+        // Behind a cause: what it waits on, and that it comes back when that is fixed.
+        assert_eq!(said("stuck"), ("Waiting", "When fixed", false));
+        assert_eq!(row("stuck").aside, "GitHub is signed out");
+        assert_eq!(said("finished-written-down"), ("Not started", "", true));
+        assert!(lists.later.iter().all(|r| !r.unread && r.mark == Mark::None));
+        // The cause itself waits in Needs you, counting what is behind it.
+        let cause = lists.needs.iter().find(|r| r.id == "cause").unwrap();
+        assert_eq!(cause.status, "1 waiting");
+        assert_eq!(ids(&lists.done), ["finished-written-down", "closed-written-down"]);
+        assert!(lists.progress.iter().all(|r| r.id != "queued-put-off"));
+        assert_eq!((lists.count(Tab::Later), lists.count(Tab::Done)), (8, 0));
+        assert_eq!(lists.under(Tab::Later).len(), 8);
     }
 
     #[test]
