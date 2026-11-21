@@ -10,6 +10,11 @@ use crate::{State, View, icons};
 /// The page's column: 760 points, or what the card leaves it.
 const COLUMN: f32 = 760.0;
 
+/// Home's words, each standing where Chromium puts its glyphs to a quarter pixel (`theme::pen`).
+fn label(s: &str, size: f32, weight: f32, c: rune::Color) -> El {
+    pen(crate::theme::label(s, size, weight, c), size)
+}
+
 /// The greeting follows the clock, as `renderer/src/home/home-model.ts` has it.
 fn greeting(now_ms: f64) -> &'static str {
     match rune::time::LocalTime::at(now_ms as i64).hour {
