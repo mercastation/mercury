@@ -5,7 +5,7 @@
 use std::collections::{HashMap, HashSet};
 
 use super::answers::{answer_settled, filed_by_the_person, wakes_itself_at, word_waits};
-use super::format::{offer_is_live, preview_text};
+use super::format::{first_real_line, offer_is_live, preview_text};
 use super::js::{self, re};
 use super::kinds::{asks_the_person, asks_to_close, instruction_of, is_cause, is_clean_run, is_task_row, not_started};
 use super::nowhere::says_a_run_got_nowhere;
@@ -409,10 +409,11 @@ pub fn clip_to_sentence(text: &str) -> String {
     format!("{}…", js::trim_end(js::slice(text, 0, space)))
 }
 
+re!(BLANK_LINE, r"\n\s*\n", "");
+
 /// The line a row prints under its title: whichever of body and result was written last, so a
-/// blocked row with an answer shows the answer, and a finished row shows its result. `summary`
-/// is the first line of the row the app makes itself, which prints only that. On a team the
-/// newest answer that carries a writer is the news; that branch would go before the result's.
+/// blocked row with an answer shows the answer, and a finished row shows its result.
+/// `trouble_summary` is the first line of the row the app makes itself, which prints only that.
 pub fn row_summary(i: &Item, trouble_summary: Option<&str>) -> String {
     if let Some(summary) = trouble_summary {
         return clip_to_sentence(summary);
@@ -420,6 +421,15 @@ pub fn row_summary(i: &Item, trouble_summary: Option<&str>) -> String {
     // Over the agent's last word, which was written first and says it ships.
     if let Some(unshipped) = not_shipped_line(i) {
         return clip_to_sentence(&unshipped);
+    }
+    // Once someone is signed in every line carries its writer, and then the newest answer is
+    // the news, whoever wrote it. A teammate's hand-back opens on a line the status already
+    // says; their own words follow it.
+    if let (Some(answer), Some(said)) = (i.text("answer"), i.wrote("answer").filter(|w| w.by.is_some()))
+        && said.ts.is_some_and(|ts| ts >= i.wrote_at("body").max(i.wrote_at("result")))
+    {
+        let theirs = if said.teammate.is_some() { js::trim(&BLANK_LINE.split(answer)[1..].join("\n\n")).to_string() } else { String::new() };
+        return clip_to_sentence(&first_real_line(if theirs.is_empty() { answer } else { &theirs }));
     }
     let finished = i.status == "done";
     let result_is_newer = i.wrote_at("result") > i.wrote_at("body");
@@ -621,6 +631,25 @@ mod tests {
         // A finished row shows its result whenever it was written.
         v["status"] = json!("done");
         assert_eq!(row_summary(&item(v), None), "Fixed.");
+    }
+
+    #[test]
+    fn once_someone_is_signed_in_the_newest_answer_is_the_line() {
+        let mut v = answered();
+        v["answer"] = json!("Reply:\nNow do the second clinic.");
+        v["wrote"]["answer"] = json!({ "ts": 30, "source": "founder", "by": "p-1" });
+        assert_eq!(row_summary(&item(v.clone()), None), "Now do the second clinic.");
+        // An answer the agent has spoken past is no longer the news.
+        v["wrote"]["result"]["ts"] = json!(40);
+        assert_eq!(row_summary(&item(v.clone()), None), "Fixed.");
+        // With nobody signed in no line carries a writer, and the rule above stands.
+        v["wrote"]["result"]["ts"] = json!(20);
+        v["wrote"]["answer"] = json!({ "ts": 30, "source": "founder" });
+        assert_eq!(row_summary(&item(v.clone()), None), "Fixed.");
+        // A teammate's hand-back: their own words, after the line that says who handed it back.
+        v["answer"] = json!("Theo handed this back.\n\nThe second clinic needs its own key.");
+        v["wrote"]["answer"] = json!({ "ts": 30, "source": "system", "by": "p-2", "teammate": "p-2" });
+        assert_eq!(row_summary(&item(v), None), "The second clinic needs its own key.");
     }
 
     #[test]

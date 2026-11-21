@@ -77,6 +77,8 @@ pub struct Wrote<'a> {
     pub source: &'a str,
     /// The teammate whose words these are, on a team.
     pub teammate: Option<&'a str>,
+    /// The person who wrote it, once someone is signed in. With nobody signed in no line carries one.
+    pub by: Option<&'a str>,
 }
 
 impl Wrote<'_> {
@@ -112,7 +114,8 @@ impl Item {
     }
     pub fn wrote(&self, field: &str) -> Option<Wrote<'_>> {
         let w = self.object("wrote")?.get(field)?.as_object()?;
-        Some(Wrote { ts: w.get("ts").and_then(Value::as_f64), source: w.get("source").and_then(Value::as_str).unwrap_or(""), teammate: w.get("teammate").and_then(Value::as_str).filter(|s| !s.is_empty()) })
+        let text = |field: &str| w.get(field).and_then(Value::as_str).filter(|s| !s.is_empty());
+        Some(Wrote { ts: w.get("ts").and_then(Value::as_f64), source: w.get("source").and_then(Value::as_str).unwrap_or(""), teammate: text("teammate"), by: text("by") })
     }
     /// When `field` was last written, or 0 (`wrote?.[field]?.ts ?? 0`).
     pub fn wrote_at(&self, field: &str) -> f64 {

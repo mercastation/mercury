@@ -186,8 +186,37 @@ re!(LINK, r"\[([^\]]*)\]\([^)]*\)", "g");
 // machine words anywhere else.
 re!(NEED_LINE, r"^\s*`?AGENTBOX-NEEDS:\s*(sign-in|key|file|code)\s.*$", "gim");
 re!(KEY_LINE, r"^\s*`?AGENTBOX-NEEDS-A-KEY:\s*([A-Z][A-Z0-9_]+)\b[\s:\u2014\u2013-]*(.*?)`?\s*$", "gm");
-// An underscore inside a word is part of it (STRIPE_SECRET_KEY), not emphasis.
-re!(MARKS, r"[*`>#]|(?<![A-Za-z0-9])_+|_+(?![A-Za-z0-9])", "g");
+/// The marks of markdown, out: `text.replace(/[*`>#]|(?<![A-Za-z0-9])_+|_+(?![A-Za-z0-9])/g, '')`.
+/// An underscore inside a word is part of it (STRIPE_SECRET_KEY), not emphasis: read closely,
+/// that regex takes every run of underscores except a single one between two ASCII letters or
+/// digits. It is written out by hand because it is run over every answer in every list, and
+/// the engine that can look behind took three quarters of the time the lists took.
+fn strip_marks(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut k = 0;
+    while k < bytes.len() {
+        match bytes[k] {
+            b'*' | b'`' | b'>' | b'#' => k += 1,
+            b'_' => {
+                let start = k;
+                while bytes.get(k) == Some(&b'_') {
+                    k += 1;
+                }
+                let inside_a_word = start > 0 && bytes[start - 1].is_ascii_alphanumeric() && bytes.get(k).is_some_and(u8::is_ascii_alphanumeric);
+                if inside_a_word && k - start == 1 {
+                    out.push(b'_');
+                }
+            }
+            other => {
+                out.push(other);
+                k += 1;
+            }
+        }
+    }
+    // Only whole ASCII characters were taken out, so what is left is still text.
+    String::from_utf8(out).expect("removing ASCII marks keeps text whole")
+}
 
 /// Markdown out, one line in. One copy of this rule, because search reads the same text the
 /// row does. A heading is dropped for a preview and kept for search.
@@ -195,7 +224,7 @@ fn flatten(body: &str, keep_headings: bool) -> String {
     let headed = HEADING_LINE.replace_all(body, |c| if keep_headings { HEADING_HASHES.strip(group(c, 0)) } else { String::new() });
     let linked = LINK.replace_all(&PICTURE.strip_all(&headed), |c| group(c, 1).to_string());
     let asked = KEY_LINE.replace_all(&NEED_LINE.strip_all(&linked), |c| if group(c, 2).is_empty() { group(c, 1).to_string() } else { group(c, 2).to_string() });
-    MARKS.strip_all(&asked).split('\n').map(js::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" ")
+    strip_marks(&asked).split('\n').map(js::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" ")
 }
 
 pub fn plain_text(body: &str) -> String {
@@ -282,6 +311,18 @@ mod tests {
         assert_eq!(plain_text("Set STRIPE_SECRET_KEY, _then_ retry__"), "Set STRIPE_SECRET_KEY, then retry");
         assert_eq!(plain_text("AGENTBOX-NEEDS: sign-in vercel | to deploy\nDeploy waits."), "Deploy waits.");
         assert_eq!(plain_text("`AGENTBOX-NEEDS-A-KEY: SENTRY_AUTH_TOKEN — a Sentry auth token`"), "a Sentry auth token");
+    }
+
+    #[test]
+    fn the_marks_come_out_exactly_as_the_web_apps_regex_takes_them() {
+        let marks = crate::rules::js::Re::new(r"[*`>#]|(?<![A-Za-z0-9])_+|_+(?![A-Za-z0-9])", "g");
+        for text in [
+            "", "_", "__", "a_b", "a__b", "a___b_c", "_a_", "__init__", "snake_case_name", "STRIPE_SECRET_KEY", "a_", "_a", "a_1", "1_a", "a _ b", "x_ y _z",
+            "*bold* `code` > quote # heading", "é_é", "a_é", "é_a", "a__é", "_ação_ e __isso__", "a_\n_b", "🚀_x_🚀", "a_b_c__d___e", "__a__b__", "#_*_`_>",
+        ] {
+            assert_eq!(strip_marks(text), marks.strip_all(text), "{text:?}");
+        }
+        assert_eq!(strip_marks("a__b and a_b"), "ab and a_b");
     }
 
     #[test]

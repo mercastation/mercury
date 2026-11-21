@@ -7,6 +7,7 @@
 //   node tools/rows.mjs <dir> --shoot <mercury checkout>  photograph the four scenes first (reference.mjs's invented inbox)
 //   node tools/rows.mjs <dir> --shoot <checkout> --cases  ... of the invented threads in tools/rows.cases.mjs
 //   node tools/rows.mjs <dir> --shoot <checkout> --real   ... of the person's real threads, read and never written
+//   node tools/rows.mjs <dir> --shoot <checkout> --real --stir   ... with a busy fleet invented around them
 //
 // Four scenes: home (Needs you and In progress as Home draws them), inbox, inbox-progress and
 // inbox-done (the Inbox page's three tabs). A scene with no dump in <dir> is skipped.
@@ -26,7 +27,7 @@ const flag = (name) => args.includes(name);
 const after = (name) => (args.includes(name) ? args[args.indexOf(name) + 1] : null);
 const dir = args[0];
 if (!dir || dir.startsWith('--')) {
-  console.error('usage: node tools/rows.mjs <dir> [--shoot <mercury checkout> [--cases | --real]] [--show]');
+  console.error('usage: node tools/rows.mjs <dir> [--shoot <mercury checkout> [--cases | --real [--stir]]] [--show]');
   process.exit(2);
 }
 const show = flag('--show');
@@ -62,6 +63,26 @@ async function realSnapshot(mercury) {
   };
 }
 
+// The harness's snapshot has a fleet at rest: nothing running, queued or stopped, no order of
+// projects. This gives the supervisor something to say about the real threads, by their place
+// in the list and nothing else, so the real words meet every status the page can draw.
+function stir(snapshot) {
+  const at = (n) => snapshot.items.filter((_, k) => k % 11 === n);
+  const ids = (n) => at(n).map((i) => i.id);
+  const now = Date.now();
+  snapshot.approvals = at(6).map((i, k) => ({ id: `a-${k}`, at: now, product: i.product, item: i.id, tool: 'Bash', input: { command: 'ls', description: 'List the folder' } }));
+  snapshot.engines = { workspace: 'claude', byItem: Object.fromEntries(ids(9).map((id, k) => [id, k % 2 ? 'codex' : 'antigravity'])) };
+  Object.assign(snapshot.supervisor, {
+    productOrder: snapshot.products.map((p) => p.slug).reverse(),
+    running: [...at(0), ...at(6)].map((i, k) => ({ itemId: i.id, product: i.product, startedAt: now - 5 * 60_000, ...(k % 3 === 0 ? { where: 'cloud' } : {}) })),
+    queued: [...ids(1), ...ids(10)], runNow: ids(10),
+    stalled: [...ids(2), ...ids(4)], signInNeeded: Object.fromEntries(ids(4).map((id) => [id, 'Claude Code'])),
+    shipping: ids(3), silent: Object.fromEntries(ids(5).map((id) => [id, { runs: 1, endedAt: now - 60_000 }])),
+    starting: ids(7),
+  });
+  return snapshot;
+}
+
 // `reference.mjs` takes its snapshot from the checkout's own harness. To hand it another one
 // without touching either, it is pointed at a stand-in checkout: the real harness, with the
 // snapshot read from a file, and the real built renderer.
@@ -85,7 +106,8 @@ async function shoot(mercury) {
   let env = process.env;
   let shim = null;
   if (flag('--cases') || flag('--real')) {
-    const snapshot = flag('--real') ? await realSnapshot(mercury) : (await import('./rows.cases.mjs')).snapshot(Date.now());
+    const made = flag('--real') ? await realSnapshot(mercury) : (await import('./rows.cases.mjs')).snapshot(Date.now());
+    const snapshot = flag('--stir') ? stir(made) : made;
     const file = path.resolve(dir, 'snapshot.json');
     fs.writeFileSync(file, JSON.stringify(snapshot));
     shim = standIn(mercury, file);

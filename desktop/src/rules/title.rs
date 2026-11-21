@@ -73,7 +73,7 @@ fn plain(text: &str) -> String {
         .filter(|l| !l.is_empty())
         .collect();
     let joined = lines.join(" ");
-    let unmarked = EMPHASIS.replace_all(&joined, |c| c.get(1).or(c.get(2)).or(c.get(3)).map_or("", |m| m.as_str()).to_string());
+    let unmarked = EMPHASIS.replace_all(&joined, |c| c.get(1).or(c.get(2)).or(c.get(3)).unwrap_or("").to_string());
     let unlinked = LINK.replace_all(&unmarked, |c| group(c, 1).to_string());
     let unquoted = OUTER_QUOTES.strip_all(&unlinked);
     js::trim(&SPACES.replace_all(&unquoted, |_| " ".into())).to_string()
