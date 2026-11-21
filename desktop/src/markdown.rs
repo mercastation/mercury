@@ -231,7 +231,11 @@ struct Page {
 
 impl Page {
     fn body(&self) -> TextStyle {
-        TextStyle::new(self.size, 400.0).lh(1.6 * self.size)
+        TextStyle::new(self.size, 400.0).lh(self.line())
+    }
+    /// A line of reading text: 1.6 of its size.
+    fn line(&self) -> f32 {
+        kept(1.6 * self.size)
     }
 }
 
@@ -248,7 +252,8 @@ fn words(r: Run, font: TextStyle, ink: rune::Color) -> El {
 fn marker(number: Option<u64>, p: Page) -> El {
     let em = p.size / 16.0;
     match number {
-        Some(n) => row().absolute(-60.0, 0.0).w(60.0).justify_end().child(text(format!("{n}.\u{a0}")).font(p.body()).color(p.ink)),
+        // A browser sets a list's numbers in figures of one width.
+        Some(n) => row().absolute(-60.0, 0.0).w(60.0).justify_end().child(text(format!("{n}.\u{a0}")).font(p.body().features("'tnum' 1")).color(p.ink)),
         None => {
             let dot = el().absolute(-14.09 * em, 10.5 * em).size(5.5 * em, 5.5 * em);
             match p.depth {
@@ -275,17 +280,16 @@ fn list(start: Option<u64>, items: Vec<Vec<Node>>, p: Page) -> Block {
 }
 
 fn code_block(code: &str, p: Page) -> Block {
-    // The lines stand on the paragraph's own line height, 1.6 of the reading size, and on its
-    // baseline, which is two thirds of a point lower than a 13 point line's own would be.
-    let line = 1.6 * p.size;
-    let lines = text(code).font(mono(CODE, line)).color(ink());
+    // The lines stand on the paragraph's own line height and on its baseline, which is a
+    // point lower than a 13 point line's own would be.
+    let lines = text(code).font(mono(CODE, p.line())).color(ink());
     let block = el()
         .fill(rgba(40, 38, 37, 0.9))
         .border(1.0, edge())
         .border_layout()
         .radius(6.0)
         .clip_rounded(6.0)
-        .child(row().scroll_x().child(el().pt(12.5).pb(11.5).px(14.0).child(lines)));
+        .child(row().scroll_x().child(el().pt(13.0).pb(11.0).px(14.0).child(lines)));
     Block::leaf(10.0, 10.0, block)
 }
 
@@ -370,9 +374,9 @@ fn lay(nodes: Vec<Node>, p: Page) -> Vec<Block> {
             Node::Paragraph(r) => Block::leaf(8.0, 8.0, words(r, p.body(), p.ink)),
             // A first-level heading is the browser's own: twice the size and bold. The second
             // and third are the app's small labels. Deeper ones are bold at the reading size.
-            Node::Heading(1, r) => Block::leaf(0.0, 0.0, words(r, TextStyle::new(2.0 * p.size, 700.0).lh(3.2 * p.size), p.ink)),
-            Node::Heading(2 | 3, r) => Block::leaf(24.0, 7.0, words(r, TextStyle::new(12.0, 600.0).lh(19.2).tracking(0.84), muted()).text_case(TextCase::Uppercase)),
-            Node::Heading(_, r) => Block::leaf(0.0, 0.0, words(r, TextStyle::new(p.size, 700.0).lh(1.6 * p.size), p.ink)),
+            Node::Heading(1, r) => Block::leaf(0.0, 0.0, words(r, TextStyle::new(2.0 * p.size, 700.0).lh(kept(3.2 * p.size)), p.ink)),
+            Node::Heading(2 | 3, r) => Block::leaf(24.0, 7.0, words(r, TextStyle::new(12.0, 600.0).lh(kept(19.2)).tracking(0.84), muted()).text_case(TextCase::Uppercase)),
+            Node::Heading(_, r) => Block::leaf(0.0, 0.0, words(r, TextStyle::new(p.size, 700.0).lh(p.line()), p.ink)),
             Node::Quote(inside) => {
                 let (content, top, bottom) = stack(lay(inside, Page { width: p.width - 15.0, ink: dim(), ..p }), false);
                 Block { own: [8.0, 8.0], through: [top, bottom], el: content.pl(12.0).border_sides([0.0, 0.0, 0.0, 3.0], edge()).border_layout() }

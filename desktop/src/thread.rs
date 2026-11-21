@@ -153,9 +153,10 @@ fn when(at: f64, now: f64) -> String {
 
 /// A message's head: who, when, and for a checkpoint the tag that says so.
 fn said_by(m: &Message, now: f64) -> El {
-    let who = if m.mine { text("You").font(TextStyle::new(14.0, 600.0).lh(22.4)).color(ink()) } else { text("The agent").font(TextStyle::new(14.0, 400.0).lh(22.4)).color(dim()) };
+    let line = kept(22.4);
+    let who = if m.mine { text("You").font(TextStyle::new(14.0, 600.0).lh(line)).color(ink()) } else { text("The agent").font(TextStyle::new(14.0, 400.0).lh(line)).color(dim()) };
     // The three sit on one baseline: the smaller the type, the lower its box starts.
-    let mut head = row().h(22.4).gap(10.0).child(who).child(text(when(m.at, now)).font(TextStyle::new(12.5, 400.0).lh(20.0).features("'tnum' 1")).color(muted()).mt(1.5));
+    let mut head = row().h(line).items_start().gap(10.0).child(who).child(text(when(m.at, now)).font(TextStyle::new(12.5, 400.0).lh(20.0).features("'tnum' 1")).color(muted()).mt(1.5));
     if !m.mine && m.field == Field::Note {
         let tag = mono(11.0, 14.0);
         head = head.child(
@@ -175,8 +176,9 @@ fn said_by(m: &Message, now: f64) -> El {
 
 /// What a person typed is drawn as typed, line breaks and all, never as markdown.
 fn typed(words: &str, m: &Measure) -> El {
-    let font = TextStyle::new(m.size, 500.0).lh(1.55 * m.size);
-    col().children(words.split('\n').map(|line| if line.is_empty() { el().h(1.55 * m.size) } else { text(line).font(font).color(ink()).wrap() }))
+    let line = kept(1.55 * m.size);
+    let font = TextStyle::new(m.size, 500.0).lh(line);
+    col().children(words.split('\n').map(|words| if words.is_empty() { el().h(line) } else { text(words).font(font).color(ink()).wrap() }))
 }
 
 /// One message, and how much of what it holds reaches under it.
@@ -273,8 +275,8 @@ fn answer_alone(answer: &Message, title: &str, m: &Measure) -> Vec<Block> {
     let (headline, rest) = talk::headline(&answer.text);
     let mut blocks = markdown::blocks(rest, m.size, m.column);
     if let Some(words) = headline.filter(|h| !same(h, title)) {
-        let size = 1.05 * m.size;
-        blocks.insert(0, markdown::block(0.0, 10.0, text(words).font(TextStyle::new(size, 600.0).lh(1.45 * size)).color(ink()).wrap()));
+        let size = kept(1.05 * m.size);
+        blocks.insert(0, markdown::block(0.0, 10.0, text(words).font(TextStyle::new(size, 600.0).lh(kept(1.45 * size))).color(ink()).wrap()));
     }
     blocks
 }
@@ -378,12 +380,19 @@ pub fn view(s: &State, id: &str, product: &str) -> El {
         }
     }
     let (body, _, under) = markdown::stack(blocks, false);
+    // A browser scrolls a page that is a whole number of points tall, whatever its lines add
+    // up to, so the foot of a long conversation rests on a whole point. Once the words have
+    // been laid out, the room under them takes up the difference.
+    let whole = rune::memo::layout_size("thread-said").map_or(0.0, |[_, tall]| {
+        let page = 28.0 + tall + 40.0 + under;
+        page.round() - page
+    });
     // Unfolding lands on the newest thing said, at the foot; a folded page opens at its top.
     let reading = col()
         .key(if unfolded { "thread-whole" } else { "thread-newest" })
         .grow(1.0)
         .min_h(0.0)
         .scroll(ScrollSpec { stick_bottom: unfolded })
-        .child(el().pt(28.0).pl(m.indent).pr(32.0).pb(40.0 + under).child(body.w(m.column)));
+        .child(el().pt(28.0).pl(m.indent).pr(32.0).pb(40.0 + under + whole).child(body.key("thread-said").w(m.column)));
     col().w(page_w).h(page_h).child(reading).child(el().pl(m.indent).pr(32.0).pb(24.0).child(reply_box(&m)))
 }

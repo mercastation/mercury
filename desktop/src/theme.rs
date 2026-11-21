@@ -45,6 +45,12 @@ pub fn sans(size: f32, weight: f32) -> TextStyle {
     let snap = |v: f32| (v * 2.0).round() / 2.0;
     TextStyle::new(size, weight).lh(snap(1.005 * size) + snap(0.295 * size))
 }
+/// A length as Chromium keeps it on a 2x screen: in whole 64ths of a device pixel, rounded
+/// down. A line height that is not a whole number of them (25.6 points, 22.4) loses a sliver on
+/// every line, and down a page of lines the slivers decide which pixel a line lands on.
+pub fn kept(points: f32) -> f32 {
+    (points * 128.0).floor() / 128.0
+}
 /// Geist Mono at an explicit line height.
 pub fn mono(size: f32, line: f32) -> TextStyle {
     TextStyle::new(size, 400.0).mono().lh(line)
