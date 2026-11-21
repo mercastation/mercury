@@ -141,6 +141,10 @@ export interface WorkItem {
   waitEnded?: { said: string; at: number };
   /** Where it went when someone left the team (main/team/departures.mts). */
   handedOver?: { said: string; at: number };
+  /** A task asking for help or a review on someone's thread (shared/thread-asks.mts). */
+  ask?: { kind: 'help' | 'review'; owner: string; thread: string; product: string; step?: string; note?: string };
+  /** How that ask was handed back. */
+  verdict?: 'done' | 'yes' | 'changes';
   // Set only on the synthesized rows that stand for a running Claude Code
   // agent. Its presence is what every action path checks: an agent row is drawn
   // by the same list and reached by the same keys, and nothing may write it to
@@ -194,6 +198,9 @@ export interface Product {
 }
 
 /** A person on the team, as the cloud knows them. */
+/** A picture the window shrank to send: base64 bytes and their type. */
+export interface PictureIn { data: string; type: 'image/png' | 'image/jpeg' }
+
 export interface Person {
   id: string;
   email: string;
@@ -311,6 +318,8 @@ export interface PlacedFile {
   key: string;
   project: string | null;
   name: string;
+  /** The name a person gave it in Files; `name` stays its name on disk. */
+  title?: string;
   kind: FileKind | null;
   /** Made in Files and nothing written in it yet. */
   blank?: boolean;
@@ -339,6 +348,8 @@ export interface PlacedFile {
   older?: number;
   /** What this file's own Move to the Trash would move. */
   movable?: number;
+  /** Whether it has one, which an empty document does at 0 bytes. */
+  trashable?: boolean;
   /** The newest version is kept in the cloud and off this computer. */
   cloud?: boolean;
   /** A small picture of it while it is in the cloud. */
@@ -361,7 +372,10 @@ export interface FileFolder { id: string; project: string; name: string; parent:
 export type FileFolderAct =
   | { do: 'make'; project: string; name: string; parent?: string | null }
   | { do: 'rename'; id: string; name: string }
-  | { do: 'move'; key: string; folder: string | null };
+  | { do: 'move'; key: string; folder: string | null }
+  | { do: 'name'; key: string; name: string }
+  | { do: 'remove'; id: string }
+  | { do: 'restore'; ids: string[] };
 
 export interface FilesUploaded { ok: boolean; error?: string; added?: number; refused?: string[]; keys?: string[] }
 export interface FilesPlaceList { files: PlacedFile[]; projects: string[]; folders?: FileFolder[]; mine?: string[] }
@@ -396,6 +410,9 @@ export interface FilesPlaceView {
   key: string;
   project: string | null;
   name: string;
+  title?: string;
+  /** The project folder it lives in, for a file no thread was sent. */
+  product?: string;
   /** Its newest version is on its way back from the cloud. */
   coming?: boolean;
   sentIn: FileSentIn[];
@@ -539,7 +556,7 @@ export interface TeamState {
   /** A Google sign-in waiting on the browser, with the link it opened. */
   signingIn?: { url: string } | null;
   me: Person | null;
-  team: { id: string; name: string } | null;
+  team: { id: string; name: string; logoUrl?: string | null } | null;
   /** Invites waiting for your confirmed email, while you are in no team. Joining one needs your yes. */
   invites?: TeamInvite[];
   people: Person[];
@@ -587,6 +604,8 @@ export interface RoomCard {
   status: string | null;
   workingOn: string | null;
   workingPrivate: boolean;
+  /** The thread `workingOn` names, when you can open it: a teammate's shared card, or your own. */
+  workingThread?: string | null;
 }
 
 export interface RoomActivity {
@@ -713,6 +732,8 @@ export interface TeammateWorks { every: 'day' | 'weekday' | 'week'; at: string; 
 export interface TeammateRef { id: string; product: string; title: string }
 export interface Teammate {
   id: string; name: string; letter: string; role: string | null; job: string | null; goal: string | null;
+  /** The face picked for it; absent, its face follows its id (shared/teammate-face.mts). */
+  face?: string | null;
   counted: string | null; asksFirst: string | null; works: TeammateWorks | null; worksLabel: string | null;
   product: string; engine: string | null; model: string | null; effort: string | null; limit: number;
   paused: boolean; status: 'draft' | 'active'; memory: TeammateMemory[]; createdAt: number; starter?: string | null;
@@ -981,6 +1002,8 @@ export interface SupervisorStatus {
   // Rows nothing can start because every login of their tool is out of usage,
   // id -> the tool's name and when it resets (0 when no login said).
   atLimit?: Record<string, { tool: string; until: number }>;
+  // Engine -> its tool's name and reset, for each tool whose work account is out of usage now.
+  outOfUsage?: Record<string, { tool: string; until: number }>;
   // Queued rows the last pass could not start, id -> why and the tool's name.
   cannotStart?: Record<string, { why: string; tool: string }>;
   // Rows the app's ship queue still owes a ship (main/ship-queue.mts). Waiting
@@ -1139,12 +1162,14 @@ export interface AgentTurn {
   /** An agent teammate that handed this thread work: drawn as an agent's
    *  message under that teammate's name, never as yours. */
   from?: string;
+  /** Whose words those were, by id: a person you asked to help draws with their face. */
+  fromId?: string;
   /** The agent that wrote this message on its owner's behalf (`by`). */
   voice?: AgentVoice;
   /** A comment on a file: the link that opens the file at it. */
   fileMark?: FileMarkLink;
   /** A teammate's comment, or an agent's checkpoint (thread-history.ts). */
-  says?: 'comment' | 'progress';
+  says?: 'comment' | 'progress' | 'to-agent';
   // THE MESSAGE'S OWN NAME, the uid of the ledger line it was written as. A
   // reaction is stored against it (w-560647d4db), so only a message that has
   // one can wear chips: a message still on its way has not been written down
@@ -1798,6 +1823,7 @@ declare global {
       crash?(p: { name: string; message: string; stack: string }): Promise<unknown>;
       draftCopy?: { read(): string | null; write(text: string): void };
       glassTone?(p: { tone: 'light' | 'dark' | 'system' }): Promise<unknown>;
+      windowButtons?(p: { dark: boolean }): Promise<unknown>;
       blankCheck?(p: { thread: string; facts: Record<string, unknown>; lateMs: number; longTaskMs: number }): Promise<string | null>;
       // A count. The name is checked against the approved list in the main
       // process, which attaches everything else; nothing from this side rides along.
@@ -1836,6 +1862,8 @@ declare global {
       teamSignOut(): Promise<TeamCallResult>;
       teamSignInEmail(p: { email: string; password: string }): Promise<TeamCallResult>;
       teamRename(p: { name: string }): Promise<TeamCallResult>;
+      teamUpdateMe?(p: { name?: string; photo?: PictureIn | null }): Promise<TeamCallResult>;
+      teamSetLogo?(p: { photo: PictureIn | null }): Promise<TeamCallResult>;
       teamRemoveMember(p: { personId: string; handTo?: string | null; mates?: { id: string; to: string | null }[] }): Promise<TeamCallResult>;
       teamLeave(): Promise<TeamCallResult>;
       teamCancelInvite(p: { email: string }): Promise<TeamCallResult>;
@@ -1868,7 +1896,7 @@ declare global {
       filesPlaceOpen?(p: { key: string }): Promise<FilesPlaceView | null>;
       filesPlaceEdit?(p: { key: string; text: string }): Promise<{ ok: boolean; error?: string; goes?: 'sent'; to?: string }>;
       filesPlaceMark?(p: { key: string; mark: ArtifactMark }): Promise<{ ok: boolean; error?: string }>;
-      filesPlaceFolder?(p: FileFolderAct): Promise<{ ok: boolean; error?: string; folder?: string | null }>;
+      filesPlaceFolder?(p: FileFolderAct): Promise<{ ok: boolean; error?: string; folder?: string | null; ids?: string[] }>;
       filesPlaceNew?(p: { project: string; name: string; kind: 'document' | 'table'; folder: string | null }): Promise<{ ok: boolean; error?: string; key?: string }>;
       filesPlaceUpload?(p: { project: string; folder: string | null }): Promise<FilesUploaded>;
       filesPlaceTrash?(p: { keys: string[]; older?: boolean }): Promise<FilesTrashed>;
@@ -1888,6 +1916,8 @@ declare global {
       teamGiveTask(p: { to: string; title?: string; body: string; priority?: number; due?: string; files?: TeamMessageFile[]; visibility?: 'team' | 'people' | 'private'; visibleTo?: string[]; blockedBy?: string[] }): Promise<TeamCallResult>;
       teamMessageMate(p: { owner: string; mate: string; text: string }): Promise<TeamCallResult>;
       teamHandOn(p: { product: string; id: string; to: string; note?: string }): Promise<TeamCallResult>;
+      teamAsk(p: { product: string; id: string; to: string; kind: 'help' | 'review'; note?: string; step?: string }): Promise<TeamCallResult>;
+      teamHandBack(p: { product: string; id: string; verdict?: 'done' | 'yes' | 'changes'; words?: string }): Promise<TeamCallResult>;
       teamTaskBrief(p: { product: string; id: string }): Promise<{ title: string; body: string; files: { name: string; srcPath: string }[] }>;
       rooms?(p: { op: string; args?: unknown[] }): Promise<RoomsResult>;
       teammates?(p: { op: string; args?: unknown }): Promise<TeammatesResult>;

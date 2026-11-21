@@ -57,7 +57,7 @@ export function accountInAgyLog(log: string): string | null {
 }
 
 /** Ask agy. `signedIn` is null when nothing was established; `email` is whose sign-in it is, when its log said. */
-export function readAntigravityModels(bin: string | null | undefined, { spawn = (file: string, args: string[]) => nodeSpawn(file, args, { stdio: ['ignore', 'pipe', 'pipe'] }) as Spawned, timeoutMs = 20_000, logFile = path.join(os.tmpdir(), `mercury-agy-${process.pid}-${Date.now()}.log`) }: { spawn?: (file: string, args: string[]) => Spawned; timeoutMs?: number; logFile?: string } = {}): Promise<{ signedIn: boolean | null; email: string | null }> {
+export function readAntigravityModels(bin: string | null | undefined, { spawn = (file: string, args: string[]) => nodeSpawn(file, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }) as Spawned, timeoutMs = 20_000, logFile = path.join(os.tmpdir(), `mercury-agy-${process.pid}-${Date.now()}.log`) }: { spawn?: (file: string, args: string[]) => Spawned; timeoutMs?: number; logFile?: string } = {}): Promise<{ signedIn: boolean | null; email: string | null }> {
   if (!bin) return Promise.resolve({ signedIn: null, email: null });
   return new Promise((resolve) => {
     let out = '';

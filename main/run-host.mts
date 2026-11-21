@@ -143,7 +143,7 @@ export const runHostWorksOn = (platform: NodeJS.Platform = process.platform): bo
 
 interface KeepAwakeOptions {
   platform?: NodeJS.Platform;
-  spawnImpl?: (bin: string, args: string[], opts: { stdio: 'ignore' }) => { on(event: 'error', fn: (err: Error) => void): unknown; unref(): void };
+  spawnImpl?: (bin: string, args: string[], opts: { stdio: 'ignore'; windowsHide?: boolean }) => { on(event: 'error', fn: (err: Error) => void): unknown; unref(): void };
   log?: (message: string) => void;
 }
 
@@ -156,7 +156,7 @@ export function keepAwakeWhile(pid: number, { platform = process.platform, spawn
   if (platform !== 'darwin' || !pid) return;
   const cannot = (err: Error) => log(`run host: cannot keep the Mac awake for ${pid}: ${err?.message ?? err}`);
   try {
-    const held = spawnImpl('/usr/bin/caffeinate', ['-i', '-w', String(pid)], { stdio: 'ignore' });
+    const held = spawnImpl('/usr/bin/caffeinate', ['-i', '-w', String(pid)], { stdio: 'ignore', windowsHide: true });
     held.on('error', cannot);
     held.unref();
   } catch (err) { cannot(err as Error); }
@@ -208,7 +208,7 @@ export function serveRuns({ sockPath, spoolDir, idleMs = 60_000, keepEndedMs = K
     runs.set(runId, run);
     let child: ChildProcessWithoutNullStreams | null;
     try {
-      child = spawn(bin, argv.map(String), { cwd, env: env && typeof env === 'object' ? env : {}, stdio: ['pipe', 'pipe', 'pipe'] });
+      child = spawn(bin, argv.map(String), { cwd, env: env && typeof env === 'object' ? env : {}, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     } catch (err) {
       child = null;
       ended(run, { code: -2, signal: null, said: (err as Error | null)?.message ?? String(err) });

@@ -55,6 +55,7 @@ interface OAuthAccount {
   userRateLimitTier?: string | null;
   organizationType?: string | null;
   billingType?: string | null;
+  planDisplayName?: unknown;
   [field: string]: unknown;
 }
 
@@ -160,7 +161,14 @@ function readPlanNow(at: string): ClaudePlan {
   // A seat in a Team or Enterprise has its own allowance, which can be Max
   // while the organisation's tier is not.
   const max = isMaxTier(tier) || isMaxTier(account.userRateLimitTier);
-  return { known: true, ended: false, max, label: planLabel(tier), tier, from, file: at };
+  return { known: true, ended: false, max, label: shownName(account.planDisplayName) ?? planLabel(tier), tier, from, file: at };
+}
+
+// Claude Code saves the plan's current name beside a tier string that kept the
+// old one ("Ultra" next to `default_claude_max_20x`), and shows it as
+// `Claude ${name}`.
+function shownName(name: unknown): string | null {
+  return typeof name === 'string' && /^[\p{L}\p{N}][\p{L}\p{N} +-]{0,39}$/u.test(name.trim()) ? name.trim() : null;
 }
 
 /**

@@ -72,6 +72,7 @@ function git(cwd: string, args: readonly string[], { maxBuffer = 64 * 1024 * 102
     encoding: 'utf8',
     maxBuffer,
     stdio: ['ignore', 'pipe', 'ignore'],
+    windowsHide: true,
   });
 }
 

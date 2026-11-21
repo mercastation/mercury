@@ -52,6 +52,8 @@ export const REQUEST_CHANNELS: Readonly<Record<string, string>> = {
   teamCreate: 'zero:team-create',
   teamInvite: 'zero:team-invite',
   teamRename: 'zero:team-rename',
+  teamUpdateMe: 'zero:team-update-me',
+  teamSetLogo: 'zero:team-logo',
   teamRemoveMember: 'zero:team-remove-member',
   teamLeave: 'zero:team-leave',
   teamCancelInvite: 'zero:team-cancel-invite',
@@ -107,6 +109,8 @@ export const REQUEST_CHANNELS: Readonly<Record<string, string>> = {
   teamMessageMate: 'zero:team-message-mate',
   teamGiveTask: 'zero:team-give-task',
   teamHandOn: 'zero:team-hand-on',
+  teamAsk: 'zero:team-ask',
+  teamHandBack: 'zero:team-hand-back',
   teamTaskBrief: 'zero:team-task-brief',
   rooms: 'zero:rooms',
   // Teammates: make, describe, start, edit, write to, and what they remember.
@@ -222,6 +226,7 @@ export const REQUEST_CHANNELS: Readonly<Record<string, string>> = {
   blankCheck: 'zero:blank-check',
   // The appearance the desktop window's glass is drawn in; a tab has no glass.
   glassTone: 'zero:glass-tone',
+  windowButtons: 'zero:window-buttons',
   track: 'zero:track',
   sessionTrace: 'zero:session-trace',
   itemHistory: 'zero:item-history',

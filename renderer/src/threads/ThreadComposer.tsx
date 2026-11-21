@@ -34,6 +34,7 @@ import { PhoneStatus } from '../components/PhoneStatus';
 import { SEND } from '../this-keyboard';
 import { Fragment, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 import { PRACTICE_TASK } from '../../../shared/first-run-practice.mts';
+import { threadLink } from '../../../shared/thread-link.mts';
 import type { BranchList, Product, TeamMessageFile, WorkItem } from '../types';
 import { demandChoices, type DemandRecord } from '../demands/demand-rules';
 import type { Engine } from '../../../shared/engines.mts';
@@ -56,7 +57,7 @@ import { meetingTitle } from './meeting-recording';
 import { AGENT_DECIDES, PRIORITIES, choiceLabelOf, priorityValueOf, sentPriority, startingPriority, type PriorityChoice } from '../priority';
 import { cardPick, clearComposeDraft, composeDraftIsEmpty, dropComposeDraft, markComposeDraftSending, openingComposeDraft, readComposeDraft, restoreComposeDraft, saveComposeDraft, type ComposeDraft } from '../drafts';
 import { codeProjectFor, LAST_PRODUCT_KEY, rememberedProject } from '../compose-project';
-import { practiceRefusal, noProjectYet } from '../compose-says';
+import { practiceRefusal, noProjectYet, outOfUsageNote } from '../compose-says';
 import { onCloudPhone } from '../phone-screen';
 import { antigravityModelRows, defaultModelFor, engineModelLabel, readLastModel, writeLastModel, type ModelChoice } from '../models';
 import { defaultEffortFor, effortChoicesFor, effortPicked, effortShown, readLastEffort, writeLastEffort } from '../effort';
@@ -66,6 +67,7 @@ import { ideasFor, type Idea } from '../first-run';
 import { readRule, repeatsLine } from '../format';
 import { fitMenu } from '../keep-in-window';
 import { ModelMenu } from './ModelMenu';
+import { OutUntil } from '../components/OutUntil';
 import { dropRank, useFitRow } from './fit-row';
 import { useThreadMentions } from '../components/ThreadMentions';
 import {
@@ -86,6 +88,7 @@ import { shownTitle } from '../../../shared/thread-title.mts';
 import { dayDeadline, dueFromWords, dueSaid } from '../../../shared/team-tasks.mts';
 import { nameWait } from '../../../shared/thread-waits.mts';
 import { continuedFromLabel } from '../../../shared/thread-continued.mts';
+import { closesOnPress } from '../press';
 
 /** What went out, so the caller can say so and offer the way back. */
 export interface ThreadSent {
@@ -146,8 +149,10 @@ export interface ComposeStart {
 }
 
 export function ThreadComposer({
-  products, items, demands, engines, workspaceEngine, codexModels, codexModelDefault, defaultProduct, initial, scripted, onOpenMenu, onClose, onSent, onSending, onFailed, onOpenConversation, toChat, onReorderProjects, onNewProject, selectProject, agentMates, onToTeammate, inline = false, onWriting, handOver, statusLine, ideas, askFolder = false, onSendToAgent, blockChoicesFor,
+  products, items, demands, engines, workspaceEngine, codexModels, codexModelDefault, defaultProduct, initial, scripted, onOpenMenu, onClose, onSent, onSending, onFailed, onOpenConversation, toChat, onReorderProjects, onNewProject, selectProject, agentMates, onToTeammate, inline = false, onWriting, handOver, statusLine, ideas, askFolder = false, onSendToAgent, blockChoicesFor, outOfUsage,
 }: {
+  /** `supervisor.outOfUsage`: each agent whose account is out of usage, and when it comes back. */
+  outOfUsage?: Record<string, { tool: string; until: number }>;
   /** The default agent from Settings, which every new card opens on. */
   workspaceEngine?: string | null;
   /** First-thread suggestions, offered only while the tutorial is walking someone to their first send. */
@@ -424,6 +429,9 @@ export function ThreadComposer({
   const engineTags = agentChoices(engineRows).length > 0;
   // agy's list lands seconds after launch (main/ipc.mts), as a new array, so the rows follow it.
   const agyRows = antigravityModelRows();
+  // Said before Send, so nobody files a task expecting an agent that cannot start.
+  const outHere = person || mate ? null : outOfUsage?.[pick.engine] ?? null;
+  const outNote = outOfUsageNote(outHere);
   const recent = useMemo(
     () => recentModels(items, { codexModels, codexDefault, codexOffered, claudeOffered, antigravityOffered }),
     [items, codexModels, codexDefault, codexOffered, claudeOffered, antigravityOffered, agyRows],
@@ -720,6 +728,9 @@ export function ThreadComposer({
         dropComposeDraft(taken, undefined, place);
         if (demandPicked && made?.id) void api.placeInDemand({ product: product.slug, thread: made.id, demand: demandPicked.id }).catch(() => {});
         if (initial?.continueFrom) void api.teamContinued(initial.continueFrom);
+        // The person who handed it over can follow the work to where it went (round two of the team test).
+        const startedAt = initial?.handFrom && made?.id && team?.me ? threadLink(team.me, made.id) : null;
+        if (startedAt && initial?.handFrom) void api.answer({ product: initial.handFrom.product, id: initial.handFrom.id, answer: `Started on this in a thread of my own: [${message.title}](${startedAt})` }).catch(() => {});
         onSent(made, { kind: 'task', product: product.slug, title: message.title, draft: taken, ...(when.runAt ? { runAt: when.runAt } : {}), ...(when.start ? { start: when.start } : {}) });
       }
     } catch (err) {
@@ -1091,7 +1102,8 @@ export function ThreadComposer({
         <button key={p.slug} type="button" data-item className={`tc-row ${p.slug === product?.slug ? 'on' : ''}`} onPointerMove={hover}
           onClick={() => { pickProject(p.slug); setProjectChosen(true); close('text'); }}>
           <Swatch slug={p.slug} /><span className="tc-row-label">{p.name}</span>
-          {!p.repoPath && <span className="tc-row-note">For personal tasks</span>}
+          {/* A project a teammate shared has no folder here either, and is the team's, not personal (round four). */}
+          {p.team?.projectId ? <span className="tc-row-note">Shared with your team</span> : !p.repoPath && <span className="tc-row-note">For personal tasks</span>}
         </button>
       ))}
       {/* MAKING A PROJECT IS A THING YOU CAN DO FROM HERE, ALWAYS (approved
@@ -1375,8 +1387,9 @@ export function ThreadComposer({
     ...(rows.includes('model') ? [{ label: 'Model', node: (
       <span className="tc-anchor" ref={anchor('model')} data-drop={inline ? dropRank('model') : undefined}>
         <button type="button" data-trigger className={trigger('model')} aria-haspopup="listbox" aria-expanded={open === 'model'}
-          onClick={() => toggle('model')} onKeyDown={triggerKeys('model')}>
+          title={outNote ?? undefined} onClick={() => toggle('model')} onKeyDown={triggerKeys('model')}>
           <span className="tc-word-text">{labelOf(pick)}</span>
+          <OutUntil out={outHere} drop={inline ? dropRank('out-when') : undefined} />
         </button>
         {open === 'model' && modelMenu}
       </span>
@@ -1639,7 +1652,7 @@ export function ThreadComposer({
               </span>
             )}
             <span className="tc-send" ref={anchor('later')}>
-              <button type="button" className="tc-send-main" disabled={!canSend} onClick={() => void send()} title={refusal ?? stopper?.reason ?? `Send · ${SEND}`}>
+              <button type="button" className="tc-send-main" disabled={!canSend} onClick={() => void send()} title={refusal ?? stopper?.reason ?? outNote ?? `Send · ${SEND}`}>
                 Send <kbd data-drop={inline ? dropRank('send-keys') : undefined}>{SEND}</kbd>
               </button>
               {/* A picked time is said here, on the half that changes it. */}
@@ -1658,7 +1671,7 @@ export function ThreadComposer({
   );
   if (inline) return box;
   // Closing the box ends its dictation, so a click outside it waits for Stop.
-  return <div className="modal-backdrop tc-veil" onClick={() => { if (!talk.on) onClose(); }}>{box}</div>;
+  return <div className="modal-backdrop tc-veil" {...closesOnPress(() => { if (!talk.on) onClose(); })}>{box}</div>;
 }
 
 /* ------------------------------- glyphs --------------------------------- */

@@ -1,7 +1,7 @@
 /* Approved Workspace layout, with shared expanded/collapsed geometry. */
 .app.workspace-layout { --workspace-width: 202px; --workspace-left: calc(44px + var(--workspace-width)); position: relative; padding: 40px 22px 22px var(--workspace-left); }
 .app.workspace-collapsed { --workspace-width: 38px; }
-.workspace-layout::before { content: ''; position: absolute; top: 40px; bottom: 22px; left: var(--workspace-left); right: 22px; border-radius: var(--radius); background: var(--skin-pane, var(--surface)); backdrop-filter: blur(var(--skin-blur, 0px)); box-shadow: inset 0 1px 0 rgba(255,255,255,.40), inset 1px 0 0 rgba(255,255,255,.12), var(--shadow-card); pointer-events: none; }
+.workspace-layout::before { content: ''; position: absolute; top: 40px; bottom: 22px; left: var(--workspace-left); right: 22px; border-radius: var(--radius); background: var(--skin-pane, var(--surface)); backdrop-filter: blur(var(--skin-blur)); box-shadow: inset 0 1px 0 rgba(255,255,255,.40), inset 1px 0 0 rgba(255,255,255,.12), var(--shadow-card); pointer-events: none; }
 :root[data-theme="dark"] .workspace-layout::before { box-shadow: inset 0 1px 0 rgba(255,255,255,.13), inset 1px 0 0 rgba(255,255,255,.05), var(--shadow-card); }
 .workspace-layout > .topbar { position: relative; z-index: 1; padding: 0 20px 0 32px; height: 64px; min-height: 64px; flex: 0 0 64px; border-bottom: 1px solid var(--line); }
 .workspace-title { margin: 0; font-size: 17px; font-weight: 500; letter-spacing: -.015em; }
@@ -34,6 +34,13 @@
 :root[data-window="flat"] .workspace-layout::before { top: 22px; }
 :root[data-window="flat"] .workspace-navigation { top: 32px; }
 :root[data-window="flat"] .workspace-layout::after { height: 22px; }
+/* Windows draws its own minimise, maximise and close buttons in the band's
+   right-hand corner, 40px tall (main/window-buttons.mts), so there the band
+   keeps the Mac's height. preload.cjs marks the window. */
+:root[data-window-buttons="right"] .app.workspace-layout { padding-top: 40px; }
+:root[data-window-buttons="right"] .workspace-layout::before { top: 40px; }
+:root[data-window-buttons="right"] .workspace-navigation { top: 50px; }
+:root[data-window-buttons="right"] .workspace-layout::after { height: 40px; }
 
 /* The task stays inside the same raised foreground as the list. */
 .workspace-layout .focus-pane { position: relative; min-height: 0; }
@@ -308,8 +315,7 @@
 .instr-part textarea { display:block; resize:none; width:100%; min-height:220px; margin-top:10px; field-sizing:content;
   padding:16px 18px; border:0; border-left:2px solid transparent; border-radius:var(--radius);
   background:var(--wash); color:var(--text); caret-color:var(--text);
-  font:14px/1.75 inherit; font-family:inherit;
-  transition:background .12s ease, border-color .12s ease; }
+  font:14px/1.75 inherit; font-family:inherit; }
 .instr-part textarea:hover { background:color-mix(in srgb, var(--wash) 100%, var(--text) 4%); }
 .instr-part textarea:focus { outline:none; background:color-mix(in srgb, var(--wash) 100%, var(--text) 4%); border-left-color:var(--underline); }
 .instr-part textarea::placeholder { color:var(--text-faint); }

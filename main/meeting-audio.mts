@@ -117,7 +117,7 @@ export function heardSpeech(samples: Int16Array, floor: number): boolean {
 }
 
 const afconvert: Convert = (from, to) => new Promise((resolve, reject) => {
-  execFile('/usr/bin/afconvert', ['-f', 'WAVE', '-d', 'LEI16@16000', '-c', '1', from, to], { timeout: CONVERT_MS }, (err, _out, said) => {
+  execFile('/usr/bin/afconvert', ['-f', 'WAVE', '-d', 'LEI16@16000', '-c', '1', from, to], { timeout: CONVERT_MS, windowsHide: true }, (err, _out, said) => {
     if (err) reject(new Error(`this Mac could not read the recording: ${String(said || err.message).trim().slice(0, 160)}`));
     else resolve(undefined);
   });
