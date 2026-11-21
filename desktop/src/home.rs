@@ -107,20 +107,44 @@ fn priority_mark(p: Priority) -> Option<El> {
     }
 }
 
-fn task_row(r: &Row, first: bool, now: f64) -> El {
-    let mut tags = row().mt(3.0).h(16.0).items_center().gap(10.0);
-    if let Some(mark) = priority_mark(r.priority) {
-        tags = tags.child(mark);
+/// Which of Home's two cards a row is on: they share the frame and differ under the title.
+#[derive(Clone, Copy, PartialEq)]
+enum Card {
+    Needs,
+    Progress,
+}
+
+fn task_row(r: &Row, first: bool, now: f64, card: Card) -> El {
+    // A thread not yet read has its title a step heavier (`.hm-row.unread .hm-text b`).
+    let title = text(r.title.as_str()).font(TextStyle::new(14.5, if r.unread && card == Card::Needs { 500.0 } else { 400.0 }).lh(20.0)).color(ink()).truncate();
+    let under = match card {
+        Card::Needs => {
+            let mut tags = row().mt(3.0).h(16.0).items_center().gap(10.0);
+            if let Some(mark) = priority_mark(r.priority) {
+                tags = tags.child(mark);
+            }
+            if !r.project.is_empty() {
+                tags = tags.child(text(r.project.as_str()).font(mono(10.5, 16.0).tracking(0.525)).text_case(TextCase::Uppercase).color(muted()));
+            }
+            tags
+        }
+        // Who is working on it and where, in one faint line (`.hm-text small`).
+        Card::Progress => row().child(text(r.line.as_str()).font(TextStyle::new(12.5, 400.0).lh(17.0)).color(dim()).truncate()),
+    };
+    let mut face = row().size(28.0, 28.0).radius(14.0).center().fill(white(0.12)).child(label(r.letter, 12.0, 500.0, ink()));
+    if card == Card::Progress {
+        // The green dot of a thread an agent is on (`.hm-face.live::after`), ringed in the card's dark.
+        face = face.child(el().absolute(21.0, 21.0).size(8.0, 8.0).radius(4.0).fill(rgb(0x8f, 0xd1, 0x8f)).box_shadow(shadow(0.0, 0.0, 0.0, 2.0, rgba(18, 16, 18, 0.95), false)));
     }
-    tags = tags.child(text(r.project.as_str()).font(mono(10.5, 16.0).tracking(0.525)).text_case(TextCase::Uppercase).color(muted()));
-    let mut line = row().key(format!("need-{}", r.id)).items_center().gap(12.0).py(10.0).px(18.0);
+    let mut line = row().key(format!("{}-{}", if card == Card::Needs { "need" } else { "progress" }, r.id)).items_center().gap(12.0).py(10.0).px(18.0).hover(white(0.045));
     if !first {
-        line = line.border_sides([1.0, 0.0, 0.0, 0.0], white(0.067)).border_layout();
+        // The CSS says .065; the browser keeps alpha in 255ths, which lands it on 17.
+        line = line.border_sides([1.0, 0.0, 0.0, 0.0], white(17.0 / 255.0)).border_layout();
     }
     let (id, product) = (r.id.clone(), r.product.clone());
     line.on_press(move |s: &mut State| s.go(View::Thread { id: id.clone(), product: product.clone() }))
-        .child(row().size(28.0, 28.0).radius(14.0).center().fill(white(0.12)).child(label(r.letter, 12.0, 500.0, ink())))
-        .child(col().grow(1.0).min_w(0.0).child(text(r.title.as_str()).font(TextStyle::new(14.5, 400.0).lh(20.0)).color(ink()).truncate()).child(tags))
+        .child(face)
+        .child(col().grow(1.0).min_w(0.0).child(title).child(under))
         .child(label(&r.at.map(|at| ago_short(at, now)).unwrap_or_default(), 12.5, 400.0, dim()))
 }
 
@@ -162,15 +186,16 @@ pub fn view(s: &State) -> El {
     let cards_h = (page_h - 24.0 - 40.0 - 326.3984).max(300.0);
 
     // An empty card says so in one line (`HomePage.tsx`), and a head shows its count only above zero.
-    let list = |rows: &[Row], empty: &str| {
+    let list = |rows: &[Row], empty: &str, card: Card| {
         if rows.is_empty() {
             el().py(14.0).px(18.0).child(label(empty, 13.5, 400.0, dim()))
         } else {
-            col().children(rows.iter().enumerate().map(|(i, r)| task_row(r, i == 0, s.now)))
+            col().children(rows.iter().enumerate().map(|(i, r)| task_row(r, i == 0, s.now, card)))
         }
     };
-    let rows = list(needs, "Nothing needs you.");
-    let working = list(progress, "No agent is working right now.");
+    // Home shows the first eighty that need the person and the first sixty in progress (`App.tsx`).
+    let rows = list(&needs[..needs.len().min(80)], "Nothing needs you.", Card::Needs);
+    let working = list(&progress[..progress.len().min(60)], "No agent is working right now.", Card::Progress);
     let count = |n: usize| (n > 0).then_some(n);
     let project = s.snap.products.first().map(|p| p.name.clone()).unwrap_or_default();
 
