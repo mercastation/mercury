@@ -8,6 +8,7 @@
 //   node tools/rows.mjs <dir> --shoot <checkout> --cases  ... of the invented threads in tools/rows.cases.mjs
 //   node tools/rows.mjs <dir> --shoot <checkout> --real   ... of the person's real threads, read and never written
 //   node tools/rows.mjs <dir> --shoot <checkout> --real --stir   ... with a busy fleet invented around them
+//   node tools/rows.mjs <dir> --shoot <checkout> --door   ... of the running app's inbox this minute, asked through its local door
 //
 // Four scenes: home (Needs you and In progress as Home draws them), inbox, inbox-progress and
 // inbox-done (the Inbox page's three tabs). A scene with no dump in <dir> is skipped.
@@ -27,7 +28,7 @@ const flag = (name) => args.includes(name);
 const after = (name) => (args.includes(name) ? args[args.indexOf(name) + 1] : null);
 const dir = args[0];
 if (!dir || dir.startsWith('--')) {
-  console.error('usage: node tools/rows.mjs <dir> [--shoot <mercury checkout> [--cases | --real [--stir]]] [--show]');
+  console.error('usage: node tools/rows.mjs <dir> [--shoot <mercury checkout> [--cases | --real [--stir] | --door]] [--show]');
   process.exit(2);
 }
 const show = flag('--show');
@@ -61,6 +62,23 @@ async function realSnapshot(mercury) {
     supervisor: { paused: false, pausedProducts: [], running: [], stalled: [], queued: [], scheduled: [], productOrder: [], hiddenProducts: [], personalProducts: [], capacity: 0 },
     restartNeeded: null, config: {},
   };
+}
+
+// The running app's own snapshot and what its window keeps for itself, asked through the local
+// door the native window reads (`main/local-door.mts`): the inbox as it is this minute, with the
+// fleet as it really is. Two reads, and nothing is written.
+async function throughTheDoor() {
+  const noteFile = after('--door-file') ?? path.join(os.homedir(), 'Library/Application Support/Mercury/local-door.json');
+  if (!fs.existsSync(noteFile)) throw new Error(`no door note at ${noteFile}: the app opens its door only with "localDoor": true in zero.config.json`);
+  const note = JSON.parse(fs.readFileSync(noteFile, 'utf8'));
+  const ask = async (channel) => {
+    const res = await fetch(`http://127.0.0.1:${note.port}/api/${encodeURIComponent(channel)}`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-agentbox-token': note.token }, body: '{}',
+    });
+    if (!res.ok) throw new Error(`the door answered ${res.status} to ${channel}`);
+    return res.json();
+  };
+  return { snapshot: await ask('zero:snapshot'), keeps: await ask('zero:window-keeps') };
 }
 
 // The harness's snapshot has a fleet at rest: nothing running, queued or stopped, no order of
@@ -105,14 +123,20 @@ async function shoot(mercury) {
   let checkout = mercury;
   let env = process.env;
   let shim = null;
-  if (flag('--cases') || flag('--real')) {
-    const made = flag('--real') ? await realSnapshot(mercury) : (await import('./rows.cases.mjs')).snapshot(Date.now());
+  if (flag('--cases') || flag('--real') || flag('--door')) {
+    const live = flag('--door') ? await throughTheDoor() : null;
+    const made = live ? live.snapshot : flag('--real') ? await realSnapshot(mercury) : (await import('./rows.cases.mjs')).snapshot(Date.now());
     const snapshot = flag('--stir') ? stir(made) : made;
     const file = path.resolve(dir, 'snapshot.json');
     fs.writeFileSync(file, JSON.stringify(snapshot));
     shim = standIn(mercury, file);
     checkout = shim;
     env = { ...process.env, MERCURY_REAL: '1' };
+    if (live) {
+      const keeps = path.resolve(dir, 'keeps.json');
+      fs.writeFileSync(keeps, JSON.stringify(live.keeps));
+      env.MERCURY_KEEPS = keeps;
+    }
   }
   try {
     // One capture at a time. A tall window, so a scroll area lays out more of its rows.

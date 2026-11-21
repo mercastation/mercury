@@ -15,7 +15,8 @@
 //
 // Read-only: the page is fed an invented inbox through the same bridge the other shot scripts
 // use, and no store or agent is touched. MERCURY_REAL=1 feeds it the person's real threads
-// instead, read from the store and never written.
+// instead, read from the store and never written; MERCURY_SNAPSHOT=<file> feeds it that snapshot,
+// and MERCURY_KEEPS=<file> what a real window keeps for itself.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -136,11 +137,24 @@ const DUMP = `(() => {
   };
 })()`;
 
-const shown = process.env.MERCURY_REAL === '1' ? herSnapshot() : snapshot;
+// MERCURY_SNAPSHOT names a snapshot to feed as it is: the one `rows.mjs --door` leaves, say.
+const shown = process.env.MERCURY_SNAPSHOT ? JSON.parse(fs.readFileSync(process.env.MERCURY_SNAPSHOT, 'utf8'))
+  : process.env.MERCURY_REAL === '1' ? herSnapshot() : snapshot;
 const h = await openInbox({ dist: path.join(mercury, 'renderer/dist'), width, height, snapshot: shown });
 try {
   await h.goto(h.origin);
   await h.evaluate(`localStorage.setItem('zero.firstRun.done', '1'); localStorage.setItem('zero.theme', ${JSON.stringify(theme)});`);
+  // MERCURY_KEEPS names a file with what a real window keeps for itself (delivered through, unread
+  // since, seen at), so this page decides its lists the way that window does.
+  if (process.env.MERCURY_KEEPS) {
+    const keeps = JSON.parse(fs.readFileSync(process.env.MERCURY_KEEPS, 'utf8'));
+    await h.evaluate(`(() => {
+      const k = ${JSON.stringify(keeps)};
+      localStorage.setItem('zero.deliveredThrough', String(k.deliveredThrough ?? 0));
+      localStorage.setItem('zero.unreadSince', String(k.unreadSince ?? 0));
+      localStorage.setItem('zero.seenAt', JSON.stringify(k.seenAt ?? {}));
+    })()`);
+  }
   await h.goto(h.origin);
   await h.evaluate(`(async () => { await document.fonts.ready; })()`);
   await h.wait(2000);
