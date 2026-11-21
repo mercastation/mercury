@@ -65,6 +65,9 @@ pub struct Facts<'a> {
     pub in_progress: bool,
     /// The row is in the tutorial's practice project, where the supervisor never starts anything.
     pub practice: bool,
+    /// The row is drawn under the Later tab, where the page already knows its state: one word
+    /// for everything that comes back at the time beside it (`laterCell`).
+    pub later: bool,
     pub now: f64,
 }
 
@@ -220,9 +223,10 @@ fn says(word: &str, mark: Mark) -> Cell {
 }
 
 /// What one thread is doing (`statusCell`): live-line first, falling back to the thread's own
-/// state word.
+/// state word. Under Later the state is the tab's, whatever the thread itself would say
+/// (`laterCell`): a thread finished while it was still written down there reads as the rest do.
 pub fn status_cell(i: &Item, f: &Facts) -> Cell {
-    let state = thread_state(i, f.now);
+    let state = if f.later { State::Scheduled } else { thread_state(i, f.now) };
     // Said over "Waiting" and "Done", which do not tell a shipped thread from one that never
     // shipped. A person's word that it shipped counts, and their zero takes the app's back.
     let shipped_at = i.number("shippedAt");
@@ -312,7 +316,7 @@ mod tests {
         let supervisor: Supervisor = serde_json::from_value(supervisor).unwrap();
         let session = supervisor.running.iter().find(|r| r.item_id == i.id);
         let asking = false;
-        let cell = status_cell(&i, &Facts { supervisor: &supervisor, session, asking, in_progress: tab == "progress", practice: false, now: NOW });
+        let cell = status_cell(&i, &Facts { supervisor: &supervisor, session, asking, in_progress: tab == "progress", practice: false, later: tab == "snoozed", now: NOW });
         (cell.word, cell.mark)
     }
 
@@ -422,5 +426,32 @@ mod tests {
         assert_eq!(word(auto.clone(), json!({ "queued": [] }), "progress"), ("Assigning".into(), Mark::Queued));
         auto["routed"] = json!({ "ask": ["t-1", "t-2"] });
         assert_eq!(word(auto, json!({ "queued": [] }), "inbox"), ("Asks you who".into(), Mark::None));
+    }
+
+    #[test]
+    fn under_later_every_thread_that_comes_back_says_scheduled() {
+        // A proposal would say Waiting anywhere else, and a thread waiting its turn In progress.
+        let mut proposal = open();
+        proposal["labels"] = json!([]);
+        proposal["parent"] = json!("w-0");
+        assert_eq!(word(proposal.clone(), json!({ "queued": [] }), "inbox"), ("Waiting".into(), Mark::None));
+        assert_eq!(word(proposal, json!({ "queued": [] }), "snoozed"), ("Scheduled".into(), Mark::None));
+        assert_eq!(word(open(), json!({ "queued": ["w-1"] }), "snoozed"), ("Scheduled".into(), Mark::None));
+        // One with no moment says so, and goes on saying so once its agent has written Done on
+        // it, under Later and under Done alike: the word follows `start`, not the state.
+        let mut written_down = open();
+        written_down["start"] = json!("later");
+        assert_eq!(word(written_down.clone(), json!({ "queued": [] }), "snoozed"), ("Not started".into(), Mark::None));
+        written_down["status"] = json!("done");
+        assert_eq!(word(written_down.clone(), json!({ "queued": [] }), "snoozed"), ("Not started".into(), Mark::None));
+        assert_eq!(word(written_down.clone(), json!({ "queued": [] }), "done"), ("Not started".into(), Mark::None));
+        // A finished thread put off by its agent is Scheduled here and Done there.
+        let mut finished = open();
+        finished["status"] = json!("done");
+        assert_eq!(word(finished.clone(), json!({ "queued": [] }), "snoozed"), ("Scheduled".into(), Mark::None));
+        assert_eq!(word(finished, json!({ "queued": [] }), "done"), ("Done".into(), Mark::None));
+        // What stops a thread for good is still said over the tab's word.
+        assert_eq!(word(open(), json!({ "queued": [], "stalled": ["w-1"] }), "snoozed"), ("Stopped".into(), Mark::Held));
+        assert_eq!(word(open(), json!({ "queued": [], "stalled": ["w-1"], "signInNeeded": { "w-1": "Claude Code" } }), "snoozed"), ("Signed out".into(), Mark::Held));
     }
 }

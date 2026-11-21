@@ -10,7 +10,7 @@ use rune::time::LocalTime;
 use super::format::item_options;
 use super::js::re;
 use super::rank::{item_priority, place_score, placed_at, placed_score};
-use crate::data::{Item, Priority};
+use crate::data::{Item, Lists, Priority, Tab};
 
 /// When a person last wrote on the thread: the newest of the opening message, a reply, and
 /// starting it from Later. An agent's write never moves it. A thread no person has written on
@@ -117,6 +117,75 @@ pub fn updated_words(ts: f64, now: f64) -> String {
     }
     let t = LocalTime::at(ts as i64);
     format!("{} {}", MONTHS[t.month as usize - 1], t.day)
+}
+
+/// The time column's heading: on Done it is when each thread was finished, on Later when it
+/// comes back, and everywhere else when the person last wrote (`timeHeading`).
+pub fn time_heading(tab: &str) -> &'static str {
+    match tab {
+        "done" => "Done",
+        "snoozed" => "Back",
+        _ => "Sent",
+    }
+}
+
+const DAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/// A coming moment as a day and a clock: "Wed 8:00 AM" inside the coming six days, where the
+/// weekday names one day, and "Thu, Nov 5, 8:00 AM" from seven days on or once the moment has
+/// gone (`dayAndTime` in `renderer/src/format.ts`). The web app asks the system's language for
+/// it; this is the English the rest of the window speaks, with a twelve-hour clock.
+pub fn day_and_time(ts: f64, now: f64) -> String {
+    let t = LocalTime::at(ts as i64);
+    // The day each moment falls on, counted on its own clock, as two local midnights compare.
+    let day_of = |ms: f64| ((ms / 1000.0).floor() as i64 + i64::from(LocalTime::at(ms as i64).offset)).div_euclid(86_400);
+    let days = day_of(ts) - day_of(now);
+    let weekday = DAYS[(day_of(ts) + 4).rem_euclid(7) as usize];
+    let hour = if t.hour.is_multiple_of(12) { 12 } else { t.hour % 12 };
+    let clock = format!("{hour}:{:02} {}", t.minute, if t.hour < 12 { "AM" } else { "PM" });
+    if (0..7).contains(&days) { format!("{weekday} {clock}") } else { format!("{weekday}, {} {}, {clock}", MONTHS[t.month as usize - 1], t.day) }
+}
+
+/// When a thread in Later comes back, for its time column: a schedule, or a reminder the
+/// person set. One written down and never started has neither, and its cell is empty
+/// (`backWords`). The old put-off times this window still honours are not asked here, as the
+/// web window does not ask them either.
+pub fn back_at(i: &Item) -> f64 {
+    super::list::hidden_until(i, 0.0).max(i.run_at.unwrap_or(0.0))
+}
+
+pub fn back_words(i: &Item, now: f64) -> String {
+    let at = back_at(i);
+    if at > 0.0 { day_and_time(at, now) } else { String::new() }
+}
+
+/// Later is drawn once something is in it, or while it is the open tab: an empty tab on a
+/// first day is one more thing to wonder about (`laterTabShown` in `renderer/src/later-tab.ts`).
+/// The walkthrough keeps it drawn too, and this window has no walkthrough.
+pub fn later_tab_shown(count: usize, open: bool) -> bool {
+    count > 0 || open
+}
+
+/// The tabs the strip draws while `open` is the one on show: all four, less Later while
+/// nothing is in it (`StateTabsRow` in `renderer/src/threads/Pages.tsx`, for one person).
+pub fn tabs(lists: &Lists, open: Tab) -> Vec<Tab> {
+    Tab::ALL.into_iter().filter(|t| *t != Tab::Later || later_tab_shown(lists.count(Tab::Later), open == Tab::Later)).collect()
+}
+
+/// The one line an empty tab carries (`emptyTabWords`). `waiting` is what Needs you holds,
+/// because "Nothing is running." alone was read as a task having vanished. The web window's
+/// empty Needs you is a page of its own, with a box to write in; this is its heading.
+pub fn empty_tab_words(tab: &str, waiting: usize) -> String {
+    match tab {
+        "progress" => match waiting {
+            0 => "Nothing is running.".to_string(),
+            1 => "Nothing is running. One thread waits in Needs you.".to_string(),
+            n => format!("Nothing is running. {n} threads wait in Needs you."),
+        },
+        "snoozed" => "Nothing is waiting for later. \"Add it to Later\" on a new thread writes one down without starting it.".to_string(),
+        "done" => "Nothing closed yet. A finished thread waits in Needs you until you close it.".to_string(),
+        _ => "Nothing needs you.".to_string(),
+    }
 }
 
 /// The Status word a row draws under a tab, or none (`cellUnderTab`). The words a cell would
@@ -247,6 +316,67 @@ mod tests {
         let t = LocalTime::at((noon - 40.0 * 3_600_000.0) as i64);
         assert_eq!(earlier, format!("{} {}", MONTHS[t.month as usize - 1], t.day));
         assert_eq!(updated_words(noon + 5_000.0, noon), "just now");
+    }
+
+    /// The day of the week a date falls on, worked out from the date alone (Sakamoto's rule),
+    /// so the test does not lean on the arithmetic it checks.
+    fn weekday(at: f64) -> &'static str {
+        let t = LocalTime::at(at as i64);
+        let (m, d) = (t.month as i32, t.day as i32);
+        let y = if m < 3 { t.year - 1 } else { t.year };
+        let shift = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4][m as usize - 1];
+        DAYS[(y + y / 4 - y / 100 + y / 400 + shift + d).rem_euclid(7) as usize]
+    }
+
+    #[test]
+    fn a_coming_moment_is_a_day_and_a_clock_and_a_far_one_carries_its_date() {
+        const HOUR: f64 = 3_600_000.0;
+        let noon = start_of_day(1_784_000_000_000.0) + 12.0 * HOUR;
+        let at = |hours: f64| day_and_time(noon + hours * HOUR, noon);
+        let named = |hours: f64| weekday(noon + hours * HOUR);
+        assert_eq!(at(3.5), format!("{} 3:30 PM", named(0.0)));
+        assert_eq!(at(12.0), format!("{} 12:00 AM", named(24.0)));
+        assert_eq!(at(21.125), format!("{} 9:07 AM", named(24.0)));
+        assert_eq!(at(24.0), format!("{} 12:00 PM", named(24.0)));
+        // Inside the coming six days the weekday names one day. From seven on it would name
+        // the wrong week, and a moment already gone is no day to come.
+        assert_eq!(at(6.0 * 24.0), format!("{} 12:00 PM", named(6.0 * 24.0)));
+        let far = LocalTime::at((noon + 7.0 * 24.0 * HOUR) as i64);
+        assert_eq!(at(7.0 * 24.0), format!("{}, {} {}, 12:00 PM", named(7.0 * 24.0), MONTHS[far.month as usize - 1], far.day));
+        let gone = LocalTime::at((noon - 13.0 * HOUR) as i64);
+        assert_eq!(at(-13.0), format!("{}, {} {}, 11:00 PM", named(-13.0), MONTHS[gone.month as usize - 1], gone.day));
+    }
+
+    #[test]
+    fn a_thread_in_later_says_when_it_comes_back() {
+        const HOUR: f64 = 3_600_000.0;
+        let noon = start_of_day(1_784_000_000_000.0) + 12.0 * HOUR;
+        let back = |v: serde_json::Value| back_words(&item(v), noon);
+        let tomorrow = day_and_time(noon + 24.0 * HOUR, noon);
+        // Put off by the person, or by its agent: the schedule either way.
+        assert_eq!(back(json!({ "runAt": noon + 24.0 * HOUR, "wrote": { "runAt": { "ts": 5, "source": "founder" } } })), tomorrow);
+        assert_eq!(back(json!({ "runAt": noon + 24.0 * HOUR, "wrote": { "runAt": { "ts": 5, "source": "agent" } } })), tomorrow);
+        // A reminder, and of the two the later moment.
+        assert_eq!(back(json!({ "snoozedUntil": noon + 24.0 * HOUR, "wrote": { "snoozedUntil": { "ts": 5, "source": "founder" } } })), tomorrow);
+        assert_eq!(back(json!({ "runAt": noon + HOUR, "snoozedUntil": noon + 24.0 * HOUR, "wrote": { "snoozedUntil": { "ts": 5, "source": "founder" } } })), tomorrow);
+        // Written down and never started, or proposed: no moment, and no words.
+        assert_eq!(back(json!({ "start": "later" })), "");
+        assert_eq!(back(json!({ "parent": "w-0", "status": "open" })), "");
+        assert_eq!(time_heading("snoozed"), "Back");
+        assert_eq!((time_heading("done"), time_heading("inbox"), time_heading("progress")), ("Done", "Sent", "Sent"));
+    }
+
+    #[test]
+    fn later_is_on_the_strip_only_while_something_is_in_it_or_it_is_open() {
+        let labels = |lists: &Lists, open: Tab| tabs(lists, open).into_iter().map(Tab::label).collect::<Vec<_>>();
+        let empty = Lists::default();
+        assert_eq!(labels(&empty, Tab::Needs), ["Needs you", "In progress", "Done"]);
+        assert_eq!(labels(&empty, Tab::Later), ["Needs you", "In progress", "Later", "Done"]);
+        assert!(later_tab_shown(1, false) && later_tab_shown(0, true) && !later_tab_shown(0, false));
+        assert_eq!(empty_tab_words("snoozed", 3), "Nothing is waiting for later. \"Add it to Later\" on a new thread writes one down without starting it.");
+        assert_eq!(empty_tab_words("progress", 0), "Nothing is running.");
+        assert_eq!(empty_tab_words("progress", 1), "Nothing is running. One thread waits in Needs you.");
+        assert_eq!(empty_tab_words("progress", 4), "Nothing is running. 4 threads wait in Needs you.");
     }
 
     #[test]

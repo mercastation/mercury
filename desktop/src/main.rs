@@ -4,6 +4,7 @@
 //!   cargo run -- --door http://127.0.0.1:7777 --token <key>          # live, from the engine
 //!   cargo run -- --fixture shots/home-fixture.json --snap shots/home.png --size 1280x760 --scale 2
 //!   cargo run -- --fixture shots/inbox-fixture.json --view inbox --snap shots/inbox.png --size 1280x760 --scale 2
+//!   cargo run -- --fixture shots/inbox-fixture.json --view inbox --tab later --snap shots/inbox-later.png --size 1280x760 --scale 2
 //!   cargo run -- --fixture shots/thread-fixture.json --thread --snap shots/thread.png --size 1280x760 --scale 2
 //!
 //! Every size, colour, border and shadow was read off the running renderer, so a screen here
@@ -29,7 +30,7 @@ use std::collections::HashMap;
 use rune::{App, AppSpec, Cx, El, FontSmoothing, Latest, Pixels, ScrollSpec, Tx, Waker, el};
 use serde_json::{Map, Value};
 
-use data::{Lists, Local, Snapshot};
+use data::{Lists, Local, Snapshot, Tab};
 use source::{Mailbox, Source};
 
 /// Which screen the card is showing.
@@ -66,8 +67,8 @@ pub struct State {
     pub now: f64,
     fixed_clock: bool,
     pub view: View,
-    /// The Inbox's open tab: 0 needs you, 1 in progress, 2 done.
-    pub inbox_tab: u8,
+    /// The Inbox's open tab.
+    pub inbox_tab: Tab,
     /// What the person has unfolded in the conversations they opened.
     pub reading: thread::Reading,
     /// What the engine answered about each conversation opened so far, by `product/id` and
@@ -167,7 +168,8 @@ fn init() -> State {
             Some("inbox") => View::Inbox,
             _ => View::Home,
         },
-        inbox_tab: 0,
+        // `--tab later` opens the Inbox on that tab, for a picture of it.
+        inbox_tab: Tab::from_args(args),
         reading: thread::Reading::default(),
         threads: HashMap::new(),
         asking: Latest::default(),
@@ -213,7 +215,7 @@ fn init() -> State {
     if let Some(at) = args.iter().position(|a| a == "--thread") {
         let wanted = args.get(at + 1).filter(|a| !a.starts_with("--"));
         let row = match wanted {
-            Some(id) => s.lists.needs.iter().chain(&s.lists.progress).chain(&s.lists.done).find(|r| &r.id == id),
+            Some(id) => s.lists.needs.iter().chain(&s.lists.progress).chain(&s.lists.later).chain(&s.lists.done).find(|r| &r.id == id),
             None => s.lists.needs.first(),
         };
         if let Some(r) = row {

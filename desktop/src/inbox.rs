@@ -4,10 +4,10 @@
 
 use std::cell::RefCell;
 
-use rune::time::LocalTime;
 use rune::{Color, Cursor, El, Pixels, TextCase, TextStyle, col, el, icon, row, text};
 
-use crate::data::{Priority, Row};
+use crate::data::{Mark, Priority, Row, Tab};
+use crate::rules::{cloud, page};
 use crate::theme::*;
 use crate::{State, View, chrome, icons};
 
@@ -94,8 +94,25 @@ fn strip_button() -> El {
     row().h(32.0).items_center().radius(6.0).backdrop_blur(6.0).fill(under(0.82)).border(1.0, rgb(82, 80, 79)).border_layout()
 }
 
-/// The card's top strip beside the arrows: the page's title, and at the right New thread and
-/// the display button. Phase 1 only draws the buttons.
+/// Where threads run (`CloudButton`): a square like the display button's with a cloud in it,
+/// orange while the cloud is on. It widens to carry how many threads run there, or a word:
+/// "Cloud" until an account is set up, "Sign in again" when one has stopped working. The dot
+/// in its corner is the display button's, for something about the setup that wants a look.
+fn cloud_button(b: cloud::Button) -> El {
+    let cloud = icon(&icons::CLOUD, 16.0).color(if b.lit { accent() } else { dim() });
+    let said = |words: String, font: TextStyle, c: Color| shaded(move |shadow| pen(text(words.as_str()).font(font).color(if shadow { under(1.0) } else { c }), 13.0));
+    let e = match (b.word, b.count) {
+        // A word reads as brightly as New thread when it asks for something, and leaves the
+        // dot room on its right.
+        (Some(word), _) => strip_button().gap(7.0).pl(9.0).pr(14.0).child(cloud).child(said(word.said().to_string(), sans(13.0, 400.0), if word == cloud::Word::Again { ink() } else { dim() })),
+        (None, Some(running)) => strip_button().gap(7.0).pl(9.0).pr(10.0).child(cloud).child(said(running.to_string(), figures(13.0, 400.0), if b.lit { accent() } else { ink() })),
+        (None, None) => strip_button().w(32.0).justify_center().child(cloud),
+    };
+    if b.dot { e.child(el().pin(None, Some(5.0), Some(5.0), None).size(6.0, 6.0).radius(3.0).fill(accent())) } else { e }
+}
+
+/// The card's top strip beside the arrows: the page's title, and at the right New thread, the
+/// cloud on a Mac that has one, and the display button. Phase 1 only draws the buttons.
 pub fn strip(s: &State) -> El {
     let (card_w, _) = s.card_size();
     let title = shaded(|shadow| pen(text("Inbox").font(sans(17.0, 400.0).tracking(-0.51)).color(if shadow { under(1.0) } else { ink() }), 17.0));
@@ -105,6 +122,10 @@ pub fn strip(s: &State) -> El {
         .child(icon(&icons::PEN, 15.0).color(dim()))
         .child(shaded(|shadow| pen(label("New thread", 13.5, 400.0, if shadow { under(1.0) } else { ink() }), 13.5)));
     let display = strip_button().w(32.0).justify_center().child(icon(&icons::SLIDERS, 15.0).color(dim()));
+    let mut buttons = row().gap(10.0).child(new_thread);
+    if let Some(button) = cloud::button(s.snap.rest.get("cloud"), &s.local.cloud_broken_seen) {
+        buttons = buttons.child(cloud_button(button));
+    }
     // `.topbar`: 64 points with a clear hairline under it, the arrows' 54 and their 12 before the title.
     row().absolute(chrome::CARD[0], chrome::CARD[1])
         .size(card_w, 64.0)
@@ -114,7 +135,7 @@ pub fn strip(s: &State) -> El {
         .items_center()
         .justify_between()
         .child(title)
-        .child(row().gap(10.0).child(new_thread).child(display))
+        .child(buttons.child(display))
 }
 
 /// The table's own type: Geist Mono capitals, as the tabs, the headings and the small cells wear.
@@ -123,13 +144,13 @@ fn capitals(s: &str, size: f32, line: f32, spacing: f32, c: Color) -> El {
 }
 
 /// One tab: its name, its count while it has one, and the orange line under the open one.
-fn tab(name: &str, count: usize, at: u8, open: bool, shadow: bool) -> El {
+fn tab(at: Tab, count: usize, open: bool, shadow: bool) -> El {
     let (words, number) = match (shadow, open) {
         (true, _) => (under(1.0), under(1.0)),
         (false, true) => (ink(), ink()),
         (false, false) => (muted(), dim()),
     };
-    let mut name = capitals(name, 11.0, 30.0, 0.88, words);
+    let mut name = capitals(at.label(), 11.0, 30.0, 0.88, words);
     if !shadow {
         name = name.group_color(ink());
     }
@@ -141,22 +162,19 @@ fn tab(name: &str, count: usize, at: u8, open: bool, shadow: bool) -> El {
     if shadow {
         return e;
     }
-    e.key(format!("tab-{at}"))
+    e.key(format!("tab-{}", at.view()))
         .border_sides([0.0, 0.0, 1.0, 0.0], if open { accent() } else { rgba(0, 0, 0, 0.0) })
         .hover_group()
         .cursor(Cursor::Pointer)
         .on_press(move |s: &mut State| s.inbox_tab = at)
 }
 
-/// `.th-bar`: Needs you, In progress and Done. A number only where it changes what you do.
+/// `.th-bar`: Needs you, In progress, Later while something is in it, and Done. A number only
+/// where it changes what you do.
 fn tabs(s: &State) -> El {
     let open = s.inbox_tab;
-    let all = |shadow: bool| {
-        row().gap(22.0)
-            .child(tab("Needs you", s.lists.needs.len(), 0, open == 0, shadow))
-            .child(tab("In progress", s.lists.progress.len(), 1, open == 1, shadow))
-            .child(tab("Done", 0, 2, open == 2, shadow))
-    };
+    let shown = page::tabs(&s.lists, open);
+    let all = |shadow: bool| row().gap(22.0).children(shown.iter().map(|at| tab(*at, s.lists.count(*at), *at == open, shadow)));
     row().pt(14.0).pr(32.0).pb(8.0).pl(44.0).child(shaded(all))
 }
 
@@ -174,11 +192,11 @@ const GAP: f32 = 16.0;
 const WHEN: f32 = 96.0;
 
 impl Columns {
-    fn of(rows: &[Row], table: f32) -> Columns {
+    fn of(rows: &[&Row], table: f32) -> Columns {
         // The steps are the table's own width (`@container th`): Priority goes at 915 points,
         // Project at 785, where Status also gives the title 16 points back.
         let state = rows.iter().any(|r| !r.status.is_empty()).then_some(if table <= 785.0 { 160.0 } else { 176.0 });
-        let project = (table > 785.0 && rows.iter().any(|r| !r.project.is_empty())).then_some(150.0);
+        let project = (table > 785.0 && rows.iter().any(|r| !r.place.is_empty())).then_some(150.0);
         let priority = (table > 915.0 && rows.iter().any(|r| r.priority != Priority::Medium)).then_some(112.0);
         // The rows sit 76 points inside the table, and the title takes what the others leave.
         let taken: f32 = [state, project, priority].into_iter().flatten().map(|w| w + GAP).sum();
@@ -193,7 +211,11 @@ impl Columns {
                 e = e.child(cell.w(width));
             }
         }
-        e.child(when.w(WHEN).justify_end())
+        // The time's words end at the column's end while they fit in it. Words wider than the
+        // column start at its start and run out past its end, as a line of text set to the
+        // right does in a browser (a dated "Mon, Nov 30, 5:24 PM" under Back): the space
+        // before them takes what room there is, and there is none to take.
+        e.child(row().w(WHEN).child(el().grow(1.0)).child(when))
     }
 }
 
@@ -222,60 +244,97 @@ fn priority_word(p: Priority) -> &'static str {
     }
 }
 
-/// Midnight today on the person's own clock, in milliseconds.
-fn start_of_day(now: f64) -> f64 {
-    let t = LocalTime::at(now as i64);
-    let midnight = now - f64::from(t.hour * 3600 + t.minute * 60 + t.second) * 1000.0 - now.rem_euclid(1000.0);
-    // A day the clocks changed on is an hour longer or shorter than its face says.
-    midnight + f64::from(t.offset - LocalTime::at(midnight as i64).offset) * 1000.0
+/// The mark before a Status word (`StatusMark`), drawn only for a word about an agent: a ring
+/// for one waiting its turn, the orange ring for one nothing will start until something
+/// changes, the solid dot where someone's words wait on the person, and the half-dot or the
+/// cloud while an agent is on it. The last two breathe in the web window and stand still here.
+fn status_mark(mark: Mark) -> Option<El> {
+    let dot = || el().size(12.0, 12.0).radius(6.0).mr(8.0);
+    match mark {
+        Mark::None => None,
+        Mark::Queued => Some(dot().border(1.5, muted())),
+        Mark::Held => Some(dot().border(1.5, accent())),
+        Mark::Need => Some(dot().fill(accent())),
+        // The ring, and its right half filled.
+        Mark::Running => Some(dot().border(1.5, accent()).clip_rounded(6.0).child(el().absolute(6.0, 0.0).size(6.0, 12.0).fill(accent()))),
+        Mark::Cloud => Some(el().size(14.0, 11.0).mr(6.0).child(el().absolute(0.0, 0.0).child(icon(&icons::CLOUD_MARK, 14.0).color(accent())))),
+    }
 }
 
-/// When a thread was sent, in plain words: "just now", "6 min ago", "4 hours ago", "Yesterday",
-/// "Sep 28" (`updatedWords` in `renderer/src/threads/page-rules.ts`).
-fn sent_words(at: f64, now: f64) -> String {
-    const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    let min = ((now - at) / 60_000.0).floor().max(0.0) as i64;
-    if min < 1 {
-        return "just now".into();
-    }
-    if min < 60 {
-        return format!("{min} min ago");
-    }
-    let today = start_of_day(now);
-    if at >= today {
-        let hours = min / 60;
-        return format!("{hours} hour{} ago", if hours == 1 { "" } else { "s" });
-    }
-    if at >= today - 86_400_000.0 {
-        return "Yesterday".into();
-    }
-    let day = LocalTime::at(at as i64);
-    format!("{} {}", MONTHS[(day.month as usize).clamp(1, 12) - 1], day.day)
-}
-
-/// One thread: 54 points, a hairline above every row but the first, and the title's underline,
-/// which is how a row answers: orange on the selected one, faint under the pointer.
-fn thread(r: &Row, at: usize, cols: &Columns, now: f64) -> El {
-    let selected = at == 0;
+/// A thread's title cell, `room` points wide: the face, the title, and what follows it. An
+/// aside is what the row adds to its title (a comment on a link, how many tasks wait for a
+/// yes, the cause a thread in Later is stuck behind); "not started" is on a thread written
+/// down in Later and never begun; the pin is on one kept at the top.
+fn title_cell(r: &Row, selected: bool, room: f32) -> El {
     // An unread thread's title is heavier, and a square in the gutter says so too.
-    let words = pen(text(r.title.as_str()).font(TextStyle::new(14.0, if r.unread { 530.0 } else { 400.0 }).lh(20.0).tracking(-0.14)).color(ink()).truncate(), 14.0);
+    let type_ = TextStyle::new(14.0, if r.unread { 530.0 } else { 400.0 }).lh(20.0).tracking(-0.14);
+    let words = pen(text(r.title.as_str()).font(type_).color(ink()).truncate(), 14.0);
     // The line is the title's own, so it ends where the words do.
     let line = el().pin(Some(0.0), None, Some(0.0), Some(0.0)).h(1.0);
     let line = if selected { line.fill(rgba(238, 96, 24, 0.6)) } else { line.fill(rgb(82, 80, 79)).group_opacity(0.0, 1.0) };
     // Every title starts after a face in a slot of its own, so the titles line up.
     let face = row().size(18.0, 18.0).radius(9.0).center().border(1.0, rgba(239, 235, 231, 0.12)).child(icon(&icons::AGENT_EYES, 16.0).color(dim()));
-    let mut title = row().items_center().child(face.mr(10.0)).child(el().shrink().child(words).child(line));
-    if r.pinned {
-        // A thread kept at the top wears a small pin after its words, 3 points under their line.
-        title = title.child(el().ml(9.0).child(icon(&icons::PIN, 13.0).color(muted()).mt(3.0)));
+    let cell = row().items_center().child(face.mr(10.0)).child(el().shrink().child(words).child(line));
+    // Faint words after the title (`.th-aside`), 12 points on, in the title's own type.
+    let faint = |s: &str| pen(text(s).font(type_).color(muted()), 14.0);
+    let held = || el().ml(12.0).child(faint("not started"));
+    // The pin sits 3 points under the words' line.
+    let pin = || el().ml(9.0).child(icon(&icons::PIN, 13.0).color(muted()).mt(3.0));
+    let wide = |s: &str| rune::text::measure(s, &[], type_, None).0;
+
+    if !r.aside.is_empty() {
+        // With an aside the cell is a row of boxes (`.th-cell-title.with-aside`). The aside
+        // takes what the title leaves and no more than its own words need, and is cut short
+        // before the title is; "not started" and the pin keep their room, so in a narrow cell
+        // it is the title that gives way to them. The aside's 12 points are inside its box,
+        // which may close to nothing.
+        let aside = row().grow(1.0).min_w(0.0).max_w(12.0 + wide(&r.aside)).clip_rounded(0.0).child(el().w(12.0).min_w(12.0)).child(faint(&r.aside).truncate());
+        let cell = cell.child(aside);
+        let cell = if r.held { cell.child(held()) } else { cell };
+        return if r.pinned { cell.child(pin()) } else { cell };
     }
-    let small = |s: &str, c: Color| row().items_center().child(capitals(s, 11.5, 20.0, 0.575, c).truncate());
+    if !r.held && !r.pinned {
+        return cell;
+    }
+    // Without one the cell is a line of text (`.th-cell-title`), and a line too long for it
+    // is cut from its end: the pin goes first, then "not started", and only then the title's
+    // own words, with the three dots after whatever is left.
+    let (title, after, pinned) = (wide(&r.title), if r.held { 12.0 + wide("not started") } else { 0.0 }, if r.pinned { 22.0 } else { 0.0 });
+    let room = room - 28.0;
+    if title + after + pinned <= room {
+        let cell = if r.held { cell.child(held()) } else { cell };
+        return if r.pinned { cell.child(pin()) } else { cell };
+    }
+    let dots = wide("…");
+    if title > room - dots {
+        return cell;
+    }
+    let cell = if r.held && title + after <= room - dots { cell.child(held()) } else { cell };
+    cell.child(pen(text("…").font(type_).color(ink()), 14.0))
+}
+
+/// One thread: 54 points, a hairline above every row but the first, and the title's underline,
+/// which is how a row answers: orange on the selected one, faint under the pointer.
+fn thread(r: &Row, at: usize, cols: &Columns) -> El {
+    let title = title_cell(r, at == 0, cols.title);
+    let small = |s: &str, c: Color| capitals(s, 11.5, 20.0, 0.575, c).truncate();
+    let mut state = row().items_center();
+    if let Some(mark) = status_mark(r.mark) {
+        state = state.child(mark);
+    }
+    let state = state.child(small(&r.status, dim()));
+    // A cause's row names where most of the threads behind it are, and counts the other projects.
+    let mut project = row().items_center().child(small(&r.place, muted()));
+    if r.place_more > 0 {
+        project = project.child(el().ml(6.0).child(capitals(&format!("+{}", r.place_more), 11.5, 20.0, 0.575, muted())));
+    }
     let mut priority = row().items_center();
     if let Some(mark) = priority_mark(r.priority) {
         let c = if r.priority == Priority::Urgent { accent() } else { muted() };
         priority = priority.child(mark.mr(8.0)).child(capitals(priority_word(r.priority), 11.5, 20.0, 0.575, c));
     }
-    let when = row().child(pen(text(r.at.map(|at| sent_words(at, now)).unwrap_or_default()).font(TextStyle::new(13.0, 400.0).lh(20.0)).color(dim()), 13.0));
+    // When it was sent, when it was finished on Done, when it comes back on Later.
+    let when = pen(text(r.when.as_str()).font(TextStyle::new(13.0, 400.0).lh(20.0)).color(dim()), 13.0);
     let (id, product) = (r.id.clone(), r.product.clone());
     let mut e = row()
         .key(format!("thread-{}-{}", r.product, r.id))
@@ -286,7 +345,7 @@ fn thread(r: &Row, at: usize, cols: &Columns, now: f64) -> El {
         .hover_group()
         .cursor(Cursor::Pointer)
         .on_press(move |s: &mut State| s.go(View::Thread { id: id.clone(), product: product.clone() }))
-        .child(cols.line(title, small(&r.status, dim()), small(&r.project, muted()), priority, when));
+        .child(cols.line(title, state, project, priority, when));
     if at > 0 {
         e = e.child(el().pin(Some(20.0), Some(0.0), Some(32.0), None).h(1.0).fill(rgba(70, 68, 67, 0.375)));
     }
@@ -310,23 +369,17 @@ fn empty(words: &str, s: &State) -> El {
 
 pub fn view(s: &State) -> El {
     let (page_w, _) = s.page_size();
-    // Each tab's rows, what its time column is called, and its words when it has none
-    // (`emptyTabWords`). The web app's empty Inbox is a page of its own, a sky over the whole card
-    // and a box to write in, which this window does not draw while it only reads.
-    let (rows, sent, nothing) = match s.inbox_tab {
-        1 => (&s.lists.progress, "Sent", match s.lists.needs.len() {
-            0 => "Nothing is running.".to_string(),
-            1 => "Nothing is running. One thread waits in Needs you.".to_string(),
-            n => format!("Nothing is running. {n} threads wait in Needs you."),
-        }),
-        2 => (&s.lists.done, "Done", "Nothing closed yet. A finished thread waits in Needs you until you close it.".to_string()),
-        _ => (&s.lists.needs, "Sent", "Nothing needs you.".to_string()),
-    };
+    let tab = s.inbox_tab;
+    // The open tab's rows in its own order, and its words when it has none. The web app's
+    // empty Inbox is a page of its own, a sky over the whole card and a box to write in, which
+    // this window does not draw while it only reads.
+    let rows = s.lists.under(tab);
     let page = col().w(page_w).child(tabs(s));
     if rows.is_empty() {
-        return page.child(empty(&nothing, s));
+        return page.child(empty(&page::empty_tab_words(tab.view(), s.lists.needs.len()), s));
     }
-    let cols = Columns::of(rows, page_w);
-    let head = row().h(38.0).pt(10.0).pr(32.0).pl(44.0).child(cols.line(heading("Thread"), heading("Status"), heading("Project"), heading("Priority"), heading(sent)));
-    page.child(head).children(rows.iter().enumerate().map(|(i, r)| thread(r, i, &cols, s.now)))
+    let cols = Columns::of(&rows, page_w);
+    // The time column is named for what it tells under this tab: Sent, Back on Later, Done.
+    let head = row().h(38.0).pt(10.0).pr(32.0).pl(44.0).child(cols.line(heading("Thread"), heading("Status"), heading("Project"), heading("Priority"), heading(page::time_heading(tab.view()))));
+    page.child(head).children(rows.iter().enumerate().map(|(i, r)| thread(r, i, &cols)))
 }

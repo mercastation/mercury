@@ -175,6 +175,62 @@ pub struct Local {
     pub snooze: std::collections::HashMap<String, f64>,
     /// `zero.troubleClosed`: the pile of stuck tasks the person dismissed, named by when it began.
     pub trouble_closed: f64,
+    /// `zero.cloudBrokenSeen`: the cloud accounts that stopped working and were already looked
+    /// at in the cloud menu, as `engine:key`. The cloud button asks for a sign-in only for the rest.
+    pub cloud_broken_seen: Vec<String>,
+}
+
+/// One of the Inbox page's tabs, in the order its strip draws them (`INBOX_TABS` in
+/// `renderer/src/threads/Pages.tsx`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Tab {
+    #[default]
+    Needs,
+    Progress,
+    Later,
+    Done,
+}
+
+impl Tab {
+    pub const ALL: [Tab; 4] = [Tab::Needs, Tab::Progress, Tab::Later, Tab::Done];
+
+    /// The web window's own name for the tab (`TabName`), which the rules ported from it read.
+    /// Later is still `snoozed` there, from when it held only what was put off.
+    pub fn view(self) -> &'static str {
+        match self {
+            Tab::Needs => "inbox",
+            Tab::Progress => "progress",
+            Tab::Later => "snoozed",
+            Tab::Done => "done",
+        }
+    }
+
+    /// The word on the strip.
+    pub fn label(self) -> &'static str {
+        match self {
+            Tab::Needs => "Needs you",
+            Tab::Progress => "In progress",
+            Tab::Later => "Later",
+            Tab::Done => "Done",
+        }
+    }
+
+    /// The tab a command line names: `--tab later`. A short word of its own, or the web's name.
+    pub fn named(name: &str) -> Option<Tab> {
+        match name {
+            "needs" | "inbox" => Some(Tab::Needs),
+            "progress" => Some(Tab::Progress),
+            "later" | "snoozed" => Some(Tab::Later),
+            "done" => Some(Tab::Done),
+            _ => None,
+        }
+    }
+
+    /// The tab `--tab <name>` asks the Inbox to open on, for a picture or a check of one tab.
+    /// Needs you when it is not said, or names no tab.
+    pub fn from_args(args: &[String]) -> Tab {
+        args.iter().position(|a| a == "--tab").and_then(|at| args.get(at + 1)).and_then(|name| Tab::named(name)).unwrap_or_default()
+    }
 }
 
 /// The lists every screen draws, worked out once from a snapshot.
@@ -187,6 +243,9 @@ pub struct Lists {
     /// Home's order, of which it lists the first sixty. The Inbox page's own tab reads
     /// `in_progress_tab`.
     pub progress: Vec<Row>,
+    /// What waits for a moment or for a person's go: put off, written down and not begun,
+    /// proposed by an agent, or waiting on another thread. In the order the Later tab draws it.
+    pub later: Vec<Row>,
     /// What is finished and put away, newest finished first.
     pub done: Vec<Row>,
 }
@@ -198,6 +257,27 @@ impl Lists {
         let mut rows: Vec<&Row> = self.progress.iter().collect();
         rows.sort_by(|a, b| b.pinned.cmp(&a.pinned).then(b.at.unwrap_or(0.0).total_cmp(&a.at.unwrap_or(0.0))));
         rows
+    }
+
+    /// The rows the Inbox page draws under a tab, in its order (`wholeBox` in `App.tsx`).
+    pub fn under(&self, tab: Tab) -> Vec<&Row> {
+        match tab {
+            Tab::Needs => self.needs.iter().collect(),
+            Tab::Progress => self.in_progress_tab(),
+            Tab::Later => self.later.iter().collect(),
+            Tab::Done => self.done.iter().collect(),
+        }
+    }
+
+    /// The number a tab wears on the strip. A number is drawn only where it changes what the
+    /// person does, so Done has none, and a zero is not drawn either (`COUNTED` in `Pages.tsx`).
+    pub fn count(&self, tab: Tab) -> usize {
+        match tab {
+            Tab::Needs => self.needs.len(),
+            Tab::Progress => self.progress.len(),
+            Tab::Later => self.later.len(),
+            Tab::Done => 0,
+        }
     }
 }
 
@@ -289,9 +369,11 @@ pub struct Row {
     /// The coding agent it is on: Claude Code, Codex or Antigravity. Home's In progress row
     /// says it before the project, "Claude Code · Storefront".
     pub engine: &'static str,
-    /// The time both pages write, "6 min ago", "Yesterday", "Sep 28", told from `shown_at`.
+    /// The time both pages write, "6 min ago", "Yesterday", "Sep 28", told from `shown_at`. On
+    /// Later it is when the thread comes back, "Sun 5:24 PM", or nothing for one with no moment.
     pub when: String,
-    /// The moment `when` tells: when it was finished on Done, `at` everywhere else.
+    /// The moment `when` tells: when it was finished on Done, when it comes back on Later (0
+    /// for none), `at` everywhere else.
     pub shown_at: f64,
 }
 
