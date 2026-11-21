@@ -200,10 +200,15 @@ fn home_card(title: &str, count: Option<usize>, link: &str, to: Option<View>, bo
 
 pub fn view(s: &State) -> El {
     let (needs, progress) = (&s.lists.needs, &s.lists.progress);
-    // What the card leaves the column, and what the column leaves the two cards.
-    let (page_w, page_h) = s.page_size();
+    // What the card leaves the column (`home.css`). The room above the greeting grows with the
+    // window, `clamp(0px, 9vh - 24px, 80px)`, and the two cards are 300 points tall however
+    // tall the window is: the column is never shorter than 660, so nothing in it has to give.
+    let (page_w, _) = s.page_size();
     let column = COLUMN.min((page_w - 64.0).max(320.0));
-    let cards_h = (page_h - 24.0 - 40.0 - 326.3984).max(300.0);
+    let above = (0.09 * s.size.1 - 24.0).clamp(0.0, 80.0);
+    let cards_h = 300.0;
+    // A window 980 points wide or less stacks the cards, each as wide as the column.
+    let stacked = s.size.0 <= 980.0;
 
     // An empty card says so in one line (`HomePage.tsx`), and a head shows its count only above zero.
     let list = |rows: &[Row], empty: &str, card: Card| {
@@ -244,17 +249,19 @@ pub fn view(s: &State) -> El {
         .w(column)
         .pt(24.0)
         .pb(40.0)
-        .child(el().h(44.3984))
+        .child(el().h(above))
         .child(text(greeting(s.now, window::greeted(&s.snap))).font(TextStyle::new(30.0, 500.0).lh(36.0).tracking(-0.36)).color(ink()))
         .child(doors)
         .child(el().mt(22.0).child(composer(&project, rgb(r, g, b), window::to_offered(&s.snap)).w_full()))
-        .child(
+        .child(if stacked {
+            col().mt(24.0).gap(22.0).child(home_card("Needs you", count(needs.len()), "Open inbox →", Some(View::Inbox), rows, cards_h).w(column)).child(second.w(column))
+        } else {
             row()
                 .mt(24.0)
                 .gap(22.0)
                 // `grid-template-columns: 1.35fr 1fr`: the shares are of the row less its gap.
                 .child(home_card("Needs you", count(needs.len()), "Open inbox →", Some(View::Inbox), rows, cards_h).w((column - 22.0) * 1.35 / 2.35))
-                .child(second.w((column - 22.0) / 2.35)),
-        );
+                .child(second.w((column - 22.0) / 2.35))
+        });
     row().w_full().justify_center().child(page)
 }
