@@ -1,4 +1,5 @@
-// From Home to one open conversation: the first thread of the Inbox, as Enter opens it.
+// From Home to one open conversation: the first thread of the Inbox, as Enter opens it, with
+// its earlier messages unfolded. (`thread-folded` is the same thread as it first opens.)
 //
 // The harness's bridge answers the snapshot and little else, and a thread reads more than
 // that: its ledger (`zero:item-history`), what its runs did (`zero:session-trace`), the files
@@ -74,7 +75,9 @@ function conversation(item) {
   return { row, lines };
 }
 
-export async function go(h) {
+// `unfold` presses the line under the title, so the picture is of the whole conversation
+// and not of its newest answer alone.
+export async function open(h, { unfold }) {
   const snapshot = await h.evaluate('window.__SNAP__');
   // The Inbox opens on its first row; the snapshot's first thread is not always that one.
   await toInbox(h);
@@ -122,12 +125,15 @@ export async function go(h) {
   await h.call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
   await h.call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
   await h.wait(1500);
-  // A thread opens on its newest answer, with the rest folded behind one line. Unfold it: the
-  // picture is of the whole conversation.
-  await h.evaluate(`document.querySelector('.one-earlier')?.click()`);
-  await h.wait(600);
+  // A thread opens on its newest answer, with the rest folded behind one line.
+  if (unfold) {
+    await h.evaluate(`document.querySelector('.one-earlier')?.click()`);
+    await h.wait(600);
+  }
   const unanswered = await h.evaluate('window.__UNANSWERED__');
   if (unanswered.length) console.error('thread scene: the page asked the bridge for', unanswered.join(', '), 'and got nothing');
   // `unfolded` tells the native window the same thing the click above told the page.
-  return { snapshot, threads, unfolded: Object.keys(threads) };
+  return { snapshot, threads, unfolded: unfold ? Object.keys(threads) : [] };
 }
+
+export const go = (h) => open(h, { unfold: true });
