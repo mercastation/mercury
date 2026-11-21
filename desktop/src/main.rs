@@ -16,8 +16,10 @@ mod data;
 mod home;
 mod icons;
 mod inbox;
+mod markdown;
 mod sky;
 mod source;
+mod talk;
 mod theme;
 mod thread;
 
@@ -61,6 +63,8 @@ pub struct State {
     pub now: f64,
     fixed_clock: bool,
     pub view: View,
+    /// What the person has unfolded in the conversations they opened.
+    pub reading: thread::Reading,
     pub history: Vec<View>,
     pub source: Source,
     mailbox: Mailbox,
@@ -84,7 +88,7 @@ impl State {
     }
     /// The page's box inside the window: under the card's top strip.
     pub fn page_size(&self) -> (f32, f32) {
-        ((self.size.0 - chrome::CARD[0] - chrome::CARD[2]).max(1.0), (self.size.1 - chrome::PAGE_TOP - chrome::CARD[3]).max(1.0))
+        ((self.size.0 - chrome::CARD[0] - chrome::CARD[2]).max(1.0), (self.size.1 - chrome::page_top(&self.view) - chrome::CARD[3]).max(1.0))
     }
     fn refresh(&mut self) {
         self.lists = self.snap.lists(self.now, &self.local);
@@ -134,6 +138,7 @@ fn init() -> State {
             Some("inbox") => View::Inbox,
             _ => View::Home,
         },
+        reading: thread::Reading::default(),
         history: Vec::new(),
         source,
         mailbox: Mailbox::default(),
@@ -242,7 +247,7 @@ fn view(s: &State, _: &mut Cx<State>) -> El {
         .child(chrome::back_forward(s))
         // The page scrolls inside the card, under its top strip.
         .child(
-            el().pin(Some(chrome::CARD[0]), Some(chrome::PAGE_TOP), Some(chrome::CARD[2]), Some(chrome::CARD[3]))
+            el().pin(Some(chrome::CARD[0]), Some(chrome::page_top(&s.view)), Some(chrome::CARD[2]), Some(chrome::CARD[3]))
                 .clip_corners([0.0, 0.0, 6.0, 6.0])
                 .scroll(ScrollSpec { stick_bottom: false })
                 .child(page),

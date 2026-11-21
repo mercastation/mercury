@@ -11,6 +11,14 @@ pub const CARD: [f32; 4] = [82.0, 40.0, 22.0, 22.0];
 /// Where the page begins inside the window: under the card's top strip.
 pub const PAGE_TOP: f32 = 104.0;
 
+/// The same for the screen on show: the strip over a conversation is 56 points tall, not 64.
+pub fn page_top(view: &View) -> f32 {
+    match view {
+        View::Thread { .. } => 96.0,
+        _ => PAGE_TOP,
+    }
+}
+
 /// The page under everything: a warm glow from the upper right and a dot every 32 points.
 pub fn backdrop(w: f32, h: f32) -> El {
     let mut dots = Vec::new();
@@ -39,16 +47,15 @@ pub fn card(s: &State) -> El {
         View::Inbox => Some(crate::inbox::sky(s)),
         View::Thread { .. } => None,
     };
-    let mut ground = el().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).fill(rgb(0x1b, 0x19, 0x17)).radius(6.0).clip_rounded(6.0);
-    if let Some(sky) = sky {
-        ground = ground.child(sky);
-    }
-    el().pin(Some(CARD[0]), Some(CARD[1]), Some(CARD[2]), Some(CARD[3]))
-        .radius(6.0)
-        .fill(rgba(36, 34, 33, 0.55))
-        .box_shadow(shadow(0.0, 40.0, 120.0, 0.0, rgba(0, 0, 0, 0.7), false))
-        .child(ground)
-        .child(el().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).radius(6.0).border(1.0, white(0.07)))
+    // A sky is painted on a ground of its own and wears a faint edge. With no sky the card is
+    // only its wash over the dotted page, inside the plain edge the wash itself carries.
+    let edge = if sky.is_some() { white(0.07) } else { edge() };
+    let card = el().pin(Some(CARD[0]), Some(CARD[1]), Some(CARD[2]), Some(CARD[3])).radius(6.0).fill(rgba(36, 34, 33, 0.55)).box_shadow(shadow(0.0, 40.0, 120.0, 0.0, rgba(0, 0, 0, 0.7), false));
+    let card = match sky {
+        Some(sky) => card.child(el().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).fill(rgb(0x1b, 0x19, 0x17)).radius(6.0).clip_rounded(6.0).child(sky)),
+        None => card,
+    };
+    card.child(el().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).radius(6.0).border(1.0, edge))
 }
 
 /// The nine-dot mark: eight in the text colour at 38%, the top right one orange.
@@ -99,8 +106,12 @@ pub fn rail(s: &State) -> El {
         .child(col().pin(Some(0.0), None, None, Some(12.0)).gap(2.0).child(rail_button(&icons::FEEDBACK, false)).child(rail_button(&icons::SETTINGS, false)))
 }
 
-/// Back and forward, at the head of the card. Dim while there is nowhere to go.
+/// Back and forward, at the head of the card. Dim while there is nowhere to go. A conversation
+/// has a strip of its own there, with these two in it.
 pub fn back_forward(s: &State) -> El {
+    if let View::Thread { id, product } = &s.view {
+        return crate::thread::head(s, id, product);
+    }
     let arrow = |glyph: &'static Icon, live: bool| row().size(26.0, 26.0).radius(6.0).center().opacity(if live { 1.0 } else { 0.45 }).child(icon(glyph, 15.0).color(muted()));
     row().absolute(126.0, 58.5)
         .gap(2.0)

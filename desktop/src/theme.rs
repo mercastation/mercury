@@ -28,6 +28,10 @@ pub fn muted() -> Color {
 pub fn edge() -> Color {
     rgb(70, 68, 67)
 }
+/// `--line-strong`: the rule around the person's turn, and under a quiet link.
+pub fn rule() -> Color {
+    rgb(82, 80, 79)
+}
 pub fn accent() -> Color {
     rgb(238, 96, 24)
 }

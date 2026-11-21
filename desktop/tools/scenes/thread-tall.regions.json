@@ -1,0 +1,15 @@
+[
+  ["rail", [0, 40, 82, 1560]],
+  ["top strip", [82, 40, 1176, 56]],
+  ["title and fold line", [224, 120, 768, 70]],
+  ["the ask", [224, 200, 768, 144]],
+  ["a step line", [224, 348, 768, 24]],
+  ["answer: head and paragraphs", [224, 390, 768, 176]],
+  ["answer: bullets", [224, 566, 768, 90]],
+  ["answer: table", [224, 666, 768, 188]],
+  ["answer: code block", [224, 900, 768, 110]],
+  ["answer: options", [224, 1026, 768, 118]],
+  ["the reply", [224, 1180, 768, 100]],
+  ["the last answer", [224, 1366, 768, 94]],
+  ["reply box", [216, 1500, 784, 70]]
+]

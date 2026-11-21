@@ -128,5 +128,6 @@ export async function go(h) {
   await h.wait(600);
   const unanswered = await h.evaluate('window.__UNANSWERED__');
   if (unanswered.length) console.error('thread scene: the page asked the bridge for', unanswered.join(', '), 'and got nothing');
-  return { snapshot, threads };
+  // `unfolded` tells the native window the same thing the click above told the page.
+  return { snapshot, threads, unfolded: Object.keys(threads) };
 }
