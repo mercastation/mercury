@@ -161,7 +161,8 @@ function tree(dump) {
   }
   const has = (n, cls) => String(n.cls).split(/\s+/).includes(cls);
   const under = (n) => (kids.get(n.id) ?? []).flatMap((k) => [k, ...under(k)]);
-  const first = (n, test) => under(n).find(test) ?? null;
+  // Asked of nothing (a cell the table is not drawing) it finds nothing.
+  const first = (n, test) => (n ? under(n).find(test) ?? null : null);
   return { kids, has, under, first };
 }
 
@@ -200,6 +201,10 @@ function tableRows(dump) {
   const t = tree(dump);
   const table = dump.nodes.find((n) => t.has(n, 'list') && t.has(n, 'th-table'));
   if (!table) return [];
+  // A narrow table gives up Priority, then Project (`@container th` in pages.css). A column
+  // given up says nothing about its rows, so it is not held; one that is only empty still is.
+  const wide = table.rect[2];
+  const gaveUp = { priority: wide <= 915, project: wide <= 785 };
   return t.under(table).filter((n) => t.has(n, 'row') && !t.has(n, 'th-head')).map((r) => {
     const cell = (cls) => t.first(r, (k) => t.has(k, cls));
     const titleCell = cell('th-cell-title');
@@ -220,10 +225,8 @@ function tableRows(dump) {
       pinned: !!t.first(titleCell, (k) => t.has(k, 'th-pin')),
       status: state?.text ?? '',
       mark,
-      place: t.first(proj, (k) => t.has(k, 'th-proj-name'))?.text ?? proj?.text ?? '',
-      placeMore: more ? Number(more.replace('+', '')) : 0,
-      priority: levelOf(t, cell('th-cell-prio')),
-      priorityLabel: cell('th-cell-prio')?.text ?? '',
+      ...(gaveUp.project ? {} : { place: t.first(proj, (k) => t.has(k, 'th-proj-name'))?.text ?? proj?.text ?? '', placeMore: more ? Number(more.replace('+', '')) : 0 }),
+      ...(gaveUp.priority ? {} : { priority: levelOf(t, cell('th-cell-prio')), priorityLabel: cell('th-cell-prio')?.text ?? '' }),
       when: t.first(r, (k) => t.has(k, 'th-when'))?.text ?? '',
       unread: t.has(r, 'unread'),
     };
