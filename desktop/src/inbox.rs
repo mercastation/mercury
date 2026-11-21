@@ -4,7 +4,7 @@
 //! page's own type, but it has not been matched against the web app's Inbox pixel by pixel yet
 //! (`tools/reference.mjs` with the `inbox` scene is how that is done).
 
-use rune::{El, ScrollSpec, TextCase, TextStyle, col, row, text};
+use rune::{El, ScrollSpec, TextCase, TextStyle, col, el, row, text};
 
 use crate::data::{Row, ago_short};
 use crate::theme::*;
@@ -29,11 +29,17 @@ fn line(r: &Row, first: bool, now: f64) -> El {
         .child(label(&r.at.map(|at| ago_short(at, now)).unwrap_or_default(), 12.5, 400.0, dim()))
 }
 
+/// The Inbox's sky, as the card draws it under this page. The web app paints the streak in a
+/// band at the card's foot and turns the picture over, so it sits behind the head (`InboxSky`
+/// and `.inbox-sky-head` in `renderer/src/home`). This draft draws it as painted, not turned.
+pub fn sky(s: &State) -> El {
+    el().absolute(0.0, 0.0).size(s.sky_size.0, s.sky_size.1).pixels(&s.sky_inbox)
+}
+
 pub fn view(s: &State) -> El {
-    let needs = s.snap.needs_you();
-    let room = s.size.0 - crate::chrome::CARD[0] - crate::chrome::CARD[2] - 64.0;
-    let column = 760f32.min(room.max(320.0));
-    let page_h = s.size.1 - crate::chrome::PAGE_TOP - crate::chrome::CARD[3];
+    let needs = &s.lists.needs;
+    let (page_w, page_h) = s.page_size();
+    let column = 760f32.min((page_w - 64.0).max(320.0));
     let head = row().items_center().gap(10.0).child(label("Inbox", 22.0, 500.0, ink())).child(text(needs.len().to_string()).font(figures(14.0, 400.0)).color(muted()));
     let list = glass(col())
         .radius(10.0)

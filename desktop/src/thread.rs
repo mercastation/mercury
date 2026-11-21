@@ -27,9 +27,8 @@ impl Pad for El {
 }
 
 pub fn view(s: &State, id: &str, product: &str) -> El {
-    let room = s.size.0 - crate::chrome::CARD[0] - crate::chrome::CARD[2] - 64.0;
-    let column = 760f32.min(room.max(320.0));
-    let page_h = s.size.1 - crate::chrome::PAGE_TOP - crate::chrome::CARD[3];
+    let (page_w, page_h) = s.page_size();
+    let column = 760f32.min((page_w - 64.0).max(320.0));
     let Some(item) = s.snap.items.iter().find(|i| i.id == id && i.product == product) else {
         return row().w_full().justify_center().child(el().pt(60.0).child(label("This conversation is not here any more.", 14.0, 400.0, dim())));
     };

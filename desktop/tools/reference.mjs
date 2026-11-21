@@ -152,7 +152,13 @@ try {
   await h.capture(png);
   const dump = await h.evaluate(DUMP);
   fs.writeFileSync(path.join(outDir, `${scene}-dump.json`), JSON.stringify(dump));
-  fs.writeFileSync(path.join(outDir, `${scene}-fixture.json`), JSON.stringify({ now: at, snapshot: shown }));
+  // What the page keeps for itself and decides its lists by, besides the snapshot.
+  const local = await h.evaluate(`(() => {
+    const num = (k) => Number(localStorage.getItem(k) ?? 0) || 0;
+    let seenAt = {}; try { seenAt = JSON.parse(localStorage.getItem('zero.seenAt') ?? '{}') ?? {}; } catch {}
+    return { deliveredThrough: num('zero.deliveredThrough'), unreadSince: num('zero.unreadSince'), seenAt };
+  })()`);
+  fs.writeFileSync(path.join(outDir, `${scene}-fixture.json`), JSON.stringify({ now: at, snapshot: shown, local }));
   console.log(png, 'nodes', dump.nodes.length, 'fonts', JSON.stringify(dump.fonts.map((f) => `${f.family} ${f.weight}`)));
 } finally {
   h.close();

@@ -32,17 +32,22 @@ pub fn backdrop(w: f32, h: f32) -> El {
 /// The main card. The sky is drawn at the size it was painted for and cut to the card, so a
 /// window being resized shows the old sky still, never a stretched one, until the new one lands.
 pub fn card(s: &State) -> El {
+    // Each screen has its own sky: Home's over the whole card, the Inbox's behind its head, a
+    // conversation's none.
+    let sky = match s.view {
+        View::Home => Some(el().absolute(0.0, 0.0).size(s.sky_size.0, s.sky_size.1).pixels(&s.sky_home)),
+        View::Inbox => Some(crate::inbox::sky(s)),
+        View::Thread { .. } => None,
+    };
+    let mut ground = el().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).fill(rgb(0x1b, 0x19, 0x17)).radius(6.0).clip_rounded(6.0);
+    if let Some(sky) = sky {
+        ground = ground.child(sky);
+    }
     el().pin(Some(CARD[0]), Some(CARD[1]), Some(CARD[2]), Some(CARD[3]))
         .radius(6.0)
         .fill(rgba(36, 34, 33, 0.55))
         .box_shadow(shadow(0.0, 40.0, 120.0, 0.0, rgba(0, 0, 0, 0.7), false))
-        .child(
-            el().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
-                .fill(rgb(0x1b, 0x19, 0x17))
-                .radius(6.0)
-                .clip_rounded(6.0)
-                .child(el().absolute(0.0, 0.0).size(s.sky_size.0, s.sky_size.1).pixels(&s.sky)),
-        )
+        .child(ground)
         .child(el().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).radius(6.0).border(1.0, white(0.07)))
 }
 
@@ -72,7 +77,7 @@ fn rail_button(glyph: &'static Icon, active: bool) -> El {
 pub fn rail(s: &State) -> El {
     let on_home = s.view == View::Home;
     let on_inbox = matches!(s.view, View::Inbox | View::Thread { .. });
-    let waiting = !s.snap.needs_you().is_empty();
+    let waiting = !s.lists.needs.is_empty();
     let mut inbox = el().child(rail_button(&icons::INBOX, on_inbox).on_press(|s: &mut State| s.go(View::Inbox)));
     if waiting {
         // Something in the Inbox is waiting.

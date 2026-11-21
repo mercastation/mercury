@@ -57,8 +57,10 @@ impl Rnd {
 }
 
 /// Paints `art` for a card `w` by `h` points, at `dpr` pixels a point. Dots start at `from`
-/// points and are fully in by `from + span`. Returns the pixel size and straight-alpha sRGB bytes.
-pub fn draw(art: &Art, w: f64, h: f64, from: f64, span: f64, dpr: u32) -> (u32, u32, Vec<u8>) {
+/// points and are fully in by `from + span`. `curve_top` lays the streak out in the card below
+/// that line instead of the whole card (the Inbox's head). Returns the pixel size and
+/// straight-alpha sRGB bytes.
+pub fn draw(art: &Art, w: f64, h: f64, from: f64, span: f64, curve_top: f64, dpr: u32) -> (u32, u32, Vec<u8>) {
     let pw = (w * dpr as f64).round() as u32;
     let ph = (h * dpr as f64).round() as u32;
     let mut out = vec![0u8; (pw * ph * 4) as usize];
@@ -82,6 +84,7 @@ pub fn draw(art: &Art, w: f64, h: f64, from: f64, span: f64, dpr: u32) -> (u32, 
         a + (b - a) * s + (c - a) * t + (a - b - c + d) * s * t
     };
     let Art { y0, y1, bend, peak, fall, dim, core_w, hot_w, halo_w, grain, .. } = *art;
+    let ch = h - curve_top;
     let s_max = w.max(h);
     let levels = 4.0f64;
     let q = |v: f64, th: f64| {
@@ -98,8 +101,8 @@ pub fn draw(art: &Art, w: f64, h: f64, from: f64, span: f64, dpr: u32) -> (u32, 
         for i in 0..cols {
             let x = i as f64 * pitch;
             let t = x / w;
-            let cyv = (y0 + (y1 - y0) * t + bend * t * (1.0 - t)) * h;
-            let slope = ((y1 - y0) + bend * (1.0 - 2.0 * t)) * h / w;
+            let cyv = curve_top + (y0 + (y1 - y0) * t + bend * t * (1.0 - t)) * ch;
+            let slope = ((y1 - y0) + bend * (1.0 - 2.0 * t)) * ch / w;
             let d = ((cyv - y) / (1.0 + slope * slope).sqrt()) / s_max;
             let n = vn(i as f64 / 22.0, j as f64 / 22.0) * 0.6 + vn(i as f64 / 6.0, j as f64 / 6.0) * 0.4;
             let along = (1.0 - (t - peak).abs() * fall).max(0.0);

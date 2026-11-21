@@ -155,12 +155,10 @@ fn home_card(title: &str, count: Option<usize>, link: &str, to: View, body: El, 
 }
 
 pub fn view(s: &State) -> El {
-    let needs = s.snap.needs_you();
-    let progress = s.snap.in_progress();
+    let (needs, progress) = (&s.lists.needs, &s.lists.progress);
     // What the card leaves the column, and what the column leaves the two cards.
-    let room = s.size.0 - crate::chrome::CARD[0] - crate::chrome::CARD[2] - 64.0;
-    let column = COLUMN.min(room.max(320.0));
-    let page_h = s.size.1 - crate::chrome::PAGE_TOP - crate::chrome::CARD[3];
+    let (page_w, page_h) = s.page_size();
+    let column = COLUMN.min((page_w - 64.0).max(320.0));
     let cards_h = (page_h - 24.0 - 40.0 - 326.3984).max(300.0);
 
     let rows = col().children(needs.iter().enumerate().map(|(i, r)| task_row(r, i == 0, s.now)));

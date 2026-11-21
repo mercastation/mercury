@@ -2,8 +2,9 @@
 //! conversation, from the same snapshot the web window gets, and kept current by the engine.
 //!
 //!   cargo run -- --door http://127.0.0.1:7777 --token <key>          # live, from the engine
-//!   cargo run -- --fixture shots/home.json --snap shots/home.png --size 1280x760 --scale 2
-//!   cargo run -- --fixture shots/home.json --view inbox --snap shots/inbox.png --size 1280x760 --scale 2
+//!   cargo run -- --fixture shots/home-fixture.json --snap shots/home.png --size 1280x760 --scale 2
+//!   cargo run -- --fixture shots/inbox-fixture.json --view inbox --snap shots/inbox.png --size 1280x760 --scale 2
+//!   cargo run -- --fixture shots/thread-fixture.json --thread --snap shots/thread.png --size 1280x760 --scale 2
 //!
 //! Every size, colour, border and shadow was read off the running renderer, so a screen here
 //! can be laid over the web app's and compared pixel by pixel (`tools/`).
@@ -21,8 +22,9 @@ mod theme;
 mod thread;
 
 use rune::{App, AppSpec, Cx, El, FontSmoothing, Latest, Pixels, ScrollSpec, Tx, Waker, el};
+use serde_json::{Map, Value};
 
-use data::Snapshot;
+use data::{Lists, Local, Snapshot};
 use source::{Mailbox, Source};
 
 /// Which screen the card is showing.
@@ -33,28 +35,34 @@ pub enum View {
     Thread { id: String, product: String },
 }
 
-/// A sky painted off the main thread: its pixels and the card size, in points, it was painted for.
+/// Both skies for one card size, painted off the main thread, so changing screen never waits.
 struct Painted {
-    w: u32,
-    h: u32,
-    bytes: Vec<u8>,
+    home: (u32, u32, Vec<u8>),
+    inbox: (u32, u32, Vec<u8>),
     points: (f32, f32),
 }
 
 pub struct State {
     /// The window, in points.
     pub size: (f32, f32),
-    pub sky: Pixels,
-    /// The card size the sky on screen was painted for.
+    /// Home's sky, and the Inbox's (drawn at the card's foot; `inbox.rs` turns it over).
+    pub sky_home: Pixels,
+    pub sky_inbox: Pixels,
+    /// The card size the skies on screen were painted for.
     pub sky_size: (f32, f32),
     painting: Latest<Painted>,
     pub snap: Snapshot,
+    /// What the screens draw, worked out from `snap` whenever it or the minute changes.
+    pub lists: Lists,
+    pub local: Local,
+    /// The rest of a fixture file, for the screen that knows what it is (a thread's words).
+    pub fixture: Map<String, Value>,
     /// The clock the rows read, in milliseconds. A fixture brings its own.
     pub now: f64,
     fixed_clock: bool,
     pub view: View,
     pub history: Vec<View>,
-    source: Source,
+    pub source: Source,
     mailbox: Mailbox,
     /// Why the engine could not be read, when it could not.
     pub error: Option<String>,
@@ -71,8 +79,20 @@ impl State {
             self.view = prev;
         }
     }
-    fn card_size(&self) -> (f32, f32) {
+    pub fn card_size(&self) -> (f32, f32) {
         ((self.size.0 - chrome::CARD[0] - chrome::CARD[2]).max(1.0), (self.size.1 - chrome::CARD[1] - chrome::CARD[3]).max(1.0))
+    }
+    /// The page's box inside the window: under the card's top strip.
+    pub fn page_size(&self) -> (f32, f32) {
+        ((self.size.0 - chrome::CARD[0] - chrome::CARD[2]).max(1.0), (self.size.1 - chrome::PAGE_TOP - chrome::CARD[3]).max(1.0))
+    }
+    fn refresh(&mut self) {
+        self.lists = self.snap.lists(self.now, &self.local);
+    }
+    fn hang(&mut self, p: Painted) {
+        self.sky_home.set(p.home.0, p.home.1, p.home.2);
+        self.sky_inbox.set(p.inbox.0, p.inbox.1, p.inbox.2);
+        self.sky_size = p.points;
     }
 }
 
@@ -80,10 +100,15 @@ fn clock() -> f64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64)
 }
 
-fn paint_sky(points: (f32, f32)) -> Painted {
-    // Home's sky: dots from 40 points down, fully in 300 points later (`SkyBackdrop` in App.tsx).
-    let (w, h, bytes) = sky::draw(&sky::ember(), points.0.floor() as f64, points.1.floor() as f64, 40.0, 300.0, 2);
-    Painted { w, h, bytes, points }
+fn paint_skies(points: (f32, f32)) -> Painted {
+    let (w, h) = (points.0.floor() as f64, points.1.floor() as f64);
+    let art = sky::ember();
+    // Home's: dots from 40 points down, fully in 300 points later (`SkyBackdrop` in App.tsx).
+    let home = sky::draw(&art, w, h, 40.0, 300.0, 0.0, 2);
+    // The Inbox's: a band 190 points tall at the card's foot (`InboxSky`, shape "head").
+    let start = (h - 190.0).round();
+    let inbox = sky::draw(&art, w, h, start, 120.0, start - 60.0, 2);
+    Painted { home, inbox, points }
 }
 
 const DEFAULT_SIZE: (f32, f32) = (1280.0, 760.0);
@@ -95,10 +120,14 @@ fn init() -> State {
     let size = rune::tooling::headless_run().map_or(DEFAULT_SIZE, |run| run.size());
     let mut s = State {
         size,
-        sky: Pixels::new(),
+        sky_home: Pixels::new(),
+        sky_inbox: Pixels::new(),
         sky_size: (0.0, 0.0),
         painting: Latest::default(),
         snap: Snapshot::default(),
+        lists: Lists::default(),
+        local: Local::default(),
+        fixture: Map::new(),
         now: clock(),
         fixed_clock: false,
         view: match args.iter().position(|a| a == "--view").and_then(|i| args.get(i + 1)).map(String::as_str) {
@@ -110,14 +139,15 @@ fn init() -> State {
         mailbox: Mailbox::default(),
         error: None,
     };
-    // The first sky and a fixture are in place before the first frame, so a picture is whole.
-    let first = paint_sky(s.card_size());
-    s.sky.set(first.w, first.h, first.bytes);
-    s.sky_size = first.points;
+    // The first skies and a fixture are in place before the first frame, so a picture is whole.
+    let first = paint_skies(s.card_size());
+    s.hang(first);
     if let Source::Fixture(path) = &s.source {
         match source::read_fixture(path) {
             Ok(fixture) => {
                 s.snap = fixture.snapshot;
+                s.local = fixture.local;
+                s.fixture = fixture.rest;
                 if let Some(now) = fixture.now {
                     s.now = now;
                     s.fixed_clock = true;
@@ -133,9 +163,15 @@ fn init() -> State {
             Err(e) => s.error = Some(e),
         }
     }
-    // `--thread` opens the first thread that needs the person, for a picture of it.
-    if args.iter().any(|a| a == "--thread") {
-        if let Some(r) = s.snap.needs_you().first() {
+    s.refresh();
+    // `--thread` opens the first thread that needs the person, for a picture of it; `--thread <id>` that one.
+    if let Some(at) = args.iter().position(|a| a == "--thread") {
+        let wanted = args.get(at + 1).filter(|a| !a.starts_with("--"));
+        let row = match wanted {
+            Some(id) => s.lists.needs.iter().chain(&s.lists.progress).chain(&s.lists.done).find(|r| &r.id == id),
+            None => s.lists.needs.first(),
+        };
+        if let Some(r) = row {
             s.view = View::Thread { id: r.id.clone(), product: r.product.clone() };
         }
     }
@@ -152,15 +188,15 @@ fn setup(s: &mut State, wake: Waker) {
 fn poll(s: &mut State, _clock: f64, tx: &mut Tx) -> bool {
     let mut changed = false;
     if let Some(p) = s.painting.take() {
-        s.sky.set(p.w, p.h, p.bytes);
-        s.sky_size = p.points;
+        s.hang(p);
         changed = true;
     }
+    let mut stale = false;
     {
         let mut m = s.mailbox.lock().unwrap();
         if let Some(snapshot) = m.snapshot.take() {
             s.snap = snapshot;
-            changed = true;
+            stale = true;
         }
         if m.error != s.error && matches!(s.source, Source::Door { .. }) {
             s.error = m.error.clone();
@@ -170,13 +206,14 @@ fn poll(s: &mut State, _clock: f64, tx: &mut Tx) -> bool {
     if !s.fixed_clock {
         // Ages are told to the minute, so the clock only has to turn that often.
         let now = clock();
-        if (now / 60_000.0).floor() != (s.now / 60_000.0).floor() {
-            changed = true;
-        }
+        stale |= (now / 60_000.0).floor() != (s.now / 60_000.0).floor();
         s.now = now;
         tx.wake_after(std::time::Duration::from_secs(20));
     }
-    changed
+    if stale {
+        s.refresh();
+    }
+    changed || stale
 }
 
 fn resized(s: &mut State, [_, _, w, h]: [f32; 4]) {
@@ -185,7 +222,7 @@ fn resized(s: &mut State, [_, _, w, h]: [f32; 4]) {
     }
     s.size = (w, h);
     let points = s.card_size();
-    s.painting.request(points, paint_sky);
+    s.painting.request(points, paint_skies);
 }
 
 fn view(s: &State, _: &mut Cx<State>) -> El {

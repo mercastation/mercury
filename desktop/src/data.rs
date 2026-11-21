@@ -74,6 +74,35 @@ pub struct Run {
 pub struct Fixture {
     pub now: Option<f64>,
     pub snapshot: Snapshot,
+    pub local: Local,
+    /// Whatever else the file carries, for the screen that knows what it is (a thread's words).
+    #[serde(flatten)]
+    pub rest: Map<String, Value>,
+}
+
+/// What the web window keeps for itself, outside the snapshot (its localStorage): what counts
+/// as already delivered and already read. The native window will keep its own; a fixture
+/// carries the page's, so both screens decide from the same facts.
+#[derive(Deserialize, Default, Clone, Debug)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Local {
+    /// `zero.deliveredThrough`: a thread finished before this was never news here.
+    pub delivered_through: f64,
+    /// `zero.unreadSince`: everything older counts as read.
+    pub unread_since: f64,
+    /// `zero.seenAt`: when each thread was last opened, by id.
+    pub seen_at: std::collections::HashMap<String, f64>,
+}
+
+/// The lists every screen draws, worked out once from a snapshot.
+#[derive(Default, Clone, Debug)]
+pub struct Lists {
+    /// The Inbox: what waits on the person.
+    pub needs: Vec<Row>,
+    /// What an agent is working on, or will without being asked.
+    pub progress: Vec<Row>,
+    /// What is finished and put away.
+    pub done: Vec<Row>,
 }
 
 /// How strongly a row asks for attention, as the web app's priority marks draw it.
@@ -169,9 +198,18 @@ impl Snapshot {
         self.supervisor.product_order.iter().position(|p| p == slug).unwrap_or(usize::MAX)
     }
 
+    /// Every list at once, as of `now`. The one door the screens come through, so the rules
+    /// behind it can grow (they are a first cut of `renderer/src/list-rules.ts`) without a
+    /// screen changing.
+    pub fn lists(&self, _now: f64, _local: &Local) -> Lists {
+        let needs = self.needs_you();
+        let progress: Vec<Row> = self.in_progress().into_iter().filter(|p| !needs.iter().any(|n| n.id == p.id && n.product == p.product)).collect();
+        Lists { needs, progress, done: Vec::new() }
+    }
+
     /// The threads waiting on the person: answered and not running, their products in the
     /// person's order, the most pressing first and the newest first among equals.
-    pub fn needs_you(&self) -> Vec<Row> {
+    fn needs_you(&self) -> Vec<Row> {
         let mut items: Vec<&Item> = self.items.iter().filter(|i| self.visible(i) && i.status == "done" && !self.is_running(i)).collect();
         items.sort_by(|a, b| {
             self.product_rank(&a.product)
@@ -183,7 +221,7 @@ impl Snapshot {
     }
 
     /// The threads an agent is working on right now.
-    pub fn in_progress(&self) -> Vec<Row> {
+    fn in_progress(&self) -> Vec<Row> {
         self.supervisor.running.iter().filter_map(|r| self.items.iter().find(|i| i.id == r.item_id && i.product == r.product)).filter(|i| self.visible(i)).map(|i| self.row(i)).collect()
     }
 }
