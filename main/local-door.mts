@@ -40,6 +40,32 @@ import type { IpcHandler, PushListener } from './serve.mts';
 /** The note's name inside the app's own folder. The native window looks for it there. */
 export const LOCAL_DOOR_NOTE = 'local-door.json';
 
+// WHAT THE WEB WINDOW KEEPS FOR ITSELF. Which threads count as delivered and
+// which as read is not in the store: the web window remembers it in its own
+// localStorage (zero.deliveredThrough, zero.unreadSince, zero.seenAt), and
+// its lists are decided by it. A native window beside it has to decide from
+// the same facts or it shows a different Inbox. So this door has one channel
+// of its own, which asks the web window for exactly those three and nothing
+// else: the script is fixed here and takes nothing from the caller.
+export const WINDOW_KEEPS = 'zero:window-keeps';
+
+const READ_WHAT_THE_WINDOW_KEEPS = `(() => {
+  const number = (key) => Number(localStorage.getItem(key) ?? 0) || 0;
+  let seenAt = {};
+  try { seenAt = JSON.parse(localStorage.getItem('zero.seenAt') ?? '{}') ?? {}; } catch { /* an unreadable list is an empty one */ }
+  return { deliveredThrough: number('zero.deliveredThrough'), unreadSince: number('zero.unreadSince'), seenAt };
+})()`;
+
+/**
+ * Answers `WINDOW_KEEPS`. `run` is the web window's own executeJavaScript; an app with no
+ * window open, or one that will not answer, gives null and the caller keeps its own facts.
+ */
+export function windowKeeps(run: (script: string) => Promise<unknown> | null): IpcHandler {
+  return async () => {
+    try { return (await run(READ_WHAT_THE_WINDOW_KEEPS)) ?? null; } catch { return null; }
+  };
+}
+
 export interface LocalDoorNote { port: number; token: string; pid: number; since: number }
 
 export interface LocalDoor {
@@ -55,14 +81,19 @@ export interface LocalDoorOptions {
   note: string;
   /** Who is told when the app pushes. Empty unless the caller feeds it. */
   listeners?: Set<PushListener>;
+  /** What answers `WINDOW_KEEPS` (see `windowKeeps`). Without it the channel is not there. */
+  keeps?: IpcHandler;
   token?: string;
 }
 
 /** Opens the door and leaves its note. Rejects if the port cannot be had or the note cannot be written. */
-export async function openLocalDoor({ channels, note, listeners = new Set(), token = newToken() }: LocalDoorOptions): Promise<LocalDoor> {
+export async function openLocalDoor({ channels, note, listeners = new Set(), keeps, token = newToken() }: LocalDoorOptions): Promise<LocalDoor> {
   // A folder that is certain to hold no index.html: the note's own name with a suffix.
   const noScreen = `${note}.no-screen`;
-  const server = http.createServer(createHandler({ channels, token, listeners, dist: noScreen }));
+  // The door's own channel is looked up before the app's, and the app's Map is left as it was:
+  // the phone's copy is made from that same Map and must not grow a channel meant for this door.
+  const answered = keeps ? new Map<string, IpcHandler>([...channels, [WINDOW_KEEPS, keeps]]) : channels;
+  const server = http.createServer(createHandler({ channels: answered, token, listeners, dist: noScreen }));
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(0, '127.0.0.1', () => { server.off('error', reject); resolve(); });

@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { LOCAL_DOOR_NOTE, openLocalDoor } from '../main/local-door.mts';
+import { LOCAL_DOOR_NOTE, WINDOW_KEEPS, openLocalDoor, windowKeeps } from '../main/local-door.mts';
 import type { LocalDoor, LocalDoorNote } from '../main/local-door.mts';
 import type { IpcHandler, PushListener } from '../main/serve.mts';
 
@@ -117,6 +117,43 @@ describe('the local door', () => {
     const second = await aDoor();
     await second.door.close();
     expect(fs.existsSync(second.note)).toBe(false);
+  });
+});
+
+describe('what the web window keeps for itself', () => {
+  const kept = { deliveredThrough: 1795000000000, unreadSince: 1795000001000, seenAt: { 'w-1': 1795000002000 } };
+
+  it('is handed to a native window that asks, so both decide their lists from the same facts', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'local-door-'));
+    folders.push(dir);
+    const channels = new Map<string, IpcHandler>([['zero:snapshot', () => ({ items: [] })]]);
+    const door = await openLocalDoor({ channels, note: path.join(dir, LOCAL_DOOR_NOTE), keeps: windowKeeps(async () => kept) });
+    open.push(door);
+    const res = await ask(door, WINDOW_KEEPS, { key: door.token });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(kept);
+    // The app's own Map is what the phone's copy is made from, and it did not grow.
+    expect([...channels.keys()]).toEqual(['zero:snapshot']);
+  });
+
+  it('is not a channel at all on a door nobody gave it to', async () => {
+    const { door } = await aDoor();
+    expect((await ask(door, WINDOW_KEEPS, { key: door.token })).status).toBe(404);
+  });
+
+  it('is read by one fixed script that names three keys and takes nothing from the caller', async () => {
+    const scripts: string[] = [];
+    const handler = windowKeeps(async (script) => { scripts.push(script); return kept; });
+    await handler({ sender: null }, { script: 'localStorage.clear()', key: 'zero.theme' });
+    await handler({ sender: null });
+    expect(scripts[0]).toBe(scripts[1]);
+    expect(scripts[0].match(/zero\.[A-Za-z]+/g)).toEqual(['zero.seenAt', 'zero.deliveredThrough', 'zero.unreadSince']);
+    expect(scripts[0]).not.toMatch(/setItem|removeItem|clear\(|fetch\(|require|import/);
+  });
+
+  it('is null when the app has no window open, or the window will not answer', async () => {
+    expect(await windowKeeps(() => null)({ sender: null })).toBeNull();
+    expect(await windowKeeps(async () => { throw new Error('the window is gone'); })({ sender: null })).toBeNull();
   });
 });
 

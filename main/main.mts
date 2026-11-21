@@ -43,7 +43,7 @@ import { FreezeWatch } from './freeze-watch.mts';
 import { applyThrough, phoneDevice } from './phone-inbox.mts';
 import type { PhoneChannel } from './phone-inbox.mts';
 import { answerWhatOnlyTheWindowAnswered } from './serve.mts';
-import { LOCAL_DOOR_NOTE, openLocalDoor } from './local-door.mts';
+import { LOCAL_DOOR_NOTE, openLocalDoor, windowKeeps } from './local-door.mts';
 import type { CollectingIpcMain, IpcHandler } from './serve.mts';
 import { carryHerBriefsAcross, joinMessageRules, setAsideShippedMessageRules, unifyAgentInstructions } from './instruction-settings.mts';
 import * as approvals from './approvals.mts';
@@ -1003,8 +1003,10 @@ async function createWindow() {
   phoneApply = applyThrough(phoneChannels);
   // The native window's way in, for a copy whose config asks for it (main/local-door.mts).
   // It needs no quit step: the note it leaves names a door that is shut once this process is gone.
+  // What this window keeps for itself is read out of it, so both windows show the same Inbox.
+  const askThisWindow = (script: string) => (window && !window.isDestroyed() ? window.webContents.executeJavaScript(script) : null);
   if (config.localDoor === true) {
-    void openLocalDoor({ channels: phoneChannels, note: path.join(userDir, LOCAL_DOOR_NOTE) })
+    void openLocalDoor({ channels: phoneChannels, note: path.join(userDir, LOCAL_DOOR_NOTE), keeps: windowKeeps(askThisWindow) })
       .then((door) => console.log(`local door: open on 127.0.0.1:${door.port}`))
       .catch((err: Error) => console.warn(`local door: ${err.message}`));
   }
