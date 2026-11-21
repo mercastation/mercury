@@ -117,6 +117,18 @@ export function snapshot(now) {
   thread('Written down in Later and not begun', { start: 'later' });
   thread('Written down in Later, with a comment on its link: says not started', { start: 'later', linkComments: [{ name: 'Ines', file: 'plan.md', text: 'When does this start?', ts: now - 5 * min, place: { kind: 'time', s: 75.4 } }] });
 
+  /* ---------- Later: what comes back, and when its row says it does ---------- */
+  set(answered(thread('Put off by you until next week: its day is dated'), 'Fixed.'), 'runAt', now + 9 * day, 'founder', 30 * min);
+  set(answered(thread('A reminder you set for three hours from now'), 'Fixed.'), 'snoozedUntil', now + 3 * hour, 'founder', 30 * min);
+  thread('Pinned and written down in Later: first', { start: 'later', pinned: true });
+  thread('Written down in Later, urgent', { start: 'later', priority: 9 });
+  // Two put off in the same minute, so nothing but the moment each comes back tells them apart.
+  set(answered(thread('Put off until the day after tomorrow, in the same minute as the next'), 'Fixed.'), 'runAt', now + 2 * day, 'founder', 31 * min);
+  set(answered(thread('Put off until tomorrow, in the same minute as the last: comes first'), 'Fixed.'), 'runAt', now + day + hour, 'founder', 31 * min);
+  const putOffQueued = set(answered(thread('Put off by you with a run still queued for it: not in Later yet'), 'Fixed.'), 'runAt', now + day, 'founder', 30 * min);
+  const laterStalled = thread('Written down in Later, and its worker died: says Stopped', { start: 'later' });
+  status(answered(thread('Done by its agent while still written down in Later: Later and Done', { start: 'later' }), 'Fixed.'), 'done', 'agent');
+
   /* ---------- questions, reviews and proposals ---------- */
   thread('A question from an agent, unanswered', { who: 'agent', kind: 'question', body: 'Which clinic first?\n\n## Options\n1. Riverside (recommended)\n2. Northgate' });
   replied(thread('A question you answered: in progress', { who: 'agent', kind: 'question' }), 'Riverside');
@@ -207,12 +219,12 @@ export function snapshot(now) {
         { itemId: moving.id, product: moving.product, startedAt: now - 5 * min },
       ],
       starting: [starting.id],
-      queued: [queued.id, next.id, asleep.id],
+      queued: [queued.id, next.id, asleep.id, putOffQueued.id],
       runNow: [next.id],
       cannotStart: { [asleep.id]: { why: 'asleep', tool: 'Claude Code' } },
       atLimit: { [limited.id]: { tool: 'Claude Code', until: now + 2 * hour } },
       shipping: [shipping.id],
-      stalled: [stalled.id, signedOut.id, stalledWithWords.id],
+      stalled: [stalled.id, signedOut.id, stalledWithWords.id, laterStalled.id],
       signInNeeded: { [signedOut.id]: 'Claude Code' },
       silent: { [silent.id]: { runs: 1, endedAt: now - 20 * min } },
       whyNotCloud: { [runningKept.id]: { at: 'mac', why: 'needs-mac' }, [moving.id]: { at: 'mac', why: 'moving' } },

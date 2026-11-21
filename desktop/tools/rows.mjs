@@ -4,14 +4,16 @@
 // same clock and the same localStorage facts.
 //
 //   node tools/rows.mjs <dir>                             the dumps already in <dir>
-//   node tools/rows.mjs <dir> --shoot <mercury checkout>  photograph the four scenes first (reference.mjs's invented inbox)
+//   node tools/rows.mjs <dir> --shoot <mercury checkout>  photograph the five scenes first (reference.mjs's invented inbox)
 //   node tools/rows.mjs <dir> --shoot <checkout> --cases  ... of the invented threads in tools/rows.cases.mjs
 //   node tools/rows.mjs <dir> --shoot <checkout> --real   ... of the person's real threads, read and never written
 //   node tools/rows.mjs <dir> --shoot <checkout> --real --stir   ... with a busy fleet invented around them
 //   node tools/rows.mjs <dir> --shoot <checkout> --door   ... of the running app's inbox this minute, asked through its local door
 //
-// Four scenes: home (Needs you and In progress as Home draws them), inbox, inbox-progress and
-// inbox-done (the Inbox page's three tabs). A scene with no dump in <dir> is skipped.
+// Five scenes: home (Needs you and In progress as Home draws them), inbox, inbox-progress,
+// inbox-later and inbox-done (the Inbox page's tabs). A scene with no dump in <dir> is skipped.
+// Under each tab the page's own furniture is held too: which tabs the strip draws and with
+// which numbers, what the time column is called, and what the cloud button wears.
 //
 // Differences are printed by scene, row and field. A thread's own words (title, project,
 // aside) are printed as lengths only, so a real title never reaches a terminal or a log;
@@ -32,7 +34,7 @@ if (!dir || dir.startsWith('--')) {
   process.exit(2);
 }
 const show = flag('--show');
-const SCENES = ['home', 'inbox', 'inbox-progress', 'inbox-done'];
+const SCENES = ['home', 'inbox', 'inbox-progress', 'inbox-later', 'inbox-done'];
 
 /* ------------------------------------------------------------ photographing */
 
@@ -228,14 +230,68 @@ function tableRows(dump) {
   });
 }
 
+// The tabs as the strip words them, the name `mercury --tab` knows each by, and the list of
+// `mercury --rows` its rows are in.
+const TABS = {
+  'Needs you': { name: 'needs', list: 'needs' },
+  'In progress': { name: 'progress', list: 'progressTab' },
+  Later: { name: 'later', list: 'later' },
+  Done: { name: 'done', list: 'done' },
+};
+
+/** What the Inbox page draws around its rows: the strip of tabs, the time column's heading, the cloud button. */
+function pageFurniture(dump) {
+  const t = tree(dump);
+  const tabs = dump.nodes.filter((n) => t.has(n, 'tm-tab')).map((n) => ({
+    label: n.text ?? '', count: Number(t.first(n, (k) => k.tag === 'b')?.text ?? 0), on: t.has(n, 'on'),
+  }));
+  const head = dump.nodes.find((n) => t.has(n, 'th-head'));
+  const cloud = dump.nodes.find((n) => n.tag === 'button' && t.has(n, 'th-cloud'));
+  const word = cloud && t.first(cloud, (k) => t.has(k, 'th-cloud-word'));
+  return {
+    open: tabs.find((tab) => tab.on)?.label ?? null,
+    tabs: stripWords(tabs),
+    // An empty tab has no table, and so no heading to name its time column.
+    heading: head ? t.first(head, (k) => t.has(k, 'num'))?.text ?? '' : null,
+    cloud: !cloud ? 'no button' : [
+      t.has(cloud, 'lit') ? 'lit' : 'unlit',
+      ...(t.has(cloud, 'count') ? [`counts ${t.first(cloud, (k) => k.tag === 'b')?.text}`] : []),
+      ...(word ? [`says "${word.text}"`] : []),
+      ...(t.first(cloud, (k) => k.tag === 'i') ? ['dot'] : []),
+    ].join(', '),
+  };
+}
+
+/** The same, of what `mercury --rows --tab <the open tab>` says the native page draws. */
+function nativeFurniture(native, rows) {
+  const { tabs, heading, cloud } = native.page;
+  const WORDS = { cloud: 'Cloud', again: 'Sign in again' };
+  return {
+    open: tabs.find((tab) => tab.on)?.label ?? null,
+    tabs: stripWords(tabs),
+    heading: rows.length ? heading : null,
+    cloud: !cloud ? 'no button' : [
+      cloud.lit ? 'lit' : 'unlit',
+      ...(cloud.count !== null ? [`counts ${cloud.count}`] : []),
+      ...(cloud.word ? [`says "${WORDS[cloud.word]}"`] : []),
+      ...(cloud.dot ? ['dot'] : []),
+    ].join(', '),
+  };
+}
+
+// "Needs you 2 | In progress 1 | [Later 5] | Done": the strip in one line, the open tab in brackets.
+function stripWords(tabs) {
+  return tabs.map((tab) => { const words = `${tab.label}${tab.count ? ` ${tab.count}` : ''}`; return tab.on ? `[${words}]` : words; }).join(' | ');
+}
+
 /* ------------------------------------------------------------ the native rows */
 
 // Written beside the dump it answers, so the two can be read together and nothing of a real
-// thread leaves the folder the dumps are in.
-function nativeLists(scene) {
+// thread leaves the folder the dumps are in. `tab` is the tab the page was photographed on.
+function nativeLists(scene, tab = null) {
   const out = path.join(dir, `${scene}-rows.json`);
   const bin = path.join(here, '..', 'target', 'debug', 'mercury');
-  const run = spawnSync(bin, ['--fixture', path.join(dir, `${scene}-fixture.json`), '--rows', out], { encoding: 'utf8' });
+  const run = spawnSync(bin, ['--fixture', path.join(dir, `${scene}-fixture.json`), '--rows', out, ...(tab ? ['--tab', tab] : [])], { encoding: 'utf8' });
   if (run.status !== 0) throw new Error(`mercury --rows failed: ${run.stderr || run.error}`);
   return JSON.parse(fs.readFileSync(out, 'utf8'));
 }
@@ -255,9 +311,9 @@ const asTable = (r) => ({
 const WORDS_OF_THE_THREAD = new Set(['title', 'project', 'place', 'aside', 'progressLine']);
 const said = (field, value) => (show || !WORDS_OF_THE_THREAD.has(field) ? JSON.stringify(value) : `«${String(value).length} characters»`);
 
-function compare(name, drawn, native) {
+function compare(name, drawn, native, what = 'rows') {
   const lines = [];
-  if (drawn.length !== native.length) lines.push(`  ${drawn.length} rows drawn, ${native.length} native`);
+  if (drawn.length !== native.length) lines.push(`  ${drawn.length} ${what} drawn, ${native.length} native`);
   const byField = {};
   for (let i = 0; i < Math.min(drawn.length, native.length); i += 1) {
     for (const field of Object.keys(drawn[i])) {
@@ -267,29 +323,40 @@ function compare(name, drawn, native) {
     }
   }
   const fields = Object.entries(byField).map(([f, n]) => `${n} in ${f}`).join(', ');
-  console.log(`${name}: ${drawn.length} rows, ${lines.length} difference${lines.length === 1 ? '' : 's'}${fields ? ` (${fields})` : ''}`);
+  console.log(`${name}: ${what === 'rows' ? `${drawn.length} rows, ` : ''}${lines.length} difference${lines.length === 1 ? '' : 's'}${fields ? ` (${fields})` : ''}`);
   for (const l of lines) console.log(l);
   return lines.length;
 }
 
 if (flag('--shoot')) await shoot(path.resolve(after('--shoot')));
 
+// The five scenes, and any other picture of the Inbox page left in the folder: a scene that
+// invents a cloud for the button (`tools/scenes/inbox-cloud*.mjs`) is held the same way.
+const others = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => /^inbox-.+-dump\.json$/.test(f)).map((f) => f.slice(0, -'-dump.json'.length)).filter((s) => !SCENES.includes(s)).sort() : [];
+
 let differences = 0;
 let checked = 0;
-for (const scene of SCENES) {
+for (const scene of [...SCENES, ...others]) {
   const dumpFile = path.join(dir, `${scene}-dump.json`);
   if (!fs.existsSync(dumpFile) || !fs.existsSync(path.join(dir, `${scene}-fixture.json`))) continue;
   checked += 1;
   const dump = JSON.parse(fs.readFileSync(dumpFile, 'utf8'));
-  const native = nativeLists(scene);
   if (scene === 'home') {
+    const native = nativeLists(scene);
     const drawn = homeRows(dump);
     // Home shows the first eighty that need the person and the first sixty in progress.
     if (drawn.needs) differences += compare('home, Needs you', drawn.needs, native.needs.slice(0, 80).map(asHomeNeeds));
     if (drawn.progress) differences += compare('home, In progress', drawn.progress, native.progress.slice(0, 60).map(asHomeProgress));
   } else {
-    const list = scene === 'inbox' ? native.needs : scene === 'inbox-progress' ? native.progressTab : native.done;
+    // The native page is opened on the tab the picture was taken on. That is the scene's own
+    // tab, except for Later on an inbox with nothing in it, where the strip has no Later to press.
+    const furniture = pageFurniture(dump);
+    const tab = TABS[furniture.open];
+    if (!tab) throw new Error(`${scene}: no tab of the strip is open in the dump`);
+    const native = nativeLists(scene, tab.name);
+    const list = native[tab.list];
     differences += compare(scene, tableRows(dump), list.map(asTable));
+    differences += compare(`${scene}, around the rows`, [furniture], [nativeFurniture(native, list)], 'pages');
   }
 }
 if (!checked) {
