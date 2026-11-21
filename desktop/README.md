@@ -38,6 +38,13 @@ window calls (`POST /api/<channel>`, and `/events` for pushes). Two engines open
 `cargo run -- --watch-door 20` follows the engine for twenty seconds with no window and prints a
 line each time its conversations change: a check that the live path works.
 
+The app opens a new door, on another port and with another key, each time it starts. The window
+reads the note again when the door it has stops answering, so it carries on by itself after the
+app restarts, and one opened before the app finds the door once there is one.
+
+The app's door does not push yet, so the window asks every two seconds. Measured on a 99-thread
+inbox, that costs the app about 2% of one core and the reader next to nothing.
+
 ## Compare a screen with the real one
 
 ```sh
@@ -51,7 +58,18 @@ python3 desktop/tools/compare.py desktop/shots/home-real.png desktop/shots/home.
 written from those numbers, not by eye, and drawn from that same fixture. A scene is a file in
 `tools/scenes/` that takes the page from Home to the screen to photograph: `inbox`, its two other
 tabs, `thread` (a whole conversation), `thread-folded` (as it first opens) and `thread-more` (the
-rest of the markdown).
+rest of the markdown). A scene may also dress the invented inbox before the page opens
+(`dress`): `home-team` is Home for someone with teammates, a meeting recorder, a reading of usage
+and an account signed in, and `home-update` is Home while a new version waits for a restart.
+
+The invented inbox has almost nothing switched on, and a real one has. To photograph the web
+window on a real inbox, hand it a snapshot and what the real window keeps for itself, both of
+which `rows.mjs --door` leaves in its folder:
+
+```sh
+MERCURY_SNAPSHOT=$PWD/shots/live/snapshot.json MERCURY_KEEPS=$PWD/shots/live/keeps.json \
+  arch -arm64 node tools/reference.mjs <checkout> shots/live dark 1280 760 home
+```
 
 `compare.py` needs `pillow` and `numpy`. It prints the difference whole and per region
 (`tools/scenes/<scene>.regions.json`) and writes a side-by-side and a difference map.
@@ -66,6 +84,10 @@ At 1280 by 760, 2x, dark, against the web renderer on the same data:
 
 Text lands where the browser puts it to a hundredth of a point.
 
+One size proves one size: Home was right at 1280 by 760 and wrong in a taller window until it
+was compared there. Home and a conversation are compared at 900 by 760, 1600 by 1000 and 1920 by
+1200 as well, and stay between 0.25 and 1.0 of 255.
+
 ## The same rows as the web window
 
 Which threads are in which list, in which order and with which words is decided by rules ported
@@ -77,7 +99,11 @@ field by field.
 ```sh
 node desktop/tools/rows.mjs desktop/shots --shoot <checkout>            # the invented inbox
 node desktop/tools/rows.mjs desktop/shots/real --shoot <checkout> --real   # the person's real threads
+node desktop/tools/rows.mjs desktop/shots/live --shoot <checkout> --door   # the running app's inbox, this minute
 ```
+
+`--door` asks the running app for its snapshot and for what its window keeps, through the local
+door, so the fleet, the cloud and the team are the real ones too.
 
 The real threads are read and never written, their words are printed as lengths only, and nothing
 of them is ever committed. `cargo test` runs the rules' own tests on invented threads.
@@ -91,13 +117,26 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
   here turns their blur on by itself when Rune allows it.
 - **A cut-off title loses its last space.** The browser keeps the space before the ellipsis.
 - **Large text sits a fraction of a pixel differently**, which shows only in a difference map.
+- **A long conversation can sit a pixel higher**, in a tall window: the heights of its parts add
+  up a sliver apart.
+- **A file named in a message is its path.** The web window draws a picture in place and makes a
+  page, a document or a film a link; here they are the words the agent wrote.
+- **The team's card has no rows.** With teammates, Home's second card is the team's week; it says
+  so when nobody else is on the team and is bare otherwise, until the Team page is drawn.
+- **The composer's chips are drawn, not chosen.** The model always reads Opus 5.5, and To always
+  reads Agent.
+- **The rail does not widen under the pointer**, and a person's photo is their two letters.
+- **What the web window remembers only for itself is not known here**: an update card the person
+  closed still shows its Restart row, and the Sign in row of someone who skipped signing in is
+  not drawn.
 
 ## What is where
 
 - `src/main.rs`: the state, the three screens' routing, the command line.
 - `src/source.rs`: fixtures and the door.
 - `src/data.rs`: the snapshot's shapes and the lists the screens draw. `src/rules/`: the rules
-  behind those lists.
+  behind those lists, and behind what else depends on whose Mercury it is: `window.rs` (the team,
+  the account, the rail's foot, a project's colour) and `place.rs` (where a conversation runs).
 - `src/chrome.rs`: the page, the card, the rail. `src/theme.rs`: colours and type.
 - `src/home.rs`, `src/inbox.rs`, `src/thread.rs`: the screens. `src/talk.rs` reads a thread's
   ledger into a conversation (`docs/thread-data.md` says what the engine is asked), and
