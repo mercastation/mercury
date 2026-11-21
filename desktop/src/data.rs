@@ -180,10 +180,12 @@ pub struct Local {
 /// The lists every screen draws, worked out once from a snapshot.
 #[derive(Default, Clone, Debug, Serialize)]
 pub struct Lists {
-    /// The Inbox: what waits on the person, in the order Home and the Inbox page draw it.
+    /// The Inbox: what waits on the person, in the order Home and the Inbox page draw it. Home
+    /// lists the first eighty and counts them all.
     pub needs: Vec<Row>,
     /// What an agent is working on, or will without being asked, in the order it will run:
-    /// Home's order. The Inbox page's own tab reads `in_progress_tab`.
+    /// Home's order, of which it lists the first sixty. The Inbox page's own tab reads
+    /// `in_progress_tab`.
     pub progress: Vec<Row>,
     /// What is finished and put away, newest finished first.
     pub done: Vec<Row>,

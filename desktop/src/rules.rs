@@ -210,6 +210,11 @@ fn link_comment_line(comments: &[Value]) -> Option<String> {
 
 /// What one thread's row says under one tab: Home's row (`homeNeeds` and `homeProgress` in
 /// `App.tsx`) and the Inbox table's cells (`ThreadCells`), which agree wherever both speak.
+///
+/// What the web window's row adds that is not here: on a team, who the row is from, a lock on
+/// a thread only the person sees, and a message's or a given task's own shape; an AI
+/// teammate's face and name on its runs; and the demand a thread serves after its title,
+/// which comes on a channel of its own and is not in the snapshot.
 fn row(w: &World, i: &Item, tab: &str, to_approve: &HashMap<String, usize>) -> Row {
     let id = i.id.as_str();
     let product = w.snap.products.iter().find(|p| p.slug == i.product);
@@ -513,6 +518,24 @@ mod tests {
         let snap: Snapshot = serde_json::from_value(json!({ "items": items(), "supervisor": trouble })).unwrap();
         let closed = Local { trouble_closed: NOW - 9.0 * MIN, ..Local::default() };
         assert_eq!(ids(&super::lists(&snap, NOW, &closed).needs), ["news"]);
+    }
+
+    #[test]
+    fn a_sparse_or_odd_snapshot_is_listed_without_complaint() {
+        // What an old ledger, a half-written line or another engine's version may hand over.
+        let odd = vec![
+            json!({}),
+            json!({ "id": "only-an-id" }),
+            json!({ "id": "no-times", "product": "shop", "status": "done", "labels": ["founder"], "wrote": { "status": { "source": "agent" }, "result": {} } }),
+            json!({ "id": "odd-waits", "product": "shop", "status": "blocked", "blockedBy": [7, null, "odd-waits", "nowhere", ""], "wrote": { "blockedBy": { "source": "agent" } } }),
+            json!({ "id": "odd-text", "product": "shop", "status": "open", "title": "\u{1F600}\u{1F600} \u{e9}_\u{e9}\r\n\u{2028}## x", "body": "[a](b\n![c](d", "result": "1. a\r\n2. b (recommended)\r\n", "labels": ["founder", "codex:", "repeat:", "teammate:", "asked-in:/"],
+                "runAt": 1e18, "snoozedUntil": -5, "place": 1e300, "priority": -3, "answer": "", "note": "", "parent": "", "linkComments": [{}], "waitEnded": {}, "signIn": {}, "claim": 3, "routed": [] }),
+            json!({ "id": "odd-text", "product": "desk", "status": "claimed", "createdAt": 1e15, "updatedAt": -1.0, "labels": [] }),
+        ];
+        let supervisor = json!({ "running": [{}], "starting": [null, 3], "queued": "no", "stalled": [["x"]], "signInNeeded": [], "silent": { "odd-text": null }, "spawnTrouble": {}, "productOrder": [] });
+        let lists = lists_of(odd, supervisor);
+        assert!(lists.needs.len() + lists.progress.len() + lists.done.len() >= 3);
+        assert_eq!(lists.needs[0].id, "trouble");
     }
 
     #[test]
