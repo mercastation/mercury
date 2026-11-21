@@ -16,6 +16,7 @@ mod data;
 mod home;
 mod icons;
 mod inbox;
+mod rules;
 mod sky;
 mod source;
 mod theme;
@@ -252,6 +253,13 @@ fn view(s: &State, _: &mut Cx<State>) -> El {
 static FONTS: &[&[u8]] = &[include_bytes!("../assets/fonts/Geist-Variable.ttf"), include_bytes!("../assets/fonts/GeistMono-Variable.ttf")];
 
 fn main() {
+    // `--rows <out.json>` writes the lists a fixture gives and opens no window.
+    if let Some(written) = rules::rows_from_args(&std::env::args().collect::<Vec<_>>()) {
+        return written.unwrap_or_else(|e| {
+            eprintln!("{e}");
+            std::process::exit(1)
+        });
+    }
     // The web app's own lists: Geist Mono has no ⌘, which the system's monospace then draws.
     let spec = AppSpec::<State> {
         fonts: FONTS,

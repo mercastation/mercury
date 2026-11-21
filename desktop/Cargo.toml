@@ -24,6 +24,8 @@ serde_json = "1"
 ureq = { version = "2", default-features = false }
 # The title and status rules are regex tables in the web app; a conversation's words are markdown.
 regex = "1"
+# Some of those tables look ahead or behind a match, which `regex` alone refuses.
+fancy-regex = "0.19"
 pulldown-cmark = { version = "0.12", default-features = false }
 
 # Cargo does not inherit a dependency's patches, and Rune's README asks an app to repeat them.
