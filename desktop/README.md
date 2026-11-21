@@ -1,57 +1,79 @@
 # Mercury's desktop window, native
 
-A trial of drawing Mercury's window with [Rune](https://github.com/anomalyco/rune) (Rust, GPU, no
-browser inside) instead of a web page in Electron. So far it is one screen, Home, with invented
-tasks, built to answer one question: does the look survive the move.
+Mercury's window drawn with [Rune](https://github.com/anomalyco/rune) (Rust, GPU, no browser
+inside) instead of a web page in Electron. The engine stays what it is: this window only draws,
+and asks the engine for everything through a local door.
 
-It does. Against the real renderer at 1280 by 760, 2x, dark:
-
-| | mean difference | similarity |
-|---|---|---|
-| whole window | 0.88 of 255 | 0.995 |
-| sky, rail, top strip | 0.00 to 0.17 | 0.999 to 1.000 |
-| cards and composer | 1.9 to 2.1 | 0.990 to 0.995 |
-
-Text lands where the browser puts it to a hundredth of a point ("Opus 5.5" is 53.46 points wide in
-both).
+Phase 1, where this is now: it reads. Home, the Inbox and one conversation, from the same snapshot
+the web window gets, kept current while the engine works. It does not write yet.
 
 ## Run it
 
 ```sh
 cd desktop
-cargo run                                                  # the window
-cargo run -- --snap shots/home.png --size 1280x760 --scale 2   # a picture, no window
-cargo run -- --tree shots/tree.json --size 1280x760 --scale 2  # every element's box and colour
+cargo run                      # the window, on the running app's inbox (see "Live" below)
+cargo run -- --fixture shots/home-fixture.json --snap shots/home.png --size 1280x760 --scale 2
+cargo run -- --fixture shots/inbox-fixture.json --view inbox --snap shots/inbox.png --size 1280x760 --scale 2
+cargo run -- --fixture shots/thread-fixture.json --thread --snap shots/thread.png --size 1280x760 --scale 2
+cargo run -- --fixture shots/home-fixture.json --tree shots/home-tree.json --size 1280x760 --scale 2
 ```
 
+`--snap` draws one picture with no window; `--tree` writes every element's box, text and colour.
 The first build fetches Rune and takes about a minute. `rust-toolchain.toml` names the toolchain
 Rune pins, and rustup installs it by itself.
 
-## Compare it with the real one
+## Live: the engine's door
+
+The window reads the engine over HTTP on 127.0.0.1, with a key, on the same channels the web
+window calls (`POST /api/<channel>`, and `/events` for pushes). Two engines open such a door:
+
+- **The desktop app itself** (`main/local-door.mts`), when `zero.config.json` says
+  `"localDoor": true`. It leaves a note with its port and key in its own folder
+  (`~/Library/Application Support/Mercury/local-door.json`), which this window finds by itself.
+  This is the inbox the app is running, not a copy.
+- **The engine with no window** (`node bin/mercury.mjs --no-open`), which prints its address:
+  `cargo run -- --door http://127.0.0.1:<port> --token <key>`.
+
+`cargo run -- --watch-door 20` follows the engine for twenty seconds with no window and prints a
+line each time its conversations change: a check that the live path works.
+
+## Compare a screen with the real one
 
 ```sh
-arch -arm64 node desktop/tools/reference.mjs <checkout with renderer/dist> /tmp/ref dark 1280 760
-python3 desktop/tools/compare.py /tmp/ref/mercury-real-inbox-dark.png desktop/shots/home.png /tmp/ref
+arch -arm64 node desktop/tools/reference.mjs <checkout with renderer/dist> desktop/shots dark 1280 760 home
+python3 desktop/tools/compare.py desktop/shots/home-real.png desktop/shots/home.png desktop/shots home
 ```
 
-`reference.mjs` photographs the built renderer with an invented inbox and writes every element's
-measurements; the screen here was written from those numbers, not by eye. `compare.py` needs
-`pillow` and `numpy`, prints the difference per region and writes a side-by-side and a difference map.
+`reference.mjs` photographs the built web renderer with an invented inbox and writes, for a scene,
+`<scene>-real.png`, `<scene>-dump.json` (every element's measurements) and `<scene>-fixture.json`
+(the snapshot, the clock and the page's own facts the picture was taken with). A screen here is
+written from those numbers, not by eye, and drawn from that same fixture. A scene is a file in
+`tools/scenes/` that takes the page from Home to the screen to photograph. `MERCURY_REAL=1` feeds
+the page the person's real threads instead; nothing of that is ever committed.
 
-## What still differs, and why
+`compare.py` needs `pillow` and `numpy`. It prints the difference whole and per region
+(`tools/scenes/<scene>.regions.json`) and writes a side-by-side and a difference map.
+
+Home, at 1280 by 760, 2x, dark: 0.88 of 255 mean difference, similarity 0.995. Text lands where
+the browser puts it to a hundredth of a point.
+
+## What still differs from the web app, and why
 
 - **Glass is less saturated.** The web app's glass is `blur(20px) saturate(1.5)`; Rune's
   `backdrop_blur` has no saturation. Up to 6 of 255 warmer in the real one, inside the composer.
 - **Four blurred surfaces a frame.** Rune's `MAX_BACKDROP_BLURS` is 4 and Home has five, so the two
-  small doors go unblurred. With the constant raised to 8 in a local copy all five blur and the
-  doors go from 0.912 to 0.989. The code here turns their blur on by itself when Rune allows it.
+  small doors go unblurred. With the constant raised to 8 in a local copy all five blur. The code
+  here turns their blur on by itself when Rune allows it.
 - **A cut-off title loses its last space.** The browser keeps the space before the ellipsis.
 - **Large text sits a fraction of a pixel differently**, which shows only in a difference map.
 
 ## What is where
 
-- `src/main.rs`: the screen.
-- `src/sky.rs`: the dithered sky, ported from `renderer/src/home/sky.ts` with the same seed, so it
-  is the same picture.
+- `src/main.rs`: the state, the three screens' routing, the command line.
+- `src/source.rs`: fixtures and the door.
+- `src/data.rs`: the snapshot's shapes and the lists the screens draw.
+- `src/chrome.rs`: the page, the card, the rail. `src/theme.rs`: colours and type.
+- `src/home.rs`, `src/inbox.rs`, `src/thread.rs`: the screens.
+- `src/sky.rs`: the dithered sky, ported from `renderer/src/home/sky.ts` with the same seed.
 - `src/icons.rs`: the icons, with the web app's own paths and strokes.
 - `assets/fonts`: Geist and Geist Mono (SIL Open Font License), the files the web app ships.
