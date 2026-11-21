@@ -66,6 +66,11 @@ pub fn shadow(x: f32, y: f32, blur: f32, spread: f32, color: Color, inset: bool)
     Shadow { x, y, blur, spread, color, inset }
 }
 
+/// Words the person can select and copy, washed with the web app's `--select` while they are.
+pub fn readable(words: El) -> El {
+    words.selectable(true).selection_color(rgba(110, 165, 255, 0.3))
+}
+
 /// The strength mark beside a priority: bars three points wide, standing on one line.
 pub fn bars(heights: &[f32], c: Color) -> El {
     row().items_end().gap(1.5).children(heights.iter().map(|h| el().size(3.0, *h).radius(1.0).fill(c)))

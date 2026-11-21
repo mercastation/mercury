@@ -179,7 +179,7 @@ fn said_by(m: &Message, now: f64) -> El {
 fn typed(words: &str, m: &Measure) -> El {
     let line = kept(1.55 * m.size);
     let font = TextStyle::new(m.size, 500.0).lh(line);
-    col().max_w(760.0).children(words.split('\n').map(|words| if words.is_empty() { el().h(line) } else { text(words).font(font).color(ink()).wrap() }))
+    col().max_w(760.0).children(words.split('\n').map(|words| if words.is_empty() { el().h(line) } else { readable(text(words).font(font).color(ink()).wrap()) }))
 }
 
 /// One message, and how much of what it holds reaches under it.
@@ -394,6 +394,6 @@ pub fn view(s: &State, id: &str, product: &str) -> El {
         .grow(1.0)
         .min_h(0.0)
         .scroll(ScrollSpec { stick_bottom: unfolded })
-        .child(el().pt(28.0).pl(m.indent).pr(32.0).pb(40.0 + under + whole).child(body.key("thread-said").w(m.column)));
+        .child(el().pt(28.0).pl(m.indent).pr(32.0).pb(40.0 + under + whole).child(body.key("thread-said").w(m.column).selection_group(true)));
     col().w(page_w).h(page_h).child(reading).child(el().pl(m.indent).pr(32.0).pb(24.0).child(reply_box(&m)))
 }

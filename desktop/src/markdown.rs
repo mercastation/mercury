@@ -29,6 +29,8 @@ struct Run {
     /// Where each link begins: its icon sits there.
     links: Vec<usize>,
     strikes: Vec<(usize, usize)>,
+    /// The spaces that stand for inline code's padding: drawn, never copied.
+    pads: Vec<(usize, usize)>,
 }
 
 enum Node {
@@ -92,6 +94,7 @@ fn run(it: &mut Events) -> Run {
                 r.spans.push(Span { start: a as u32, end: b as u32, ..pad.clone() });
                 r.spans.push(Span::new(b, c).mono().size(CODE).bg(white(0.07), 0.0));
                 r.spans.push(Span { start: c as u32, end: r.text.len() as u32, ..pad });
+                r.pads.extend([(a, b), (c, r.text.len())]);
             }
             Some(Event::Text(t) | Event::Html(t) | Event::InlineHtml(t) | Event::InlineMath(t) | Event::DisplayMath(t)) => r.text.push_str(&t),
             Some(Event::SoftBreak) => r.text.push(' '),
@@ -240,8 +243,11 @@ impl Page {
 }
 
 fn words(r: Run, font: TextStyle, ink: rune::Color) -> El {
-    let Run { text, spans, links, strikes } = r;
-    let mut e = rich(text, spans).font(font).color(ink).wrap().span_radius(6.0).strikes(strikes.into_iter().map(|(a, b)| (a, b, None)));
+    let Run { text, spans, links, strikes, pads } = r;
+    let mut e = readable(rich(text, spans).font(font).color(ink).wrap()).span_radius(6.0).strikes(strikes.into_iter().map(|(a, b)| (a, b, None)));
+    for (a, b) in pads {
+        e = e.uncopied(a..b);
+    }
     for at in links {
         e = e.inline_icon(at, InlineIcon::glyph(&icons::LINK).size(13.0).gap(4.0).color(muted()));
     }
@@ -287,7 +293,7 @@ fn code_block(code: &str, p: Page) -> Block {
     let line = p.line();
     let (up, down) = ((0.928 * 2.0 * p.size).round() / 2.0, (0.236 * 2.0 * p.size).round() / 2.0);
     let drop = ((line - up - down) / 2.0 + up) - ((line - 1.3 * CODE) / 2.0 + 1.005 * CODE);
-    let lines = text(code).font(mono(CODE, line)).color(ink());
+    let lines = readable(text(code).font(mono(CODE, line)).color(ink()));
     let block = el()
         .fill(rgba(40, 38, 37, 0.9))
         .border(1.0, edge())
@@ -365,7 +371,7 @@ fn table(head: &[String], rows: &[Vec<String>], p: Page) -> Block {
         row().items_stretch().children((0..columns).map(|c| {
             let font = if numeric[c] { cell_font.features("'tnum' 1") } else { cell_font };
             let e = grounded(c, row().w(widths[c]).min_h(47.0).items_start().px(16.0).py(12.0).border_sides(sides(c, 0.0), line).border_layout());
-            (if numeric[c] { e.justify_end() } else { e }).child(text(cell(r, c)).font(font).color(p.ink).wrap())
+            (if numeric[c] { e.justify_end() } else { e }).child(readable(text(cell(r, c)).font(font).color(p.ink).wrap()))
         }))
     });
     Block::leaf(18.0, 18.0, row().scroll_x().child(col().child(heads).children(body)))
