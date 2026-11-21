@@ -1,0 +1,29 @@
+# Mercury's desktop window, drawn natively with Rune (github.com/anomalyco/rune)
+# instead of a web page inside Electron. A trial: one screen, to see whether the
+# look survives the move (w-4c6fedcd6c).
+[package]
+name = "mercury-desktop"
+version = "0.0.1"
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+
+[[bin]]
+name = "mercury"
+path = "src/main.rs"
+
+# Its own workspace: nothing above this folder is Rust.
+[workspace]
+
+[dependencies]
+# Rune is pre-release: pin a revision of `dev`, and use the same one for every patch below.
+rune = { git = "https://github.com/anomalyco/rune", rev = "86b903de7fef9c6b683e05dc23440de4ebbc4347" }
+
+# Cargo does not inherit a dependency's patches, and Rune's README asks an app to repeat them.
+[patch.crates-io]
+winit = { git = "https://github.com/anomalyco/rune", rev = "86b903de7fef9c6b683e05dc23440de4ebbc4347" }
+sctk-adwaita = { git = "https://github.com/anomalyco/rune", rev = "86b903de7fef9c6b683e05dc23440de4ebbc4347" }
+parley_engine = { git = "https://github.com/anomalyco/rune", rev = "86b903de7fef9c6b683e05dc23440de4ebbc4347" }
+wgpu-hal = { git = "https://github.com/anomalyco/rune", rev = "86b903de7fef9c6b683e05dc23440de4ebbc4347" }
+accesskit_windows = { git = "https://github.com/anomalyco/rune", rev = "86b903de7fef9c6b683e05dc23440de4ebbc4347" }
+accesskit_macos = { git = "https://github.com/anomalyco/rune", rev = "86b903de7fef9c6b683e05dc23440de4ebbc4347" }

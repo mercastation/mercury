@@ -1,0 +1,3 @@
+# The toolchain Rune itself pins at the revision in Cargo.toml.
+[toolchain]
+channel = "1.99.1"
