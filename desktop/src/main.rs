@@ -251,7 +251,42 @@ fn view(s: &State, _: &mut Cx<State>) -> El {
 
 static FONTS: &[&[u8]] = &[include_bytes!("../assets/fonts/Geist-Variable.ttf"), include_bytes!("../assets/fonts/GeistMono-Variable.ttf")];
 
+/// `--watch-door <seconds>`: follow the engine with no window at all, and print one line each
+/// time its conversations change. A check that the live path works, for a script or an agent.
+fn watch_door(args: &[String]) -> bool {
+    let Some(seconds) = args.iter().position(|a| a == "--watch-door").and_then(|i| args.get(i + 1)).and_then(|s| s.parse::<u64>().ok()) else {
+        return false;
+    };
+    let Source::Door { url, token } = source::from_args(args) else {
+        eprintln!("--watch-door needs a door: --door and --token, or --door-file");
+        std::process::exit(2);
+    };
+    let mailbox = Mailbox::default();
+    let (tx, rx) = std::sync::mpsc::channel::<()>();
+    source::follow_door(url, token, mailbox.clone(), move || {
+        let _ = tx.send(());
+    });
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(seconds);
+    while let Some(left) = until.checked_duration_since(std::time::Instant::now()) {
+        if rx.recv_timeout(left).is_err() {
+            break;
+        }
+        let mut m = mailbox.lock().unwrap();
+        if let Some(snapshot) = m.snapshot.take() {
+            let lists = snapshot.lists(clock(), &Local::default());
+            println!("changed: {} threads, {} need you, {} in progress", snapshot.items.len(), lists.needs.len(), lists.progress.len());
+        }
+        if let Some(e) = m.error.take() {
+            println!("could not read the engine: {e}");
+        }
+    }
+    true
+}
+
 fn main() {
+    if watch_door(rune::tooling::extra_args()) {
+        return;
+    }
     // The web app's own lists: Geist Mono has no ⌘, which the system's monospace then draws.
     let spec = AppSpec::<State> {
         fonts: FONTS,
