@@ -66,3 +66,15 @@ pub fn bars(heights: &[f32], c: Color) -> El {
 pub fn glass(e: El) -> El {
     e.backdrop_blur(20.0).fill(rgba(17, 16, 15, 0.42)).gradient(white(0.075), white(0.024))
 }
+
+/// Lands a text's glyphs where Chromium lands them, to a fraction of a pixel. Rune in this font
+/// mode puts each glyph's pen on CoreGraphics' step, rounded down: half a pixel for type up to
+/// 16 points on a 2x screen, a whole pixel above. Chromium rounds its pens to the nearest quarter
+/// pixel. Starting the text half a step later turns rounding down into rounding to the nearest,
+/// which is Chromium's place to within a quarter pixel. On a 1x screen the steps are finer and
+/// this is never more than half of one. The element keeps its box: what the left takes, the
+/// right gives back.
+pub fn pen(e: El, size: f32) -> El {
+    let half_step = if size > 16.65 { 0.25 } else { 0.125 };
+    e.ml(half_step).mr(-half_step)
+}

@@ -82,3 +82,21 @@ pub static FORWARD: Icon = Icon {
     view: 16.0,
     body: r#"<g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5L10.5 8 6 12.5"/></g>"#,
 };
+
+// The Inbox: New thread, the display button, an agent's two eyes, and the pin on a row kept at the top.
+pub static PEN: Icon = Icon {
+    name: "m-pen",
+    view: 24.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 20h8"/><path d="m4 20 1-4.5L15.5 5a2.1 2.1 0 0 1 3 3L8 18.5 4 20Z"/></g>"#,
+};
+pub static SLIDERS: Icon = Icon {
+    name: "m-sliders",
+    view: 24.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></g>"#,
+};
+stroked!(PIN, "m-pin", "1.4", r#"<path d="M8 3h8l-1.5 6 3.5 3.5H6L9.5 9z"/><path d="M12 12.5V21"/>"#);
+pub static AGENT_EYES: Icon = Icon {
+    name: "m-agent-eyes",
+    view: 16.0,
+    body: r#"<g fill="currentColor"><rect x="4.5" y="5.5" width="2" height="5" rx="1"/><rect x="9.5" y="5.5" width="2" height="5" rx="1"/></g>"#,
+};

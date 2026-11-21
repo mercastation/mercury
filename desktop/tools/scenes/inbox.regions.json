@@ -1,0 +1,13 @@
+[
+  ["rail", [0, 40, 82, 720]],
+  ["head strip: arrows, title", [82, 40, 500, 64]],
+  ["head strip: buttons", [1050, 40, 208, 64]],
+  ["sky behind the head", [82, 40, 1176, 90]],
+  ["tabs", [82, 104, 600, 52]],
+  ["table head", [82, 156, 1176, 38]],
+  ["rows", [82, 194, 1176, 486]],
+  ["row titles", [126, 194, 502, 486]],
+  ["status and project", [644, 194, 342, 486]],
+  ["priority and sent", [1002, 194, 224, 486]],
+  ["card below the rows", [82, 680, 1176, 58]]
+]

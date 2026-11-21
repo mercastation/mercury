@@ -61,6 +61,8 @@ pub struct State {
     pub now: f64,
     fixed_clock: bool,
     pub view: View,
+    /// The Inbox's open tab: 0 needs you, 1 in progress, 2 done.
+    pub inbox_tab: u8,
     pub history: Vec<View>,
     pub source: Source,
     mailbox: Mailbox,
@@ -134,6 +136,7 @@ fn init() -> State {
             Some("inbox") => View::Inbox,
             _ => View::Home,
         },
+        inbox_tab: 0,
         history: Vec::new(),
         source,
         mailbox: Mailbox::default(),

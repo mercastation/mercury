@@ -32,23 +32,21 @@ pub fn backdrop(w: f32, h: f32) -> El {
 /// The main card. The sky is drawn at the size it was painted for and cut to the card, so a
 /// window being resized shows the old sky still, never a stretched one, until the new one lands.
 pub fn card(s: &State) -> El {
-    // Each screen has its own sky: Home's over the whole card, the Inbox's behind its head, a
-    // conversation's none.
-    let sky = match s.view {
-        View::Home => Some(el().absolute(0.0, 0.0).size(s.sky_size.0, s.sky_size.1).pixels(&s.sky_home)),
-        View::Inbox => Some(crate::inbox::sky(s)),
-        View::Thread { .. } => None,
-    };
-    let mut ground = el().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).fill(rgb(0x1b, 0x19, 0x17)).radius(6.0).clip_rounded(6.0);
-    if let Some(sky) = sky {
-        ground = ground.child(sky);
-    }
-    el().pin(Some(CARD[0]), Some(CARD[1]), Some(CARD[2]), Some(CARD[3]))
+    let card = el()
+        .pin(Some(CARD[0]), Some(CARD[1]), Some(CARD[2]), Some(CARD[3]))
         .radius(6.0)
         .fill(rgba(36, 34, 33, 0.55))
-        .box_shadow(shadow(0.0, 40.0, 120.0, 0.0, rgba(0, 0, 0, 0.7), false))
-        .child(ground)
-        .child(el().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).radius(6.0).border(1.0, white(0.07)))
+        .box_shadow(shadow(0.0, 40.0, 120.0, 0.0, rgba(0, 0, 0, 0.7), false));
+    // The Inbox's sky stands behind its head alone, so under it the card shows its own glass and edge.
+    if s.view == View::Inbox {
+        return card.box_shadow(shadow(0.0, 0.0, 0.0, 1.0, edge(), true)).child(crate::inbox::sky(s));
+    }
+    // Home's sky covers the whole card; a conversation has none.
+    let mut ground = el().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).fill(rgb(0x1b, 0x19, 0x17)).radius(6.0).clip_rounded(6.0);
+    if s.view == View::Home {
+        ground = ground.child(el().absolute(0.0, 0.0).size(s.sky_size.0, s.sky_size.1).pixels(&s.sky_home));
+    }
+    card.child(ground).child(el().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).radius(6.0).border(1.0, white(0.07)))
 }
 
 /// The nine-dot mark: eight in the text colour at 38%, the top right one orange.
@@ -116,9 +114,13 @@ pub fn notice(s: &State) -> Option<El> {
 
 /// Back and forward, at the head of the card. Dim while there is nowhere to go.
 pub fn back_forward(s: &State) -> El {
-    let arrow = |glyph: &'static Icon, live: bool| row().size(26.0, 26.0).radius(6.0).center().opacity(if live { 1.0 } else { 0.45 }).child(icon(glyph, 15.0).color(muted()));
-    row().absolute(126.0, 58.5)
-        .gap(2.0)
-        .child(arrow(&icons::BACK, !s.history.is_empty()).on_press(|s: &mut State| s.back()))
-        .child(arrow(&icons::FORWARD, false))
+    let arrow = |glyph: &'static Icon, live: bool| {
+        row().size(26.0, 26.0).radius(6.0).center().opacity(if live { 1.0 } else { 0.45 }).child(icon(glyph, 15.0).color(if live { ink() } else { muted() }))
+    };
+    let arrows = row().absolute(126.0, 58.5).gap(2.0).child(arrow(&icons::BACK, !s.history.is_empty()).on_press(|s: &mut State| s.back())).child(arrow(&icons::FORWARD, false));
+    // The Inbox's title and buttons stand in the same strip as the arrows.
+    if s.view == View::Inbox {
+        return el().absolute(0.0, 0.0).child(crate::inbox::strip(s)).child(arrows);
+    }
+    arrows
 }
