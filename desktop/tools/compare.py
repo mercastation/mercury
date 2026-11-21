@@ -46,8 +46,9 @@ def stats(label, box=None):
     print(f"{label:26} mean diff {dd.mean():6.2f}/255  | pixels off by >8: {100 * (m > 8).sum() / n:5.1f}%  >24: {100 * (m > 24).sum() / n:5.1f}%  >64: {100 * (m > 64).sum() / n:5.1f}%  | similarity {ssim(aa, bb):.3f}")
 
 stats('whole window')
-# Regions, in points (the pictures are 2x).
-for label, box in [
+# Regions, in points (the pictures are 2x). A scene names its own in
+# tools/scenes/<name>.regions.json, as a list of [label, [x, y, w, h]]; Home's are here.
+HOME = [
     ('rail', (0, 40, 82, 720)),
     ('top strip + arrows', (82, 40, 1176, 64)),
     ('title', (290, 165, 420, 50)),
@@ -57,7 +58,11 @@ for label, box in [
     ('in progress card', (732, 450, 322, 288)),
     ('sky, left of column', (90, 300, 190, 430)),
     ('sky, right of column', (1060, 300, 190, 430)),
-]:
+]
+import json
+own = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'scenes', f'{name}.regions.json')
+regions = [(label, tuple(box)) for label, box in json.load(open(own))] if os.path.exists(own) else (HOME if name.startswith('home') else [])
+for label, box in regions:
     stats(label, box)
 
 # Side by side, and the difference map.
