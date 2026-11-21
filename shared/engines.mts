@@ -195,7 +195,7 @@ export function engineFor(
   if (enabled !== ENGINE_CHOICE_ENABLED) return DEFAULT_ENGINE;
   const wanted = isEngine(item?.engine)
     ? (engineChoiceOnRowIsStale(item, config) ? null : item.engine)
-    : (isCodexModel(item?.model) ? 'codex' : null);
+    : (isAntigravityModel(item?.model) ? 'antigravity' : isCodexModel(item?.model) ? 'codex' : null);
   const fallback = isEngine(config?.engine) && !engineDefaultIsStale(config) ? config.engine : DEFAULT_ENGINE;
   const pick = wanted ?? fallback;
   if (pick === DEFAULT_ENGINE) return DEFAULT_ENGINE;
@@ -232,5 +232,16 @@ export function modelForEngine(item: EngineRow | null | undefined, engine: strin
  * slug"), so on a row naming no engine the slug is the choice of Codex.
  */
 export function isCodexModel(model: unknown): boolean {
-  return typeof model === 'string' && /^(gpt|o\d|codex)[a-z0-9._-]*$/i.test(model);
+  return typeof model === 'string' && /^(gpt|o\d|codex)[a-z0-9._-]*$/i.test(model) && !isAntigravityModel(model);
+}
+
+/**
+ * A model only Antigravity runs: Google's Gemini models and the open GPT-OSS
+ * ones, as `agy models` lists them (agy 1.5.13). On a row naming no engine the
+ * model is the choice of Antigravity (2026-11-21: a thread filed with
+ * `gemini-4-neon` and no engine ran on Claude Code, which refused the model).
+ * Antigravity's Claude models are Claude's own ids, so those stay Claude Code's.
+ */
+export function isAntigravityModel(model: unknown): boolean {
+  return typeof model === 'string' && /^(gemini|gpt-oss)-[a-z0-9._-]*$/i.test(model);
 }

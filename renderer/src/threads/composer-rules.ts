@@ -19,6 +19,7 @@ import { projectSeenBy } from '../../../shared/thread-cards.mts';
 import { isRepeatRule, ruleLabel, type RepeatShape } from '../../../shared/repeats.mts';
 import { clockWords, dayDeadline } from '../../../shared/team-tasks.mts';
 import { threadOfLink } from '../../../shared/thread-link.mts';
+import { isAntigravityModel } from '../../../shared/engines.mts';
 
 export type Harness = 'claude' | 'codex' | 'antigravity';
 
@@ -41,6 +42,8 @@ type CodexRow = Pick<ModelChoice, 'id'> & Partial<ModelChoice>;
  */
 export function harnessOf(model: string, codexModels: readonly CodexRow[] = []): Harness {
   if (claudeModelRows().some((m) => m.id === model || m.model === model)) return 'claude';
+  // Before Codex's shapes: `gpt-oss-*` is Antigravity's.
+  if (isAntigravityModel(model)) return 'antigravity';
   if (codexModels.some((m) => m.id === model)) return 'codex';
   if (/^(gpt|o\d|codex)/i.test(model)) return 'codex';
   return 'claude';

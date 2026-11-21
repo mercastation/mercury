@@ -34,7 +34,7 @@
 // A model set by hand outside this list still draws as itself; see modelChoices.
 
 import { CLAUDE_MODELS } from '../../shared/claude-models.generated.mts';
-import { DEFAULT_CLAUDE_MODEL } from '../../shared/engines.mts';
+import { DEFAULT_CLAUDE_MODEL, isAntigravityModel, isCodexModel } from '../../shared/engines.mts';
 
 export interface ModelChoice {
   /** What the CLI is sent. Always an alias, never a version. */
@@ -279,13 +279,20 @@ export const LAST_MODEL_KEY = 'zero.lastModel';
  * `codexModelRefusal` stops that run rather than picking a stand-in. Claude
  * Code keeps the original key, so a model she has already chosen survives this
  * change untouched.
+ *
+ * AND ANTIGRAVITY HAS ITS OWN (2026-11-21). It shared Claude Code's, so picking
+ * `gemini-4-neon` made it Claude Code's remembered model: the next card opened
+ * on Claude Code with a Gemini model, and the thread it filed ran on Claude
+ * Code, which refused the model.
  */
 export function lastModelKey(engine: string | null = null): string {
-  return engine === 'codex' ? `${LAST_MODEL_KEY}.codex` : LAST_MODEL_KEY;
+  return engine === 'codex' ? `${LAST_MODEL_KEY}.codex` : engine === 'antigravity' ? `${LAST_MODEL_KEY}.antigravity` : LAST_MODEL_KEY;
 }
 
 // Remembered the moment she picks, exactly like the project and the level: a
 // card that forgets what you chose the second it closes makes you choose again.
+// Claude Code's key may still hold a model of another agent's, written before
+// each had its own key; that is no memory of Claude Code's and is not read.
 export function readLastModel(
   store: Storage | undefined = globalThis.localStorage,
   engine: string | null = null,
@@ -294,6 +301,7 @@ export function readLastModel(
   try {
     const raw = store?.getItem(lastModelKey(engine));
     if (!raw || raw === defaultModelFor(engine, codexDefault)) return null;
+    if (lastModelKey(engine) === LAST_MODEL_KEY && (isAntigravityModel(raw) || isCodexModel(raw))) return null;
     return raw;
   } catch { return null; }
 }
