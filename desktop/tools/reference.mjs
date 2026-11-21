@@ -2,22 +2,34 @@
 // dump every visible element's box and computed style, so a native port can be
 // built from numbers and compared pixel by pixel.
 //
-//   arch -arm64 node desktop/tools/reference.mjs <mercury checkout with a built renderer/dist> <out dir> [dark|light] [width] [height]
+//   arch -arm64 node desktop/tools/reference.mjs <mercury checkout with a built renderer/dist> <out dir> [dark|light] [width] [height] [scene]
 //
-// Writes mercury-real-inbox-<theme>.png and dump-<theme>.json (each element's box, font,
-// colours, borders, shadows and spacing, plus its SVG). Read-only: the page is fed an invented
-// inbox through the same bridge the other shot scripts use, and no store or agent is touched.
+// Writes, for the scene (home by default):
+//   <scene>-real.png      the picture
+//   <scene>-dump.json     each element's box, font, colours, borders, shadows and spacing, plus its SVG
+//   <scene>-fixture.json  the snapshot and the clock the picture was taken with, for `mercury --fixture`
+//
+// A scene is a file in tools/scenes/<name>.mjs exporting `go(h)`, which takes the page from Home
+// to the screen to photograph (h is the harness: evaluate, call, wait). Home needs none.
+//
+// Read-only: the page is fed an invented inbox through the same bridge the other shot scripts
+// use, and no store or agent is touched. MERCURY_REAL=1 feeds it the person's real threads
+// instead, read from the store and never written.
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const mercury = process.argv[2];
 const outDir = process.argv[3];
 const theme = process.argv[4] ?? 'dark';
 const width = Number(process.argv[5] ?? 1280);
 const height = Number(process.argv[6] ?? 760);
+const scene = process.argv[7] ?? 'home';
 fs.mkdirSync(outDir, { recursive: true });
 
-const { openInbox } = await import(path.join(mercury, 'scripts/lib/inbox-harness.mjs'));
+const { openInbox, herSnapshot } = await import(path.join(mercury, 'scripts/lib/inbox-harness.mjs'));
+const sceneFile = path.join(path.dirname(fileURLToPath(import.meta.url)), 'scenes', `${scene}.mjs`);
+const go = fs.existsSync(sceneFile) ? (await import(pathToFileURL(sceneFile).href)).go : null;
 
 // A fixed clock, so the row ages read the same on every run.
 const now = Date.now();
@@ -123,7 +135,8 @@ const DUMP = `(() => {
   };
 })()`;
 
-const h = await openInbox({ dist: path.join(mercury, 'renderer/dist'), width, height, snapshot });
+const shown = process.env.MERCURY_REAL === '1' ? herSnapshot() : snapshot;
+const h = await openInbox({ dist: path.join(mercury, 'renderer/dist'), width, height, snapshot: shown });
 try {
   await h.goto(h.origin);
   await h.evaluate(`localStorage.setItem('zero.firstRun.done', '1'); localStorage.setItem('zero.theme', ${JSON.stringify(theme)});`);
@@ -132,10 +145,14 @@ try {
   await h.wait(2000);
   const err = await h.evaluate('window.__ERR__ ?? null');
   if (err) console.error('page error:', err);
-  const png = path.join(outDir, `mercury-real-inbox-${theme}.png`);
+  if (go) { await go(h); await h.wait(800); }
+  const png = path.join(outDir, `${scene}-real.png`);
+  // The page's own clock at the shutter, so a native picture can tell the same ages.
+  const at = await h.evaluate('Date.now()');
   await h.capture(png);
   const dump = await h.evaluate(DUMP);
-  fs.writeFileSync(path.join(outDir, `dump-${theme}.json`), JSON.stringify(dump));
+  fs.writeFileSync(path.join(outDir, `${scene}-dump.json`), JSON.stringify(dump));
+  fs.writeFileSync(path.join(outDir, `${scene}-fixture.json`), JSON.stringify({ now: at, snapshot: shown }));
   console.log(png, 'nodes', dump.nodes.length, 'fonts', JSON.stringify(dump.fonts.map((f) => `${f.family} ${f.weight}`)));
 } finally {
   h.close();

@@ -18,6 +18,13 @@ path = "src/main.rs"
 [dependencies]
 # Rune is pre-release: pin a revision of `dev`, and use the same one for every patch below.
 rune = { git = "https://github.com/anomalyco/rune", rev = "86b903de7fef9c6b683e05dc23440de4ebbc4347" }
+# The engine's door speaks JSON over plain HTTP on 127.0.0.1, so no TLS is built in.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ureq = { version = "2", default-features = false }
+# The title and status rules are regex tables in the web app; a conversation's words are markdown.
+regex = "1"
+pulldown-cmark = { version = "0.12", default-features = false }
 
 # Cargo does not inherit a dependency's patches, and Rune's README asks an app to repeat them.
 [patch.crates-io]
