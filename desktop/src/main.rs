@@ -107,7 +107,11 @@ impl State {
     /// Asks the engine for the open conversation's lines when it has not been asked since the
     /// thread last changed. Off the main thread: the answer lands in `poll`.
     fn ask_for_the_open_thread(&mut self) {
-        let (View::Thread { id, product }, Source::Door { url, token }) = (&self.view, &self.source) else {
+        let (View::Thread { id, product }, Source::Door(door)) = (&self.view, &self.source) else {
+            return;
+        };
+        // With no door open yet there is nobody to ask; the next snapshot brings this back.
+        let Some((url, token)) = door.now() else {
             return;
         };
         let key = format!("{product}/{id}");
@@ -117,7 +121,7 @@ impl State {
         }
         self.asked.insert(key.clone(), changed);
         let payload = serde_json::json!({ "product": product, "id": id });
-        self.asking.request((url.clone(), token.clone(), key, payload), |(url, token, key, payload)| {
+        self.asking.request((url, token, key, payload), |(url, token, key, payload)| {
             let lines = source::call(&url, &token, "zero:item-history", &payload);
             (key, lines)
         });
@@ -195,13 +199,18 @@ fn init() -> State {
         }
     }
     // A headless picture cannot wait for a thread to bring the engine's answer, so it asks once here.
-    if let (Source::Door { url, token }, true) = (&s.source, rune::tooling::headless_run().is_some()) {
-        match source::fetch_snapshot(url, token) {
-            Ok(snapshot) => s.snap = snapshot,
-            Err(e) => s.error = Some(e),
-        }
-        if let Ok(Some(local)) = source::fetch_keeps(url, token) {
-            s.local = local;
+    if let (Source::Door(door), true) = (&s.source, rune::tooling::headless_run().is_some()) {
+        match door.now() {
+            Some((url, token)) => {
+                match source::fetch_snapshot(&url, &token) {
+                    Ok(snapshot) => s.snap = snapshot,
+                    Err(e) => s.error = Some(e),
+                }
+                if let Ok(Some(local)) = source::fetch_keeps(&url, &token) {
+                    s.local = local;
+                }
+            }
+            None => s.error = Some("the app has not opened its door yet".to_string()),
         }
     }
     s.refresh();
@@ -226,8 +235,8 @@ fn init() -> State {
 fn setup(s: &mut State, wake: Waker) {
     s.painting.set_waker(wake.clone());
     s.asking.set_waker(wake.clone());
-    if let Source::Door { url, token } = s.source.clone() {
-        source::follow_door(url, token, s.mailbox.clone(), move || wake());
+    if let Source::Door(door) = s.source.clone() {
+        source::follow_door(door, s.mailbox.clone(), move || wake());
     }
 }
 
@@ -248,7 +257,7 @@ fn poll(s: &mut State, _clock: f64, tx: &mut Tx) -> bool {
             s.local = local;
             stale = true;
         }
-        if m.error != s.error && matches!(s.source, Source::Door { .. }) {
+        if m.error != s.error && matches!(s.source, Source::Door(_)) {
             s.error = m.error.clone();
             changed = true;
         }
@@ -324,13 +333,13 @@ fn watch_door(args: &[String]) -> bool {
     let Some(seconds) = args.iter().position(|a| a == "--watch-door").and_then(|i| args.get(i + 1)).and_then(|s| s.parse::<u64>().ok()) else {
         return false;
     };
-    let Source::Door { url, token } = source::from_args(args) else {
+    let Source::Door(door) = source::from_args(args) else {
         eprintln!("--watch-door needs a door: --door and --token, or --door-file");
         std::process::exit(2);
     };
     let mailbox = Mailbox::default();
     let (tx, rx) = std::sync::mpsc::channel::<()>();
-    source::follow_door(url.clone(), token.clone(), mailbox.clone(), move || {
+    source::follow_door(door.clone(), mailbox.clone(), move || {
         let _ = tx.send(());
     });
     let until = std::time::Instant::now() + std::time::Duration::from_secs(seconds);
@@ -343,7 +352,7 @@ fn watch_door(args: &[String]) -> bool {
             let lists = snapshot.lists(clock(), &Local::default());
             println!("changed: {} threads, {} need you, {} in progress", snapshot.items.len(), lists.needs.len(), lists.progress.len());
             // And one conversation's lines, the way opening it asks for them.
-            if let Some(item) = snapshot.items.last() {
+            if let (Some(item), Some((url, token))) = (snapshot.items.last(), door.now()) {
                 let lines = source::call(&url, &token, "zero:item-history", &serde_json::json!({ "product": item.product, "id": item.id }));
                 let count = lines.as_ref().ok().and_then(|v| v.get("lines")).and_then(Value::as_array).map(Vec::len);
                 println!("the newest thread's conversation: {}", count.map_or("could not be read".to_string(), |n| format!("{n} lines")));

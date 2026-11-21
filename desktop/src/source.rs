@@ -8,7 +8,9 @@
 //!
 //! With the door, one thread listens to the engine's event stream and another asks for the
 //! snapshot again when the stream says something changed, and every two seconds besides,
-//! because not every engine that opens this door pushes. Nothing here writes: phase 1 only reads.
+//! because not every engine that opens this door pushes. The desktop app's door moves each time
+//! the app starts, and its note is read again when the one in hand stops answering. Nothing
+//! here writes: phase 1 only reads.
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -26,7 +28,53 @@ pub enum Source {
     /// No data: the screens draw empty.
     Nothing,
     Fixture(String),
-    Door { url: String, token: String },
+    Door(Door),
+}
+
+/// The engine's door: where it is now and, for the desktop app's own, the note that says so.
+/// The app opens a new door, on another port and with another key, each time it starts, so an
+/// address kept from before stops answering. Whoever asks takes the address from here, and
+/// `look_again` reads the note for the door that answers now. A window opened before the app
+/// has no address yet and finds one the same way.
+#[derive(Clone, Debug, Default)]
+pub struct Door {
+    at: Arc<Mutex<Option<(String, String)>>>,
+    note: Option<String>,
+}
+
+impl Door {
+    /// A door named on the command line: it is where it is.
+    fn fixed(url: String, token: String) -> Door {
+        Door { at: Arc::new(Mutex::new(Some((url, token)))), note: None }
+    }
+    /// A door a running app leaves a note about: `{ "port": 49216, "token": "…" }`.
+    fn noted(path: String) -> Door {
+        let door = Door { at: Arc::default(), note: Some(path) };
+        door.look_again();
+        door
+    }
+    /// The address and the key to ask with now, when there is a door at all.
+    pub fn now(&self) -> Option<(String, String)> {
+        self.at.lock().unwrap().clone()
+    }
+    /// Reads the note again. True when it names another door than the one in hand.
+    pub fn look_again(&self) -> bool {
+        let Some(read) = self.note.as_deref().and_then(read_note) else {
+            return false;
+        };
+        let mut at = self.at.lock().unwrap();
+        if at.as_ref() == Some(&read) {
+            return false;
+        }
+        *at = Some(read);
+        true
+    }
+}
+
+fn read_note(path: &str) -> Option<(String, String)> {
+    let note: Value = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
+    let port = note.get("port")?.as_u64()?;
+    Some((format!("http://127.0.0.1:{port}"), note.get("token")?.as_str()?.to_string()))
 }
 
 /// What the door delivered last, waiting for the window to pick it up.
@@ -47,27 +95,20 @@ fn flag(args: &[String], name: &str) -> Option<String> {
     args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned()
 }
 
-/// A door a running app left a note about: `{ "port": 49216, "token": "…" }`.
-fn door_file(path: &str) -> Option<Source> {
-    let note: Value = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
-    let port = note.get("port")?.as_u64()?;
-    let token = note.get("token")?.as_str()?.to_string();
-    Some(Source::Door { url: format!("http://127.0.0.1:{port}"), token })
-}
-
 pub fn from_args(args: &[String]) -> Source {
     if let Some(path) = flag(args, "--fixture") {
         return Source::Fixture(path);
     }
-    if let Some(door) = flag(args, "--door-file").and_then(|path| door_file(&path)) {
-        return door;
+    if let Some(path) = flag(args, "--door-file") {
+        return Source::Door(Door::noted(path));
     }
     let url = flag(args, "--door").or_else(|| std::env::var("MERCURY_DOOR").ok());
     let token = flag(args, "--token").or_else(|| std::env::var("MERCURY_TOKEN").ok());
     match (url, token) {
-        (Some(url), Some(token)) => Source::Door { url: url.trim_end_matches('/').to_string(), token },
-        // Told nothing, look for the running app's own door (`main/local-door.mts` leaves the note).
-        _ => running_app_note().and_then(|path| door_file(&path)).unwrap_or(Source::Nothing),
+        (Some(url), Some(token)) => Source::Door(Door::fixed(url.trim_end_matches('/').to_string(), token)),
+        // Told nothing, look for the running app's own door (`main/local-door.mts` leaves the
+        // note), and keep looking: the app may start after this window does.
+        _ => running_app_note().map_or(Source::Nothing, |path| Source::Door(Door::noted(path))),
     }
 }
 
@@ -126,15 +167,17 @@ fn fingerprint(snapshot: &Value, keeps: &Option<Local>) -> u64 {
 }
 
 /// Keeps `mailbox` current from the door and calls `wake` each time something new lands.
-pub fn follow_door(url: String, token: String, mailbox: Mailbox, wake: impl Fn() + Send + 'static) {
+pub fn follow_door(door: Door, mailbox: Mailbox, wake: impl Fn() + Send + 'static) {
     let told = Arc::new(AtomicBool::new(true));
     // The engine's pushes. A line of data is one; anything else is a heartbeat. When the stream
-    // cannot open or drops, wait a moment and start over: the asking below carries on meanwhile.
+    // cannot open or drops, wait a moment and start over, at whatever door there is by then:
+    // the asking below carries on meanwhile.
     {
-        let (url, token, told) = (url.clone(), token.clone(), told.clone());
+        let (door, told) = (door.clone(), told.clone());
         std::thread::spawn(move || {
             loop {
-                if let Ok(stream) = ureq::get(&format!("{url}/events?token={token}&device=mercury-desktop")).call() {
+                let stream = door.now().and_then(|(url, token)| ureq::get(&format!("{url}/events?token={token}&device=mercury-desktop")).call().ok());
+                if let Some(stream) = stream {
                     for line in BufReader::new(stream.into_reader()).lines() {
                         match line {
                             Ok(line) if line.starts_with("data:") => told.store(true, Ordering::Relaxed),
@@ -159,22 +202,33 @@ pub fn follow_door(url: String, token: String, mailbox: Mailbox, wake: impl Fn()
                 continue;
             }
             asked = Instant::now();
-            let news = call(&url, &token, "zero:snapshot", &Value::Null).and_then(|whole| {
-                let keeps = if has_a_window {
-                    fetch_keeps(&url, &token).unwrap_or_else(|refused| {
-                        has_a_window = !refused.contains("404");
+            let news = match door.now() {
+                None => Err("the app has not opened its door yet".to_string()),
+                Some((url, token)) => call(&url, &token, "zero:snapshot", &Value::Null).and_then(|whole| {
+                    let keeps = if has_a_window {
+                        fetch_keeps(&url, &token).unwrap_or_else(|refused| {
+                            has_a_window = !refused.contains("404");
+                            None
+                        })
+                    } else {
                         None
-                    })
-                } else {
-                    None
-                };
-                let print = fingerprint(&whole, &keeps);
-                if seen == Some(print) {
-                    return Ok(None);
-                }
-                seen = Some(print);
-                serde_json::from_value::<Snapshot>(whole).map(|snapshot| Some((snapshot, keeps))).map_err(|e| e.to_string())
-            });
+                    };
+                    let print = fingerprint(&whole, &keeps);
+                    if seen == Some(print) {
+                        return Ok(None);
+                    }
+                    seen = Some(print);
+                    serde_json::from_value::<Snapshot>(whole).map(|snapshot| Some((snapshot, keeps))).map_err(|e| e.to_string())
+                }),
+            };
+            // A door that does not answer may be one the app has since replaced: restarted, it
+            // opens another. With a new one in hand, ask it at once, as a new engine.
+            if news.is_err() && door.look_again() {
+                has_a_window = true;
+                seen = None;
+                told.store(true, Ordering::Relaxed);
+                continue;
+            }
             let mut m = mailbox.lock().unwrap();
             match news {
                 Ok(None) if m.error.is_none() => continue,
