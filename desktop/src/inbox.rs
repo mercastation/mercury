@@ -98,12 +98,12 @@ fn strip_button() -> El {
 /// the display button. Phase 1 only draws the buttons.
 pub fn strip(s: &State) -> El {
     let (card_w, _) = s.card_size();
-    let title = shaded(|shadow| text("Inbox").font(sans(17.0, 400.0).tracking(-0.51)).color(if shadow { under(1.0) } else { ink() }));
+    let title = shaded(|shadow| pen(text("Inbox").font(sans(17.0, 400.0).tracking(-0.51)).color(if shadow { under(1.0) } else { ink() }), 17.0));
     let new_thread = strip_button()
         .gap(8.0)
         .px(13.0)
         .child(icon(&icons::PEN, 15.0).color(dim()))
-        .child(shaded(|shadow| label("New thread", 13.5, 400.0, if shadow { under(1.0) } else { ink() })));
+        .child(shaded(|shadow| pen(label("New thread", 13.5, 400.0, if shadow { under(1.0) } else { ink() }), 13.5)));
     let display = strip_button().w(32.0).justify_center().child(icon(&icons::SLIDERS, 15.0).color(dim()));
     // `.topbar`: 64 points with a clear hairline under it, the arrows' 54 and their 12 before the title.
     row().absolute(chrome::CARD[0], chrome::CARD[1])
@@ -119,7 +119,7 @@ pub fn strip(s: &State) -> El {
 
 /// The table's own type: Geist Mono capitals, as the tabs, the headings and the small cells wear.
 fn capitals(s: &str, size: f32, line: f32, spacing: f32, c: Color) -> El {
-    text(s).font(mono(size, line).tracking(spacing)).text_case(TextCase::Uppercase).color(c)
+    pen(text(s).font(mono(size, line).tracking(spacing)).text_case(TextCase::Uppercase).color(c), size)
 }
 
 /// One tab: its name, its count while it has one, and the orange line under the open one.
@@ -136,7 +136,7 @@ fn tab(name: &str, count: usize, at: u8, open: bool, shadow: bool) -> El {
     let mut e = row().h(30.0).items_start().gap(8.0).child(name);
     if count > 0 {
         // The count sits on the name's baseline in a 16 point line of its own.
-        e = e.child(el().mt(7.0).px(5.0).child(text(count.to_string()).font(mono(11.0, 16.0).features("'tnum' 1")).color(number)));
+        e = e.child(el().mt(7.0).px(5.0).child(pen(text(count.to_string()).font(mono(11.0, 16.0).features("'tnum' 1")).color(number), 11.0)));
     }
     if shadow {
         return e;
@@ -258,7 +258,7 @@ fn sent_words(at: f64, now: f64) -> String {
 fn thread(r: &Row, at: usize, cols: &Columns, now: f64) -> El {
     let selected = at == 0;
     // An unread thread's title is heavier, and a square in the gutter says so too.
-    let words = text(r.title.as_str()).font(TextStyle::new(14.0, if r.unread { 530.0 } else { 400.0 }).lh(20.0).tracking(-0.14)).color(ink()).truncate();
+    let words = pen(text(r.title.as_str()).font(TextStyle::new(14.0, if r.unread { 530.0 } else { 400.0 }).lh(20.0).tracking(-0.14)).color(ink()).truncate(), 14.0);
     // The line is the title's own, so it ends where the words do.
     let line = el().pin(Some(0.0), None, Some(0.0), Some(0.0)).h(1.0);
     let line = if selected { line.fill(rgba(238, 96, 24, 0.6)) } else { line.fill(rgb(82, 80, 79)).group_opacity(0.0, 1.0) };
@@ -275,7 +275,7 @@ fn thread(r: &Row, at: usize, cols: &Columns, now: f64) -> El {
         let c = if r.priority == Priority::Urgent { accent() } else { muted() };
         priority = priority.child(mark.mr(8.0)).child(capitals(priority_word(r.priority), 11.5, 20.0, 0.575, c));
     }
-    let when = row().child(text(r.at.map(|at| sent_words(at, now)).unwrap_or_default()).font(TextStyle::new(13.0, 400.0).lh(20.0)).color(dim()));
+    let when = row().child(pen(text(r.at.map(|at| sent_words(at, now)).unwrap_or_default()).font(TextStyle::new(13.0, 400.0).lh(20.0)).color(dim()), 13.0));
     let (id, product) = (r.id.clone(), r.product.clone());
     let mut e = row()
         .key(format!("thread-{}-{}", r.product, r.id))
@@ -305,7 +305,7 @@ fn empty(words: &str, s: &State) -> El {
         .px(24.0)
         .pb(0.12 * s.size.1)
         .center()
-        .child(text(words).font(TextStyle::new(14.0, 400.0).lh(21.0)).color(muted()).align(rune::Align::Center).wrap().max_w(420.0))
+        .child(pen(text(words).font(TextStyle::new(14.0, 400.0).lh(21.0)).color(muted()).align(rune::Align::Center).wrap().max_w(420.0), 14.0))
 }
 
 pub fn view(s: &State) -> El {
