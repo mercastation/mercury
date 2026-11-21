@@ -5,7 +5,7 @@
 use std::cell::RefCell;
 
 use rune::time::LocalTime;
-use rune::{Color, El, Pixels, TextCase, TextStyle, col, el, icon, row, text};
+use rune::{Color, Cursor, El, Pixels, TextCase, TextStyle, col, el, icon, row, text};
 
 use crate::data::{Priority, Row};
 use crate::theme::*;
@@ -141,6 +141,7 @@ fn tab(name: &str, count: usize, at: u8, open: bool, shadow: bool) -> El {
     e.key(format!("tab-{at}"))
         .border_sides([0.0, 0.0, 1.0, 0.0], if open { accent() } else { rgba(0, 0, 0, 0.0) })
         .hover_group()
+        .cursor(Cursor::Pointer)
         .on_press(move |s: &mut State| s.inbox_tab = at)
 }
 
@@ -254,9 +255,11 @@ fn thread(r: &Row, at: usize, cols: &Columns, now: f64) -> El {
     // The line is the title's own, so it ends where the words do.
     let line = el().pin(Some(0.0), None, Some(0.0), Some(0.0)).h(1.0);
     let line = if selected { line.fill(rgba(238, 96, 24, 0.6)) } else { line.fill(rgb(82, 80, 79)).group_opacity(0.0, 1.0) };
-    let mut title = row().child(el().shrink().child(words).child(line));
+    // Every title starts after a face in a slot of its own, so the titles line up.
+    let face = row().size(18.0, 18.0).radius(9.0).center().border(1.0, rgba(239, 235, 231, 0.12)).child(icon(&icons::AGENT_EYES, 16.0).color(dim()));
+    let mut title = row().items_center().child(face.mr(10.0)).child(el().shrink().child(words).child(line));
     if r.pinned {
-        title = title.child(el().ml(9.0).mt(5.0).child(icon(&icons::PIN, 13.0).color(muted())));
+        title = title.child(el().ml(9.0).child(icon(&icons::PIN, 13.0).color(muted()).mt(3.0)));
     }
     let small = |s: &str, c: Color| row().items_center().child(capitals(s, 11.5, 20.0, 0.575, c).truncate());
     let mut priority = row().items_center();
@@ -273,6 +276,7 @@ fn thread(r: &Row, at: usize, cols: &Columns, now: f64) -> El {
         .pr(32.0)
         .pl(44.0)
         .hover_group()
+        .cursor(Cursor::Pointer)
         .on_press(move |s: &mut State| s.go(View::Thread { id: id.clone(), product: product.clone() }))
         .child(cols.line(title, small(&r.status, dim()), small(&r.project, muted()), priority, when));
     if at > 0 {
