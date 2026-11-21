@@ -11,6 +11,14 @@ pub const CARD: [f32; 4] = [82.0, 40.0, 22.0, 22.0];
 /// Where the page begins inside the window: under the card's top strip.
 pub const PAGE_TOP: f32 = 104.0;
 
+/// The same for the screen on show: the strip over a conversation is 56 points tall, not 64.
+pub fn page_top(view: &View) -> f32 {
+    match view {
+        View::Thread { .. } => 96.0,
+        _ => PAGE_TOP,
+    }
+}
+
 /// The page under everything: a warm glow from the upper right and a dot every 32 points.
 pub fn backdrop(w: f32, h: f32) -> El {
     let mut dots = Vec::new();
@@ -37,16 +45,17 @@ pub fn card(s: &State) -> El {
         .radius(6.0)
         .fill(rgba(36, 34, 33, 0.55))
         .box_shadow(shadow(0.0, 40.0, 120.0, 0.0, rgba(0, 0, 0, 0.7), false));
-    // The Inbox's sky stands behind its head alone, so under it the card shows its own glass and edge.
-    if s.view == View::Inbox {
-        return card.box_shadow(shadow(0.0, 0.0, 0.0, 1.0, edge(), true)).child(crate::inbox::sky(s));
+    let whole = || el().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).radius(6.0);
+    match s.view {
+        // Home's sky covers the whole card, on a ground of its own, under a faint edge.
+        View::Home => card
+            .child(whole().fill(rgb(0x1b, 0x19, 0x17)).clip_rounded(6.0).child(el().absolute(0.0, 0.0).size(s.sky_size.0, s.sky_size.1).pixels(&s.sky_home)))
+            .child(whole().border(1.0, white(0.07))),
+        // The Inbox's sky stands behind its head alone, so under it the card shows its own glass and edge.
+        View::Inbox => card.box_shadow(shadow(0.0, 0.0, 0.0, 1.0, edge(), true)).child(crate::inbox::sky(s)),
+        // A conversation has no sky: the card is only its wash over the dotted page, inside a plain edge.
+        View::Thread { .. } => card.child(whole().border(1.0, edge())),
     }
-    // Home's sky covers the whole card; a conversation has none.
-    let mut ground = el().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).fill(rgb(0x1b, 0x19, 0x17)).radius(6.0).clip_rounded(6.0);
-    if s.view == View::Home {
-        ground = ground.child(el().absolute(0.0, 0.0).size(s.sky_size.0, s.sky_size.1).pixels(&s.sky_home));
-    }
-    card.child(ground).child(el().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).radius(6.0).border(1.0, white(0.07)))
 }
 
 /// The nine-dot mark: eight in the text colour at 38%, the top right one orange.
@@ -112,8 +121,12 @@ pub fn notice(s: &State) -> Option<El> {
     )
 }
 
-/// Back and forward, at the head of the card. Dim while there is nowhere to go.
+/// Back and forward, at the head of the card. Dim while there is nowhere to go. A conversation
+/// has a strip of its own there, with these two in it.
 pub fn back_forward(s: &State) -> El {
+    if let View::Thread { id, product } = &s.view {
+        return crate::thread::head(s, id, product);
+    }
     let arrow = |glyph: &'static Icon, live: bool| {
         row().size(26.0, 26.0).radius(6.0).center().opacity(if live { 1.0 } else { 0.45 }).child(icon(glyph, 15.0).color(if live { ink() } else { muted() }))
     };

@@ -7,7 +7,8 @@
 // Writes, for the scene (home by default):
 //   <scene>-real.png      the picture
 //   <scene>-dump.json     each element's box, font, colours, borders, shadows and spacing, plus its SVG
-//   <scene>-fixture.json  the snapshot and the clock the picture was taken with, for `mercury --fixture`
+//   <scene>-fixture.json  the snapshot and the clock the picture was taken with, for `mercury --fixture`,
+//                         and whatever else the scene's `go` returns
 //
 // A scene is a file in tools/scenes/<name>.mjs exporting `go(h)`, which takes the page from Home
 // to the screen to photograph (h is the harness: evaluate, call, wait). Home needs none.
@@ -145,7 +146,10 @@ try {
   await h.wait(2000);
   const err = await h.evaluate('window.__ERR__ ?? null');
   if (err) console.error('page error:', err);
-  if (go) { await go(h); await h.wait(800); }
+  // A scene may hand back what it fed the page besides the snapshot (a thread's words), or a
+  // snapshot it changed; the fixture file carries it, so the native window is told the same.
+  const fed = go ? (await go(h)) ?? {} : {};
+  if (go) await h.wait(800);
   const png = path.join(outDir, `${scene}-real.png`);
   // The page's own clock at the shutter, so a native picture can tell the same ages.
   const at = await h.evaluate('Date.now()');
@@ -158,7 +162,7 @@ try {
     let seenAt = {}; try { seenAt = JSON.parse(localStorage.getItem('zero.seenAt') ?? '{}') ?? {}; } catch {}
     return { deliveredThrough: num('zero.deliveredThrough'), unreadSince: num('zero.unreadSince'), seenAt };
   })()`);
-  fs.writeFileSync(path.join(outDir, `${scene}-fixture.json`), JSON.stringify({ now: at, snapshot: shown, local }));
+  fs.writeFileSync(path.join(outDir, `${scene}-fixture.json`), JSON.stringify({ now: at, snapshot: shown, local, ...fed }));
   console.log(png, 'nodes', dump.nodes.length, 'fonts', JSON.stringify(dump.fonts.map((f) => `${f.family} ${f.weight}`)));
 } finally {
   h.close();

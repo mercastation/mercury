@@ -1,0 +1,9 @@
+[
+  ["first heading and paragraph", [224, 412, 768, 94]],
+  ["small heading and quote", [224, 522, 768, 86]],
+  ["bullets inside bullets", [224, 610, 768, 126]],
+  ["numbered paragraphs", [224, 740, 768, 96]],
+  ["fourth-level heading", [224, 840, 768, 30]],
+  ["table with a tag column", [224, 884, 768, 138]],
+  ["rule and a long code line", [224, 1034, 768, 70]]
+]

@@ -100,3 +100,24 @@ pub static AGENT_EYES: Icon = Icon {
     view: 16.0,
     body: r#"<g fill="currentColor"><rect x="4.5" y="5.5" width="2" height="5" rx="1"/><rect x="9.5" y="5.5" width="2" height="5" rx="1"/></g>"#,
 };
+
+// A conversation's top strip: the threads before and after it, what finishing it is, and more.
+pub static UP: Icon = Icon {
+    name: "m-up",
+    view: 16.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10l4-4 4 4"/></g>"#,
+};
+pub static DOWN: Icon = Icon {
+    name: "m-down",
+    view: 16.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l4 4 4-4"/></g>"#,
+};
+pub static MORE: Icon = Icon {
+    name: "m-more",
+    view: 16.0,
+    body: r#"<g fill="currentColor"><rect x="2.5" y="7" width="2" height="2"/><rect x="7" y="7" width="2" height="2"/><rect x="11.5" y="7" width="2" height="2"/></g>"#,
+};
+stroked!(DONE, "m-done", "1.4", r#"<path d="m3 13 3.6 3.6L13.4 9"/><path d="m10.6 13 3.6 3.6L21 9"/>"#);
+
+// Before a link in an agent's words.
+stroked!(LINK, "m-link", "1.6", r#"<path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/>"#);

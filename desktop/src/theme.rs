@@ -28,6 +28,10 @@ pub fn muted() -> Color {
 pub fn edge() -> Color {
     rgb(70, 68, 67)
 }
+/// `--line-strong`: the rule around the person's turn, and under a quiet link.
+pub fn rule() -> Color {
+    rgb(82, 80, 79)
+}
 pub fn accent() -> Color {
     rgb(238, 96, 24)
 }
@@ -40,6 +44,12 @@ pub fn page() -> Color {
 pub fn sans(size: f32, weight: f32) -> TextStyle {
     let snap = |v: f32| (v * 2.0).round() / 2.0;
     TextStyle::new(size, weight).lh(snap(1.005 * size) + snap(0.295 * size))
+}
+/// A length as Chromium keeps it on a 2x screen: in whole 64ths of a device pixel, rounded
+/// down. A line height that is not a whole number of them (25.6 points, 22.4) loses a sliver on
+/// every line, and down a page of lines the slivers decide which pixel a line lands on.
+pub fn kept(points: f32) -> f32 {
+    (points * 128.0).floor() / 128.0
 }
 /// Geist Mono at an explicit line height.
 pub fn mono(size: f32, line: f32) -> TextStyle {
@@ -54,6 +64,11 @@ pub fn label(s: &str, size: f32, weight: f32, c: Color) -> El {
 }
 pub fn shadow(x: f32, y: f32, blur: f32, spread: f32, color: Color, inset: bool) -> Shadow {
     Shadow { x, y, blur, spread, color, inset }
+}
+
+/// Words the person can select and copy, washed with the web app's `--select` while they are.
+pub fn readable(words: El) -> El {
+    words.selectable(true).selection_color(rgba(110, 165, 255, 0.3))
 }
 
 /// The strength mark beside a priority: bars three points wide, standing on one line.
