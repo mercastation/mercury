@@ -23,6 +23,8 @@ mod talk;
 mod theme;
 mod thread;
 
+use std::collections::HashMap;
+
 use rune::{App, AppSpec, Cx, El, FontSmoothing, Latest, Pixels, ScrollSpec, Tx, Waker, el};
 use serde_json::{Map, Value};
 
@@ -67,6 +69,12 @@ pub struct State {
     pub inbox_tab: u8,
     /// What the person has unfolded in the conversations they opened.
     pub reading: thread::Reading,
+    /// What the engine answered about each conversation opened so far, by `product/id` and
+    /// then by channel, the shape a fixture's `threads` has (`docs/thread-data.md`).
+    pub threads: HashMap<String, Value>,
+    /// A conversation being asked for, and what each was last asked at: its row's last change.
+    asking: Latest<(String, Result<Value, String>)>,
+    asked: HashMap<String, f64>,
     pub history: Vec<View>,
     pub source: Source,
     mailbox: Mailbox,
@@ -94,6 +102,24 @@ impl State {
     }
     fn refresh(&mut self) {
         self.lists = self.snap.lists(self.now, &self.local);
+    }
+    /// Asks the engine for the open conversation's lines when it has not been asked since the
+    /// thread last changed. Off the main thread: the answer lands in `poll`.
+    fn ask_for_the_open_thread(&mut self) {
+        let (View::Thread { id, product }, Source::Door { url, token }) = (&self.view, &self.source) else {
+            return;
+        };
+        let key = format!("{product}/{id}");
+        let changed = self.snap.items.iter().find(|i| &i.id == id && &i.product == product).and_then(|i| i.updated_at).unwrap_or(0.0);
+        if self.asked.get(&key) == Some(&changed) {
+            return;
+        }
+        self.asked.insert(key.clone(), changed);
+        let payload = serde_json::json!({ "product": product, "id": id });
+        self.asking.request((url.clone(), token.clone(), key, payload), |(url, token, key, payload)| {
+            let lines = source::call(&url, &token, "zero:item-history", &payload);
+            (key, lines)
+        });
     }
     fn hang(&mut self, p: Painted) {
         self.sky_home.set(p.home.0, p.home.1, p.home.2);
@@ -142,6 +168,9 @@ fn init() -> State {
         },
         inbox_tab: 0,
         reading: thread::Reading::default(),
+        threads: HashMap::new(),
+        asking: Latest::default(),
+        asked: HashMap::new(),
         history: Vec::new(),
         source,
         mailbox: Mailbox::default(),
@@ -188,6 +217,7 @@ fn init() -> State {
 
 fn setup(s: &mut State, wake: Waker) {
     s.painting.set_waker(wake.clone());
+    s.asking.set_waker(wake.clone());
     if let Source::Door { url, token } = s.source.clone() {
         source::follow_door(url, token, s.mailbox.clone(), move || wake());
     }
@@ -221,6 +251,19 @@ fn poll(s: &mut State, _clock: f64, tx: &mut Tx) -> bool {
     if stale {
         s.refresh();
     }
+    if let Some((key, answer)) = s.asking.take() {
+        match answer {
+            Ok(history) => {
+                s.threads.insert(key, serde_json::json!({ "zero:item-history": history }));
+            }
+            // Asked again on the thread's next change; until then the row's own words are shown.
+            Err(_) => {
+                s.asked.remove(&key);
+            }
+        }
+        changed = true;
+    }
+    s.ask_for_the_open_thread();
     changed || stale
 }
 
@@ -275,7 +318,7 @@ fn watch_door(args: &[String]) -> bool {
     };
     let mailbox = Mailbox::default();
     let (tx, rx) = std::sync::mpsc::channel::<()>();
-    source::follow_door(url, token, mailbox.clone(), move || {
+    source::follow_door(url.clone(), token.clone(), mailbox.clone(), move || {
         let _ = tx.send(());
     });
     let until = std::time::Instant::now() + std::time::Duration::from_secs(seconds);
@@ -287,6 +330,12 @@ fn watch_door(args: &[String]) -> bool {
         if let Some(snapshot) = m.snapshot.take() {
             let lists = snapshot.lists(clock(), &Local::default());
             println!("changed: {} threads, {} need you, {} in progress", snapshot.items.len(), lists.needs.len(), lists.progress.len());
+            // And one conversation's lines, the way opening it asks for them.
+            if let Some(item) = snapshot.items.last() {
+                let lines = source::call(&url, &token, "zero:item-history", &serde_json::json!({ "product": item.product, "id": item.id }));
+                let count = lines.as_ref().ok().and_then(|v| v.get("lines")).and_then(Value::as_array).map(Vec::len);
+                println!("the newest thread's conversation: {}", count.map_or("could not be read".to_string(), |n| format!("{n} lines")));
+            }
         }
         if let Some(e) = m.error.take() {
             println!("could not read the engine: {e}");

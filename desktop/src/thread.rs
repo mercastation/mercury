@@ -283,10 +283,12 @@ fn answer_alone(answer: &Message, title: &str, m: &Measure) -> Vec<Block> {
     blocks
 }
 
-/// What the engine answered about this thread. A fixture carries it; with nothing to read,
-/// the row itself still says what was asked and what came back.
+/// What the engine answered about this thread: asked through the door when the window is live,
+/// carried by a fixture for a picture. With nothing to read yet, the row itself still says
+/// what was asked and what came back.
 fn ledger(s: &State, item: &Item) -> Vec<Line> {
-    let answered = s.fixture.get("threads").and_then(|t| t.get(key(&item.product, &item.id))).cloned();
+    let thread = key(&item.product, &item.id);
+    let answered = s.threads.get(&thread).cloned().or_else(|| s.fixture.get("threads").and_then(|t| t.get(&thread)).cloned());
     if let Some(answers) = answered.and_then(|v| serde_json::from_value::<Answers>(v).ok()) {
         return answers.history.lines;
     }
