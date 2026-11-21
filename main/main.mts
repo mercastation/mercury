@@ -43,6 +43,7 @@ import { FreezeWatch } from './freeze-watch.mts';
 import { applyThrough, phoneDevice } from './phone-inbox.mts';
 import type { PhoneChannel } from './phone-inbox.mts';
 import { answerWhatOnlyTheWindowAnswered } from './serve.mts';
+import { LOCAL_DOOR_NOTE, openLocalDoor } from './local-door.mts';
 import type { CollectingIpcMain, IpcHandler } from './serve.mts';
 import { carryHerBriefsAcross, joinMessageRules, setAsideShippedMessageRules, unifyAgentInstructions } from './instruction-settings.mts';
 import * as approvals from './approvals.mts';
@@ -1000,6 +1001,13 @@ async function createWindow() {
   // a browser tab gets.
   answerWhatOnlyTheWindowAnswered({ handle: (channel, fn) => { if (!phoneChannels.has(channel)) phoneChannels.set(channel, fn); } } as CollectingIpcMain);
   phoneApply = applyThrough(phoneChannels);
+  // The native window's way in, for a copy whose config asks for it (main/local-door.mts).
+  // It needs no quit step: the note it leaves names a door that is shut once this process is gone.
+  if (config.localDoor === true) {
+    void openLocalDoor({ channels: phoneChannels, note: path.join(userDir, LOCAL_DOOR_NOTE) })
+      .then((door) => console.log(`local door: open on 127.0.0.1:${door.port}`))
+      .catch((err: Error) => console.warn(`local door: ${err.message}`));
+  }
   // Every minute, so no engine search: that is a login shell on this thread.
   // The cloud and the usage ride the snapshot, not the settings model, so the
   // phone's copy takes them here.
