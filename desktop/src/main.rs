@@ -200,8 +200,15 @@ fn init() -> State {
             Ok(snapshot) => s.snap = snapshot,
             Err(e) => s.error = Some(e),
         }
+        if let Ok(Some(local)) = source::fetch_keeps(url, token) {
+            s.local = local;
+        }
     }
     s.refresh();
+    // A window opened straight onto the Inbox came there from Home, as far as Back is concerned.
+    if s.view == View::Inbox {
+        s.history.push(View::Home);
+    }
     // `--thread` opens the first thread that needs the person, for a picture of it; `--thread <id>` that one.
     if let Some(at) = args.iter().position(|a| a == "--thread") {
         let wanted = args.get(at + 1).filter(|a| !a.starts_with("--"));
@@ -235,6 +242,10 @@ fn poll(s: &mut State, _clock: f64, tx: &mut Tx) -> bool {
         let mut m = s.mailbox.lock().unwrap();
         if let Some(snapshot) = m.snapshot.take() {
             s.snap = snapshot;
+            stale = true;
+        }
+        if let Some(local) = m.local.take() {
+            s.local = local;
             stale = true;
         }
         if m.error != s.error && matches!(s.source, Source::Door { .. }) {

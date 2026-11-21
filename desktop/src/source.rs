@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
-use crate::data::{Fixture, Snapshot};
+use crate::data::{Fixture, Local, Snapshot};
 
 #[derive(Clone, Debug)]
 pub enum Source {
@@ -33,6 +33,8 @@ pub enum Source {
 #[derive(Default)]
 pub struct Arrived {
     pub snapshot: Option<Snapshot>,
+    /// What the web window keeps for itself, when the door can say.
+    pub local: Option<Local>,
     pub error: Option<String>,
 }
 
@@ -99,12 +101,26 @@ pub fn fetch_snapshot(url: &str, token: &str) -> Result<Snapshot, String> {
     serde_json::from_value(call(url, token, "zero:snapshot", &Value::Null)?).map_err(|e| e.to_string())
 }
 
+/// What the web window keeps for itself and decides its lists by: what counts as delivered and
+/// as read (`zero:window-keeps`, a channel of the desktop app's local door alone). None from an
+/// engine with no window, or a window that did not answer.
+pub fn fetch_keeps(url: &str, token: &str) -> Result<Option<Local>, String> {
+    let kept = call(url, token, "zero:window-keeps", &Value::Null)?;
+    Ok(serde_json::from_value(kept).ok())
+}
+
 /// What the screens draw from, boiled down to a number: a snapshot that differs only in parts
 /// no screen reads (usage figures, the token of the answer itself) is not news.
-fn fingerprint(snapshot: &Value) -> u64 {
+fn fingerprint(snapshot: &Value, keeps: &Option<Local>) -> u64 {
     let mut h = DefaultHasher::new();
     for part in ["items", "supervisor", "products", "approvals", "engines"] {
         snapshot.get(part).map(Value::to_string).hash(&mut h);
+    }
+    if let Some(local) = keeps {
+        (local.delivered_through.to_bits(), local.unread_since.to_bits()).hash(&mut h);
+        let mut seen: Vec<(&String, u64)> = local.seen_at.iter().map(|(id, at)| (id, at.to_bits())).collect();
+        seen.sort();
+        seen.hash(&mut h);
     }
     h.finish()
 }
@@ -134,6 +150,8 @@ pub fn follow_door(url: String, token: String, mailbox: Mailbox, wake: impl Fn()
     std::thread::spawn(move || {
         let mut seen = None;
         let mut asked = Instant::now() - ASK_EVERY;
+        // Only the desktop app's door has a window to ask; one refusal settles it for this run.
+        let mut has_a_window = true;
         loop {
             // Pushes come in bursts while an agent works; a short pause lets one read cover them.
             std::thread::sleep(Duration::from_millis(200));
@@ -142,19 +160,30 @@ pub fn follow_door(url: String, token: String, mailbox: Mailbox, wake: impl Fn()
             }
             asked = Instant::now();
             let news = call(&url, &token, "zero:snapshot", &Value::Null).and_then(|whole| {
-                let print = fingerprint(&whole);
+                let keeps = if has_a_window {
+                    fetch_keeps(&url, &token).unwrap_or_else(|refused| {
+                        has_a_window = !refused.contains("404");
+                        None
+                    })
+                } else {
+                    None
+                };
+                let print = fingerprint(&whole, &keeps);
                 if seen == Some(print) {
                     return Ok(None);
                 }
                 seen = Some(print);
-                serde_json::from_value::<Snapshot>(whole).map(Some).map_err(|e| e.to_string())
+                serde_json::from_value::<Snapshot>(whole).map(|snapshot| Some((snapshot, keeps))).map_err(|e| e.to_string())
             });
             let mut m = mailbox.lock().unwrap();
             match news {
                 Ok(None) if m.error.is_none() => continue,
                 Ok(None) => m.error = None,
-                Ok(Some(snapshot)) => {
+                Ok(Some((snapshot, keeps))) => {
                     m.snapshot = Some(snapshot);
+                    if keeps.is_some() {
+                        m.local = keeps;
+                    }
                     m.error = None;
                 }
                 Err(e) if m.error.as_deref() == Some(e.as_str()) => continue,
