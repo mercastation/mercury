@@ -52,9 +52,10 @@ moves on its own", below).
 
 The Inbox is its head strip (the title, New thread, the cloud button on a Mac set up for the cloud
 or offered it, the display button), its tabs (Needs you, In progress, Later while something is in
-it, Done) and the open tab's threads as a table. A row is its title with what follows it (an aside,
-"not started", a pin), the Status word with its mark, the project, the priority and a time: when it
-was sent, when it comes back under Later, when it was finished under Done. The display button opens
+it, Done) and the open tab's threads as a table. A row is the mark of the agent it runs on, its
+title with what follows it (an aside, "not started", a pin), the Status word with its mark, the
+project, the priority, Medium included, and a time: when it was sent, when it comes back under
+Later, when it was finished under Done. The display button opens
 View and filters, whose sort and filters every list follows and which this window keeps for the
 next; the cloud button opens the cloud's menu, which turns it on or off, says what on means, moves
 runs there and says what it used; and ⌘C turns the cloud on or off from anywhere ("The Inbox's
@@ -236,16 +237,22 @@ At 1280 by 760, 2x, dark, against the web renderer on the same data:
 | Screen | Mean difference, of 255 | Similarity |
 |---|---|---|
 | Home | 0.86 | 0.995 |
-| Inbox | 0.24 | 0.998 |
-| Inbox, the Later tab (`inbox-later-kinds`) | 0.27 | 0.998 |
-| Inbox, each state of the cloud button | 0.24 | 0.998 |
-| A conversation | 0.41 | 0.997 |
+| Inbox | 0.27 | 0.998 |
+| Inbox, the Later tab (`inbox-later-kinds`) | 0.30 | 0.997 |
+| Inbox, each state of the cloud button | 0.27 | 0.998 |
+| A conversation | 0.41 | 0.996 |
 
-Text lands where the browser puts it to a hundredth of a point.
+Text lands where the browser puts it to a hundredth of a point. The Inbox and a conversation are
+measured against the web window's newer look: the rows' marks of their harness, every level in
+the Priority column, a conversation's head strip of 64 points with buttons of 32. Before this
+window followed it they were 0.47 and 0.92 against it; most of what is left is the rail, whose
+places differ (0.52 of 255 inside it).
 
 One size proves one size: Home was right at 1280 by 760 and wrong in a taller window until it
 was compared there. Home and a conversation are compared at 900 by 760, 1600 by 1000 and 1920 by
-1200 as well, and stay between 0.25 and 1.0 of 255.
+1200 as well, and stay between 0.25 and 1.0 of 255, but for a conversation at 1600 by 1000
+(`thread`, 1.12; 0.55 at 900 by 760), whose foot rests half a point lower than the browser's
+(see what still differs).
 
 Home was measured again against the web window's newer look, which gave its rows the agent's
 face, its tags the line's own words and its box a shorter bar (`home-few`: three rows or fewer,
@@ -267,35 +274,36 @@ of 915 points, Project at 785). The first tab and `inbox-later-kinds`:
 
 | Window | First tab | Later |
 |---|---|---|
-| 1600 by 1000 | 0.18 | 0.20 |
-| 900 by 760 | 0.29 | 0.33 |
-| 800 by 760 | 0.31 | 0.35 |
+| 1600 by 1000 | 0.20 | 0.22 |
+| 900 by 760 | 0.32 | 0.36 |
+| 800 by 760 | 0.34 | 0.38 |
 
 And on one person's real inbox, read through the door, with teammates, a cloud, a recorder and a
-sign-in all on: Home 0.86, the Inbox's four tabs 0.14 to 0.25, a conversation 0.47.
+sign-in all on, before the web window's newer look: Home 0.86, the Inbox's four tabs 0.14 to
+0.25, a conversation 0.47.
 
 A conversation that names files, whole window, at the three sizes. Its head strip carries the
 Files button with its count, as the web window's does (all but `thread-folder`, which names only
-a folder): the strip alone is 0.55 at 1280 by 760, as a strip with no files is (`thread`), where it
-was 0.86 while this window drew no button. At 900 by 760 the thread's name in the strip used to
-run on over the arrows instead of being cut short: the strips with the button are 0.68 there,
-where they were 1.79, and `thread-folder`'s 0.71, where it was 0.98.
+a folder): the strip alone is 0.50 at 1280 by 760, as a strip with no files is (`thread`, 0.49),
+where it was 0.86 while this window drew no button. At 900 by 760 the thread's name in the strip
+used to run on over the arrows instead of being cut short: the strips with the button are 0.57
+and 0.63 there, where they were 1.79, and `thread-folder`'s 0.63, where it was 0.98.
 
 | Scene | 1280 by 760 | 1600 by 1000 | 900 by 760 |
 |---|---|---|---|
-| `thread-pictures` | 0.32 | 0.30 | 0.42 |
-| `thread-pictures-ways` | 0.35 | 0.32 | 0.46 |
-| `thread-pictures-row` | 0.33 | 0.27 | 0.43 |
-| `thread-pictures-large` | 0.23 | 0.17 | 0.29 |
-| `thread-pictures-missing` | 0.44 | 0.34 | 0.59 |
-| `thread-pictures-arriving` | 0.39 | 0.39 | 0.51 |
-| `thread-pictures-said` | 0.23 | 0.37 | 0.29 |
-| `thread-links` | 0.66 | 0.61 | 0.89 |
-| `thread-folder` | 0.36 | 0.36 | 0.47 |
-| `thread-folder-quiet` | 0.32 | 0.27 | 0.41 |
+| `thread-pictures` | 0.35 | 0.32 | 0.45 |
+| `thread-pictures-ways` | 0.38 | 0.33 | 0.49 |
+| `thread-pictures-row` | 0.35 | 0.29 | 0.46 |
+| `thread-pictures-large` | 0.25 | 0.18 | 0.32 |
+| `thread-pictures-missing` | 0.46 | 0.36 | 0.61 |
+| `thread-pictures-arriving` | 0.40 | 0.40 | 0.53 |
+| `thread-pictures-said` | 0.25 | 0.38 | 0.32 |
+| `thread-links` | 0.68 | 0.62 | 0.92 |
+| `thread-folder` | 0.37 | 0.38 | 0.49 |
+| `thread-folder-quiet` | 0.34 | 0.28 | 0.44 |
 
-Inside the answer alone, at 1280 by 760: 0.07 where it is only pictures (`thread-pictures-large`),
-0.29 to 0.67 where sentences name them, and 1.23 for `thread-links`, whose ten mentions each
+Inside the answer alone, at 1280 by 760: 0.08 where it is only pictures (`thread-pictures-large`),
+0.37 to 0.66 where sentences name them, and 1.23 for `thread-links`, whose ten mentions each
 carry an underline two points higher than the web window's (see what still differs).
 
 The command bar is photographed open over the Inbox: `palette` (its box empty), `palette-typed`
@@ -337,13 +345,13 @@ A conversation with its runs' logs, at 1280 by 760, whole window and the area th
 
 | Scene | Whole window | Where the runs are drawn |
 |---|---|---|
-| `thread-steps-folded` | 0.39 | 1.65, the title and its "Show 8 earlier messages" |
-| `thread-steps` | 0.50 | 1.22, a run's sentences and its two folds |
-| `thread-steps-open` | 0.44 | 0.92, a run and its fold opened |
-| `thread-steps-failed` | 0.47 | 0.96 the run turned away, 0.86 the fold with the failed test |
-| `thread-working` | 0.41 | 1.39 what the run said, 0.57 the line at the foot |
+| `thread-steps-folded` | 0.41 | 1.65, the title and its "Show 8 earlier messages" |
+| `thread-steps` | 0.50 | 1.20, a run's sentences and its two folds |
+| `thread-steps-open` | 0.45 | 0.91, a run and its fold opened |
+| `thread-steps-failed` | 0.49 | 0.92 the run turned away, 0.85 the fold with the failed test |
+| `thread-working` | 0.43 | 1.38 what the run said, 0.58 the line at the foot |
 
-`thread-steps-folded` is 0.53 at 900 by 760 and 0.33 at 1600 by 1000.
+`thread-steps-folded` is 0.54 at 900 by 760 and 0.34 at 1600 by 1000.
 
 ## What a press does, frame by frame
 
@@ -432,7 +440,12 @@ pointer resting. This window does the same, read off the web window the way its 
   while the command bar, the New thread card, the Later picker or the reply box has the keys
   (`hintsOn`). A pointer that moved, as the web window listens for `mousemove` and not
   `mouseover`: a row that comes under a pointer standing still, as the next one does when E
-  closes the one under it, claims no plate.
+  closes the one under it, claims no plate. A press on a control takes its plate away, and one on
+  its way, and the control says nothing more until the pointer has left it: a plate under a tab
+  just pressed only said what had just been done (`quietOnceClicked`, the hint listener's
+  `pointerdown`). A control whose menu, list or panel is open says nothing at all, as its plate
+  would sit on the menu's first row (`aria-expanded`): the cloud, the Files button, the place
+  button and ⋯.
 - **Titles.** What the web window says in a `title` this one says with Rune's `help`: Back's "Back
   to Home (⌘[)" and the rest, New thread's "New thread (N)", the cloud's question, "View and
   filters", each rail place, the box's chips, clip, Send and caret, a conversation's whole name, a
@@ -491,21 +504,23 @@ Under the pointer, the control, at 1280 by 760, 2x; at rest, the same box with n
 | Home: a door, a card's link | 6.00, 6.15 | 5.40, 5.58 |
 | Home: a row, the box's chip, clip, Send's caret | 1.21, 3.34, 2.82, 1.41 | 1.42, 3.14, 2.21, 1.38 |
 | Home: a file's chip, a picture's × | 0.43, 7.34 | 0.30, 5.08 |
-| Inbox: back, display, New thread, a tab, a row | 0.01, 0.39, 1.63, 2.23, 0.33 | 0.00, 0.25, 1.46, 1.67, 0.33 |
-| Conversation: Inbox, back, crumb, name | 0.32, 0.42, 1.01, 2.74 | 0.01, 0.12, 1.15, 2.15 |
-| Conversation: J's arrow, Done, Reopen, Files, ⋯ | 0.69, 1.63, 2.80, 1.59, 0.75 | 0.26, 0.93, 1.93, 0.54, 0.06 |
+| Inbox: back, display, New thread, a tab, a row | 0.01, 0.39, 1.63, 2.23, 0.35 | 0.00, 0.25, 1.46, 1.67, 0.35 |
+| Conversation: Inbox, back, crumb, name | 0.32, 0.42, 1.01, 2.74 | 0.02, 0.12, 1.16, 2.15 |
+| Conversation: J's arrow, Done, Reopen, Files, ⋯ | 0.76, 1.61, 2.71, 1.56, 0.80 | 0.23, 0.90, 1.84, 0.49, 0.07 |
 | Conversation: earlier messages, a run's fold, an option | 3.93, 2.05, 0.76 | 2.41, 1.62, 0.45 |
-| Conversation: a mention | 14.96 | 7.18 |
-| Conversation: a picture, a folder's picture, a folder's name | 0.15, 0.33, 2.76 | 0.14, 0.33, 1.92 |
+| Conversation: a mention | 14.97 | 7.19 |
+| Conversation: a picture, a folder's picture, a folder's name | 0.15, 0.33, 2.76 | 0.14, 0.32, 1.92 |
 | The folded reply box, its model | 0.70, 4.14 | 0.70, 3.28 |
-| The opened reply box: a chip, clip, Send, caret | 1.63, 1.62, 1.25, 0.37 | 1.22, 1.09, 1.20, 0.27 |
+| The opened reply box: its first chip, clip, Send, caret | 0.47, 1.81, 1.25, 0.37 | 0.34, 1.20, 1.20, 0.27 |
 | The New thread card: its model, a chip, Send | 0.73, 1.41, 3.16 | 0.73, 1.23, 2.35 |
 
-The mention is what still differs most: its mark does not brighten with it (see what still
-differs). The plates, with a point around each: New thread 2.67, a tab 2.51, a row 2.17, Done 1.89,
-J's arrow 1.36, the Inbox arrow 1.42, the crumb 4.89 (the edge of its glass over the strip's) and ⋯
-1.09. Each is drawn between 0.70 and 0.74 s after the pointer came onto its control, as the web
-window's comes 700 ms after (`HINT_WAIT`). New thread
+The Inbox's and a conversation's rows were measured again on the web window's newer look: the
+strip's buttons now 32 points with the strong line, the reply bar's clip 28. The mention is what
+still differs most: its mark does not brighten with it (see what still differs). The plates, with
+a point around each: New thread 2.67, a tab 2.51, a row 2.41, Done 1.79, J's arrow 1.41, the Inbox
+arrow 1.54, the crumb 4.01 (the edge of its glass over the strip's) and ⋯ 1.35. Each is drawn
+between 0.70 and 0.74 s after the pointer came onto its control, as the web window's comes 700 ms
+after (`HINT_WAIT`). New thread
 was measured before its title was: since, a headless picture draws Rune's own stand-in for the
 title from 0.5 s, over the plate (36.89), where a Mac window leaves the title to AppKit and its wait.
 
@@ -526,21 +541,22 @@ The pointer's shape, points that match the web window's of all the points in eac
 | Scene | Arrow | Pointing hand | I-beam | Magnifier |
 |---|---|---|---|---|
 | `home`, `home-attached` | 51 of 51, 51 of 51 | 80 of 88, 83 of 91 | 2 of 2, 1 of 1 | |
-| `inbox` | 29 of 29 | 171 of 172 | | |
+| `inbox` | 29 of 29 | 170 of 179 | | |
 | `compose-card`, `palette` | 193 of 193, 215 of 215 | 19 of 19, 73 of 73 | 19 of 19, 3 of 3 | |
-| `thread`, `thread-reply` | 33 of 41, 34 of 38 | 35 of 35, 47 of 47 | 15 of 15, 10 of 10 | |
-| `thread-options`, `thread-steps` | 37 of 41, 28 of 34 | 62 of 72, 42 of 42 | 24 of 24, 23 of 23 | |
-| `thread-pictures`, `thread-folder` | 35 of 37, 29 of 30 | 46 of 50, 41 of 41 | 11 of 11, 11 of 11 | 9 of 9, 25 of 25 |
-| `thread-links` | 27 of 39 | 63 of 84 | 11 of 11 | |
-| `thread-files-open` | 40 of 40 | 23 of 71 | 0 of 10 | 0 of 3 |
+| `thread`, `thread-reply` | 33 of 41, 34 of 38 | 27 of 35, 43 of 51 | 15 of 15, 10 of 10 | |
+| `thread-options`, `thread-steps` | 34 of 37, 29 of 35 | 60 of 79, 34 of 42 | 21 of 21, 22 of 22 | |
+| `thread-pictures`, `thread-folder` | 35 of 37, 29 of 30 | 38 of 50, 33 of 41 | 11 of 11, 14 of 14 | 9 of 9, 22 of 22 |
+| `thread-links` | 27 of 39 | 55 of 84 | 11 of 11 | |
+| `thread-files-open` | 37 of 37 | 26 of 74 | 0 of 10 | 0 of 3 |
 
 What is left: the I-beam over the end of a line past its last word, every mention's mark, the
 sorting headers of a table in a message, the Inbox's box that ticks every row (not drawn), the
-page under the open list of files, which shows the arrow, and on Home the rail's places and foot
-rows the web window has and this one leaves out (eight points). On the New thread card the marks
-To and the model hang beside their words take the pointer, as part of their buttons; only the
-corners of To's round face differ, which Chromium finds as a circle. Each is in what still
-differs. Where the
+page under the open list of files, which shows the arrow, and the rail's places and foot rows the
+web window has and this one leaves out: on the web window's newer look those are Demands,
+Connections and Feedback, and eight of the pointing hands each scene misses are theirs. On the
+New thread card the marks To and the model hang beside their words take the pointer, as part of
+their buttons; only the corners of To's round face differ, which Chromium finds as a circle. Each
+is in what still differs. Where the
 46 `*-hover-*` and `*-hint-*` scenes rest the pointer, its shape is the web window's at every one:
 the pointing hand, the I-beam over a conversation's name and the folded reply box, the magnifier
 over a picture and a folder's, and the arrow over Send with nothing to send.
@@ -585,7 +601,7 @@ does not reach:
 - Rune's hover fades out over 0.1 s unless the root says otherwise, and almost none of the web
   window's `:hover` rules fades, so the root lands every hover at once. There is no transition per
   property, so the rail's easing is drawn frame by frame from the poll (`chrome::Rail`), and the
-  two hovers that ease in the web window do not here.
+  one hover that eases in the web window, Search's line, does not here.
 - Selectable words show the I-beam over their whole box, where Chromium shows it over the words'
   lines only.
 - A link covers words and not a mark set in among them, so a mention's mark neither points nor
@@ -697,7 +713,8 @@ it and puts the caret back in the words. The model named at the folded box's rig
 box with the menu already open. Then, as in the web window, whose box takes the focus back as it
 mounts (asked of the web page itself: the caret in the words, no row lit, ↓ moving the caret), no
 row is lit until the pointer moves onto one, which then takes the keys. The chip says the model,
-with its level where one will be sent ("Sonnet 5.5 · High", `effortSaid`). A model of another
+after the mark of the agent the reply goes to (`EngineLogo`, Claude Code's in its orange), with its
+level where one will be sent ("Sonnet 5.5 · High", `effortSaid`). A model of another
 agent moves the thread to that agent, and a line under the words says it starts fresh
 (`freshNote`).
 
@@ -727,8 +744,8 @@ can’t take this thread right now". Escape closes it, and so does a press outsi
 **The thread's menu.** The dots open the web window's menu under them, 264 points wide, its right
 edge on theirs (`ThreadMenuList` in `renderer/src/threads/ThreadMenu.tsx`), with the rows this
 window does, in the web's order: Later (L), which opens the Later picker on the thread, and
-Priority with the level it runs at, which turns the menu to the four levels, the one it is at
-ticked. A level picked is written at once (`zero:answer` with the level and no words, which starts
+Priority with the level it runs at said in words beside it, not as a key (`.ts-more-detail`),
+which turns the menu to the four levels, the one it is at ticked. A level picked is written at once (`zero:answer` with the level and no words, which starts
 nothing: `retag`), and "Priority: high" is said once the engine has it. Done and Reopen stay
 buttons of their own beside the dots, as the web window's menu never lists them. The first row is
 lit as it opens; the pointer and the arrows move it, Home and End go to the ends, Enter and Space
@@ -757,16 +774,18 @@ nothing, as the command bar's scenes do with its commands. A fixture says what w
 
 | Scene | Window | Whole window | The menu or panel | Its button |
 |---|---|---|---|---|
-| `thread-actions` | 1280 by 760 | 0.69 | 0.25 | 0.64 |
-| | 900 by 760 | 0.82 | 0.25 | 0.66 |
-| | 1600 by 1000 | 0.73 | 0.25 | 0.66 |
-| `thread-actions-priority` | 1280 by 760 | 0.68 | 0.08 | 0.61 |
-| `thread-place` | 1280 by 760 | 0.67 | 0.24 | 0.68 |
-| | 900 by 760 | 0.84 | 0.24 | 0.55 |
-| | 1600 by 1000 | 0.73 | 0.25 | 0.66 |
-| `thread-reply-model` | 1280 by 760 | 0.64 | 0.22 | the chip 0.79 |
+| `thread-actions` | 1280 by 760 | 0.70 | 0.25 | 0.63 |
+| | 900 by 760 | 0.84 | 0.25 | 0.65 |
+| | 1600 by 1000 | 0.75 | 0.25 | 0.65 |
+| `thread-actions-priority` | 1280 by 760 | 0.69 | 0.08 | 0.62 |
+| `thread-place` | 1280 by 760 | 0.68 | 0.24 | 0.67 |
+| | 900 by 760 | 0.86 | 0.24 | 0.51 |
+| | 1600 by 1000 | 0.74 | 0.24 | 0.67 |
+| `thread-reply-model` | 1280 by 760 | 0.65 | 0.22 | the chip 0.64 |
 
-The page under them is the waiting thread's, 0.68 with nothing open (`thread-options`); its
+Measured on the web window's newer look, whose menu says Priority's level in words (the detail,
+12.5 points and faint, rather than a key's cap) and whose reply chip leads with the agent's mark.
+The page under them is the waiting thread's, 0.69 with nothing open (`thread-options`); its
 options and reply bar are 0.58. The screens before this did not move, to the thousandth: Home
 0.844, the Inbox 0.240, a conversation 0.409 and as first opened 0.389, the Later picker 0.216,
 the card 0.221, the command bar 0.146, the waiting thread 0.679. The reply box opened with R
@@ -876,21 +895,26 @@ Sent), `inbox-display-done` (over Done, drawn with `--tab done`), `inbox-filtere
 (on), `-off`, `-move`, `-all`, `-again`, `-adding`, `-failed`, `inbox-cloud-invite`, and
 `inbox-cloud-off-ask` (⌘C pressed, `cloudOffAsk`). And four with the pointer resting on a
 choice: `inbox-display-hover-choice` and `-hover-on`, `inbox-cloud-menu-hover-manage` and
-`-hover-off`. At 1280 by 760, 2x, dark, the menu's own box and the whole window, where the web
-window's rail still has the places this one left out (the Inbox with nothing open is 0.26):
+`-hover-off`. At 1280 by 760, 2x, dark, on the web window's newer look, the menu's own box and
+the whole window, where the web window's rail still has the places this one left out (the Inbox
+with nothing open is 0.27):
 
 | Scene | The menu | Whole window |
 |---|---|---|
-| `inbox-display` | 0.33 | 0.28 |
+| `inbox-display` | 0.33 | 0.29 |
 | `inbox-display-filtered` | 0.37 | 0.21 |
 | `inbox-display-done` | 0.34 | 0.19 |
-| `inbox-cloud-menu`, `-off` | 0.33, 0.32 | 0.29, 0.28 |
-| `inbox-cloud-menu-move`, `-all` | 0.37, 0.33 | 0.29, 0.29 |
+| `inbox-cloud-menu`, `-off` | 0.33, 0.32 | 0.29, 0.29 |
+| `inbox-cloud-menu-move`, `-all` | 0.37, 0.33 | 0.30, 0.29 |
 | `inbox-cloud-menu-again`, `-adding`, `-failed` | 0.31, 0.32, 0.36 | 0.29, 0.29, 0.30 |
-| `inbox-cloud-invite` | 0.38 | 0.28 |
-| `inbox-cloud-off-ask` | the card 0.51 | 0.12 |
+| `inbox-cloud-invite` | 0.38 | 0.29 |
+| `inbox-cloud-off-ask` | the card 0.58 | 0.13 |
 | `inbox-filtered-empty` | the page under the tabs 0.15 | 0.19 |
-| `inbox-filtered`, `inbox-sorted-sent` | | 0.18, 0.26 |
+| `inbox-filtered`, `inbox-sorted-sent` | | 0.18, 0.27 |
+
+A worded cloud button wearing the dot ("Sign in again", "Cloud") leaves the dot a corner of its
+own, 20 points of room on its right rather than 14 (`.th-cloud.named:has(> i)`): those states of
+the button are 0.27 whole, as the others are.
 
 At 900 by 760 and 1600 by 1000 the two menus are 0.33 and 0.37 again. What is left is glyphs, the
 extent of the soft patch of the sky's dark every button of the strip wears (`.topbar :is(h1,
@@ -1154,16 +1178,19 @@ The scenes: `thread-reply-files` (words, a picture pasted and a report picked), 
 (a film of 1.2 GB) and `thread-reply-files-folded` (the first, folded by a press on nothing). A
 fixture says what the box held, in the order it came (`replyFiles`: an entry with a `png` is a
 picture pasted, one with a `path` a file dropped) and whether it was folded (`folded`). At 1280 by
-760, 2x, the reply box with what it carries and the bar (`dock`), and the folded box:
+760, 2x, on the web window's newer look, the reply box with what it carries and the bar
+(`.dock-card`), and the folded box (`.dock-pill`):
 
 | Scene | Whole window | The box |
 |---|---|---|
-| `thread-reply-files` | 0.53 | 0.75 |
-| `thread-reply-files-too-big` | 0.53 | 0.76 |
-| `thread-reply-files-folded` | 0.43 | 1.04, the folded line |
+| `thread-reply-files` | 0.53 | 0.78 |
+| `thread-reply-files-too-big` | 0.53 | 0.88 |
+| `thread-reply-files-folded` | 0.43 | 1.43, the folded box |
 
-Every part stands where the web window's does; what differs is glyph edges and the picture's
-copy, resampled. Filmed at 60 frames a second, a picture pasted and a file dropped each land
+Every part stands where the web window's does, the chips with the agent's mark and the mode's
+shield and the paper clip's square of 28; what differs is glyph edges and the picture's copy,
+resampled. A conversation with people draws what is attached as tiles of one height
+(`AttachRow`'s `tiles`); a reply to an agent, the only one this window has, keeps the chips. Filmed at 60 frames a second, a picture pasted and a file dropped each land
 whole on the next frame, the box growing with them, with nothing animating.
 
 Against a scratch engine, a reply typed, with a screenshot pasted and a PDF dropped, wrote
@@ -1348,19 +1375,20 @@ Every box of the button and the list lands where the browser puts it, to a hundr
 a point, and Rune lands a glyph's pen on half a device pixel rounded down where Chromium rounds to
 the nearest quarter, so the count and the names sit a quarter of a pixel to the left.
 
-At 2x, dark; the strip is the card's head, the button and the list the page's own boxes:
+At 2x, dark, on the web window's newer look (its strip 64 points, the button 32 tall inside the
+strong line); the strip is the card's head, the button and the list the page's own boxes:
 
 | Scene | Window | Whole window | The strip | The button | The list |
 |---|---|---|---|---|---|
-| `thread-files` | 1280 by 760 | 0.44 | 0.55 | 0.54 | |
-| | 900 by 760 | 0.76 | 0.68 | 0.41 | |
-| | 1600 by 1000 | 0.40 | 0.47 | 0.47 | |
-| `thread-files-open` | 1280 by 760 | 0.44 | 0.61 | 0.67 | 0.49 |
-| | 900 by 760 | 0.72 | 0.75 | 0.60 | 0.49 |
-| | 1600 by 1000 | 0.42 | 0.51 | 0.59 | 0.49 |
-| `thread-files-many` | 1280 by 760 | 0.75 | 0.57 | 0.76 | 0.61 |
+| `thread-files` | 1280 by 760 | 0.46 | 0.50 | 0.49 | |
+| | 900 by 760 | 0.79 | 0.57 | 0.37 | |
+| | 1600 by 1000 | 0.41 | 0.42 | 0.46 | |
+| `thread-files-open` | 1280 by 760 | 0.46 | 0.54 | 0.64 | 0.49 |
+| | 900 by 760 | 0.74 | 0.63 | 0.57 | 0.49 |
+| | 1600 by 1000 | 0.43 | 0.46 | 0.58 | 0.49 |
+| `thread-files-many` | 1280 by 760 | 0.77 | 0.51 | 0.70 | 0.61 |
 
-A strip with no files is 0.55 at 1280 by 760 (`thread`). Most of what `thread-files-many` differs
+A strip with no files is 0.49 at 1280 by 760 (`thread`). Most of what `thread-files-many` differs
 by is its answer's fourteen mentions, whose underlines sit two points higher (see what still
 differs).
 
@@ -1491,14 +1519,16 @@ tile each however many threads it went to, from the list the app answers (`zero:
 read when the page opens and again as the store changes, at most every two seconds).
 
 - **The strip**: back and forward, and Files over the Inbox's sky, as the web window draws it.
-- **The bar**: the way back (All files, then the project and its folders, each a press away) and
-  the box that searches (`/` puts the caret in it; Escape takes back what is typed, then the
-  keys). Every word must start a word of a file's name, its project or its folder, and the files
-  named for a word come before, and instead of, those that only sit in a place of that word.
-- **The tools**: All and each kind the files here are (Documents, Pictures, Films, Pages, Tables,
-  Code…), Needs review while a file has comments nobody approved, what the files take on this
-  Mac, Recent and Name (Name reads figures as numbers and capitals and accents as their letters),
-  and Grid or List.
+- **The bar**: the way back (All files, then the project and its folders, each a press away); how
+  the files are ordered and drawn, Recent and Name (Name reads figures as numbers and capitals and
+  accents as their letters) and Grid or List, with what the files take on this Mac before them
+  once it reaches a megabyte (`showsTotal`); and the box that searches (`/` puts the caret in it;
+  Escape takes back what is typed, then the keys). Every word must start a word of a file's name,
+  its project or its folder, and the files named for a word come before, and instead of, those
+  that only sit in a place of that word. Its controls stand 32 points tall, as the strip's do.
+- **The kinds**, under the bar while there are two kinds or more or something needs review: All
+  and each kind the files here are (Documents, Pictures, Films, Pages, Tables, Code…), and Needs
+  review while a file has comments nobody approved.
 - **The cards**: on All files a card for each project, with how many files it holds, which opens
   its page; on a project's page, its folders.
 - **The tiles**: as many columns of at least 232 points as fit, 22 apart; each tile's face sixteen
@@ -1517,18 +1547,23 @@ read when the page opens and again as the store changes, at most every two secon
 The scenes: `files` (All files), `files-project` (a project's page), `files-list` (the list) and
 `files-name` (ordered by name), over an invented list built on the planted folder;
 `MERCURY_FILES=<a saved list>` photographs the web window on another list. At 1280 by 760, 2x,
-whole windows and each part:
+on the web window's newer look (Recent, Name and grid or list in the bar, the kinds under it),
+whole windows and each part; the strip leaves out the web window's New, which this window does not
+draw (0.95 with it):
 
-| Scene | Whole | The strip | The bar | The tools | The cards | The tiles |
+| Scene | Whole | The strip | The bar | The kinds | The cards | The tiles |
 |---|---|---|---|---|---|---|
-| `files` | 0.56 | 0.12 | 0.47 | 1.55 | 0.28 | 0.56 |
-| `files-list` | 0.63 | 0.12 | 0.47 | 1.55 | 0.28 | 0.70 |
-| `files-project` | 3.13 | | 0.60 | 1.56 | | 1.17, and 51.9 the page's tile |
+| `files` | 0.52 | 0.12 | 0.51 | 0.56 | 0.30 | 0.55 |
+| `files-list` | 0.60 | 0.12 | 0.51 | 0.56 | 0.30 | 0.68 |
+| `files-project` | 2.74 | 0.12 | 0.60 | 0.56 | | 0.65, and 131.5 the page's tile |
 
-At 900 by 760 the two are 0.99 and 1.10 whole; at 1600 by 1000 the list is 0.45 and the grid 6.49,
-which is the page's tile in view: the web window draws the page in it, white, and this window its
-word. Every part stands where the browser puts it; what is left is glyphs, and the rail, whose
-other places this window does not draw.
+Before this window followed the newer look, `files` was 5.27 against it. At 900 by 760 the two
+are 0.69 and 0.84 whole; at 1600 by 1000 the list is 0.43 and the grid 6.47, which is the page's
+tile in view: the web window draws the page in it, white, and this window its word. Every part
+stands where the browser puts it, the bar's and the kinds' words in the soft patch of the sky's
+dark the web window gives them (`.fp-bar`, `.fp-tools button`), which took the bar from 0.79 to
+0.51 and the kinds from 0.85 to 0.56; what is left is glyphs, and the rail, whose other places
+this window does not draw.
 
 The rail's Files moved the screens at rest a little, as it stands where the web window draws
 Demands (the rail itself is 0.52 on each): Home from 0.844 to 0.867, the Inbox from 0.240 to
@@ -1576,12 +1611,17 @@ what is in one and how it is asked for). The page reads them as the web window d
   (`stepsSinceLastSaid`, `previousActivity`, `src/rules/live.rs` with the web's case). Escape
   folds them before it leaves the conversation, and another conversation or another run starts
   folded. The scenes `thread-working-steps` and `thread-working-steps-open` (its first step
-  opened, `liveOpen`, `liveRowsOpen`) are 0.44 and 1.19 whole at 1280 by 760, the steps 0.72 and
-  2.10: the opened command is set in Geist Mono where the web window's is the system's monospace
-  (see what still differs).
+  opened, `liveOpen`, `liveRowsOpen`) are 0.39 and 1.19 whole at 1280 by 760, the line with its
+  steps (`.live-activity`) 0.73 and 2.73: the opened command is set in Geist Mono where the web
+  window's is the system's monospace (see what still differs).
 - A chat just brought in, owed the run that writes it up (`catchUpDue`), says under its title
   "Getting this chat ready. Its summary and options will appear here.", shimmering, over its
-  newest answer, as the web window's does (`thread-getting-ready`: 0.70 whole, 1.06 the page).
+  newest answer, as the web window's does (`thread-getting-ready`: 0.69 whole, 1.19 the column
+  of words, `.focus-body`).
+- Under the title of a thread an agent is on, the line says what was asked: the first paragraph of
+  the ask that is not a lead-in ending in a colon ("Priya Shah asked:" says who, not what), a link
+  in it read as its words, and nothing when the title already says it (`askLine`, with the web's
+  cases).
 - The head strip names the tab that holds the thread now (In progress while an agent is on it),
   and draws the arrows to the threads before and after only for one in Needs you.
 
@@ -1682,10 +1722,13 @@ Which threads are in which list, in which order and with which words is decided 
 from the web window's own (`src/rules/`, each function naming the TypeScript it follows;
 `docs/rules-spec.md` is the map). `tools/rows.mjs` holds the two against each other: it reads the
 rows the web window drew out of the dumps and compares them with `mercury --rows`, row by row and
-field by field, on Home and under each of the Inbox's four tabs. Under a tab it also holds what
+field by field, on Home and under each of the Inbox's four tabs, a table row's harness mark and
+its priority's word among them. Under a tab it also holds what
 stands around the rows: which tabs the strip draws and with which numbers, what the time column is
 called, and what the cloud button wears. Any other picture of the Inbox left in the folder (a
-cloud scene, `inbox-later-kinds`) is held the same way.
+cloud scene, `inbox-later-kinds`) is held the same way. On the invented inbox and on the invented
+cases (`--cases`, whose rows run on Claude Code, Codex and Antigravity by their labels, their run
+and the engine's answer) every table row is the web window's.
 
 ```sh
 node desktop/tools/rows.mjs desktop/shots --shoot <checkout>            # the invented inbox
@@ -1811,15 +1854,19 @@ release or a second login.
   title cut short, where the browser's stops before them.
 - **Large text sits a fraction of a pixel differently**, which shows only in a difference map.
 - **A long conversation can sit a pixel higher**, in a tall window: the heights of its parts add
-  up a sliver apart.
+  up a sliver apart. And its foot can rest half a point lower than the browser's: this window
+  scrolls to the page's height rounded down to a device pixel, which is where the browser stops
+  most conversations (1408.27 points at 1408, 1211.61 at 1211.5), but not all (1435.8 at 1436,
+  1679.86 at 1680, where this window stops at 1435.5 and 1679.5). No one rounding of the height
+  alone gives all of them. `thread` at 1600 by 1000 is 1.12 for it, and `thread-reply-attached`
+  0.83 at 1280 by 760.
 - **Under the pointer, where it still differs** (see "How it answers the pointer and the hands"):
   - The I-beam shows over the whole box of a run of words, past the last word of a short line too,
     where the web window's shows it over the words' lines only: Rune finds selectable words by
     their box. Over a title or a heading shorter than the column, the same.
   - A mention's mark takes the I-beam, not the pointing hand, and stays muted when the words
     brighten (`a.mention:hover .mention-icon`): Rune's link covers words and not a mark set among
-    them. And a mention's look lands at once, where the web window's eases in over 0.12 s and out
-    over 0.2 s (`components/mention.css`).
+    them.
   - The open rail's update card, which the web window draws while a new version waits
     (`home-update-rail-open`, the rail 3.39 of 255), is its Restart row here, and the usage row
     opens no panel of its figures under the pointer and takes the arrow, where the web window's
@@ -1923,9 +1970,9 @@ release or a second login.
     and not the box's menu) rides on the next reply in the web window and goes unused, so it is
     drawn, and the thread's menu changes the level instead, at once. The second chip is
     not who takes the thread but what this message may do (`ModePicker`, Claude Code's
-    permission modes, "Bypass Permissions" on a project run with full access): it now says the
-    thread's own mode in the web's words, and is not chosen. Nothing is sent later (the caret
-    beside Send).
+    permission modes, "Bypass Permissions" on a project run with full access): led by its
+    shield (`ModeMark`), it says the thread's own mode in the web's words, and is not chosen.
+    Nothing is sent later (the caret beside Send).
   - The thread's menu leaves out every row this window cannot do, which are also the ones never
     used: Open terminal (⌘J; this window has no terminal), Rename, Move to another project, Pin
     thread, Share…, Add people and Ask or hand off… (teammates), Waits on… and Blocked by…, Mark as
@@ -2023,7 +2070,10 @@ release or a second login.
 - **No question before throwing work away.** An option that discards the change asks first in
   the web window. Here it is not sent, and the line says to pick it there.
 - **No warning before closing a thread whose agent waits on an answer.** The web window gives it
-  once ever, on the first such E, and remembers for itself that it did.
+  once ever, on the first such E, and remembers for itself that it did: the first E there only
+  says so in the strip (`thread-done-toast`), where this window closes the thread and goes on
+  (4.94 of 255 between the two pictures); the second E is the close both draw
+  (`thread-done-held`).
 - **Several rows cannot be ticked**, so nothing is done to many threads at once.
 - **The rail has only what works here**: Search, Home, the Inbox, Files, Restart to update while
   a new version waits, Settings, the usage row and the person's own row. The web window's also
@@ -2101,8 +2151,6 @@ release or a second login.
     three of 255.
   - A conversation opens on one frame of the mark standing as under Reduce motion, before the line
     has said it is on screen.
-  - A mention's look under the pointer lands at once, where the web window's eases in over 0.12 s
-    and out over 0.2 s: Rune's link has a look under the pointer and no curve for it.
   - An option's words cut short by the strip open nowhere: the web window shows the whole option
     in a card over the strip while the pointer is on it (`.opt-peek`, coming in over 0.13 s).
   - The bar along a toast's foot is drawn anew every 33 ms rather than as a loop.
@@ -2164,7 +2212,8 @@ release or a second login.
   behind those lists, behind the Inbox's tabs and its cloud button (`page.rs`, `cloud.rs`), and
   behind what else depends on whose Mercury it is: `window.rs` (the team, the account, the rail's
   foot, a project's colour) and `place.rs` (where a conversation runs, what its panel says and
-  what a pick there writes).
+  what a pick there writes). `engine.rs`: which coding agent a row is on, as Home names it
+  (`row_engine`) and as the Inbox's mark shows it (`harness_on`, `harness_mark`).
 - `src/chrome.rs`: the page, the card, the rail and how it opens, the bands that move the window.
   `src/theme.rs`: colours and type.
 - `src/feel.rs`: what the screens share of answering the pointer: the key hints and their plate,
@@ -2223,5 +2272,6 @@ release or a second login.
 - `tools/pictures.mjs`: the invented project folder the scenes that name files are drawn from.
 - `tools/install-mac.sh`: builds the app and puts it in `~/Applications` as "Mercury Native".
 - `src/sky.rs`: the dithered sky, ported from `renderer/src/home/sky.ts` with the same seed.
-- `src/icons.rs`: the icons, with the web app's own paths and strokes.
+- `src/icons.rs`: the icons, with the web app's own paths and strokes; the makers' marks once
+  each, for a row's tile (`HARNESS_*`) and a chip (`ENGINE_*`).
 - `assets/fonts`: Geist and Geist Mono (SIL Open Font License), the files the web app ships.

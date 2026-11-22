@@ -313,6 +313,7 @@ mod tests {
             place: String::new(),
             place_more: 0,
             engine: "Claude Code",
+            harness: "claude",
             when: String::new(),
             shown_at: at,
             kept: true,

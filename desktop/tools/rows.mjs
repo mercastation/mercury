@@ -223,7 +223,10 @@ function tableRows(dump) {
     const mark = !dot ? 'none' : t.has(dot, 'th-st-cloud') ? 'cloud' : t.has(dot, 'live') ? 'running' : ['queued', 'held', 'need'].find((m) => t.has(dot, `s-${m}`)) ?? 'other';
     const proj = cell('th-cell-proj');
     const more = t.first(proj, (k) => t.has(k, 'th-proj-more'))?.text ?? '';
+    // The mark before the title: a harness's in its tile (`HarnessMark`), or the agent's face.
+    const tile = t.first(titleCell, (k) => t.has(k, 'harness-mark'));
     return {
+      harness: tile ? ['claude', 'codex', 'antigravity'].find((engine) => t.has(tile, engine)) ?? 'other' : 'face',
       title,
       aside: (asideBox && t.first(asideBox, (k) => t.has(k, 'th-aside'))?.text) ?? '',
       // "not started" is faint words of its own, straight in the cell.
@@ -305,13 +308,15 @@ function nativeLists(scene, tab = null) {
   return JSON.parse(fs.readFileSync(out, 'utf8'));
 }
 
-const LABEL = { urgent: 'Urgent', high: 'High', medium: '', low: 'Low' };
+// The table says every level, Medium included (`RowCells`).
+const LABEL = { urgent: 'Urgent', high: 'High', medium: 'Medium', low: 'Low' };
 
 /** A native row, said the way one of the two pages would draw it. Home draws every row with the
  *  agent face: this window does not tell a teammate's thread from an agent's. */
 const asHomeNeeds = (r) => ({ face: 'agent', title: r.title, priority: r.priority, project: r.project, when: r.when, unread: r.unread });
 const asHomeProgress = (r) => ({ face: 'agent', title: r.title, progressLine: `${r.engine} · ${r.project}`, when: r.when });
 const asTable = (r) => ({
+  harness: r.harness,
   title: r.title, aside: r.aside, held: r.held, pinned: r.pinned, status: r.status, mark: r.mark, place: r.place, placeMore: r.placeMore,
   priority: r.priority, priorityLabel: LABEL[r.priority], when: r.when, unread: r.unread,
 });

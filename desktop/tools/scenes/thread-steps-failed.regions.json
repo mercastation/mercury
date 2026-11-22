@@ -1,6 +1,6 @@
 [
   ["rail", [0, 40, 82, 720]],
-  ["top strip", [82, 40, 1176, 56]],
+  ["top strip", [82, 40, 1176, 64]],
   ["the run turned away", [224, 122, 768, 60]],
   ["the fold with a failed test", [224, 196, 768, 297]],
   ["the last answer", [224, 532, 768, 96]],

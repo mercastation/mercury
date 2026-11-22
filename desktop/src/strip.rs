@@ -75,8 +75,9 @@ pub enum Row {
     Priority(Level),
     /// A row of the web window's that this window does not do, as a picture of the web window
     /// drew it (`actionRows` in a fixture): drawn as it was, and a press on it does nothing, as
-    /// the command bar draws the web's commands it does not have.
-    Pictured { label: String, key: String, mark: String },
+    /// the command bar draws the web's commands it does not have. `key` is a key's cap, and
+    /// `detail` a value the row says in words (`.ts-more-detail`).
+    Pictured { label: String, key: String, detail: String, mark: String },
 }
 
 fn thread_key(item: &Item) -> String {
@@ -95,7 +96,7 @@ pub fn rows_for(s: &State, item: &Item) -> Vec<Row> {
             .map(|r| match text(r, "label").as_str() {
                 "Later" => Row::Later,
                 "Priority" => Row::Priority(level),
-                _ => Row::Pictured { label: text(r, "label"), key: text(r, "key"), mark: text(r, "mark") },
+                _ => Row::Pictured { label: text(r, "label"), key: text(r, "key"), detail: text(r, "detail"), mark: text(r, "mark") },
             })
             .collect();
     }
@@ -356,9 +357,15 @@ fn menu_row(at: usize, lit: bool, lead: El, words: &str, aside: Option<El>) -> E
     }
 }
 
-/// A row's key or detail (`.ts-more-menu kbd`): small, in the code face, eighteen points off.
+/// A row's key (`.ts-more-menu kbd`): small, in the code face, eighteen points off.
 fn kbd(words: &str) -> El {
     el().ml(18.0).child(pen(text(words).font(mono(11.0, 14.0)).color(muted()), 11.0))
+}
+
+/// A row's value, its priority say, which is words and not a key (`.ts-more-detail`): the
+/// reading face at 12.5 points, faint, eighteen points off.
+fn detail(words: &str) -> El {
+    el().ml(18.0).child(pen(text(words).font(sans(12.5, 400.0)).color(muted()), 12.5))
 }
 
 /// The menu's rows as they stand.
@@ -376,11 +383,12 @@ fn more_rows(s: &State, item: &Item, levels: bool, lit: usize) -> Vec<El> {
         .enumerate()
         .map(|(n, r)| {
             let (words, aside) = match r {
-                Row::Later => ("Later".to_string(), Some("L".to_string())),
-                Row::Priority(level) => ("Priority".to_string(), Some(rules::level_word(*level).to_string())),
-                Row::Pictured { label, key, .. } => (label.clone(), Some(key.clone()).filter(|k| !k.is_empty())),
+                Row::Later => ("Later", Some(kbd("L"))),
+                Row::Priority(level) => ("Priority", Some(detail(rules::level_word(*level)))),
+                Row::Pictured { label, key, detail: said, .. } if key.is_empty() => (label.as_str(), (!said.is_empty()).then(|| detail(said))),
+                Row::Pictured { label, key, .. } => (label.as_str(), Some(kbd(key))),
             };
-            menu_row(n, lit == n, mark_of(r), &words, aside.as_deref().map(kbd))
+            menu_row(n, lit == n, mark_of(r), words, aside)
         })
         .collect()
 }

@@ -378,6 +378,11 @@ pub fn on_mac_of(files: &[&Placed]) -> f64 {
     files.iter().map(|f| f.on_mac.unwrap_or(0.0)).sum()
 }
 
+/// Whether the page says that total at all: only once it reaches a megabyte (`showsTotal`).
+pub fn shows_total(bytes: f64) -> bool {
+    bytes >= 1024.0 * 1024.0
+}
+
 /// Where the page is: a project, or all of them, and a folder in it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Place {
@@ -519,6 +524,15 @@ mod tests {
         let mut titled = file("a.png");
         titled.title = Some("The cover".to_string());
         assert_eq!(shown_name(&titled), "The cover");
+    }
+
+    #[test]
+    fn the_total_is_said_only_once_it_reaches_a_megabyte() {
+        assert!(!shows_total(0.0));
+        assert!(!shows_total(53.0 * 1024.0));
+        assert!(!shows_total(1024.0 * 1024.0 - 1.0));
+        assert!(shows_total(1024.0 * 1024.0));
+        assert!(shows_total(4.8 * 1024.0 * 1024.0 * 1024.0));
     }
 
     #[test]

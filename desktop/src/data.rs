@@ -398,6 +398,9 @@ pub struct Row {
     /// The coding agent it is on: Claude Code, Codex or Antigravity. Home's In progress row
     /// says it before the project, "Claude Code · Storefront".
     pub engine: &'static str,
+    /// The mark in the Inbox table's slot before the title: its harness's (`claude`, `codex`,
+    /// `antigravity`), or `face` for one with no mark (`rules::engine::harness_mark`).
+    pub harness: &'static str,
     /// The time both pages write, "6 min ago", "Yesterday", "Sep 28", told from `shown_at`. On
     /// Later it is when the thread comes back, "Sun 5:24 PM", or nothing for one with no moment.
     pub when: String,

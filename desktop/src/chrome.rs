@@ -147,10 +147,11 @@ pub fn rail_moves(s: &mut State, at: f64, tx: &mut Tx) -> bool {
     moving
 }
 
-/// The same for the screen on show: the strip over a conversation is 56 points tall, not 64.
+/// The same for the screen on show. The strip over a conversation is the Inbox's 64 points
+/// too (`crate::thread::STRIP`), so every page starts under the same line.
 pub fn page_top(view: &View) -> f32 {
     match view {
-        View::Thread { .. } => 96.0,
+        View::Thread { .. } => CARD[1] + crate::thread::STRIP,
         _ => PAGE_TOP,
     }
 }

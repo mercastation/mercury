@@ -343,6 +343,7 @@ fn row(w: &World, i: &Item, tab: &str, to_approve: &HashMap<String, usize>) -> R
         place,
         place_more,
         engine: engine::engine_label(engine),
+        harness: engine::harness_mark(engine::harness_on(i, w.snap)),
         when,
         shown_at,
         kept: true,

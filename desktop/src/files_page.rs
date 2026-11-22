@@ -327,16 +327,34 @@ fn folder_card(name: &str, count: usize, w: f32, goes: impl Fn(&mut State) + 'st
 
 /* ------------------------------ the page ------------------------------ */
 
+/// How tall the bar's controls stand: the switches, the kinds and the search box (`.fp-kind`,
+/// `.fp-find`), the height of the strip's buttons.
+const CONTROL: f32 = 32.0;
+
+/// Words of the bar and of the kinds under it, in the soft patch of the sky's own dark that every
+/// word there wears, as the Inbox's tabs do (`.fp-bar`, `:is(.fp-bar, .fp-tools) button`).
+/// `lit` is their colour under the pointer.
+fn shaded_words(words: String, font: TextStyle, size: f32, tone: rune::Color, lit: Option<rune::Color>) -> El {
+    crate::inbox::shaded(move |shadow| {
+        let e = text(words.as_str()).font(font).color(if shadow { crate::inbox::under(1.0) } else { tone });
+        pen(match lit.filter(|_| !shadow) {
+            Some(lit) => e.group_color(lit),
+            None => e,
+        }, size)
+    })
+}
+
 /// A filter or a switch (`.fp-kind`): quiet words, the one on in ink on the strong wash.
 fn kind_button(words: &str, on: bool, does: impl Fn(&mut State) + 'static) -> El {
-    let b = row().h(26.0).px(9.0).items_center().radius(6.0).cursor(Cursor::Pointer).child(pen(label(words, 12.5, 400.0, if on { ink() } else { muted() }).group_color(if on { ink() } else { dim() }), 12.5));
+    let said = shaded_words(words.to_string(), sans(12.5, 400.0), 12.5, if on { ink() } else { muted() }, Some(if on { ink() } else { dim() }));
+    let b = row().h(CONTROL).px(10.0).items_center().radius(6.0).cursor(Cursor::Pointer).child(said);
     let b = if on { b.fill(feel::wash_strong()) } else { b.hover_group() };
     b.on_press(does)
 }
 
 /// Grid or list, by its mark (`.fp-view-icon`).
 fn view_button(glyph: &'static rune::Icon, on: bool, help: &'static str, list: bool) -> El {
-    let b = row().size(26.0, 26.0).center().radius(6.0).cursor(Cursor::Pointer).help(help).child(icon(glyph, 13.0).color(if on { ink() } else { muted() }).group_color(if on { ink() } else { dim() }));
+    let b = row().size(CONTROL, CONTROL).center().radius(6.0).cursor(Cursor::Pointer).help(help).child(icon(glyph, 13.0).color(if on { ink() } else { muted() }).group_color(if on { ink() } else { dim() }));
     let b = if on { b.fill(feel::wash_strong()) } else { b.hover_group() };
     b.on_press(move |s: &mut State| s.files.as_list = list)
 }
@@ -371,9 +389,9 @@ pub fn view(s: &State) -> El {
     let last = crumbs.len() - 1;
     let crumbs = row().grow(1.0).min_w(0.0).items_center().children(crumbs.into_iter().enumerate().map(|(i, (name, to))| {
         let on = i == last;
-        let crumb = row().h(28.0).items_center().child(pen(text(name).font(sans(14.0, 400.0)).color(if on { ink() } else { muted() }).group_color(ink()), 14.0));
+        let crumb = row().h(28.0).items_center().child(shaded_words(name, sans(14.0, 400.0), 14.0, if on { ink() } else { muted() }, Some(ink())));
         let crumb = if on { crumb } else { crumb.hover_group().cursor(Cursor::Pointer).on_press(move |s: &mut State| s.go_files_place(&to)) };
-        let gap = (i > 0).then(|| text("/").font(sans(14.0, 400.0)).color(muted()).mx(8.0));
+        let gap = (i > 0).then(|| crate::inbox::shaded(|shadow| text("/").font(sans(14.0, 400.0)).color(if shadow { crate::inbox::under(1.0) } else { muted() })).mx(8.0));
         row().items_center().children(gap).child(crumb)
     }));
     let search = text_input(&s.files.query, sans(13.0, 400.0))
@@ -403,7 +421,7 @@ pub fn view(s: &State) -> El {
         });
     let find = row()
         .w(220.0)
-        .h(30.0)
+        .h(CONTROL)
         .px(10.0)
         .gap(8.0)
         .items_center()
@@ -412,12 +430,29 @@ pub fn view(s: &State) -> El {
         .border(1.0, if s.files.query.focused { rule() } else { edge() })
         .border_layout()
         .cursor(Cursor::Text)
-        .child(icon(&icons::SEARCH, 13.0).color(muted()))
+        .child(icon(&icons::FILES_SEARCH, 15.0).color(muted()))
         .child(search)
         .on_press(|s: &mut State| s.files.query.focused = true);
-    let bar = row().w(wide).h(32.0).gap(24.0).items_center().child(crumbs).child(find);
 
-    // The kinds, and how the files are ordered and drawn (`.fp-tools`).
+    // How the files are ordered and drawn, in the bar between the way back and the search
+    // (`.fp-views`): the total once it says something, Recent and Name, grid or list.
+    let used = rules::on_mac_of(&below);
+    let mut views = row().gap(12.0).items_center();
+    if rules::shows_total(used) {
+        let machine = if cfg!(target_os = "macos") { "Mac" } else { "computer" };
+        views = views.child(row().h(26.0).px(9.0).gap(7.0).items_center().child(icon(&icons::DISK, 13.0).color(muted())).child(shaded_words(format!("{} on this {machine}", rules::size_words(used)), figures(12.5, 400.0), 12.5, muted(), None)));
+    }
+    let sort = s.files.sort;
+    let mut sorts = row().gap(2.0).child(kind_button("Recent", sort == Sort::Recent, |s: &mut State| s.files.sort = Sort::Recent)).child(kind_button("Name", sort == Sort::Name, |s: &mut State| s.files.sort = Sort::Name));
+    if sort == Sort::Size {
+        sorts = sorts.child(kind_button("Size", true, |s: &mut State| s.files.sort = Sort::Recent));
+    }
+    views = views.child(sorts).child(row().gap(2.0).child(view_button(&icons::GRID, !s.files.as_list, "Grid", false)).child(view_button(&icons::FILES_LIST, s.files.as_list, "List", true)));
+    let bar = row().w(wide).h(CONTROL).gap(24.0).items_center().child(crumbs).child(views).child(find);
+
+    // The kinds, under the bar while there is more than one or something needs review
+    // (`.fp-tools`).
+    let tools_shown = kinds.len() > 1 || reviewing > 0 || s.files.review;
     let mut kind_row = row().gap(2.0).items_center();
     if kinds.len() > 1 {
         kind_row = kind_row.child(kind_button("All", s.files.kind.is_none() && !s.files.review, |s: &mut State| {
@@ -432,21 +467,10 @@ pub fn view(s: &State) -> El {
     if reviewing > 0 || s.files.review {
         kind_row = kind_row.child(kind_button("Needs review", s.files.review, |s: &mut State| s.files.review = !s.files.review));
     }
-    let used = rules::on_mac_of(&below);
-    let mut views = row().gap(12.0).items_center();
-    if used > 0.0 {
-        let machine = if cfg!(target_os = "macos") { "Mac" } else { "computer" };
-        views = views.child(row().h(26.0).px(9.0).gap(7.0).items_center().child(icon(&icons::DISK, 13.0).color(muted())).child(pen(text(format!("{} on this {machine}", rules::size_words(used))).font(figures(12.5, 400.0)).color(muted()), 12.5)));
+    let mut page = col().w(page_w).pt(18.0).pr(32.0).pb(48.0).pl(44.0).child(bar);
+    if tools_shown {
+        page = page.child(row().w(wide).min_h(26.0).mt(14.0).items_center().child(kind_row));
     }
-    let sort = s.files.sort;
-    let mut sorts = row().gap(2.0).child(kind_button("Recent", sort == Sort::Recent, |s: &mut State| s.files.sort = Sort::Recent)).child(kind_button("Name", sort == Sort::Name, |s: &mut State| s.files.sort = Sort::Name));
-    if sort == Sort::Size {
-        sorts = sorts.child(kind_button("Size", true, |s: &mut State| s.files.sort = Sort::Recent));
-    }
-    views = views.child(sorts).child(row().gap(2.0).child(view_button(&icons::GRID, !s.files.as_list, "Grid", false)).child(view_button(&icons::FILES_LIST, s.files.as_list, "List", true)));
-    let tools = row().w(wide).h(26.0).mt(14.0).justify_between().items_center().child(kind_row).child(views);
-
-    let mut page = col().w(page_w).pt(18.0).pr(32.0).pb(48.0).pl(44.0).child(bar).child(tools);
     let (n, column) = columns(wide);
 
     // A card for each project on All files, for each folder on a project's page (`.fp-folders`).
