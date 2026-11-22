@@ -150,8 +150,9 @@ function refusedRun(item, start) {
 // fold into (shared/work-items.mts): the newest value of each field, and who wrote it when.
 // `runs` gives it the logs its runs left: `steps` (each run finished), `refused` (the run
 // after the reply was turned away and a later one shipped), `working` (the run after the reply
-// is going on right now, and the thread is In progress).
-function conversation(item, found, waiting = false, said = SHIPPED, runs = null) {
+// is going on right now, and the thread is In progress). `reply` is what the person said to the
+// first answer.
+function conversation(item, found, waiting = false, said = SHIPPED, runs = null, reply = REPLY) {
   const [asked, checked, replied, shipped] = [item.createdAt, item.createdAt + 38 * MIN, item.updatedAt - 17 * MIN, item.updatedAt];
   const { id, title } = item;
   // A worker claims its thread as its first action, so the claim lands seconds after its run began.
@@ -164,12 +165,12 @@ function conversation(item, found, waiting = false, said = SHIPPED, runs = null)
       { id, ts: asked, source: 'founder', patch: { title, body: ASK, status: 'open', kind: 'directive', priority: item.priority, labels: item.labels } },
       { id, ts: asked + MIN, source: 'agent', epoch: 1, claim: { holder: 'mcp-40122', leaseUntil: asked + 31 * MIN }, patch: { status: 'claimed' } },
       { id, ts: checked, source: 'agent', epoch: 1, patch: { status: 'blocked', note: found } },
-      { id, ts: replied, source: 'founder', patch: { answer: REPLY, status: 'open' } },
+      { id, ts: replied, source: 'founder', patch: { answer: reply, status: 'open' } },
       { id, ts: picked, source: 'agent', epoch: 2, claim: { holder: 'mcp-40131', leaseUntil: picked + 31 * MIN }, patch: { status: 'claimed' } },
     ];
     const { result: _result, ...rest } = item;
     const row = {
-      ...rest, body: ASK, note: found, answer: REPLY, status: 'claimed', epoch: 2, updatedAt: picked,
+      ...rest, body: ASK, note: found, answer: reply, status: 'claimed', epoch: 2, updatedAt: picked,
       claim: { holder: 'mcp-40131', leaseUntil: picked + 31 * MIN },
       wrote: {
         title: { ts: asked, source: 'founder' }, body: { ts: asked, source: 'founder' },
@@ -212,13 +213,13 @@ function conversation(item, found, waiting = false, said = SHIPPED, runs = null)
     { id, ts: asked, source: 'founder', patch: { title, body: ASK, status: 'open', kind: 'directive', priority: item.priority, labels: item.labels } },
     { id, ts: asked + MIN, source: 'agent', epoch: 1, claim: { holder: 'mcp-40122', leaseUntil: asked + 31 * MIN }, patch: { status: 'claimed' } },
     { id, ts: checked, source: 'agent', epoch: 1, patch: { status: 'blocked', note: found } },
-    { id, ts: replied, source: 'founder', patch: { answer: REPLY, status: 'open' } },
+    { id, ts: replied, source: 'founder', patch: { answer: reply, status: 'open' } },
     ...(refused ? [{ id, ts: replied + MIN, source: 'agent', epoch: 2, claim: { holder: 'mcp-40127', leaseUntil: replied + 31 * MIN }, patch: { status: 'claimed' } }] : []),
     { id, ts: shipping, source: 'agent', epoch: refused ? 3 : 2, claim: { holder: 'mcp-40131', leaseUntil: shipping + 31 * MIN }, patch: { status: 'claimed' } },
     { id, ts: shipped, source: 'agent', epoch: refused ? 3 : 2, patch: { status: 'done', result: said } },
   ];
   const row = {
-    ...item, body: ASK, note: found, answer: REPLY, result: said,
+    ...item, body: ASK, note: found, answer: reply, result: said,
     wrote: {
       title: { ts: asked, source: 'founder' }, body: { ts: asked, source: 'founder' },
       note: { ts: checked, source: 'agent' }, answer: { ts: replied, source: 'founder' },
@@ -245,8 +246,9 @@ function conversation(item, found, waiting = false, said = SHIPPED, runs = null)
 // `files.arriving` leaves every picture on its way for ever, and `files.large` plants ten
 // screenshots besides, for a measurement.
 // `runs` gives the thread's runs their logs (see `conversation`); with `working` an agent is
-// on the thread as the picture is taken, so it is opened from In progress.
-export async function open(h, { unfold, found = FOUND, shipped = SHIPPED, files = null, waiting = false, then = null, runs = null }) {
+// on the thread as the picture is taken, so it is opened from In progress. `reply` is what the
+// person answered, a function of what was planted as `found` may be.
+export async function open(h, { unfold, found = FOUND, shipped = SHIPPED, files = null, waiting = false, then = null, runs = null, reply = REPLY }) {
   const snapshot = await h.evaluate('window.__SNAP__');
   // The Inbox opens on its first row; the snapshot's first thread is not always that one.
   await toInbox(h);
@@ -257,7 +259,7 @@ export async function open(h, { unfold, found = FOUND, shipped = SHIPPED, files 
   if (at < 0) throw new Error('thread scene: the Inbox\'s first row is not in the snapshot');
   const planted = files ? plant({ thread: snapshot.items[at].id, large: !!files.large }) : null;
   const words = (text) => (typeof text === 'function' ? text(planted) : text);
-  const { row, lines, sessions = [], session = null } = conversation(snapshot.items[at], words(found), waiting, words(shipped), runs);
+  const { row, lines, sessions = [], session = null } = conversation(snapshot.items[at], words(found), waiting, words(shipped), runs, words(reply));
   snapshot.items[at] = row;
   if (session) snapshot.supervisor.running = [session];
   if (planted) {

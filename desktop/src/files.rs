@@ -149,9 +149,10 @@ fn watched(e: El, places: Vec<String>, want: Want) -> El {
 }
 
 /// A picture on a line of its own, as large as the column and the window let it be, with its
-/// name under it. `room` is the width it has and `size` the reading size. Gives the block and
+/// name under it. `room` is the width it has, `size` the reading size and `line` the height of
+/// the line of words it stands on: an agent's, or a person's, which is shorter. Gives the block and
 /// whether it stands on a line of text (a missing one is a mark in a line; a picture is not).
-pub fn picture(f: &Files, src: &str, room: f32, size: f32) -> El {
+pub fn picture(f: &Files, src: &str, room: f32, size: f32, line: f32) -> El {
     let (most_w, most_h) = (WIDEST.min(room), (f.window_h - AROUND).max(2.0));
     let places = f.places(src);
     let want = Want::Within(f.pictures.pixels(most_w - 2.0), f.pictures.pixels(most_h - 2.0));
@@ -165,8 +166,7 @@ pub fn picture(f: &Files, src: &str, room: f32, size: f32) -> El {
     let (held, wide, tall, stands) = match &look {
         Look::Missing => {
             // A mark in a line of reading text, set on that line's baseline.
-            let line = kept(1.6 * size);
-            return el().h(line).child(missing(src).mt(baseline(size) - 15.5));
+            return el().h(line).child(missing(src).mt(baseline_in(size, line) - 15.5));
         }
         Look::Here(held) => {
             let (wide, tall) = boxed(held.natural);
@@ -182,7 +182,7 @@ pub fn picture(f: &Files, src: &str, room: f32, size: f32) -> El {
     };
     // A picture stands on the line's baseline, and the rest of the line follows it. The
     // place held for one not yet seen is a block of its own, with no line around it.
-    let after = 8.0 + if stands { under_baseline(size) } else { 0.0 } - 2.0;
+    let after = 8.0 + if stands { line - baseline_in(size, line) } else { 0.0 } - 2.0;
     let block = col().child(frame(held, wide, tall, None).mt(8.0)).child(name_under(src, wide, f.now).mt(after).mb(8.0));
     watched(block, places, want)
 }

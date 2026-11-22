@@ -251,7 +251,7 @@ fn typed_with_files(words: &str, m: &Measure, files: &Files) -> El {
     col().children(parts.iter().enumerate().map(|(at, part)| {
         let drawn = match part {
             crate::rules::typed::Part::Text(words) => typed(words, m),
-            crate::rules::typed::Part::Embed(line) => markdown::stack(markdown::blocks(line, m.size, m.column, files), true).0,
+            crate::rules::typed::Part::Embed(line) => markdown::stack(markdown::blocks_typed(line, m.size, m.column, files), true).0,
         };
         drawn.mt(if at == 0 { 0.0 } else { 10.0 })
     }))

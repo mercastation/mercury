@@ -83,6 +83,8 @@ const PICTURES = [
   ...[1, 2, 3, 4, 5, 6, 7].map((n) => [`designs/rounds/round-${n}.png`, 1600, 1000, [40 + n * 26, 110 + n * 8, 200 - n * 20]]),
   // One level only: a round kept in a folder of its own is not one of the folder's pictures.
   ['designs/rounds/older/round-0.png', 800, 500, [120, 120, 120]],
+  // A picture a person pasted into a message, saved where the app saves what is attached.
+  ['attachments/mwrd0001-ab12cd-pasted-41207.png', 560, 180, [176, 108, 52]],
 ];
 // Ten screenshots the size a Retina Mac takes them, for measuring what a conversation full of
 // pictures costs. Planted only when asked for (`large`): they take a few seconds to paint.
@@ -98,6 +100,8 @@ const OTHERS = [
   ['media/checkout-demo.mp4', 'an invented film with nothing in it'],
   ['media/voice-over.mp3', 'an invented sound with nothing in it'],
   ['designs/rounds/notes.txt', 'Seven rounds, the seventh the newest.\n'],
+  // And a file attached beside it.
+  ['attachments/mwrd0002-ef34gh-week-32.pdf', '%PDF-1.4\n% an invented report with nothing in it\n'],
 ];
 
 /**

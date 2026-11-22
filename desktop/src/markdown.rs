@@ -468,6 +468,10 @@ struct Page<'a> {
     size: f32,
     width: f32,
     ink: rune::Color,
+    /// How heavy its words are, and how tall a line is for their size: an agent's, or a
+    /// person's (`.msg.yours .msg-body`).
+    weight: f32,
+    leading: f32,
     /// How deep in lists, for the bullet's shape.
     depth: usize,
     files: &'a Files<'a>,
@@ -475,11 +479,11 @@ struct Page<'a> {
 
 impl Page<'_> {
     fn body(&self) -> TextStyle {
-        TextStyle::new(self.size, 400.0).lh(self.line())
+        TextStyle::new(self.size, self.weight).lh(self.line())
     }
-    /// A line of reading text: 1.6 of its size.
+    /// A line of reading text: 1.6 of its size, or 1.55 of a person's.
     fn line(&self) -> f32 {
-        kept(1.6 * self.size)
+        kept(self.leading * self.size)
     }
 }
 
@@ -703,7 +707,7 @@ fn lay(nodes: Vec<Node>, p: Page) -> Vec<Block> {
             Node::Media(shown, false, margins) => {
                 let Some(Shown::Picture(src)) = shown.first() else { return Block::leaf(0.0, 0.0, el()) };
                 let around = if margins { 8.0 } else { 0.0 };
-                Block::leaf(around, around, files::picture(p.files, src, p.width, p.size))
+                Block::leaf(around, around, files::picture(p.files, src, p.width, p.size, p.line()))
             }
             Node::Media(shown, true, _) => Block::leaf(2.0, 18.0, files::media_row(p.files, &shown, p.width)),
             // A first-level heading is the browser's own: twice the size and bold. The second
@@ -728,7 +732,15 @@ fn lay(nodes: Vec<Node>, p: Page) -> Vec<Block> {
 /// it has, and `files` what the files it names are read against. Stack them with [`stack`].
 pub fn blocks(source: &str, size: f32, width: f32, files: &Files) -> Vec<Block> {
     let mut events = Parser::new_ext(source, Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH).peekable();
-    lay(settle(nodes(&mut events), files), Page { size, width, ink: ink(), depth: 0, files })
+    lay(settle(nodes(&mut events), files), Page { size, width, ink: ink(), weight: 400.0, leading: 1.6, depth: 0, files })
+}
+
+/// The same for a line the app wrote into a person's own message (`rules/typed.rs`), in the
+/// type of the words around it, heavier and on shorter lines than an agent's
+/// (`.msg.yours .msg-body`, which the web window's `.typed-embed` inherits).
+pub fn blocks_typed(source: &str, size: f32, width: f32, files: &Files) -> Vec<Block> {
+    let mut events = Parser::new_ext(source, Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH).peekable();
+    lay(settle(nodes(&mut events), files), Page { size, width, ink: ink(), weight: 500.0, leading: 1.55, depth: 0, files })
 }
 
 /// One block that is not markdown, to stack among those that are.
