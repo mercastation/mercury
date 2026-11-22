@@ -22,7 +22,10 @@ web window's go.
 A file an agent names in a conversation is not left as its path: a picture is drawn in place, any
 other file is a mention that opens it, and a folder on a line of its own shows its newest pictures
 ("The files a message names", below). A thread that made or named files carries the Files button
-in its head strip, with how many, which opens the list of them ("The files a thread made").
+in its head strip, with how many, which opens the list of them ("The files a thread made"). A
+press on any of them opens the file big over the window, its versions and the files beside it a
+key away ("A file opened big"), and the rail's Files is the place of every file the threads made
+("The Files place").
 
 ⌘K opens the command bar from anywhere: it finds threads by their words, as the web window's bar
 does, and runs what this window can do to the thread under the keys and the places it can go
@@ -1132,7 +1135,8 @@ already runs, under the web row's own name, mark and key:
   opens the thread with the caret in its reply box; Back to Inbox (E) on a thread put off, "Let
   it run now" when its agent set the moment; Later (L), which opens the picker; and Open (↵)
   from the Inbox.
-- Then Go to Home, Go to Inbox and each of the Inbox's other tabs.
+- Then Go to Home, Go to Inbox and each of the Inbox's other tabs, and Go to Files with Files in
+  each project the place lists (`filePages`), the list read as the bar opens.
 
 Nothing stands for Z: the web window's bar has no Undo row either.
 
@@ -1173,9 +1177,11 @@ wide and the window's height less 320, with its name under it. One that is nowhe
 holds, its six newest three across and a line for the rest, or only its name in a conversation
 that draws pictures of its own.
 
-Pressing a mention, a picture or a folder opens it with the system (`open`), through
-`files::open_with_system`, the one place to change when files open inside this window. A file
-macOS would run is shown in Finder instead, as the web app does (`main/opens-a-program.mts`).
+Pressing a picture, a folder's picture or a mention of a file the big view draws opens it big
+over the window ("A file opened big", below); with ⌘ held, as a browser opens a link in a new
+tab, it opens with the system instead (`asksForANewTab`), and so does any other file and a
+folder's name (`open`, through `files::open_with_system`). A file macOS would run is shown in
+Finder instead, as the web app does (`main/opens-a-program.mts`).
 
 ### How a picture is read
 
@@ -1256,9 +1262,9 @@ each file its kind in a small tile (four letters of its extension at most), its 
 with dots, and how many notes are on any of its versions (`item.artifacts.notes`). Past 440
 points, or seven tenths of the window, the files scroll inside it. The row under the pointer is
 washed, at once both ways, as the web window's has no transition. A press on a file closes the
-list and opens the file with the system, looked for where a mention's file is and opened as a
-mention opens it (`files::open`, then `open_with_system` with its guard); one found nowhere opens
-nothing. Escape closes the list, and so does a press anywhere outside it, on its way down; a
+list and opens the file big, as a mention opens it (`files::open`); a file the big view does not
+draw opens with the system, and one found nowhere opens nothing. Escape closes the list, and so
+does a press anywhere outside it, on its way down; a
 press on the button closes it on its way up, as the web window's click does. Every other key goes
 on to the page, as in the web window, whose list takes only Escape: J and K go on to another
 thread, which closes the list as leaving the thread does, and coming back finds it closed.
@@ -1296,6 +1302,180 @@ Filmed at 60 frames a second, the list opens on the frame the press lets go, clo
 of Escape or of a press outside it (on the press's way up for the button itself), and every
 frame after is the same to the pixel; Rune counts no frame as animating. A press on a file in a
 script says what a window would have opened (`a press opens …/notes/rounding-v2.md`).
+
+## A file opened big
+
+A file opens over the whole window, as the web window's big view does (`ArtifactView.tsx`, its
+kinds in `ArtifactStage.tsx`; `src/viewer.rs` here, its rules `src/rules/viewer.rs`): the paper
+the file lies on, the bar over it and, from Files, the line of places it was sent in under it.
+
+**What opens it.** In a conversation: a picture, a folder's picture, a mention of a file of a
+kind the view draws (a picture, a film, a PDF, a deck, a page, a document, a table, a script or
+any text), and a row of the Files button's list. In the Files place: a tile. The web window
+opens what is looked at (a picture, a film, a PDF, a page, a deck) over the window and what is
+read (a document, a table, a script) in a pane beside the conversation, which this window does
+not have, so both open big here (`whereAFileOpens`, ported with its cases). With ⌘ held a press
+opens the file with the system, as there; an address goes to the browser; any other file opens
+with the system as before. A picture in the box a thread is started in still opens with the
+system (the web window has a viewer of its own for those).
+
+**What it holds.** The files the lines it was opened on name (`filesInLines`, the pages, tables
+and scripts beside them only when one of them is the file opened), each file's versions in the
+order the lines name them or their names number them (`threadFiles`), and the file pressed,
+even when no line names it (`withFilesAsked`). From Files the lines are the file's own, one to a
+version at the path it opens from (`zero:files-place-open`). A short path is found where a
+picture in the conversation is looked for (`pictureRoots`).
+
+**The bar** (`.av-top`, 44 points, its band moves the window): back; the file's name, a file with
+versions by its first version's name without the version (`familyName`); what the thread called
+it, the words a message put beside it (`labelSaidFor`, ported with the web's test cases: "Before",
+"Option 2: names beside faces"); with versions, ‹ v2 of 3 › and, on an older one, Show v3; then
+the mark that opens it outside, and the close mark. The web window's comments, Approve and Share
+are not drawn (see what still differs), nor the mark that puts the file beside the conversation.
+
+**The arrows** at the stage's sides step to the file before and after: through the pictures of
+the part of the thread the pressed picture was in (`picturesFor`, here `turn_pictures`: one of
+the person's turns and the agent's answers to it), each picture once at its newest version
+(`stepsThrough`); opened any other way, through the agent's latest pictures when the file is one
+(`latestPicturesSaid`), else every file in turn (`nextStep`). Versions are the bar's to step,
+never the arrows'. One with nowhere to go is not drawn.
+
+**What each kind draws:**
+
+- A picture: fitted to the stage with 52 points either side and 24 over and under, never larger
+  than its own pixels, on rounded corners over a hairline and a soft shadow; a tall one fitted to
+  its width and read by scrolling, unless it is a phone screen that reads whole (`pictureFit`).
+  The pill under it zooms out and in through the web window's stops (1, 1.5, 2, 3, 4, 6, 8) and
+  says the size it is drawn at, a press on that fitting it again; + and − do the same, 0 fits it,
+  1 shows its own pixels, and a pinch or ⌘ with the wheel zooms freely, keeping the middle of
+  what is in view in the middle. Zoomed in, the copy is read again at the size it is drawn, up to
+  the picture's own, and the stage scrolls both ways. ↑ and ↓ move it 80 points, the page keys
+  nine tenths of the stage.
+- A document (`DocStage`): a page to read, as `.doc-prose` lays it out (`markdown::blocks_doc`):
+  16 points on lines of 1.72, headings at weight 620, lists, quotes, code and rules each with the
+  margins of its own ems, links as underlined words (an address to the browser, a file beside the
+  document to the app that owns it), and a picture it names beside itself drawn from its folder.
+  Over it who shared it and when ("Shared by your agent · today at 1:19pm", `sharedByWords`). Its
+  sheet is the text's 820 points between margins (`.doc-sheet`), and with three headings or more
+  its contents stand in the right margin, or as a column of dashes where the margin is narrow
+  (`DocOutline`); a press on one scrolls to its heading.
+- A script or any text: its lines numbered and coloured as an editor colours them
+  (`tokenize` in `code-artifact.ts`, ported as `src/rules/code.rs` with the web's test cases) on
+  its sheet, at most 980 points and as wide as its widest line, the stage scrolling both ways.
+  A table (`.csv`, `.tsv`) is drawn the same way, its lines uncoloured.
+- A page, a film, a PDF or a deck: what the web window draws it in is a frame or a player this
+  window does not have, so the stage says what the file is and offers Open outside, which opens
+  it in the browser or the app that owns it, as the bar's mark does.
+
+**The keys** (`rest` in `ArtifactView.tsx`): every key is the view's and none reaches the page
+under it: Escape goes back to where it was opened from, ← and → step the files, and a picture's
+keys are above. A chord is the system's, and ⌘K still opens the command bar over it.
+
+The scenes: `thread-file-picture` (a picture of a conversation pressed: the newest of its two
+versions), `thread-file-older` (the same, its older version shown), `thread-file-steps` (the
+middle of three pictures in one sentence, the arrows at the sides), and from the Files place
+`file-picture`, `file-doc`, `file-code`, `file-table`, `file-page` and `file-pdf`. A scene of a
+conversation answers the page's finder and draws its big pictures from the planted folder, and
+hands the native window the path pressed and its part's pictures (`pictureOpen`); one of Files
+hands it the list and each file's lines (`filesPlace`, `filesPlaceViews`) and the tile pressed
+(`fileOpen`).
+
+At 1280 by 760, 2x. The web window draws its notes down the right, 340 points, which this one
+leaves out, so its stage is that much narrower and the file stands that much further left: a
+picture in the middle of the stage 170 points, a document's column 140, a script's sheet 98. Each
+part is measured against its own place in the web window's picture:
+
+| Scene | The bar | The file | Its pill or line under |
+|---|---|---|---|
+| `thread-file-picture` | 0.45 to the version line, 1.11 with what the thread called it; the close mark 0.01 | the picture 0.28 | the pill 0.47 |
+| `thread-file-older` | 0.49 | 0.27 | 0.47 |
+| `thread-file-steps` | 0.45 | the arrows 0.37 and 0.51 | |
+| `file-picture` | 0.17 | 0.28 | the pill 0.47, Sent in 0.50 |
+| `file-doc` | 0.16 | the byline 0.49, the title 1.50, the text 0.76 | 0.38 |
+| `file-code` | 0.12 | the lines 0.19, their numbers 2.16 | 0.38 |
+| `file-table`, `file-pdf` | 0.13, 0.10 | (see below) | 0.38, 0.30 |
+
+Whole windows differ by what the notes and the narrower stage move: 2.3 for a picture, 3.1 for a
+script, 6.4 for a document. A picture 800 points square opens fitted to its width here and
+scrolls, where the web window's narrower stage fits it whole at 84% (`thread-file-steps`, whole
+35.6): the rule is the web window's, on a wider stage. A page is the web window's white frame
+with the page in it, and a card here (`file-page`, 107.6 whole).
+
+A long file is read once and laid out once, the stage built again only when the version, the
+stage's size or the pictures held change (`rune::memo`). Measured in a release build on the
+person's own largest files, through the ignored test `a_big_file_opens_in` (`MERCURY_BIG=<a
+fixture> cargo test --release -- --ignored --nocapture a_big_file_opens`): a script of 15,160
+lines (837 KB) opens in 207 ms, a document of 1,409 lines (509 KB) in 272 ms and a picture of
+4.6 MB in 76 ms, its decoding on the worker after that; every frame after is 1 to 2 ms. A debug
+build takes about five seconds to open the first two.
+
+Tests hold the rest on invented files (`src/feel.rs`): a picture pressed in a conversation opens
+big, takes every key (E closes nothing under it, + and 0 zoom), and Escape and the close mark go
+back to the conversation; a mention of a document opens it big, and with ⌘ held does not; the
+rail's Files opens the Files place, a tile opens big from the list and fixture of a Files place,
+the place under it opens its thread, and Escape walks back from the thread to Files and from Files
+to where it was opened from. No test, and no headless run, hands a file to the system.
+
+## The Files place
+
+The rail's Files, under the Inbox, opens the Files place (`FilesPlace.tsx`, its look
+`files-place.css`, its rules `files-shown.ts`; here `src/files_page.rs` and
+`src/rules/files_shown.rs`, ported with the web's test cases): every file the threads made, one
+tile each however many threads it went to, from the list the app answers (`zero:files-place`,
+read when the page opens and again as the store changes, at most every two seconds).
+
+- **The strip**: back and forward, and Files over the Inbox's sky, as the web window draws it.
+- **The bar**: the way back (All files, then the project and its folders, each a press away) and
+  the box that searches (`/` puts the caret in it; Escape takes back what is typed, then the
+  keys). Every word must start a word of a file's name, its project or its folder, and the files
+  named for a word come before, and instead of, those that only sit in a place of that word.
+- **The tools**: All and each kind the files here are (Documents, Pictures, Films, Pages, Tables,
+  Code…), Needs review while a file has comments nobody approved, what the files take on this
+  Mac, Recent and Name (Name reads figures as numbers and capitals and accents as their letters),
+  and Grid or List.
+- **The cards**: on All files a card for each project, with how many files it holds, which opens
+  its page; on a project's page, its folders.
+- **The tiles**: as many columns of at least 232 points as fit, 22 apart; each tile's face sixteen
+  by ten, its edge brighter under the pointer, then the name a person reads (a name nobody chose,
+  a page shot's, is its thread's title) and its line: the version, who made it, how long ago and
+  its size. A picture's face is its top, filling the tile, or the whole of it in the middle where
+  filling would cut away more than four tenths (`coverFit`); a document's its title, headings and
+  first lines fading out (`docBlocks`); a script's or a table's its first twelve lines; a film's
+  its play mark; a page's, a PDF's and a deck's their kind's word. Sixty at once, the next sixty
+  as the foot comes near (`TILES_AT_ONCE`). As a list, each file one line with a small
+  thumbnail. A press opens the file big ("A file opened big"), with the places it was sent in
+  under it, each of which opens its thread; Back from there comes back to Files.
+- **The keys**: `/` and Escape, which leaves the place for where it was opened from; N still
+  starts a thread.
+
+The scenes: `files` (All files), `files-project` (a project's page), `files-list` (the list) and
+`files-name` (ordered by name), over an invented list built on the planted folder;
+`MERCURY_FILES=<a saved list>` photographs the web window on another list. At 1280 by 760, 2x,
+whole windows and each part:
+
+| Scene | Whole | The strip | The bar | The tools | The cards | The tiles |
+|---|---|---|---|---|---|---|
+| `files` | 0.56 | 0.12 | 0.47 | 1.55 | 0.28 | 0.56 |
+| `files-list` | 0.63 | 0.12 | 0.47 | 1.55 | 0.28 | 0.70 |
+| `files-project` | 3.13 | | 0.60 | 1.56 | | 1.17, and 51.9 the page's tile |
+
+At 900 by 760 the two are 0.99 and 1.10 whole; at 1600 by 1000 the list is 0.45 and the grid 6.49,
+which is the page's tile in view: the web window draws the page in it, white, and this window its
+word. Every part stands where the browser puts it; what is left is glyphs, and the rail, whose
+other places this window does not draw.
+
+The rail's Files moved the screens at rest a little, as it stands where the web window draws
+Demands (the rail itself is 0.52 on each): Home from 0.844 to 0.867, the Inbox from 0.240 to
+0.262, a conversation from 0.409 to 0.429.
+
+On the person's own files, read through the running app's door and never written, the web
+window photographed on the same list (`MERCURY_FILES`) and this window drawn on the door
+(`--view files`): the same three project cards, the same kinds, and the first sixty tiles in the
+same order with the same name and the same line, the web window's harness having no team to tell
+"Your agent" from another's; ordered by name, the same sixty in the same order. On that list of 168 files a release build draws the page first in
+83 ms, its pictures then landing from the worker (the ignored test `the_files_place_draws_in`,
+`MERCURY_FILES_PLACE=<a fixture with the list>`). A document's or a script's face is read once
+from the top of its file, and read again only when its versions or its size change.
 
 ## What a run did
 
@@ -1497,12 +1677,11 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
     drawing nothing.
 - **A file named in a message, where it still differs:**
   - A film or a sound is its name, which opens it. The web window plays it in place.
-  - A page, a sheet or a note opens with the system. The web window opens it in a pane beside
-    the conversation, and its rules open a design page or a note on a line of its own there by
-    themselves (`message-artifacts.ts`). The reference page has no engine to find a file
-    with, so that pane was never photographed (`thread-links-beside` draws the same in both).
-  - A file pressed in the Files button's list opens with the system too. The web window opens
-    one its big view reviews big, and any other beside the conversation.
+  - A document, a table or a script opens big over the window. The web window opens it in a pane
+    beside the conversation, and its rules open a design page or a note on a line of its own
+    there by themselves (`message-artifacts.ts`), neither of which this window has. The
+    reference page has no engine to find a file with, so that pane was never photographed
+    (`thread-links-beside` draws the same in both).
   - A press outside that list only closes it, where the web window's also lands on what it was
     aimed at (another button of the strip, a mention). And the wheel over the page moves nothing
     while the list is open, where the web window's page scrolls under it: the layer that catches
@@ -1528,6 +1707,40 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
     named as a link, which stays a link.
   - With more pictures than the budget holds, one less than half on screen may hold its place
     until more of it shows: Rune reports an element on screen from half of it.
+- **A file opened big, where it still differs:**
+  - No comments down the right, no box to write one, no Approve and no Share. On the person's own
+    Mercury no file has ever had a comment, a reply or an approval (none on any of the files in
+    Files, read through the door), so the stage takes the whole width, and everything on it
+    stands further right than in the web window (see the table above). A picture is therefore
+    fitted to a wider stage, and one that a narrower stage would fit whole can open fitted to its
+    width (the web's own rule, `pictureFit`).
+  - Versions are counted from the lines the view was opened on. The web window also reads the
+    file's line from Files (`zero:file-line`), which numbers a version made in another thread;
+    a file sent to more than one thread can count one version more there.
+  - A page, a film, a PDF and a deck are a card with Open outside: the web window draws the page
+    in a frame, plays the film with its marks, and draws the PDF's pages and the deck's slides.
+  - A table is its lines, as a script's are; the web window draws it as a table to sort, search
+    and edit. A line longer than four thousand characters is cut there, and only the first 4 MB
+    of a file is read.
+  - The pointer does not pan a zoomed picture by dragging it (the wheel and the trackpad scroll
+    it), and a picture shows the arrow where the web window's crosshair offers a pin.
+  - The document's outline does not light the section being read, and its column of dashes
+    does not open into words under the pointer.
+  - A document cannot be edited and a version cannot be restored (the web window's editor and
+    Restore this version), and a file is not renamed by pressing its name.
+  - A document's inline code and table take the message's look, a little smaller than the web
+    window's reader draws them.
+- **The Files place, where it still differs:**
+  - Nothing is written from it: no New (a document, a table, a folder, files from the computer),
+    no menu on a tile (rename, move to a folder, a new folder, Move to the Trash), no dragging a
+    tile onto a folder, no choosing files for the Trash, and the total is its words, without the
+    menu that frees the space or keeps files in the cloud.
+  - A page's tile is its kind's word: the web window draws the page itself, small. A PDF's, a
+    deck's and a film's tiles have no first page, slide or frame, and a film's no length.
+  - The order does not hold still while the pointer moves to a tile and a file arrives
+    (`HOLD_STILL_MS`), and the fold of the check pictures agents took marks itself with a
+    character rather than the web window's chevron.
+  - The search box is drawn with Rune's caret.
 - **The team's card has no rows.** With teammates, Home's second card is the team's week; it says
   so when nobody else is on the team and is bare otherwise, until the Team page is drawn.
 - **Choosing in a conversation, where it still differs.** Ported is what is used day to day: the
@@ -1638,17 +1851,18 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
 - **No warning before closing a thread whose agent waits on an answer.** The web window gives it
   once ever, on the first such E, and remembers for itself that it did.
 - **Several rows cannot be ticked**, so nothing is done to many threads at once.
-- **The rail has only what works here**: Search, Home, the Inbox, Restart to update while a new
-  version waits, Settings, the usage row and the person's own row. The web window's also has
-  Demands, Chats (with teammates), Connections, Files, Record meeting and Feedback. Drawn here
-  they were buttons that went nowhere, so they are left out until this window has their pages.
+- **The rail has only what works here**: Search, Home, the Inbox, Files, Restart to update while
+  a new version waits, Settings, the usage row and the person's own row. The web window's also
+  has Demands, Chats (with teammates), Connections, Record meeting and Feedback. Drawn here they
+  were buttons that went nowhere, so they are left out until this window has their pages, and
+  Files stands under the Inbox where the web window has Demands and Connections before it.
   Settings and the person's row bring the web window
   forward on its Settings, as there is no Settings page here; the usage row only reads, where the
   web window's opens the limits under it.
 - **The command bar offers only what this window can do.**
   - Not listed, because nothing here does them yet: New project, Record meeting, Filter,
-    Projects and ranking a project first, Groups and each group, Files, Connections, teammates,
-    the theme rows, updates and
+    Projects and ranking a project first, the cloud's rows, Groups and each group, Connections,
+    teammates, the theme rows, updates and
     restarts, Pause agents, Resume interrupted agents, General agent instructions, Usage and
     limits, Settings, Keyboard shortcuts, Show as a board, Import chats and agents, the tutorial,
     setting Mercury up again, a demo copy and keyboard shortcut hints. On a thread: Remote
@@ -1792,8 +2006,13 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
   its question, and what each pick does. `src/rules/display.rs`: what View and filters keeps and
   in which order, laid over the lists (`display::show`); `src/rules/cloud.rs`: the cloud button,
   its menu's lines and what they write.
-- `src/files.rs`: the files those words name, drawn, and the one function that opens one.
-  `src/pictures.rs`: the pictures, read off the disk on a worker and kept small.
+- `src/files.rs`: the files those words name, drawn, and the one function that opens one with the
+  system. `src/pictures.rs`: the pictures, read off the disk on a worker and kept small.
+- `src/viewer.rs`: a file opened big, over the window. `src/rules/viewer.rs`: which files it holds
+  and steps through, where a press lands, what the thread called the file, who shared it, and a
+  picture's fit and zoom. `src/rules/code.rs`: a script's colours.
+- `src/files_page.rs`: the Files place. `src/rules/files_shown.rs`: what it shows, in what order,
+  and what a tile says.
   `src/rules/paths.rs`, `mentions.rs`, `roots.rs`: which words name a file, what kind it is and
   what it is called, and where it is looked for. `src/rules/thread_files.rs`: which files a
   thread made, each once at its newest version, for the Files button (`src/thread.rs` draws it

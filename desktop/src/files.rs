@@ -77,6 +77,22 @@ impl<'a> Files<'a> {
         }
     }
 
+    /// What a document opened big reads its pictures against: its own folder, where a picture
+    /// it names beside itself is (`fileBeside` in `ArtifactStage.tsx`).
+    pub fn beside(s: &'a State, folder: &str) -> Files<'a> {
+        Files {
+            dir: folder.to_string(),
+            thread: String::new(),
+            folder: None,
+            roots: vec![folder.to_string()],
+            draws_pictures: true,
+            snap: &s.snap,
+            pictures: &s.pictures,
+            window_h: s.size.1,
+            now: s.now,
+        }
+    }
+
     /// An invented project at `dir` with nothing read yet, for the tests of what a message's
     /// words become.
     #[cfg(test)]
@@ -144,21 +160,23 @@ fn frame(here: Option<&Held>, wide: f32, tall: f32, fit: Option<SurfaceFit>) -> 
     }
 }
 
-/// A picture and its name under it, which open it with the system: the magnifier for a pointer,
-/// as over the web window's (`.inline-image-open { cursor: zoom-in }`), the picture's edge
-/// brighter under it, and its path as written for a title. A right press opens its menu, the
-/// picture standing `drawn` points down the block, from its top to its foot. A picture on its
-/// way opens nothing yet.
+/// A picture and its name under it, which open it big over the window, stepping through the
+/// pictures of its part of the thread (`openBig` in `Focus.tsx`), or with ⌘ held with the
+/// system: the magnifier for a pointer, as over the web window's
+/// (`.inline-image-open { cursor: zoom-in }`), the picture's edge brighter under it, and its
+/// path as written for a title. A right press opens its menu, the picture standing `drawn`
+/// points down the block, from its top to its foot. A picture on its way opens nothing yet.
 fn opens(block: El, here: Option<&Held>, src: &str, drawn: (f32, f32)) -> El {
     match here {
         Some(held) => {
             let (path, carried) = (held.path.clone(), roots::whole_picture_path(src).is_some());
             let menu_path = path.clone();
+            let written = src.to_string();
             block
                 .hover_group()
                 .cursor(Cursor::ZoomIn)
                 .help(src)
-                .on_press(move |_: &mut State| open_with_system(&path))
+                .on_press_tx(move |s: &mut State, tx: &mut Tx| if tx.mods().cmd { open_with_system(&path) } else { s.open_big(&written, None) })
                 .on_secondary_press_local(move |s: &mut State, at: PointerEvent, tx: &mut Tx| picture_menu(s, &menu_path, carried, at.y >= drawn.0 && at.y < drawn.1, at.window(), tx))
         }
         None => block,
@@ -210,6 +228,31 @@ pub fn picture(f: &Files, src: &str, room: f32, size: f32, line: f32) -> El {
     // As wide as the picture and not the column, as the button around it is
     // (`.inline-image-open`): the magnifier and the look under the pointer stop where it does.
     row().child(watched(opens(block, held, src, (8.0, 8.0 + tall)), places, want))
+}
+
+/// A picture in a document opened big (`.doc-prose img`): at the text's width at most, and no
+/// taller than 560 points or seven tenths of the window, in the middle, its corners rounded
+/// inside a hairline. A web picture, or one that is nowhere, is its words instead, as the
+/// web window's reader draws a picture it cannot find.
+pub fn doc_picture(f: &Files, src: &str, room: f32) -> El {
+    let most = (room, 560.0_f32.min(0.7 * f.window_h));
+    if src.starts_with("http://") || src.starts_with("https://") || src.starts_with("data:") {
+        return row().w(room).justify_center().child(text(src).font(TextStyle::new(16.0, 400.0).italic()).color(dim()));
+    }
+    let places = f.places(src);
+    let want = Want::Within(f.pictures.pixels(most.0 - 2.0), f.pictures.pixels(most.1 - 2.0));
+    let (held, natural) = match f.pictures.look(places.clone(), want) {
+        Look::Missing => return row().w(room).justify_center().child(text(src).font(TextStyle::new(16.0, 400.0).italic()).color(dim())),
+        Look::Here(held) => {
+            let natural = held.natural;
+            (Some(held), Some(natural))
+        }
+        Look::Arriving(natural) => (None, natural),
+    };
+    let (w, h) = natural.map_or((most.0, most.0 * 0.75), |(w, h)| (w.max(1) as f32, h.max(1) as f32));
+    let fit = ((most.0 - 2.0) / w).min((most.1 - 2.0) / h).min(1.0);
+    let (wide, tall) = (w * fit + 2.0, h * fit + 2.0);
+    row().w(room).justify_center().child(watched(frame(held.as_ref(), wide, tall, None), places, want))
 }
 
 /// One thing a row holds.
@@ -312,7 +355,7 @@ pub fn folder(f: &Files, href: &str, room: f32, size: f32) -> El {
                 Look::Here(held) => el().pixels_fit(&held.pixels, SurfaceFit::Fill).surface_anchor(rune::Align::Center, rune::Align::Start),
                 _ => el(),
             };
-            let (file, base) = (file.clone(), paths_base(file).to_string());
+            let (file, base, folder) = (file.clone(), paths_base(file).to_string(), listing.pictures.clone());
             // The picture and its name are one button, which opens it, its title the name
             // (`.folder-preview-shot`).
             let named = col().w(wide).child(shot(inside)).child(row().mt(4.0).child(row().min_w(0.0).child(text(base.as_str()).font(label).color(muted()).truncate())));
@@ -320,7 +363,9 @@ pub fn folder(f: &Files, href: &str, room: f32, size: f32) -> El {
             // a right press (`data-copy-file={file}`).
             let menu_file = file.clone();
             let named = named.on_secondary_press_local(move |s: &mut State, at: PointerEvent, tx: &mut Tx| picture_menu(s, &menu_file, true, at.y < tall, at.window(), tx));
-            watched(named.hover_group().cursor(Cursor::ZoomIn).help(base).on_press(move |_: &mut State| open_with_system(&file)), places, want)
+            // Opened big, it steps through the folder's pictures, as the turn a press is in.
+            let opened = move |s: &mut State, tx: &mut Tx| if tx.mods().cmd { open_with_system(&file) } else { s.open_big(&file, Some(folder.clone())) };
+            watched(named.hover_group().cursor(Cursor::ZoomIn).help(base).on_press_tx(opened), places, want)
         })
         .collect();
     // Three across, row under row, ten points apart both ways.
@@ -347,13 +392,23 @@ fn paths_base(file: &str) -> &str {
     file.rsplit('/').next().unwrap_or(file)
 }
 
-/// Opens what a link in a message points at: an address in the browser, a file in the app
-/// that reads it. A short path is looked for where the web app's finder looks
-/// (`main/artifact-path.mts`): the thread's own checkout, then the project's folders.
-pub fn open(s: &mut State, href: &str) {
+/// Opens what a link in a message points at (`openHref` in `Focus.tsx`): an address in the
+/// browser; a file the big view draws, big over the window (`viewer.rs`), unless ⌘ is held
+/// (`outside`), which as in a browser sends it out; anything else in the app that reads it.
+pub fn open(s: &mut State, href: &str, outside: bool) {
     if href.starts_with("http://") || href.starts_with("https://") || href.starts_with("mailto:") {
         return open_with_system(href);
     }
+    if !outside && crate::rules::viewer::opens_big(href) {
+        return s.open_big(href, None);
+    }
+    open_found(s, href)
+}
+
+/// Opens a file a message names in the app that reads it. A short path is looked for where the
+/// web app's finder looks (`main/artifact-path.mts`): the thread's own checkout, then the
+/// project's folders.
+pub fn open_found(s: &mut State, href: &str) {
     let crate::View::Thread { id, product } = &s.view else { return };
     let Some(item) = s.snap.items.iter().find(|i| &i.id == id && &i.product == product) else { return };
     let files = Files::of(s, item);
@@ -458,7 +513,7 @@ pub fn link_menu(s: &mut State, href: &str, at: PointerPress, tx: &mut Tx) {
     let href = href.to_string();
     tx.popup_menu(menu, at, move |s: &mut State, picked: Option<&str>, tx: &mut Tx| match (picked, &file) {
         (Some("copy-file"), Some(file)) => copy_file(file, tx),
-        (Some("open-link"), _) => open(s, &href),
+        (Some("open-link"), _) => open(s, &href, true),
         (Some("copy-link"), _) => tx.copy(address),
         _ => {}
     });
@@ -523,8 +578,9 @@ fn opens_a_program(path: &std::path::Path) -> bool {
 /// it. One that would run instead is shown in its folder, as the web app shows it
 /// (`openForThePerson`). This is the one place to change when files open inside this window.
 pub fn open_with_system(target: &str) {
-    // A headless run opens nothing, and says what a press in its script would have opened.
-    if rune::tooling::headless_run().is_some() {
+    // A headless run opens nothing, and says what a press in its script would have opened; nor
+    // does a test, whose presses must never reach the person's apps.
+    if cfg!(test) || rune::tooling::headless_run().is_some() {
         eprintln!("a press opens {target}");
         return;
     }

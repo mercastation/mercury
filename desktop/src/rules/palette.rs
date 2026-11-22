@@ -39,6 +39,8 @@ pub enum Does {
     Later(Thread),
     /// Brings it back from Later.
     Back(Thread),
+    /// The Files place: All files, or one project's page.
+    Files(Option<String>),
 }
 
 /// One row of the bar (`Command` in `Palette.tsx`).
@@ -106,6 +108,22 @@ pub fn page_rows() -> Vec<Row> {
         Row::command("view-later", "Go to Later", Does::Tab(Tab::Later)).found_by(LATER_KEYWORDS),
         Row::command("view-done", "Go to Done", Does::Tab(Tab::Done)).found_by("finished closed"),
     ]
+}
+
+/// The words a Files row is found by besides its name (`filePages` in `Palette.tsx`, whose
+/// keywords end with the row's title, which a query finds in its name here).
+const FILES_KEYWORDS: &str = "files file documents docs pictures images films videos decks slides pdfs designs shared";
+
+/// The Files place and each project's page in it (`filePages` in `App.tsx`, after the tabs
+/// there): Go to Files, then Files in each project the place has listed.
+pub fn file_rows(projects: &[String]) -> Vec<Row> {
+    let mut all = Row::command("files-all", "Go to Files", Does::Files(None)).found_by(FILES_KEYWORDS);
+    all.hint = Some("every file you can see".to_string());
+    let mut rows = vec![all];
+    for p in projects {
+        rows.push(Row::command(&format!("files-project-{p}"), &format!("Files in {p}"), Does::Files(Some(p.clone()))).found_by(FILES_KEYWORDS));
+    }
+    rows
 }
 
 /// When a thread that was put off comes back (`returnAt` in `App.tsx`).
@@ -417,7 +435,7 @@ pub const NO_GLYPH: &str = "·";
 pub fn glyph_for(id: &str) -> &'static str {
     match id {
         "new-thread" => "✎",
-        "view-home" | "view-inbox" | "view-progress" | "view-later" | "view-done" => "→",
+        "view-home" | "view-inbox" | "view-progress" | "view-later" | "view-done" | "files-all" => "→",
         "done" => "□",
         "reopen" => "↶",
         "reply" => "↩\u{fe0e}",
@@ -460,6 +478,18 @@ mod tests {
 
     fn open_thread() -> Item {
         item(json!({ "id": "w-1", "product": "shop", "status": "open", "title": "Fix the export" }))
+    }
+
+    #[test]
+    fn the_files_place_and_each_projects_page_are_found_by_the_words_for_files() {
+        let rows = file_rows(&["Storefront".to_string(), "Mobile".to_string()]);
+        assert_eq!(rows.iter().map(|r| r.label.as_str()).collect::<Vec<_>>(), ["Go to Files", "Files in Storefront", "Files in Mobile"]);
+        assert_eq!(rows[0].hint.as_deref(), Some("every file you can see"));
+        assert_eq!(typed("pictures", &rows).len(), 3);
+        assert_eq!(typed("files mobile", &rows), ["files-project-Mobile"]);
+        assert_eq!(glyph_for("files-all"), "→");
+        assert_eq!(glyph_for("files-project-Mobile"), NO_GLYPH);
+        assert_eq!(rows[2].does, Does::Files(Some("Mobile".to_string())));
     }
 
     #[test]

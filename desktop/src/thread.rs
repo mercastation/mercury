@@ -340,9 +340,9 @@ fn files_button(count: usize, open: bool) -> El {
 }
 
 /// One file of the list: its kind, four letters at most in a small tile, its name, cut short
-/// with dots, and the notes on it. A press closes the list and opens the file, with the system,
-/// as a mention opens it (`files::open`): the web window opens it big or beside the
-/// conversation, which this window does not have. `lit`: the pointer is on it.
+/// with dots, and the notes on it. A press closes the list and opens the file big, as a mention
+/// opens it (`files::open`); the web window opens a document or a script beside the
+/// conversation instead, which this window does not have. `lit`: the pointer is on it.
 fn file_row(at: usize, file: &ThreadFile, lit: bool) -> El {
     let kind = row()
         .w(34.0)
@@ -376,7 +376,7 @@ fn file_row(at: usize, file: &ThreadFile, lit: bool) -> El {
     let src = file.src.clone();
     line.cursor(rune::Cursor::Pointer).help(format!("Open {}", file.name)).on_press(move |s: &mut State| {
         s.close_files();
-        crate::files::open(s, &src);
+        crate::files::open(s, &src, false);
     })
 }
 

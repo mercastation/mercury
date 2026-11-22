@@ -406,11 +406,14 @@ pub(crate) mod tests {
     fn the_rail_opens_once_the_pointer_has_rested_on_it_and_folds_when_it_leaves() {
         let mut rt = window("rail", &[]);
         assert_eq!(rt.state.lists.needs.len(), 4, "the invented inbox needs the person four times");
-        // Onto the rail under its places, where there is nothing to press: the arrow stays, and
-        // the rail is still folded until 140 ms have gone by.
-        rt.pointer_move(41.0, 244.0);
+        // Onto Files, the third of its places: the pointing hand, and the rail still folded until
+        // 140 ms have gone by. Under the places there is nothing to press, and the arrow stays.
+        rt.pointer_move(41.0, 290.0);
         rt.frame(1.0 / 60.0);
         assert_eq!(rt.cursor(), Cursor::Default);
+        rt.pointer_move(41.0, 244.0);
+        rt.frame(1.0 / 60.0);
+        assert_eq!(rt.cursor(), Cursor::Pointer);
         run(&mut rt, 0.1);
         assert_eq!(rt.state.rail.width(rt.state.at), 38.0);
         // Then it eases open over 0.24 s, the card moving over with it.
@@ -673,6 +676,141 @@ pub(crate) mod tests {
         // Its name stands 13 points under its 32 tall frame, which stands 8 down the block.
         assert_eq!(right_press(&mut rt, (x, y + 8.0 + 32.0 + 13.0 + 8.0)), menu(&COPY_FILE[..1]));
         let _ = std::fs::remove_dir_all(shot.parent().and_then(std::path::Path::parent).expect("its folder"));
+    }
+
+    /// Where the element keyed `key` is drawn, in window points.
+    fn rect_of(rt: &Runtime<State>, key: &str) -> Option<[f32; 4]> {
+        rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key)).map(|e| e.rect)
+    }
+
+    #[test]
+    fn a_picture_pressed_in_a_conversation_opens_big_takes_every_key_and_escape_goes_back() {
+        let (mut rt, shot) = with_a_picture("big-picture", |_| "Here is shots/shot.png as it stands.".into());
+        let (x, y) = first(&mut rt, Cursor::ZoomIn);
+        press(&mut rt, x, y + 12.0);
+        let open = rt.state.viewer.open.as_ref().expect("the picture opens big");
+        assert_eq!(open.kind(), Some("image"));
+        assert_eq!(open.from, crate::viewer::From::Thread("w-feel0".into(), "storefront".into()));
+        // The keys are the view's: E closes no thread under it, and + and 0 zoom the picture.
+        key(&mut rt, Key::Text("e".into()));
+        assert!(rt.state.toast.is_none(), "nothing was marked done");
+        key(&mut rt, Key::Text("+".into()));
+        assert_eq!(rt.state.viewer.open.as_ref().map(|o| o.zoom), Some(1.5));
+        key(&mut rt, Key::Text("0".into()));
+        assert_eq!(rt.state.viewer.open.as_ref().map(|o| o.zoom), Some(1.0));
+        // Escape goes back to the conversation it was opened from, and so does the close mark.
+        key(&mut rt, Key::Escape);
+        assert!(rt.state.viewer.open.is_none());
+        assert!(matches!(rt.state.view, View::Thread { .. }));
+        press(&mut rt, x, y + 12.0);
+        assert!(rt.state.viewer.open.is_some());
+        press(&mut rt, 1256.0, 21.5);
+        assert!(rt.state.viewer.open.is_none());
+        let _ = std::fs::remove_dir_all(shot.parent().and_then(std::path::Path::parent).expect("its folder"));
+    }
+
+    #[test]
+    fn a_mention_opens_its_file_big_and_with_command_held_with_the_system() {
+        let (mut rt, shot) = with_a_picture("big-mention", |_| "Read [the plan](notes/plan.md) first.".into());
+        let notes = shot.parent().and_then(std::path::Path::parent).expect("its folder").join("notes");
+        std::fs::create_dir_all(&notes).expect("a folder for the note");
+        std::fs::write(notes.join("plan.md"), "# The plan\n\nRound each line.\n").expect("an invented note");
+        let at = first(&mut rt, Cursor::Pointer);
+        press(&mut rt, at.0, at.1);
+        let open = rt.state.viewer.open.as_ref().expect("a document opens big");
+        assert_eq!(open.kind(), Some("markdown"));
+        key(&mut rt, Key::Escape);
+        // ⌘ held sends it out, as a browser opens a link in a new tab: nothing opens here.
+        rt.physical_input(rune::PhysicalInput::Modifiers(Mods { cmd: true, ..Mods::default() }));
+        press(&mut rt, at.0, at.1);
+        rt.physical_input(rune::PhysicalInput::Modifiers(Mods::default()));
+        assert!(rt.state.viewer.open.is_none());
+        let _ = std::fs::remove_dir_all(shot.parent().and_then(std::path::Path::parent).expect("its folder"));
+    }
+
+    #[test]
+    fn the_rails_files_opens_the_files_place_a_tile_opens_big_and_its_thread_opens_from_under_it() {
+        let (mut rt, shot) = with_a_picture("files-place", |_| "Done.".into());
+        let path = shot.to_string_lossy().into_owned();
+        let sent = json!([{ "kind": "thread", "product": "storefront", "id": "w-feel1", "title": "Invented thread number 1" }]);
+        let list = json!({
+            "files": [{ "key": "storefront/shot.png", "project": "Storefront", "name": "shot.png", "kind": "image", "versions": 1, "at": 1_790_000_000_000.0_f64 - 60_000.0,
+                "by": null, "agent": "", "open": 0, "approvedBy": [], "sentIn": sent, "opened": path, "bytes": 2048 }],
+            "projects": ["Storefront"], "folders": [], "mine": ["Storefront"],
+        });
+        let views = json!({ "storefront/shot.png": { "key": "storefront/shot.png", "lines": [{ "ts": 1.0, "source": "agent", "patch": { "note": format!("[shot.png]({path})") } }], "sentIn": sent } });
+        rt.update(move |s, _| {
+            s.fixture.insert("filesPlace".into(), list.clone());
+            s.fixture.insert("filesPlaceViews".into(), views.clone());
+            s.go(View::Home);
+        });
+        rt.frame(1.0 / 60.0);
+        // The rail's third place is Files, on All files.
+        press(&mut rt, 41.0, 244.0);
+        assert_eq!(rt.state.view, View::Files { project: None });
+        rt.frame(1.0 / 60.0);
+        let [x, y, w, h] = rect_of(&rt, "files-tile-storefront/shot.png").expect("the tile is drawn");
+        press(&mut rt, x + w / 2.0, y + h / 3.0);
+        let open = rt.state.viewer.open.as_ref().expect("the tile opens big");
+        assert_eq!(open.from, crate::viewer::From::Files("storefront/shot.png".into()));
+        // Under it, the thread it was sent in, which a press opens.
+        let [x, y, w, h] = rect_of(&rt, "sent-in-0").expect("the place is drawn");
+        press(&mut rt, x + w / 2.0, y + h / 2.0);
+        assert!(rt.state.viewer.open.is_none());
+        assert_eq!(rt.state.view, View::Thread { id: "w-feel1".into(), product: "storefront".into() });
+        // Back goes to Files, and Escape there to where Files was opened from.
+        key(&mut rt, Key::Escape);
+        assert_eq!(rt.state.view, View::Files { project: None });
+        key(&mut rt, Key::Escape);
+        assert_eq!(rt.state.view, View::Home);
+        let _ = std::fs::remove_dir_all(shot.parent().and_then(std::path::Path::parent).expect("its folder"));
+    }
+
+    /// How long a file takes to open big, and a frame after it, on the fixture `MERCURY_BIG`
+    /// names (one whose `fileOpen` a Files place's lines open): a measurement, run with
+    /// `MERCURY_BIG=<fixture> cargo test --release -- --ignored --nocapture a_big_file_opens`.
+    #[test]
+    #[ignore]
+    fn a_big_file_opens_in() {
+        let Ok(path) = std::env::var("MERCURY_BIG") else { return };
+        let s = crate::init_from(&["--fixture".to_string(), path]);
+        let text = rune::text::TextSystem::new(crate::FONTS, ("Geist", "Geist Mono, ui-monospace"));
+        let mut rt = Runtime::with_text(s, crate::view, (1280.0, 760.0), rune::Env::new(true, 2.0), text);
+        rt.poll = Some(crate::poll);
+        let started = std::time::Instant::now();
+        rt.frame(0.0);
+        rt.frame(1.0 / 60.0);
+        let opened = started.elapsed();
+        let again = std::time::Instant::now();
+        rt.frame(1.0 / 60.0);
+        println!("opened big in {:?}, a frame after it in {:?}", opened, again.elapsed());
+        assert!(rt.state.viewer.open.is_some());
+    }
+
+    /// How long the Files place takes to draw, and a frame after it, on the fixture
+    /// `MERCURY_FILES_PLACE` names (one with a `filesPlace` list): a measurement, run with
+    /// `MERCURY_FILES_PLACE=<fixture> cargo test --release -- --ignored --nocapture the_files_place_draws`.
+    #[test]
+    #[ignore]
+    fn the_files_place_draws_in() {
+        let Ok(path) = std::env::var("MERCURY_FILES_PLACE") else { return };
+        let s = crate::init_from(&["--fixture".to_string(), path, "--view".to_string(), "files".to_string()]);
+        let text = rune::text::TextSystem::new(crate::FONTS, ("Geist", "Geist Mono, ui-monospace"));
+        let mut rt = Runtime::with_text(s, crate::view, (1280.0, 760.0), rune::Env::new(true, 2.0), text);
+        rt.poll = Some(crate::poll);
+        let started = std::time::Instant::now();
+        rt.frame(0.0);
+        let first = started.elapsed();
+        let mut frames = Vec::new();
+        for _ in 0..30 {
+            let at = std::time::Instant::now();
+            // The pointer moving over the tiles draws the page again each frame.
+            rt.pointer_move(300.0 + frames.len() as f32 * 20.0, 400.0);
+            rt.frame(1.0 / 60.0);
+            frames.push(at.elapsed());
+        }
+        frames.sort();
+        println!("drawn first in {:?}; a frame with the pointer moving: half under {:?}, the slowest {:?}", first, frames[15], frames[29]);
     }
 
     /// The web window's word for a pointer (`cursor`), as Rune names it.

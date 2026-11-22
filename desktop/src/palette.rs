@@ -164,7 +164,7 @@ fn under_the_keys(s: &State) -> Option<(&Item, bool)> {
     match &s.view {
         View::Thread { .. } => s.open_item().map(|item| (item, true)),
         View::Inbox => s.lists.under(s.inbox_tab).get(s.picked).and_then(|r| s.item(&r.id, &r.product)).map(|item| (item, false)),
-        View::Home => None,
+        View::Home | View::Files { .. } => None,
     }
 }
 
@@ -180,7 +180,9 @@ fn lines(s: &State) -> Vec<Line> {
         return pictured_lines(pictured, threads);
     }
     let under = under_the_keys(s);
-    let commands = rules::commands(under.map(|(item, _)| item), under.is_some_and(|(_, open)| open), s.now, starts_a_thread().is_some());
+    let mut commands = rules::commands(under.map(|(item, _)| item), under.is_some_and(|(_, open)| open), s.now, starts_a_thread().is_some());
+    // Then the Files place, and each project's page once the place has been read.
+    commands.extend(rules::file_rows(&s.files.projects()));
     let listed = rules::listed(commands, threads, query);
     let keys = rules::row_keys(&listed.rows);
     let headings: Vec<Option<String>> = (0..listed.rows.len()).map(|at| listed.label_over(at).map(str::to_string)).collect();
@@ -268,6 +270,7 @@ fn run(s: &mut State, does: Does, tx: &mut Tx) {
         Does::Reopen((id, product)) => s.reopen(&id, &product),
         Does::Later((id, product)) => s.open_later(&id, &product, tx),
         Does::Back((id, product)) => s.bring_back(&id, &product),
+        Does::Files(project) => s.open_files_place(project),
     }
 }
 
