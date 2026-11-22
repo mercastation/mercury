@@ -164,3 +164,6 @@ stroked!(DONE, "m-done", "1.4", r#"<path d="m3 13 3.6 3.6L13.4 9"/><path d="m10.
 
 // Before a link in an agent's words.
 stroked!(LINK, "m-link", "1.6", r#"<path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/>"#);
+
+// The last row of the project menu, where a project's swatch would be: New project.
+stroked!(PLUS, "m-plus", "1.8", r#"<path d="M12 5v14M5 12h14"/>"#);

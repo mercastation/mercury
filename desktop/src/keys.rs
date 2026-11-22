@@ -72,14 +72,10 @@ pub fn close_under_the_keys(s: &mut State, tx: &mut Tx) {
 
 /// True when the key was this window's. A chord is the system's, never one of these.
 pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
-    // ⌘Return with nothing holding the keyboard still sends what Home's box holds
-    // (`modEnterSendsTheCard`): the box shares the page, and its key is printed on Send.
-    if e.key == Key::Enter && e.mods.cmd && s.view == View::Home {
-        let has_words = !s.compose.words.text.trim().is_empty();
-        if compose::mod_enter_sends(true, compose::Keyboard::Nothing, has_words) {
-            s.send_thread(tx);
-        }
-        return true;
+    // The box a thread is started in reads the key first: its open menu has the keyboard, a
+    // letter with the keyboard on one of its chips is typed, and ⌘Return sends it.
+    if let Some(taken) = crate::compose::key(s, e, tx) {
+        return taken;
     }
     if e.mods.cmd || e.mods.ctrl || e.mods.alt {
         return false;

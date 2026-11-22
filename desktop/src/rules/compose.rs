@@ -99,22 +99,6 @@ pub fn level_word(level: Level) -> &'static str {
     }
 }
 
-/// The word the web window keeps a level under (`PriorityId`).
-pub fn level_id(level: Level) -> &'static str {
-    match level {
-        Level::Urgent => "urgent",
-        Level::High => "high",
-        Level::Medium => "medium",
-        Level::Low => "low",
-    }
-}
-
-/// The level a card left half written comes back on; anything else is Agent Decides
-/// (`startingPriority`).
-pub fn level_named(id: &str) -> Option<Level> {
-    LEVELS.into_iter().find(|level| level_id(*level) == id)
-}
-
 /// What the chip says (`choiceLabelOf`).
 pub fn choice_label(choice: Option<Level>) -> &'static str {
     choice.map_or(AGENT_DECIDES, level_word)
@@ -945,8 +929,6 @@ mod tests {
         assert_eq!(LEVELS.map(|level| sent_priority(Some(level))), [9.0, 7.0, 5.0, 2.0]);
         assert_eq!(choice_label(None), "Agent Decides");
         assert_eq!(choice_label(Some(Level::Medium)), "Medium");
-        assert_eq!(level_named("urgent"), Some(Level::Urgent));
-        assert_eq!(level_named("soon"), None);
     }
 
     #[test]

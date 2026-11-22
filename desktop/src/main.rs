@@ -738,6 +738,10 @@ fn press_what_the_picture_pressed(s: &mut State, tx: &mut Tx) {
         s.compose.words = TextEdit::new(words.as_str().unwrap_or_default());
         s.send_thread(tx);
     }
+    // One taken with a menu of that box open says which (`menu`).
+    if let Some(which) = s.fixture.remove("menu") {
+        s.picture_menu(which.as_str().unwrap_or_default(), tx);
+    }
 }
 
 fn setup(s: &mut State, wake: Waker) {
@@ -872,6 +876,11 @@ fn view(s: &State, _: &mut Cx<State>) -> El {
                 .scroll(ScrollSpec { stick_bottom: false })
                 .child(page),
         );
+    // An open menu of the box a thread is started in lies over the page it hangs in.
+    let root = match compose::menu_layer(s) {
+        Some(menu) => root.child(menu),
+        None => root,
+    };
     let root = match chrome::toast_card(s) {
         Some(toast) => root.child(toast),
         None => root,
