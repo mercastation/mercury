@@ -1,7 +1,8 @@
-//! Home: the greeting, the two doors, the box to start a thread, and what needs you beside
-//! what is in progress. Built from the web app's own measurements (`renderer/src/home`).
+//! Home: the greeting, the two doors, the box to start a thread (`compose.rs`), and what needs
+//! you beside what is in progress. Built from the web app's own measurements
+//! (`renderer/src/home`).
 
-use rune::{El, Icon, ScrollSpec, TextCase, TextStyle, col, el, icon, row, spacer, text};
+use rune::{El, Icon, ScrollSpec, TextCase, TextStyle, col, el, icon, row, text};
 
 use crate::data::{Priority, Row};
 use crate::rules::window;
@@ -60,68 +61,47 @@ pub fn chip(children: Vec<El>) -> El {
     row().h(28.0).items_center().gap(8.0).px(10.0).radius(6.0).fill(white(0.03)).border(1.0, edge()).border_layout().children(children)
 }
 
-/// Send with its key, and the caret beside it for sending later. Send is faint until there
-/// is something to send.
-pub fn send_pair(ready: bool) -> El {
-    let fill = rgba(239, 235, 231, 0.15);
+/// `--send-fill`: the text colour at 15%.
+fn send_fill() -> rune::Color {
+    rgba(239, 235, 231, 0.15)
+}
+
+/// Send with its key. Faint until there is something to send.
+pub fn send_main(ready: bool) -> El {
     row()
-        .child(
-            row()
-                .key("send")
-                .h(32.0)
-                .items_center()
-                .gap(9.0)
-                .px(14.0)
-                .corners([6.0, 0.0, 0.0, 6.0])
-                .fill(fill)
-                .opacity(if ready { 1.0 } else { 0.45 })
-                .child(label("Send", 13.5, 500.0, ink()))
-                .child(text("⌘↵").font(mono(11.0, 14.0)).color(ink()).opacity(0.75)),
-        )
-        .child(
-            row()
-                .size(32.0, 32.0)
-                .items_center()
-                .pl(9.0)
-                .corners([0.0, 6.0, 6.0, 0.0])
-                .fill(fill)
-                .border_sides([0.0, 0.0, 0.0, 1.0], rgba(26, 24, 23, 0.55))
-                .border_layout()
-                .child(icon(&icons::CARET, 13.0).color(ink())),
-        )
+        .key("send")
+        .h(32.0)
+        .items_center()
+        .gap(9.0)
+        .px(14.0)
+        .corners([6.0, 0.0, 0.0, 6.0])
+        .fill(send_fill())
+        .opacity(if ready { 1.0 } else { 0.45 })
+        .child(label("Send", 13.5, 500.0, ink()))
+        .child(text("⌘↵").font(mono(11.0, 14.0)).color(ink()).opacity(0.75))
+}
+
+/// The caret beside Send, for sending later.
+pub fn send_caret() -> El {
+    row()
+        .size(32.0, 32.0)
+        .items_center()
+        .pl(9.0)
+        .corners([0.0, 6.0, 6.0, 0.0])
+        .fill(send_fill())
+        .border_sides([0.0, 0.0, 0.0, 1.0], rgba(26, 24, 23, 0.55))
+        .border_layout()
+        .child(icon(&icons::CARET, 13.0).color(ink()))
+}
+
+/// The two as a conversation's reply box draws them: one pair, pressed as one.
+pub fn send_pair(ready: bool) -> El {
+    row().child(send_main(ready)).child(send_caret())
 }
 
 /// The paper clip beside Send.
 pub fn attach() -> El {
     row().size(30.0, 30.0).radius(6.0).center().child(icon(&icons::ATTACH, 16.0).color(muted()))
-}
-
-/// The composer: what do you need done, who does it, and Send. Phase 1 only draws it. `to` is
-/// the chip for who gets the thread, there only when someone besides the agent could.
-fn composer(project: &str, swatch: rune::Color, to: bool) -> El {
-    let mut bar = row().pt(14.0).items_center().gap(8.0);
-    if to {
-        bar = bar.child(chip(vec![label("Agent", 13.0, 400.0, dim())]));
-    }
-    let bar = bar
-        .child(chip(vec![label("Opus 5.5", 13.0, 400.0, dim())]))
-        .child(chip(vec![row().size(17.0, 17.0).center().child(el().size(9.0, 9.0).radius(4.5).fill(swatch)), label(project, 13.0, 400.0, dim())]))
-        .child(chip(vec![bars(&[4.0, 7.5, 11.0], rgb(82, 80, 79)), label("Agent Decides", 13.0, 400.0, dim())]))
-        .child(spacer())
-        .child(attach())
-        .child(send_pair(false));
-    glass(col())
-        .h(152.0)
-        .pt(16.0)
-        .px(18.0)
-        .pb(14.0)
-        .radius(10.0)
-        .border(1.0, white(0.2))
-        .border_layout()
-        .box_shadow(shadow(0.0, 0.0, 0.0, 3.0, white(0.03), false))
-        .box_shadow(shadow(0.0, 12.0, 40.0, 0.0, rgba(0, 0, 0, 0.3), false))
-        .child(el().h(74.0).child(text("What do you need done?").font(TextStyle::new(22.0, 400.0).lh(30.0)).color(muted())))
-        .child(bar)
 }
 
 fn priority_mark(p: Priority) -> Option<El> {
@@ -239,9 +219,6 @@ pub fn view(s: &State) -> El {
     let rows = list(&needs[..needs.len().min(80)], "Nothing needs you.", Card::Needs);
     let working = list(&progress[..progress.len().min(60)], "No agent is working right now.", Card::Progress);
     let count = |n: usize| (n > 0).then_some(n);
-    let first = s.snap.products.first();
-    let project = first.map(|p| p.name.clone()).unwrap_or_default();
-    let (r, g, b) = window::swatch(first.map_or("", |p| p.slug.as_str()));
     // With teammates the second card is the team's week, and Team is a third door (`HomePage.tsx`).
     let team = window::team_mode(&s.snap);
     let mut doors = row()
@@ -269,7 +246,7 @@ pub fn view(s: &State) -> El {
         .child(el().h(above))
         .child(text(greeting(s.now, window::greeted(&s.snap))).font(TextStyle::new(30.0, 500.0).lh(36.0).tracking(-0.36)).color(ink()))
         .child(doors)
-        .child(el().mt(22.0).child(composer(&project, rgb(r, g, b), window::to_offered(&s.snap)).w_full()))
+        .child(el().mt(22.0).child(crate::compose::inline(s).w_full()))
         .child(if stacked {
             col().mt(24.0).gap(22.0).child(home_card("Needs you", count(needs.len()), "Open inbox →", Some(View::Inbox), rows, cards_h).w(column)).child(second.w(column))
         } else {

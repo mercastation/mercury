@@ -167,12 +167,44 @@ pub fn notice(s: &State) -> Option<El> {
     )
 }
 
-/// The key and its word beside a line while Z can still take it back (`.toast-undo`).
-fn undo_key() -> El {
+/// A key and its word beside a line (`.toast-key`).
+fn key_cap(key: &str, word: &str) -> El {
     row().items_center()
         .gap(5.0)
-        .child(row().h(17.0).px(4.0).items_center().border(1.0, rule()).border_layout().child(text("Z").font(TextStyle::new(10.5, 600.0).lh(15.0)).color(muted())))
-        .child(pen(text("Undo").font(TextStyle::new(12.0, 400.0).lh(15.6)).color(muted()), 12.0))
+        .child(row().h(17.0).px(4.0).items_center().border(1.0, rule()).border_layout().child(text(key).font(TextStyle::new(10.5, 600.0).lh(15.0)).color(muted())))
+        .child(pen(text(word).font(TextStyle::new(12.0, 400.0).lh(15.6)).color(muted()), 12.0))
+}
+
+/// Z and its word, while Z can still take the thing back (`.toast-undo`). A press on it is Z.
+fn undo_key() -> El {
+    key_cap("Z", "Undo").cursor(rune::Cursor::Pointer).on_press_tx(|s: &mut State, tx| {
+        s.toast = None;
+        s.undo(tx);
+    })
+}
+
+/// The keys a line about one thread offers: O while that thread is not the one open, and Z
+/// while it can be taken back (`.toast-keys`).
+fn toast_keys(s: &State, toast: &crate::write::Toast) -> Option<El> {
+    let opens = toast.goes.as_ref().is_some_and(|(id, product)| !matches!(&s.view, View::Thread { id: open, product: of } if open == id && of == product));
+    if !opens && !toast.undo {
+        return None;
+    }
+    let mut keys = row().items_center().gap(12.0);
+    if opens {
+        keys = keys.child(key_cap("O", "Open"));
+    }
+    if toast.undo {
+        keys = keys.child(undo_key());
+    }
+    Some(keys)
+}
+
+/// The bar along the foot of a line that names a thread (`.toast-clock`): the time left to
+/// open it, running out to the left.
+fn toast_clock(toast: &crate::write::Toast, at: f64, width: f32) -> El {
+    let left = ((toast.until - at) / (toast.until - toast.since).max(0.001)).clamp(0.0, 1.0) as f32;
+    el().pin(Some(0.0), None, None, Some(0.0)).size(width * left, 2.0).fill(accent()).opacity(0.7)
 }
 
 /// The line about what was just done, as a conversation's head strip carries it
@@ -205,10 +237,14 @@ pub fn toast_card(s: &State) -> Option<El> {
         return None;
     }
     let toast = s.toast.as_ref()?;
+    if toast.goes.is_some() {
+        return Some(toast_about(s, toast));
+    }
     let room = if toast.undo { 263.95 } else { 326.0 };
+    // As wide as its words, up to 360 points (`.toast-plain`).
     let mut card = row()
         .pin(None, None, Some(30.0), Some(30.0))
-        .w(360.0)
+        .max_w(360.0)
         .items_center()
         .gap(12.0)
         .py(11.0)
@@ -218,12 +254,55 @@ pub fn toast_card(s: &State) -> Option<El> {
         .border(1.0, edge())
         .border_layout()
         .box_shadow(shadow(0.0, 24.0, 70.0, 0.0, rgba(0, 0, 0, 0.55), false))
-        // The words take what the key beside them leaves of the card's 326 points inside.
-        .child(el().w(room).child(pen(text(toast.line.as_str()).font(TextStyle::new(13.5, 400.0).lh(17.55)).color(ink()).wrap().max_w(room), 13.5)));
+        // The words take at most what the key beside them leaves of the card's 326 points inside.
+        .child(el().max_w(room).child(pen(text(toast.line.as_str()).font(TextStyle::new(13.5, 400.0).lh(17.55)).color(ink()).wrap().max_w(room), 13.5)));
     if toast.undo {
         card = card.child(undo_key());
     }
     Some(card)
+}
+
+/// The line about one thread (`.toast.toast-goes`): the thread's name over where it went, the
+/// keys at the right, and the time left to open it along the foot. A press on it opens the
+/// thread. Before the lists have the thread there is no name to draw, and the card is the
+/// plain one with its keys.
+fn toast_about(s: &State, toast: &crate::write::Toast) -> El {
+    let keys = toast_keys(s, toast);
+    let card = |e: El| {
+        e.pin(None, None, Some(30.0), Some(30.0))
+            .radius(10.0)
+            .clip_rounded(10.0)
+            .fill(rgb(54, 52, 49))
+            .border(1.0, edge())
+            .border_layout()
+            .box_shadow(shadow(0.0, 24.0, 70.0, 0.0, rgba(0, 0, 0, 0.55), false))
+            .cursor(rune::Cursor::Pointer)
+            .on_press(|s: &mut State| {
+                s.open_what_the_line_names();
+            })
+    };
+    let at = s.at;
+    let Some(title) = s.toast_title() else {
+        let mut plain = card(row()).max_w(360.0).items_center().gap(12.0).py(11.0).px(16.0).child(pen(text(toast.line.as_str()).font(TextStyle::new(13.5, 400.0).lh(17.55)).color(ink()), 13.5));
+        if let Some(keys) = keys {
+            plain = plain.child(keys);
+        }
+        return plain.child(toast_clock(toast, at, 358.0));
+    };
+    let mut second = row().items_center().gap(16.0).child(row().grow(1.0).min_w(0.0).child(pen(text(toast.line.as_str()).font(TextStyle::new(12.5, 400.0).lh(16.25)).color(muted()).truncate(), 12.5)));
+    if let Some(keys) = keys {
+        second = second.child(keys);
+    }
+    card(col())
+        .w(360.0)
+        .pt(14.0)
+        .px(16.0)
+        .pb(15.0)
+        .gap(8.0)
+        // Two lines of the name and no more (`-webkit-line-clamp: 2`).
+        .child(pen(text(title).font(TextStyle::new(14.0, 500.0).lh(kept(19.6))).color(ink()).wrap().max_lines(2), 14.0))
+        .child(second.h(17.0))
+        .child(toast_clock(toast, at, 358.0))
 }
 
 /// Back and forward, at the head of the card. Dim while there is nowhere to go. A conversation

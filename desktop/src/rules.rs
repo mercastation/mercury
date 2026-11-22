@@ -11,8 +11,6 @@
 
 pub mod answers;
 pub mod cloud;
-// Nothing draws from these yet: Home's box is the next thing to read them.
-#[allow(dead_code)]
 pub mod compose;
 pub mod engine;
 pub mod format;

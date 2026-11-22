@@ -13,12 +13,14 @@
 #![forbid(unsafe_code)]
 
 mod chrome;
+mod compose;
 mod data;
 mod home;
 mod icons;
 mod inbox;
 mod keys;
 mod markdown;
+mod picks;
 mod rules;
 mod sky;
 mod source;
@@ -69,6 +71,9 @@ pub struct State {
     /// The clock the rows read, in milliseconds. A fixture brings its own.
     pub now: f64,
     fixed_clock: bool,
+    /// The window's own clock when it last looked, in seconds: what a line's time left is
+    /// drawn against.
+    pub at: f64,
     pub view: View,
     /// The Inbox's open tab.
     pub inbox_tab: Tab,
@@ -112,6 +117,18 @@ pub struct State {
     /// The threads closed here whose close the engine has not told back yet: out of the lists
     /// from the moment E is pressed.
     hidden: HashSet<String>,
+    /// The box a thread is started in, and what it holds.
+    pub compose: compose::Composer,
+    /// The models this Mac's coding agents offer, as the engine's settings say; the ones the
+    /// app was built with until it has.
+    pub models: rules::compose::Models,
+    reading_models: Latest<Result<Value, String>>,
+    /// What was last picked in that box, kept from one window to the next.
+    pub picks: picks::Kept,
+    /// The threads sent from here and taken back with Z, and when: a send taken back is closed
+    /// on the ledger, and is not finished work (`withdrawnSend` in
+    /// `renderer/src/withdraw-send.ts`).
+    withdrawn: HashMap<String, f64>,
 }
 
 impl State {
@@ -188,7 +205,15 @@ impl State {
     }
     /// One line about what was just done, for as long as the web window keeps its own up.
     fn say(&mut self, line: String, undo: bool, tx: &Tx) {
-        self.toast = Some(write::Toast { line, undo, until: tx.clock() + writes::TOAST_MS / 1000.0 });
+        let since = tx.clock();
+        self.toast = Some(write::Toast { line, undo, since, until: since + writes::TOAST_MS / 1000.0, goes: None });
+    }
+    /// A line about one thread, as `(id, product)`: it stays up longer, names the thread, and
+    /// O opens it. The promise of Z on the line's end becomes the key drawn beside it.
+    fn say_about(&mut self, line: &str, goes: (String, String), tx: &Tx) {
+        let (line, undo) = rules::compose::toast_parts(line);
+        let since = tx.clock();
+        self.toast = Some(write::Toast { line, undo, since, until: since + rules::compose::TOAST_GOES_MS / 1000.0, goes: Some(goes) });
     }
     /// Does something now and writes it in three seconds, unless Z comes first
     /// (`deferCommit` in `renderer/src/App.tsx`). One thing waits at a time: whatever was
@@ -209,14 +234,15 @@ impl State {
         let Some(held) = self.held.take() else {
             return;
         };
-        self.last = held.closes.as_ref().map(|item| write::Undo {
+        self.last = held.closes.as_ref().map(|item| write::Undo::Reopen {
             said: format!("Reopened: {}", writes::clip_to_sentence(item.title.as_deref().unwrap_or(""), 48)),
             payload: writes::reopen_as_it_was(item),
             thread: held.thread.clone(),
         });
         self.send(held.channel, held.payload, held.sent);
     }
-    /// Z: takes back what is still waiting, whole; else the last close this window wrote.
+    /// Z: takes back what is still waiting, whole; else the last thing this window wrote that
+    /// can be taken back, a close or a thread sent.
     pub fn undo(&mut self, tx: &mut Tx) {
         if let Some(held) = self.held.take() {
             if let Some(item) = &held.closes {
@@ -239,15 +265,16 @@ impl State {
             self.say(writes::said_undone(&held.said, words.is_some()), false, tx);
             return;
         }
-        if let Some(last) = self.last.take() {
-            let (id, product) = last.thread.clone();
-            if self.send(writes::ANSWER, last.payload, write::Sent::Reopen { thread: format!("{product}/{id}") }) {
-                self.say(last.said, false, tx);
-                self.open_thread(&id, &product);
+        match self.last.take() {
+            Some(write::Undo::Reopen { said, payload, thread: (id, product) }) => {
+                if self.send(writes::ANSWER, payload, write::Sent::Reopen { thread: format!("{product}/{id}") }) {
+                    self.say(said, false, tx);
+                    self.open_thread(&id, &product);
+                }
             }
-            return;
+            Some(write::Undo::Withdraw { id, product, title, draft }) => self.withdraw(id, product, title, draft, tx),
+            None => self.say(writes::NOTHING_TO_UNDO.to_string(), false, tx),
         }
-        self.say(writes::NOTHING_TO_UNDO.to_string(), false, tx);
     }
     /// Whether an answer to this thread is waiting to be written: its options are spent on
     /// screen from the moment one is picked.
@@ -378,7 +405,13 @@ impl State {
     }
     /// What the engine said to something sent. A refusal is said in one line, and refused
     /// words go back where the person can send them again.
-    fn landed(&mut self, landed: write::Landed) {
+    fn landed(&mut self, landed: write::Landed, tx: &Tx) {
+        // A new thread, and one taken back, are said of whether they stood or not.
+        match &landed.sent {
+            write::Sent::Thread { .. } => return self.thread_landed(landed, tx),
+            write::Sent::Withdraw { .. } => return self.withdraw_landed(landed, tx),
+            _ => {}
+        }
         let Some(why) = landed.refusal() else {
             return;
         };
@@ -404,6 +437,8 @@ impl State {
             write::Sent::Pick { .. } => format!("Could not send that option: {why}"),
             write::Sent::Close { .. } => format!("Could not mark it done: {why}"),
             write::Sent::Reopen { .. } => format!("Could not reopen it: {why}"),
+            // Both went their own way above.
+            write::Sent::Thread { .. } | write::Sent::Withdraw { .. } => return,
         });
     }
     /// Out of a conversation: to where the person came from, and one opened from nowhere came
@@ -488,6 +523,25 @@ impl State {
                 list.retain(|r| !hidden.contains(&r.id));
             }
         }
+        // A thread taken back with Z is closed on the ledger and is not in Done, for as long as
+        // that close is the last thing written to its status.
+        if !self.withdrawn.is_empty() {
+            let (snap, withdrawn) = (&self.snap, &self.withdrawn);
+            let taken_back = |id: &str| withdrawn.get(id).is_some_and(|at| snap.item(id).is_some_and(|i| i.status == "done" && i.wrote_at("status") <= *at));
+            self.lists.done.retain(|r| !taken_back(&r.id));
+        }
+    }
+    /// Asks the engine which models its coding agents offer, off the main thread: the answer
+    /// lands in `poll`. The web window reads them with its settings, at launch and again when
+    /// the engine says a list changed; this one asks at launch and each time the model menu
+    /// opens.
+    fn read_the_models(&mut self) {
+        let Source::Door(door) = &self.source else {
+            return;
+        };
+        if let Some((url, token)) = door.now() {
+            self.reading_models.request((url, token), |(url, token)| source::call(&url, &token, "zero:settings-read", &serde_json::json!({ "search": false })));
+        }
     }
     /// Asks the engine for the open conversation's lines when it has not been asked since the
     /// thread last changed. Off the main thread: the answer lands in `poll`.
@@ -538,6 +592,12 @@ const DEFAULT_SIZE: (f32, f32) = (1280.0, 760.0);
 fn init() -> State {
     let args = rune::tooling::extra_args();
     let source = source::from_args(args);
+    // What was last picked in the box a thread is started in, from beside the door's note. A
+    // fixture's picks are its own, read below, and no file is touched for one.
+    let picks = match &source {
+        Source::Door(door) => picks::Kept::at(picks::file(args, door.note())),
+        _ => picks::Kept::default(),
+    };
     // A headless picture has its size before the first frame; a window reports its own.
     let size = rune::tooling::headless_run().map_or(DEFAULT_SIZE, |run| run.size());
     let mut s = State {
@@ -552,6 +612,7 @@ fn init() -> State {
         fixture: Map::new(),
         now: clock(),
         fixed_clock: false,
+        at: 0.0,
         view: match args.iter().position(|a| a == "--view").and_then(|i| args.get(i + 1)).map(String::as_str) {
             Some("inbox") => View::Inbox,
             _ => View::Home,
@@ -579,6 +640,11 @@ fn init() -> State {
         last: None,
         toast: None,
         hidden: HashSet::new(),
+        compose: compose::Composer::default(),
+        models: rules::compose::Models::built(),
+        reading_models: Latest::default(),
+        picks,
+        withdrawn: HashMap::new(),
     };
     // The first skies and a fixture are in place before the first frame, so a picture is whole.
     let first = paint_skies(s.card_size());
@@ -592,6 +658,14 @@ fn init() -> State {
                 if let Some(now) = fixture.now {
                     s.now = now;
                     s.fixed_clock = true;
+                }
+                // What the picture's page had been told besides the snapshot: the models its
+                // settings listed (`settings`), and what was last picked in the box (`picks`).
+                if let Some(settings) = s.fixture.get("settings") {
+                    s.models = rules::compose::Models::from_settings(settings);
+                }
+                if let Some(kept) = s.fixture.get("picks").and_then(|kept| serde_json::from_value(kept.clone()).ok()) {
+                    s.picks = picks::Kept::only_here(kept);
                 }
             }
             Err(e) => s.error = Some(e),
@@ -607,6 +681,9 @@ fn init() -> State {
                 }
                 if let Ok(Some(local)) = source::fetch_keeps(&url, &token) {
                     s.local = local;
+                }
+                if let Ok(settings) = source::call(&url, &token, "zero:settings-read", &serde_json::json!({ "search": false })) {
+                    s.models = rules::compose::Models::from_settings(&settings);
                 }
             }
             None => s.error = Some("the app has not opened its door yet".to_string()),
@@ -636,20 +713,38 @@ fn init() -> State {
         }
         s.option = s.fixture.get("option").and_then(Value::as_u64).and_then(|n| (n as usize).checked_sub(1));
     }
+    // A picture taken with words typed into the box a thread is started in says so in its
+    // fixture (`composing`): the same words, with the caret after them.
+    if let Some(words) = s.fixture.get("composing").and_then(Value::as_str) {
+        s.compose.words = TextEdit::new(words);
+        s.compose.words.focused = true;
+    }
     s
 }
 
 /// A picture taken just after E says so in its fixture (`closed`): the same key is pressed
-/// here once the window has its clock, on the open thread or on the Inbox's picked row.
+/// here once the window has its clock, on the open thread or on the Inbox's picked row. One
+/// taken just after a thread was sent hands over what the page was answered (`sent`).
 fn press_what_the_picture_pressed(s: &mut State, tx: &mut Tx) {
     if s.fixture.remove("closed").is_some() {
         keys::close_under_the_keys(s, tx);
+    }
+    if let Some(sent) = s.fixture.remove("sent") {
+        s.picture_sent(&sent, tx);
+    }
+    // And one taken between Send and the answer says what was sent (`sending`): the same words
+    // are sent here, to nobody, which is as far as a picture's send ever gets.
+    if let Some(words) = s.fixture.remove("sending") {
+        s.compose.words = TextEdit::new(words.as_str().unwrap_or_default());
+        s.send_thread(tx);
     }
 }
 
 fn setup(s: &mut State, wake: Waker) {
     s.painting.set_waker(wake.clone());
     s.asking.set_waker(wake.clone());
+    s.reading_models.set_waker(wake.clone());
+    s.read_the_models();
     s.outbox.wake_with(wake.clone());
     if let Source::Door(door) = s.source.clone() {
         source::follow_door(door, s.mailbox.clone(), move || wake());
@@ -658,6 +753,7 @@ fn setup(s: &mut State, wake: Waker) {
 
 fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
     let mut changed = false;
+    s.at = at;
     if let Some(p) = s.painting.take() {
         s.hang(p);
         changed = true;
@@ -674,6 +770,17 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
     }
     for due in [s.held.as_ref().map(|h| h.at), s.toast.as_ref().map(|t| t.until)].into_iter().flatten() {
         tx.wake_after(std::time::Duration::from_secs_f64((due - at).max(0.0)));
+    }
+    // The bar along the foot of a line that names a thread runs out with the time left to
+    // open it, so the line is drawn again while it is up.
+    if s.toast.as_ref().is_some_and(|t| t.goes.is_some()) {
+        tx.wake_after(std::time::Duration::from_millis(33));
+        changed = true;
+    }
+    changed |= s.say_if_not_taken(at, tx);
+    if let Some(Ok(settings)) = s.reading_models.take() {
+        s.models = rules::compose::Models::from_settings(&settings);
+        changed = true;
     }
     let mut stale = false;
     let mut arrived = None;
@@ -708,7 +815,7 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
         s.picked = s.picked.min(s.rows_under_the_keys().saturating_sub(1));
     }
     for landed in s.outbox.landed() {
-        s.landed(landed);
+        s.landed(landed, tx);
         changed = true;
     }
     if let Some((key, answer)) = s.asking.take() {

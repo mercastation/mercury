@@ -64,6 +64,11 @@ impl Door {
     pub fn now(&self) -> Option<(String, String)> {
         self.at.lock().unwrap().clone()
     }
+    /// The note this door was found by, when it was: what the window keeps for itself sits
+    /// in the same folder.
+    pub fn note(&self) -> Option<&str> {
+        self.note.as_deref()
+    }
     /// Reads the note again. True when it names another door than the one in hand.
     pub fn look_again(&self) -> bool {
         let Some(read) = self.note.as_deref().and_then(read_note) else {
@@ -134,12 +139,22 @@ pub fn read_fixture(path: &str) -> Result<Fixture, String> {
 /// One call to a channel of the engine, as the web window's bridge makes it.
 pub fn call(url: &str, token: &str, channel: &str, payload: &Value) -> Result<Value, String> {
     let channel = channel.replace(':', "%3A");
-    let res = ureq::post(&format!("{url}/api/{channel}"))
+    let asked = ureq::post(&format!("{url}/api/{channel}"))
         .set("x-agentbox-token", token)
         .set("content-type", "application/json")
         .timeout(Duration::from_secs(20))
-        .send_string(&payload.to_string())
-        .map_err(|e| e.to_string())?;
+        .send_string(&payload.to_string());
+    let res = match asked {
+        Ok(res) => res,
+        // A handler that threw answers 500 with its reason in `error` (`main/serve.mts`), and
+        // that reason is what the person is told: the web window's bridge throws it as it is.
+        Err(ureq::Error::Status(500, res)) => {
+            let text = res.into_string().unwrap_or_default();
+            let why = serde_json::from_str::<Value>(&text).ok().and_then(|v| v.get("error").and_then(Value::as_str).map(str::to_string));
+            return Err(why.unwrap_or_else(|| "Mercury could not do that.".to_string()));
+        }
+        Err(e) => return Err(e.to_string()),
+    };
     let text = res.into_string().map_err(|e| e.to_string())?;
     serde_json::from_str(&text).map_err(|e| e.to_string())
 }

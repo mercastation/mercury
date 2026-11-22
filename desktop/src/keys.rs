@@ -9,7 +9,7 @@
 use rune::edit::Key;
 use rune::{KeyEvent, Tx};
 
-use crate::rules::page;
+use crate::rules::{compose, page};
 use crate::{State, View};
 
 /// One step along a list of `len` rows from `at`, stopping at either end.
@@ -40,6 +40,20 @@ pub fn in_the_reply(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
     false
 }
 
+/// The keys the box a thread is started in does not keep for typing: ⌘Return sends, and
+/// Escape gives the keys back to the page, keeping the words.
+pub fn in_the_box(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
+    if e.key == Key::Enter && e.mods.cmd {
+        s.send_thread(tx);
+        return true;
+    }
+    if e.key == Key::Escape {
+        s.leave_the_box(tx);
+        return true;
+    }
+    false
+}
+
 /// E: marks done the thread the keys are on. That is the open conversation, or the Inbox's
 /// picked row under Needs you and In progress. Under Later the web window's E brings a thread
 /// back instead, and under Done there is nothing to close; neither is done here yet.
@@ -58,6 +72,15 @@ pub fn close_under_the_keys(s: &mut State, tx: &mut Tx) {
 
 /// True when the key was this window's. A chord is the system's, never one of these.
 pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
+    // ⌘Return with nothing holding the keyboard still sends what Home's box holds
+    // (`modEnterSendsTheCard`): the box shares the page, and its key is printed on Send.
+    if e.key == Key::Enter && e.mods.cmd && s.view == View::Home {
+        let has_words = !s.compose.words.text.trim().is_empty();
+        if compose::mod_enter_sends(true, compose::Keyboard::Nothing, has_words) {
+            s.send_thread(tx);
+        }
+        return true;
+    }
     if e.mods.cmd || e.mods.ctrl || e.mods.alt {
         return false;
     }
@@ -70,10 +93,27 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
         s.undo(tx);
         return true;
     }
+    // O goes into the thread the line in the corner is about, while that line is up.
+    if letter == "o" && s.open_what_the_line_names() {
+        return true;
+    }
     let (j, k) = (letter == "j", letter == "k");
     let (down, up) = (j || e.key == Key::Down, k || e.key == Key::Up);
     match s.view.clone() {
         View::Home => {
+            // N goes into the box already on the page, and so does a letter that is none of
+            // the list's own: somebody typing, with a box on the page to type in.
+            if letter == "n" {
+                s.write_in_the_box(tx);
+                return true;
+            }
+            if let Key::Text(typed) = &e.key {
+                if !compose::key_is_the_lists(typed) {
+                    s.write_in_the_box(tx);
+                    s.compose.words.insert(typed);
+                    return true;
+                }
+            }
             // Home lists the first eighty that need the person, and the keys walk those.
             let rows = s.lists.needs.len().min(80);
             if rows == 0 {
