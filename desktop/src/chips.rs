@@ -427,7 +427,8 @@ pub fn layer(s: &State) -> Option<El> {
     let left = chrome::card_left(s);
     let fit = compose_rules::fit_menu(anchor, Hang { below: false, gap: 8.0, dx: 0.0 }, (wide, tall), h, (left, w - chrome::CARD[2]));
     let list = col().key(MENU).min_w(166.0).px(4.0).py(4.0).gap(1.0).items_stretch().instant_changes().children(rows.iter().enumerate().map(|(at, (words, on))| menu_row(open.chip, at, words, *on, open.lit == Some(at))));
-    let shell = col().radius(10.0).fill(rgb(54, 52, 49)).border(1.0, rule()).border_layout().box_shadow(shadow(0.0, 24.0, 70.0, 0.0, rgba(0, 0, 0, 0.55), false));
+    // The menu takes the pointer itself, with the arrow between its rows, as the web window's does.
+    let shell = crate::feel::answers(col().radius(10.0).fill(rgb(54, 52, 49)).border(1.0, rule()).border_layout().box_shadow(shadow(0.0, 24.0, 70.0, 0.0, rgba(0, 0, 0, 0.55), false)));
     let shell = match fit.max_height {
         Some(most) => shell.h(most).child(col().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(list)),
         None => shell.child(list),
@@ -446,14 +447,30 @@ pub fn layer(s: &State) -> Option<El> {
             Chip::Mode => "What this message may do",
         });
     let marks: Vec<(&'static str, [f32; 4])> = [PRIORITY, MODE, crate::reply::CHIP, crate::reply::SEND, crate::reply::FIELD].into_iter().filter_map(|key| rune::memo::window_layout(key).map(|rect| (key, rect))).collect();
-    let away = el().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).on_drag(move |s: &mut State, d: &mut Drag, tx: &mut Tx| {
-        if d.phase == Phase::Down {
-            pressed_away(s, d.window_point(), &marks, tx);
-        }
+    let press_away = |e: El, marks: Vec<(&'static str, [f32; 4])>| {
+        e.on_drag(move |s: &mut State, d: &mut Drag, tx: &mut Tx| {
+            if d.phase == Phase::Down {
+                pressed_away(s, d.window_point(), &marks, tx);
+            }
+        })
+    };
+    let away = press_away(el().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)), marks.clone());
+    // Over the layer, the box's own controls keep the pointer they show in the web window, whose
+    // menu covers nothing but itself: the pointing hand over the chips and a Send with something
+    // to send, the I-beam over the words. A press there is the same press outside.
+    let ready = !s.reply.text.trim().is_empty() || !s.reply_files.open.is_empty();
+    let keep = marks.iter().filter_map(|(key, [x, y, cw, ch])| {
+        let shape = match *key {
+            crate::reply::FIELD => rune::Cursor::Text,
+            crate::reply::SEND if !ready => return None,
+            MODE if mode_folded() => return None,
+            _ => rune::Cursor::Pointer,
+        };
+        Some(press_away(el().absolute(*x, *y).size(*cw, *ch).cursor(shape), marks.clone()))
     });
     let page_top = chrome::page_top(&s.view);
     let page = el().pin(Some(left), Some(page_top), Some(chrome::CARD[2]), Some(chrome::CARD[3])).clip_corners([0.0, 0.0, 6.0, 6.0]).child(shell.absolute(fit.left - left, fit.top - page_top));
-    Some(el().absolute(0.0, 0.0).size(w, h).child(away).child(page))
+    Some(el().absolute(0.0, 0.0).size(w, h).child(away).children(keep.collect::<Vec<_>>()).child(page))
 }
 
 /// What a picture taken with a chip's menu open says (`actions`: `reply-priority`,

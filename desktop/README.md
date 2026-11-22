@@ -897,7 +897,9 @@ At 2x, dark, the menu's box (`.prio-menu`), the chips, the box and the bar:
 | `thread-choices-folded-picked` | 1280 by 760 | 0.71 | the strip 0.81 | | 0.71 | |
 
 Under the pointer a priority row is 0.20 (0.17 at rest) and a mode row 0.20 (0.20), the
-pointing hand over both, as the web window's. Filmed at 60 frames a second a chip's menu comes in
+pointing hand over both, as the web window's. With a menu open, every point of it and of the
+box's chips, words and Send takes the web window's pointer (the pointer walk finds none apart);
+the page around them shows the arrow, as with the box's other menus. Filmed at 60 frames a second a chip's menu comes in
 over four frames after the press lets go and closes at once. The screens before this did not
 move: `thread-reply`, `thread-options` and `home-team` are drawn to the same pixel as the build
 before it.
