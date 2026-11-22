@@ -685,7 +685,7 @@ fn picker(s: &State, here: &Here, shown: &Rc<Shown>, w: f32) -> El {
 fn column(s: &State, here: &Here, shown: &Rc<Shown>, w: f32, h: f32) -> El {
     let blocks = shown.files.iter().enumerate().map(|(f, file)| block(s, here, shown, f, file, w));
     let lines = col().w(w).children(blocks);
-    el().key(BODY)
+    col().key(BODY)
         .w(w)
         .h(h.max(1.0))
         .scroll(ScrollSpec { stick_bottom: false })
@@ -1197,7 +1197,7 @@ fn section_moved(s: &mut State, f: usize, top: f32, tx: &mut Tx) {
     let offsets: Vec<f32> = here.tops.iter().map(|t| t - here.body_top).collect();
     if let Some((want, until)) = here.holding {
         let landed = offsets.get(want).is_some_and(|o| o.abs() <= 1.0);
-        if landed || crate::clock() > until {
+        if landed || s.at > until {
             here.holding = None;
         } else {
             tx.live_only();
@@ -1217,9 +1217,11 @@ fn section_moved(s: &mut State, f: usize, top: f32, tx: &mut Tx) {
 /// let go by the person's own wheel, press or key (`goTo`).
 fn jump(s: &mut State, f: usize, tx: &mut Tx) {
     let Some(path) = s.shown().and_then(|sh| sh.files.get(f).map(|f| f.path.clone())) else { return };
+    let until = s.at + 20.0 / 60.0;
     let Some(here) = s.changes.here.as_mut() else { return };
     here.at = f;
-    here.holding = Some((f, crate::clock() + 340.0));
+    // Twenty frames, on the window's own clock, as the web window's `put` gives up after.
+    here.holding = Some((f, until));
     tx.scroll_key_to(format!("chg-file-{f}"), 0.0);
     tx.scroll_into_view_in(TREE, format!("t:{path}"));
 }
@@ -1610,20 +1612,391 @@ pub fn pictured(s: &mut State) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::feel::tests::{key, press, rect_of, run, window_dressed};
+    use rune::{Key, Mods, Runtime};
+
+    /// `src/a.ts` as it stands after the invented run: twelve lines, the second and the eleventh
+    /// changed by it, so its two hunks have six lines between them.
+    const A_TS: &str = "const a = 1;\nlet b = 3;\nexport { a, b };\n// four\n// five\n// six\n// seven\n// eight\n// nine\nconst c = 1;\nlet d = 5;\nexport { c, d };\n";
+
+    /// The invented change, its files under `repo`: a deleted note, `src/a.ts` with two hunks,
+    /// and a new `src/b.ts`. The tree lists them in that order.
+    fn the_change(repo: &str) -> Value {
+        json!({
+            "files": [
+                { "path": "src/a.ts", "abs": format!("{repo}/src/a.ts"), "plus": 2, "minus": 2, "hunks": [
+                    { "rows": [["=", "const a = 1;"], ["-", "let b = 2;"], ["+", "let b = 3;"], ["=", "export { a, b };"]], "nums": [[1, 1], [2, null], [null, 2], [3, 3]] },
+                    { "rows": [["=", "const c = 1;"], ["-", "let d = 4;"], ["+", "let d = 5;"], ["=", "export { c, d };"]], "nums": [[10, 10], [11, null], [null, 11], [12, 12]] },
+                ] },
+                { "path": "src/b.ts", "abs": format!("{repo}/src/b.ts"), "plus": 2, "minus": 0, "hunks": [
+                    { "rows": [["+", "export const e = 1;"], ["+", "export const f = 2;"]], "nums": [[null, 1], [null, 2]] },
+                ] },
+                { "path": "docs/gone.md", "plus": 0, "minus": 1, "hunks": [
+                    { "rows": [["-", "# Gone"]], "nums": [[1, null]] },
+                ] },
+            ],
+            "roots": [repo], "plus": 4, "minus": 3, "startedAt": 1_000.0, "endedAt": 1_000.0 + 6.0 * 60_000.0, "committed": false, "uncommitted": true,
+        })
+    }
+
+    /// A window on a conversation whose run changed code, `w` by `h`, the files planted. Every
+    /// thread of the invented inbox carries the same change, so whichever opens has it.
+    /// `summary` is what the engine answers for the figures.
+    fn with_a_change(name: &str, size: (f32, f32), summary: Option<Value>) -> (Runtime<State>, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!("mercury-change-{name}-{}", std::process::id()));
+        let repo = dir.join("code");
+        std::fs::create_dir_all(repo.join("src")).expect("an invented checkout");
+        std::fs::write(repo.join("src/a.ts"), A_TS).expect("an invented file");
+        let repo = repo.to_string_lossy().to_string();
+        let change = the_change(&repo);
+        let summary = summary.unwrap_or_else(|| {
+            let mut s = change.clone();
+            for f in s["files"].as_array_mut().expect("files") {
+                f.as_object_mut().expect("a file").remove("hunks");
+            }
+            json!({ "ok": true, "change": s })
+        });
+        let mut rt = window_dressed(name, &["--thread"], &dir.to_string_lossy(), "Done, and tested.", |f| {
+            f["snapshot"]["products"][0]["repoPath"] = json!(repo);
+            let mut threads = serde_json::Map::new();
+            let mut wholes = serde_json::Map::new();
+            for i in 0..4 {
+                threads.insert(format!("storefront/w-feel{i}"), json!({ "zero:code-change": summary }));
+                wholes.insert(rules::change_path_for(&format!("w-feel{i}")), json!({ "ok": true, "change": change }));
+            }
+            f["threads"] = Value::Object(threads);
+            f["codeChanges"] = Value::Object(wholes);
+        });
+        rt.set_viewport(size, 2.0);
+        run(&mut rt, 0.1);
+        (rt, dir)
+    }
+
+    fn middle(rt: &Runtime<State>, key: &str) -> (f32, f32) {
+        let [x, y, w, h] = rect_of(rt, key).unwrap_or_else(|| panic!("{key} is drawn"));
+        (x + w / 2.0, y + h / 2.0)
+    }
+
+    fn open_it(rt: &mut Runtime<State>) {
+        let (x, y) = middle(rt, "thread-code");
+        press(rt, x, y);
+        run(rt, 0.1);
+    }
+
+    fn the_open_change(rt: &Runtime<State>) -> Option<String> {
+        rt.state.beside().filter(|d| d.kind() == crate::rules::pane::Kind::Change).map(|d| d.src.clone())
+    }
+
+    fn typed(rt: &mut Runtime<State>, words: &str) {
+        for c in words.chars() {
+            rt.key(rune::KeyEvent { key: Key::Text(c.to_string()), mods: Mods::default() });
+        }
+        rt.frame(1.0 / 60.0);
+    }
+
+    #[test]
+    fn the_button_says_the_figures_opens_the_change_and_puts_it_away() {
+        let (mut rt, dir) = with_a_change("button", (1280.0, 760.0), None);
+        let thread = match &rt.state.view {
+            View::Thread { id, .. } => id.clone(),
+            _ => panic!("a conversation is open"),
+        };
+        assert!(rect_of(&rt, "thread-code").is_some(), "a thread whose run changed code has the button");
+        open_it(&mut rt);
+        assert_eq!(the_open_change(&rt).as_deref(), Some(rules::change_path_for(&thread).as_str()));
+        assert!(rt.state.shown().is_some(), "the whole change is read when it opens");
+        // Opened from the button it stands at its top, on its first file.
+        assert_eq!(rt.state.changes.here.as_ref().map(|h| h.at), Some(0));
+        // Pressed while open, it puts the change away.
+        open_it(&mut rt);
+        assert!(the_open_change(&rt).is_none());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_change_with_nothing_in_it_draws_no_button() {
+        let (rt, dir) = with_a_change("no-button", (1280.0, 760.0), Some(json!({ "ok": true, "change": { "files": [], "plus": 0, "minus": 0 } })));
+        assert!(rect_of(&rt, "thread-code").is_none());
+        let _ = std::fs::remove_dir_all(dir);
+        let (rt, dir) = with_a_change("no-change", (1280.0, 760.0), Some(json!({ "ok": false, "error": "no change was recorded for this thread" })));
+        assert!(rect_of(&rt, "thread-code").is_none());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_narrow_pane_has_the_picker_and_a_wide_one_the_tree() {
+        let (mut rt, dir) = with_a_change("narrow", (1280.0, 760.0), None);
+        open_it(&mut rt);
+        assert!(rect_of(&rt, PICKER).is_some() && rect_of(&rt, TREE).is_none(), "a pane of 776 points has the picker");
+        let _ = std::fs::remove_dir_all(dir);
+        let (mut rt, dir) = with_a_change("wide", (1600.0, 1000.0), None);
+        open_it(&mut rt);
+        assert!(rect_of(&rt, TREE).is_some() && rect_of(&rt, PICKER).is_none(), "a pane of 1077 points has the tree");
+        // Folders before files, a chain of single folders as one, sorted: docs, then src.
+        let shown = rt.state.shown().expect("read");
+        assert_eq!(shown.files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), ["docs/gone.md", "src/a.ts", "src/b.ts"]);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_file_folds_from_its_head_and_stays_folded_while_the_window_runs() {
+        let (mut rt, dir) = with_a_change("fold", (1600.0, 1000.0), None);
+        open_it(&mut rt);
+        assert!(rect_of(&rt, "chg-rows-1").is_some(), "src/a.ts shows its rows");
+        let (x, y) = middle(&rt, "chg-head-1");
+        press(&mut rt, x, y);
+        assert!(rect_of(&rt, "chg-rows-1").is_none(), "folded, it draws no code");
+        // Put away and opened again, the fold is kept.
+        open_it(&mut rt);
+        open_it(&mut rt);
+        assert!(rect_of(&rt, "chg-head-1").is_some() && rect_of(&rt, "chg-rows-1").is_none());
+        let (x, y) = middle(&rt, "chg-head-1");
+        press(&mut rt, x, y);
+        assert!(rect_of(&rt, "chg-rows-1").is_some());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_gap_opens_onto_the_files_own_lines() {
+        let (mut rt, dir) = with_a_change("gap", (1600.0, 1000.0), None);
+        open_it(&mut rt);
+        let (x, y) = middle(&rt, "g1-1");
+        press(&mut rt, x, y);
+        run(&mut rt, 0.05);
+        let here = rt.state.changes.here.as_ref().expect("open");
+        assert_eq!(here.gaps.get(&("src/a.ts".to_string(), 1)), Some(&(4, ["// four", "// five", "// six", "// seven", "// eight", "// nine"].map(String::from).to_vec())));
+        assert!(rect_of(&rt, "o1-1-0").is_some(), "the lines are drawn in place");
+        // A file moved on since the change is refused, and says so.
+        std::fs::write(dir.join("code/src/a.ts"), A_TS.replace("const c = 1;", "const c = 2;")).expect("rewritten");
+        rt.update(|s, tx| {
+            if let Some(here) = s.changes.here.as_mut() {
+                here.gaps.clear();
+            }
+            s.lay_out_the_change();
+            open_gap(s, 1, 1, tx);
+        });
+        rt.frame(1.0 / 60.0);
+        assert!(rt.state.changes.here.as_ref().is_some_and(|h| h.gaps.is_empty()));
+        assert!(rt.state.toast.as_ref().is_some_and(|t| t.line.contains("changed since")));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn its_keys_are_its_own_j_and_k_do_nothing_and_escape_puts_it_down() {
+        // A short window, so the column has somewhere to go.
+        let (mut rt, dir) = with_a_change("keys", (1280.0, 520.0), None);
+        let thread = rt.state.view.clone();
+        open_it(&mut rt);
+        key(&mut rt, Key::Text("j".into()));
+        key(&mut rt, Key::Text("k".into()));
+        assert_eq!(rt.state.view, thread, "J and K do not go to another thread over a change");
+        assert!(the_open_change(&rt).is_some());
+        // ] lands on the next change below the top of the column.
+        let shown = rt.state.shown().expect("read");
+        let starts = hunk_starts(&rt.state, &shown, 0.0);
+        key(&mut rt, Key::Text("]".into()));
+        run(&mut rt, 0.1);
+        let (top, _, _) = COLUMN.with(Cell::get);
+        assert_eq!(top, starts[0].1, "the column moved to the next change, under its file's head");
+        key(&mut rt, Key::Text("]".into()));
+        run(&mut rt, 0.1);
+        assert_eq!(COLUMN.with(Cell::get).0, starts[1].1, "and the one after");
+        key(&mut rt, Key::Text("[".into()));
+        run(&mut rt, 0.1);
+        // The arrows scroll the column, a row at a time.
+        let before = COLUMN.with(Cell::get).0;
+        key(&mut rt, Key::Down);
+        run(&mut rt, 0.05);
+        assert!(COLUMN.with(Cell::get).0 >= before);
+        key(&mut rt, Key::Escape);
+        assert!(the_open_change(&rt).is_none(), "Escape puts the change down");
+        assert_eq!(rt.state.view, thread, "and the next leaves the thread");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_press_on_a_tree_row_jumps_and_the_arrows_then_walk_the_files() {
+        let (mut rt, dir) = with_a_change("tree", (1600.0, 1000.0), None);
+        open_it(&mut rt);
+        let (x, y) = middle(&rt, "t:src/b.ts");
+        press(&mut rt, x, y);
+        run(&mut rt, 0.1);
+        let here = rt.state.changes.here.as_ref().expect("open");
+        assert_eq!((here.at, here.tree_keys), (2, true));
+        key(&mut rt, Key::Up);
+        assert_eq!(rt.state.changes.here.as_ref().map(|h| h.at), Some(1));
+        key(&mut rt, Key::Home);
+        assert_eq!(rt.state.changes.here.as_ref().map(|h| h.at), Some(0));
+        // A folder shut hides its files and moves nothing in the column.
+        let (x, y) = middle(&rt, "t:src/a.ts");
+        let at = rt.state.changes.here.as_ref().map(|h| h.at);
+        let folder = rt.elements().into_iter().find(|e| e.rect[1] < y - 20.0 && e.rect[1] > y - 40.0 && e.rect[0] < x).map(|e| e.rect);
+        if let Some([fx, fy, fw, fh]) = folder {
+            press(&mut rt, fx + fw / 2.0, fy + fh / 2.0);
+        }
+        assert!(rt.state.changes.here.as_ref().is_some_and(|h| h.shut.contains("src/")));
+        assert!(rect_of(&rt, "t:src/a.ts").is_none());
+        assert_eq!(rt.state.changes.here.as_ref().map(|h| h.at), at);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_copy_across_lines_leaves_the_removed_line_out() {
+        let (mut rt, dir) = with_a_change("copy", (1600.0, 1000.0), None);
+        open_it(&mut rt);
+        let [x0, y0, _, _] = rect_of(&rt, "l:1:0:0:=").expect("the first line");
+        let [x1, y1, w1, _] = rect_of(&rt, "l:1:0:3:=").expect("the fourth line");
+        rt.pointer_move(x0 + 1.0, y0 + 5.0);
+        rt.pointer_down(x0 + 1.0, y0 + 5.0);
+        for k in 1..=6 {
+            let t = k as f32 / 6.0;
+            rt.pointer_move(x0 + 1.0 + t * (x1 + w1 - x0 - 2.0), y0 + 5.0 + t * (y1 - y0));
+            rt.frame(1.0 / 60.0);
+        }
+        rt.pointer_up(x1 + w1 - 1.0, y1 + 5.0);
+        rt.frame(1.0 / 60.0);
+        rt.copy_request = None;
+        rt.key(rune::KeyEvent { key: Key::Command('c'), mods: Mods { cmd: true, ..Mods::default() } });
+        rt.frame(1.0 / 60.0);
+        let copied = rt.copy_request.as_ref().expect("⌘C copies").content().text().to_string();
+        assert_eq!(copied, "const a = 1;\nlet b = 3;\nexport { a, b };", "no gutter, and the removed line left out");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_line_takes_typing_keeps_it_and_says_unsaved() {
+        let (mut rt, dir) = with_a_change("typing", (1600.0, 1000.0), None);
+        open_it(&mut rt);
+        let [x, y, _, _] = rect_of(&rt, "l:1:0:2:+").expect("the added line");
+        // A press after the third character puts the caret there.
+        press(&mut rt, x + 3.0 * ADVANCE + 1.0, y + 5.0);
+        run(&mut rt, 0.05);
+        assert_eq!(rt.state.changes.here.as_ref().and_then(|h| h.editing), Some((1, 0, 2)));
+        assert!(rt.has_focus());
+        typed(&mut rt, "x");
+        assert_eq!(rt.state.changes.here.as_ref().map(|h| h.edit.text.clone()).as_deref(), Some("letx b = 3;"));
+        // Return is refused: a row is one line.
+        key(&mut rt, Key::Enter);
+        assert!(!rt.state.changes.here.as_ref().unwrap().edit.text.contains('\n'));
+        // ↓ moves the caret to the next line in the file, the removed one skipped.
+        key(&mut rt, Key::Down);
+        assert_eq!(rt.state.changes.here.as_ref().and_then(|h| h.editing), Some((1, 0, 3)));
+        // Escape lets go of the line, the words kept and the file marked unsaved.
+        key(&mut rt, Key::Escape);
+        run(&mut rt, 0.05);
+        assert!(rt.state.changes.here.as_ref().is_some_and(|h| h.editing.is_none()));
+        assert!(the_open_change(&rt).is_some(), "the first Escape is the line's");
+        let here = rt.state.changes.here.as_ref().unwrap();
+        assert!(unsaved(&rt.state, here, "src/a.ts"));
+        assert!(rt.elements().iter().any(|e| e.text.as_deref() == Some("Unsaved")));
+        // Put away and opened again, the typed words are still there, never on disk.
+        open_it(&mut rt);
+        open_it(&mut rt);
+        assert!(rt.elements().iter().any(|e| e.key.as_deref() == Some("l:1:0:2:+") && e.text.as_deref() == Some("letx b = 3;")));
+        assert_eq!(std::fs::read_to_string(dir.join("code/src/a.ts")).unwrap(), A_TS);
+        // ⌘S with no engine behind the window writes nothing and says so.
+        rt.key(rune::KeyEvent { key: Key::Command('s'), mods: Mods { cmd: true, ..Mods::default() } });
+        rt.frame(1.0 / 60.0);
+        assert!(rt.state.toast.as_ref().is_some_and(|t| t.line.contains("save this file")));
+        assert_eq!(std::fs::read_to_string(dir.join("code/src/a.ts")).unwrap(), A_TS);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_steps_file_is_a_chip_only_when_the_change_holds_it() {
+        let (rt, dir) = with_a_change("chip", (1280.0, 760.0), None);
+        let item = rt.state.open_item().cloned().expect("open");
+        let font = mono(12.0, 19.2);
+        assert!(chip(&rt.state, &item, &format!("{}/code/src/a.ts", dir.to_string_lossy()), "…/src/a.ts", font).is_some());
+        assert!(chip(&rt.state, &item, "/elsewhere/notes.ts", "notes.ts", font).is_none());
+        assert!(chip(&rt.state, &item, "", "", font).is_none());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_chip_opens_the_change_at_its_file_every_press() {
+        let (mut rt, dir) = with_a_change("chip-opens", (1600.0, 1000.0), None);
+        let View::Thread { id, .. } = rt.state.view.clone() else { panic!("a conversation") };
+        let src = rules::change_path_for(&id);
+        rt.update(|s, _| s.open_change(&src, Some("src/b.ts")));
+        run(&mut rt, 0.2);
+        assert_eq!(rt.state.changes.here.as_ref().map(|h| h.at), Some(2));
+        // Walked away and the same chip pressed again, it lands again.
+        rt.update(|s, tx| jump(s, 0, tx));
+        run(&mut rt, 0.2);
+        let src = rules::change_path_for(&id);
+        rt.update(|s, _| s.open_change(&src, Some("src/b.ts")));
+        run(&mut rt, 0.2);
+        assert_eq!(rt.state.changes.here.as_ref().map(|h| h.at), Some(2));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_corners_give_it_the_whole_workspace_and_escape_puts_it_back_beside() {
+        let (mut rt, dir) = with_a_change("full", (1280.0, 760.0), None);
+        open_it(&mut rt);
+        let (x, y) = middle(&rt, "pane-full");
+        press(&mut rt, x, y);
+        assert!(rt.state.pane.full);
+        assert_eq!(rt.state.pane_placement(), Some(crate::rules::pane::Placement::Focus));
+        assert!(rect_of(&rt, TREE).is_some(), "the whole card is wide enough for the tree");
+        key(&mut rt, Key::Escape);
+        assert!(!rt.state.pane.full && the_open_change(&rt).is_some(), "Escape puts it back beside");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_command_bar_offers_view_code_changes_on_a_thread_with_one() {
+        let (mut rt, dir) = with_a_change("bar", (1280.0, 760.0), None);
+        rt.key(rune::KeyEvent { key: Key::Command('k'), mods: Mods { cmd: true, ..Mods::default() } });
+        rt.frame(1.0 / 60.0);
+        typed(&mut rt, "diff");
+        assert!(rt.elements().iter().any(|e| e.text.as_deref() == Some("View code changes")));
+        key(&mut rt, Key::Enter);
+        run(&mut rt, 0.1);
+        assert!(the_open_change(&rt).is_some());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_change_that_cannot_be_read_says_why_and_one_on_its_way_holds_its_place() {
+        let (mut rt, dir) = with_a_change("refused", (1280.0, 760.0), None);
+        rt.update(|s, _| {
+            for v in s.fixture.get_mut("codeChanges").and_then(Value::as_object_mut).expect("answers").values_mut() {
+                *v = json!({ "ok": false, "error": "that change could not be read (an invented reason)" });
+            }
+        });
+        open_it(&mut rt);
+        assert!(rt.elements().iter().any(|e| e.text.as_deref() == Some("that change could not be read (an invented reason)")));
+        open_it(&mut rt);
+        rt.update(|s, _| {
+            for v in s.fixture.get_mut("codeChanges").and_then(Value::as_object_mut).expect("answers").values_mut() {
+                *v = Value::Null;
+            }
+        });
+        open_it(&mut rt);
+        assert!(rt.state.shown().is_none() && the_open_change(&rt).is_some(), "on its way, the skeleton holds its place");
+        let _ = std::fs::remove_dir_all(dir);
+    }
 
     #[test]
     fn a_press_lands_where_the_line_wraps() {
-        // 93 columns, as a line of the column beside the conversation at 1280 by 760 holds.
+        // 116 columns, as a line of the column holds with the change over the whole workspace at
+        // 1280 by 760, where the web window breaks this line before "charged".
         let line = "  it('adds the lines after rounding each one, so the receipt a customer sees always matches what the card is charged', () => {";
-        assert_eq!(caret_at(line, 93, 0.0, 5.0), 0);
-        assert_eq!(caret_at(line, 93, ADVANCE * 4.0, 5.0), 4);
+        let cols = ((1176.0 - 24.0 - TREE_W - NUM_W - MARK_W - LINE_PAD) / ADVANCE).floor() as usize;
+        assert_eq!(cols, 116);
+        assert_eq!(caret_at(line, cols, 0.0, 5.0), 0);
+        assert_eq!(caret_at(line, cols, ADVANCE * 4.0, 5.0), 4);
         // The second visual line starts after the space that ends the first.
-        let second = caret_at(line, 93, 0.0, row_tall() + 2.0);
+        let second = caret_at(line, cols, 0.0, row_tall() + 2.0);
         assert_eq!(&line[second..second + 7], "charged");
         // Past the end of the last visual line is the line's end.
-        assert_eq!(caret_at(line, 93, 900.0, row_tall() + 2.0), line.chars().count());
+        assert_eq!(caret_at(line, cols, 900.0, row_tall() + 2.0), line.chars().count());
         // Past the end of an earlier one is its last character, not the next line.
-        assert!(caret_at(line, 93, 900.0, 5.0) < second);
+        assert!(caret_at(line, cols, 900.0, 5.0) < second);
+        // At 93 columns, beside the conversation at 1280 by 760, before "what".
+        assert_eq!(&line[caret_at(line, 93, 0.0, row_tall() + 2.0)..][..4], "what");
         // A word longer than the line breaks anywhere.
         let long = "x".repeat(250);
         assert_eq!(caret_at(&long, 100, 0.0, row_tall() * 2.0 + 1.0), 200);
