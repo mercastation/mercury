@@ -496,8 +496,11 @@ impl State {
         let thread = format!("{}/{}", item.product, item.id);
         let pick = self.reply_pick_to_send(&item);
         let mut payload = writes::reply(&item, &words);
-        if let (Some(pick), Some(fields)) = (&pick, payload.as_object_mut()) {
-            fields.extend(rules::reply_pick::answer_fields(pick));
+        if let Some(fields) = payload.as_object_mut() {
+            fields.insert("permissionMode".to_string(), rules::reply_pick::mode_sent(&item));
+            if let Some(pick) = &pick {
+                fields.extend(rules::reply_pick::answer_fields(pick));
+            }
         }
         self.drafts.remove(&thread);
         self.reply_picks.remove(&thread);

@@ -123,6 +123,14 @@ pub fn answer_fields(sent: &ReplyPick) -> Map<String, Value> {
     fields
 }
 
+/// What a reply typed in the box says of what it may do, with the mode's chip untouched: the
+/// thread's own mode, else `null`, which the store keeps beside the ledger, not on it
+/// (`useState(item.answerMode ?? null)` in `DockComposer`, `setAnswerMode` in `main/store.mts`).
+/// A picked option sends none (`pickOption`).
+pub fn mode_sent(item: &Item) -> Value {
+    item.rest.get("answerMode").cloned().unwrap_or(Value::Null)
+}
+
 /// The level beside the model's name on the chip, or nothing: only a level that will really be
 /// sent, one this model takes (`effortSaid`). It is read against the agent the thread is on now,
 /// as the web window reads it.
@@ -254,6 +262,12 @@ mod tests {
         assert_eq!(fresh_note(&engines, "claude", "claude"), None);
         assert_eq!(engines_of(Some("codex"), &pick(None, None, None)), ("codex".to_string(), "codex".to_string()));
         assert_eq!(engines_of(None, &pick(None, None, Some("antigravity"))), ("claude".to_string(), "antigravity".to_string()));
+    }
+
+    #[test]
+    fn a_typed_reply_says_the_threads_own_mode_else_null() {
+        assert_eq!(mode_sent(&thread(json!({ "answerMode": "plan" }))), json!("plan"));
+        assert_eq!(mode_sent(&thread(json!({}))), Value::Null);
     }
 
     #[test]
