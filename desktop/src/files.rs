@@ -393,16 +393,11 @@ fn paths_base(file: &str) -> &str {
 }
 
 /// Opens what a link in a message points at (`openHref` in `Focus.tsx`): an address in the
-/// browser; a file the big view draws, big over the window (`viewer.rs`), unless ⌘ is held
-/// (`outside`), which as in a browser sends it out; anything else in the app that reads it.
+/// browser; a picture, a film, a PDF, a page or a deck big over the window (`viewer.rs`); a
+/// document, a table or a script in the pane beside the conversation (`pane.rs`); with ⌘ held
+/// (`outside`), as in a browser, any of them out; anything else in the app that reads it.
 pub fn open(s: &mut State, href: &str, outside: bool) {
-    if href.starts_with("http://") || href.starts_with("https://") || href.starts_with("mailto:") {
-        return open_with_system(href);
-    }
-    if !outside && crate::rules::viewer::opens_big(href) {
-        return s.open_big(href, None);
-    }
-    open_found(s, href)
+    crate::pane::open_link(s, href, outside)
 }
 
 /// Opens a file a message names in the app that reads it. A short path is looked for where the

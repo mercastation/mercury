@@ -32,6 +32,7 @@ pub mod notes;
 pub mod nowhere;
 pub mod page;
 pub mod palette;
+pub mod pane;
 pub mod paths;
 pub mod place;
 pub mod rank;

@@ -337,6 +337,44 @@ macro_rules! control {
 control!(FILE_BACK, "m-file-back", r#"<path d="M16 10H4m5-5-5 5 5 5"/>"#);
 control!(FILE_OUTSIDE, "m-file-outside", r#"<path d="M11 3h6v6m0-6-8 8M7 4H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-3"/>"#);
 control!(FILE_CLOSE, "m-file-close", r#"<path d="m5 5 10 10M15 5 5 15"/>"#);
+// The pane's mark that gives the file the whole window, and the big view's that puts it back
+// beside the conversation: a frame's four corners, out and in (`FocusControl`, `corners-bare`).
+control!(PANE_FULL, "m-pane-full", r#"<path d="M7 3H3v4m10-4h4v4M3 13v4h4m6 0h4v-4"/>"#);
+control!(PANE_BESIDE, "m-pane-beside", r#"<path d="M3 7h4V3m6 0v4h4M3 13h4v4m6 0v-4h4"/>"#);
+
+/// A table in the pane (`TableView`): its bar's search, Filter and Sort, and the small marks
+/// before each column's name of what it holds, on a 16 grid at 1.4 (the bar) and 1.3 (the marks).
+macro_rules! table_mark {
+    ($name:ident, $id:literal, $width:literal, $body:literal) => {
+        pub static $name: Icon = Icon {
+            name: $id,
+            view: 16.0,
+            body: concat!(r#"<g fill="none" stroke="currentColor" stroke-width=""#, $width, r#"" stroke-linecap="round" stroke-linejoin="round">"#, $body, "</g>"),
+        };
+    };
+}
+table_mark!(TABLE_SEARCH, "m-tbl-search", "1.4", r#"<circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/>"#);
+table_mark!(TABLE_FILTER, "m-tbl-filter", "1.4", r#"<path d="M2.5 4h11M4.5 8h7M6.5 12h3"/>"#);
+table_mark!(TABLE_SORT, "m-tbl-sort", "1.4", r#"<path d="M5 3v10M2.5 10.5L5 13l2.5-2.5M11 13V3M8.5 5.5L11 3l2.5 2.5"/>"#);
+table_mark!(TABLE_WORDS, "m-tbl-words", "1.3", r#"<path d="M3 4.5h10M3 8h10M3 11.5h6"/>"#);
+table_mark!(TABLE_TAG, "m-tbl-tag", "1.3", r#"<path d="M8.5 2.5h5v5l-6 6-5-5zM11 5h.01"/>"#);
+table_mark!(TABLE_NUMBER, "m-tbl-number", "1.3", r#"<path d="M6.5 2.5l-1.5 11M11 2.5l-1.5 11M3 6h10.5M2.5 10h10.5"/>"#);
+table_mark!(TABLE_DATE, "m-tbl-date", "1.3", r#"<path d="M3 3.5h10v10H3zM3 6.5h10M5.5 2v3M10.5 2v3"/>"#);
+table_mark!(TABLE_LINK, "m-tbl-link", "1.3", r#"<path d="M7 9a2.5 2.5 0 0 0 3.5 0l2-2A2.5 2.5 0 0 0 9 3.5l-.75.75M9 7a2.5 2.5 0 0 0-3.5 0l-2 2A2.5 2.5 0 0 0 7 12.5l.75-.75"/>"#);
+table_mark!(TABLE_EMAIL, "m-tbl-email", "1.3", r#"<path d="M2.5 4h11v8h-11zM2.5 4.5L8 8.5l5.5-4"/>"#);
+
+/// The pane's globe, which shares the file by a link (`NoteGlyph name="globe"`), and its mark of
+/// two panes side by side, which opens the file's notes (`NotesToggle`): each on a 16 grid.
+pub static PANE_GLOBE: Icon = Icon {
+    name: "m-pane-globe",
+    view: 16.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="5.5"/><path d="M2.5 8h11M8 2.5c1.5 1.5 2.3 3.4 2.3 5.5S9.5 12 8 13.5M8 2.5C6.5 4 5.7 5.9 5.7 8s.8 4 2.3 5.5"/></g>"#,
+};
+pub static PANE_NOTES: Icon = Icon {
+    name: "m-pane-notes",
+    view: 16.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="2" y="3" width="12" height="10" rx=".5"/><path d="M10 3v10"/></g>"#,
+};
 
 /// The zoom's pill under a picture opened big (`ZoomGlyph` in `ArtifactStage.tsx`).
 pub static ZOOM_OUT: Icon = Icon {

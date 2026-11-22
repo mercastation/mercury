@@ -288,7 +288,12 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
                 if s.fold_live_steps() {
                     return true;
                 }
-                if s.replying { s.fold_reply() } else { s.close_onto_its_tab() }
+                // Then a file beside the conversation the person opened (`escapeClosesDoc`).
+                if s.replying {
+                    s.fold_reply()
+                } else if !crate::pane::key(s, e) {
+                    s.close_onto_its_tab()
+                }
                 return true;
             }
             // The arrows walk the agent's options, Enter sends the one they are on, and a
