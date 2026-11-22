@@ -16,6 +16,7 @@ mod attach;
 mod chrome;
 mod compose;
 mod data;
+mod feel;
 mod files;
 mod front;
 mod home;
@@ -140,6 +141,10 @@ pub struct State {
     pub palette: palette::Bar,
     /// The box a thread is started in, and what it holds.
     pub compose: compose::Composer,
+    /// The rail, folded or opened by the pointer resting on it (`chrome.rs`).
+    pub rail: chrome::Rail,
+    /// The control the pointer is on, for a look under it Rune's own hover cannot draw (`feel.rs`).
+    pub pointed: feel::Pointed,
     /// The models this Mac's coding agents offer, as the engine's settings say; the ones the
     /// app was built with until it has.
     pub models: rules::compose::Models,
@@ -720,12 +725,13 @@ impl State {
     fn rows_under_the_keys(&self) -> usize {
         self.lists.under(self.inbox_tab).len()
     }
+    /// The card's box, beside the rail as wide as it is now.
     pub fn card_size(&self) -> (f32, f32) {
-        ((self.size.0 - chrome::CARD[0] - chrome::CARD[2]).max(1.0), (self.size.1 - chrome::CARD[1] - chrome::CARD[3]).max(1.0))
+        ((self.size.0 - chrome::card_left(self) - chrome::CARD[2]).max(1.0), (self.size.1 - chrome::CARD[1] - chrome::CARD[3]).max(1.0))
     }
     /// The page's box inside the window: under the card's top strip.
     pub fn page_size(&self) -> (f32, f32) {
-        ((self.size.0 - chrome::CARD[0] - chrome::CARD[2]).max(1.0), (self.size.1 - chrome::page_top(&self.view) - chrome::CARD[3]).max(1.0))
+        ((self.size.0 - chrome::card_left(self) - chrome::CARD[2]).max(1.0), (self.size.1 - chrome::page_top(&self.view) - chrome::CARD[3]).max(1.0))
     }
     fn refresh(&mut self) {
         self.lists = self.snap.lists(self.now, &self.local);
@@ -813,7 +819,11 @@ fn pictures_for(never: bool) -> pictures::Pictures {
 }
 
 fn init() -> State {
-    let args = rune::tooling::extra_args();
+    init_from(rune::tooling::extra_args())
+}
+
+/// The state a window opens on, from its command line; a test opens one on a fixture this way.
+fn init_from(args: &[String]) -> State {
     let source = source::from_args(args);
     // What was last picked in the box a thread is started in, from beside the door's note. A
     // fixture's picks are its own, read below, and no file is touched for one.
@@ -870,6 +880,8 @@ fn init() -> State {
         later: later::Picker::closed(),
         palette: palette::Bar::closed(),
         compose: compose::Composer::default(),
+        rail: chrome::Rail::default(),
+        pointed: feel::Pointed::default(),
         models: rules::compose::Models::built(),
         reading_models: Latest::default(),
         picks,
@@ -1097,6 +1109,8 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
     }
     // A picture the engine has turned for the box a thread is started in.
     changed |= s.land_staged();
+    changed |= chrome::rail_moves(s, at, tx);
+    changed |= feel::hint_due(s, at);
     if let Some((key, answer)) = s.asking.take() {
         match answer {
             Ok(answer) => {
@@ -1131,7 +1145,9 @@ fn resized(s: &mut State, [_, _, w, h]: [f32; 4]) {
         return;
     }
     s.size = (w, h);
-    let points = s.card_size();
+    // A key hint goes when the window is resized, as the web window's does.
+    s.pointed.hint = None;
+    let points = chrome::folded_card_size(s);
     s.painting.request(points, paint_skies);
 }
 
@@ -1154,14 +1170,18 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
         // others, and the highlight trailed the press. Both settings reach the whole window.
         .instant_changes()
         .motion(rune::Spring::NONE)
+        // And what the pointer changes comes and goes at once, as the web window's `:hover`
+        // rules do with no transition of their own; Rune's own fades out over a tenth of a
+        // second. A control the web eases says so on itself (`feel.rs`).
+        .hover_motion_within(rune::Anim::INSTANT, rune::Anim::INSTANT)
         .on_layout(resized)
         .child(chrome::backdrop(w, h))
         .child(chrome::card(s))
-        .child(chrome::rail(s))
+        .child(chrome::rail(s, cx.is_reduced_motion()))
         .child(chrome::back_forward(s))
         // The page scrolls inside the card, under its top strip.
         .child(
-            el().pin(Some(chrome::CARD[0]), Some(chrome::page_top(&s.view)), Some(chrome::CARD[2]), Some(chrome::CARD[3]))
+            el().pin(Some(chrome::card_left(s)), Some(chrome::page_top(&s.view)), Some(chrome::CARD[2]), Some(chrome::CARD[3]))
                 .clip_corners([0.0, 0.0, 6.0, 6.0])
                 .scroll(ScrollSpec { stick_bottom: false })
                 .child(page),
@@ -1186,10 +1206,13 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
         Some(bar) => root.child(bar),
         None => root,
     };
-    match chrome::notice(s) {
+    let root = match chrome::notice(s) {
         Some(notice) => root.child(notice),
         None => root,
-    }
+    };
+    // The band that moves the window, and the key hint of the control the pointer has waited
+    // on, over everything (`chrome.rs`, `feel.rs`).
+    root.children(chrome::drag_band(s)).children(feel::plate(s))
 }
 
 static FONTS: &[&[u8]] = &[include_bytes!("../assets/fonts/Geist-Variable.ttf"), include_bytes!("../assets/fonts/GeistMono-Variable.ttf")];

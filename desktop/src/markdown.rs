@@ -17,7 +17,7 @@ use std::iter::Peekable;
 
 use pulldown_cmark::{Event, Options, Parser, Tag};
 use regex::Regex;
-use rune::{El, InlineIcon, Link, Span, TextCase, TextStyle, col, el, rich, row, text};
+use rune::{El, InlineIcon, Link, LinkPaint, Span, TextCase, TextStyle, col, el, rich, row, text};
 
 use crate::files::{self, Files, Shown};
 use crate::icons;
@@ -516,10 +516,14 @@ fn words(kids: &[Inline], font: TextStyle, p: Page) -> El {
         return e;
     }
     // Each mention is pressed like a link, and says where it points when the pointer rests on it.
+    // Under the pointer what is behind it lightens a step and its line firms, and held down the
+    // line firms again (`a.mention:hover`, `:active` in `renderer/src/components/mention.css`).
+    let (lit, held) = (LinkPaint::new().bg(white(0.08)).underline(muted()), LinkPaint::new().bg(white(0.08)).underline(dim()));
     for (a, b, href) in presses {
-        e = e.link(Link::new(a..b, href.clone()).help(paths::decode_uri(&href)));
+        e = e.link(Link::new(a..b, href.clone()).hover(lit).pressed(held).help(paths::decode_uri(&href)));
     }
-    e.on_link(|s: &mut crate::State, href: &str, _: &mut rune::Tx| files::open(s, href))
+    // A right press on one opens its menu; on the words around it, the words' own Copy.
+    e.on_link(|s: &mut crate::State, href: &str, _: &mut rune::Tx| files::open(s, href)).on_link_secondary(files::link_menu)
 }
 
 /// The folder a link points at, when it is one: an address that keeps its slash, which is how

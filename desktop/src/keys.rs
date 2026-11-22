@@ -56,9 +56,12 @@ pub fn in_the_box(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
     false
 }
 
-/// The Inbox's picked row, as `(id, product)`.
+/// The Inbox's row the keys act on, as `(id, product)`: the one the pointer moved onto while it
+/// is still there and still in the list, else the picked one (`pointed` in `App.tsx`).
 fn picked_row(s: &State) -> Option<(String, String)> {
-    s.lists.under(s.inbox_tab).get(s.picked).map(|r| (r.id.clone(), r.product.clone()))
+    let rows = s.lists.under(s.inbox_tab);
+    let pointed = rows.iter().find(|r| s.pointed.is_row(&r.product, &r.id));
+    pointed.or_else(|| rows.get(s.picked)).map(|r| (r.id.clone(), r.product.clone()))
 }
 
 /// E: marks done the thread the keys are on. That is the open conversation, or the Inbox's
@@ -103,6 +106,9 @@ fn later_under_the_keys(s: &mut State, tx: &mut Tx) {
 
 /// True when the key was this window's. A chord is the system's, never one of these.
 pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
+    // A key hint is for the hand on the pointer, and any key takes it away (`keydown` in
+    // `renderer/src/App.tsx`'s hint guards).
+    s.pointed.hint = None;
     // ⌘K from anywhere, and every key while the command bar is open, are the bar's. One thing
     // stands over the page at a time, as the web window's one `modal`: the bar opening closes
     // the New thread card, which keeps its words.
@@ -120,6 +126,15 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
     // Then what stands open over a conversation: the strip's menu or panel, and the reply box's
     // model menu. Each takes its own keys, Escape first, and lets the rest go on to the page.
     if crate::strip::key(s, e, tx) == Some(true) || crate::reply::menu_key(s, e, tx) == Some(true) {
+        return true;
+    }
+    // ⌘[ is Back, as Back's title says (`Back to … (⌘[)` in `BackForward.tsx`): a conversation
+    // goes back to where it was opened from, any other page to the one before it.
+    if e.mods.cmd && e.key == Key::Command('[') {
+        match s.view {
+            View::Thread { .. } => s.leave_thread(),
+            _ => s.back(),
+        }
         return true;
     }
     if e.mods.cmd || e.mods.ctrl || e.mods.alt {
@@ -140,6 +155,10 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
         Key::Text(t) => t.to_lowercase(),
         _ => String::new(),
     };
+    // The hand is back on the keys, so the pointer stops holding a row (`takesTheListBack`).
+    if matches!(e.key, Key::Down | Key::Up | Key::Escape | Key::Tab) || letter == "j" || letter == "k" {
+        s.pointed.row = None;
+    }
     // Z takes back the last thing done, wherever the person is by then.
     if letter == "z" {
         s.undo(tx);
@@ -163,6 +182,12 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
     let (down, up) = (j || e.key == Key::Down, k || e.key == Key::Up);
     match s.view.clone() {
         View::Home => {
+            // Tab is the Inbox's, and Home has no tabs: the web window takes it and draws nothing
+            // for it, its focus let go rather than walked into the box (`onTheTabs` in
+            // `renderer/src/App.tsx`). Here it would put the caret in the box.
+            if e.key == Key::Tab {
+                return true;
+            }
             // N goes into the box already on the page, and so does a letter that is none of
             // the list's own: somebody typing, with a box on the page to type in.
             if letter == "n" {
@@ -202,10 +227,7 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
                 s.show_tab(tab);
                 return true;
             }
-            let (len, on) = {
-                let rows = s.lists.under(s.inbox_tab);
-                (rows.len(), rows.get(s.picked).map(|r| (r.id.clone(), r.product.clone())))
-            };
+            let (len, on) = (s.lists.under(s.inbox_tab).len(), picked_row(s));
             if len == 0 {
                 return false;
             }

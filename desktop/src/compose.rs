@@ -228,12 +228,15 @@ fn menu_chip(s: &State, kind: MenuKind, inside: impl FnOnce(rune::Color) -> Vec<
 /// The project's chip and the level's, which every bar has.
 fn filed_chips(s: &State) -> [El; 2] {
     let project = s.compose_project();
+    // Their titles: the project's name, and what the level is (`title` on each `.tc-chip`).
+    let named = project.map_or_else(|| "No project".to_string(), |p| p.name.clone());
     [
         menu_chip(s, MenuKind::Project, |tone| match project {
-            Some(p) => vec![swatch(&p.slug), label(&p.name, 13.0, 400.0, tone)],
-            None => vec![label("No project", 13.0, 400.0, tone)],
-        }),
-        menu_chip(s, MenuKind::Level, |tone| vec![level_mark(s.compose.level), label(rules::choice_label(s.compose.level), 13.0, 400.0, tone)]),
+            Some(p) => vec![swatch(&p.slug), label(&p.name, 13.0, 400.0, tone).group_color(ink())],
+            None => vec![label("No project", 13.0, 400.0, tone).group_color(ink())],
+        })
+        .help(named),
+        menu_chip(s, MenuKind::Level, |tone| vec![level_mark(s.compose.level), label(rules::choice_label(s.compose.level), 13.0, 400.0, tone).group_color(ink())]).help("Priority"),
     ]
 }
 
@@ -241,7 +244,7 @@ fn filed_chips(s: &State) -> [El; 2] {
 /// before the caret (`.tc-send-caret`, and `.set` with `.tc-send-when`).
 fn later_caret(s: &State) -> El {
     let caret = if s.compose.later {
-        row()
+        let set = row()
             .h(32.0)
             .items_center()
             .gap(6.0)
@@ -251,19 +254,20 @@ fn later_caret(s: &State) -> El {
             .fill(rgba(239, 235, 231, 0.15))
             .border_sides([0.0, 0.0, 0.0, 1.0], rgba(26, 24, 23, 0.55))
             .border_layout()
-            .child(pen(text(rules::LATER_WORD).font(figures(12.5, 500.0)).color(ink()), 12.5))
-            .child(icon(&icons::CARET, 13.0).color(ink()))
+            .child(pen(text(rules::LATER_WORD).font(figures(12.5, 500.0)).color(ink()).group_color(white(1.0)), 12.5))
+            .child(icon(&icons::CARET, 13.0).color(ink()).group_color(white(1.0)));
+        home::brightened(set).cursor(rune::Cursor::Pointer)
     } else {
         home::send_caret()
     };
-    caret.key(CARET).cursor(rune::Cursor::Pointer).on_background_press_tx(|s: &mut State, tx| s.toggle_menu(MenuKind::Later, tx))
+    caret.key(CARET).help("Send later").on_background_press_tx(|s: &mut State, tx| s.toggle_menu(MenuKind::Later, tx))
 }
 
 /// The paper clip, why Send is off when it is off for want of a project, and Send.
 fn bar_end(s: &State) -> Vec<El> {
     // The two halves of Send are one control with no room between them (`.tc-send`).
-    let send = row().key(MenuKind::Later.anchor()).child(home::send_main(s.compose_ready()).key(SEND).cursor(rune::Cursor::Pointer).on_background_press_tx(|s: &mut State, tx| s.send_thread(tx))).child(later_caret(s));
-    let clip = home::attach().key(CLIP).cursor(rune::Cursor::Pointer).on_background_press_tx(|s: &mut State, tx| s.pick_files(tx));
+    let send = row().key(MenuKind::Later.anchor()).child(home::send_main(s.compose_ready()).key(SEND).help("Send · ⌘↵").on_background_press_tx(|s: &mut State, tx| s.send_thread(tx))).child(later_caret(s));
+    let clip = home::attach().key(CLIP).help("Attach files").on_background_press_tx(|s: &mut State, tx| s.pick_files(tx));
     if s.compose_project().is_none() {
         // `.tc-why` takes the room the clip would otherwise push Send across, so the clip
         // stays by the chips. Making a project is the web window's to do, so the way out is
@@ -279,10 +283,10 @@ fn bar_end(s: &State) -> Vec<El> {
 fn bar(s: &State) -> El {
     let mut bar = row().pt(14.0).items_center().gap(8.0);
     if window::to_offered(&s.snap) {
-        bar = bar.child(home::chip(vec![label("Agent", 13.0, 400.0, dim())]));
+        bar = bar.child(crate::feel::answers(home::chip(vec![label("Agent", 13.0, 400.0, dim()).group_color(ink())])));
     }
     let model = rules::model_label(&s.compose_pick(), &s.models);
-    bar.child(menu_chip(s, MenuKind::Model, |tone| vec![label(&model, 13.0, 400.0, tone)])).children(filed_chips(s)).children(bar_end(s))
+    bar.child(menu_chip(s, MenuKind::Model, |tone| vec![label(&model, 13.0, 400.0, tone).group_color(ink())])).children(filed_chips(s)).children(bar_end(s))
 }
 
 /// The field the words are typed in, in the type of the place it is drawn in.
@@ -340,8 +344,10 @@ pub fn inline(s: &State) -> El {
         // Files dropped anywhere on the box attach. The web window takes them on its words,
         // which are most of it; a drop on the rest of it does nothing there.
         .on_drop_files(|s: &mut State, files, _| s.attach_paths(files))
-        // One line tall until the words need more: 74 points with the room under them.
-        .child(el().min_h(74.0).pb(14.0).child(field.w_full()))
+        // One line tall until the words need more: 74 points with the room under them, all of
+        // it the words' box, as the web window's text box is: the I-beam over it, and a press
+        // anywhere in it puts the caret after the words.
+        .child(el().min_h(74.0).pb(14.0).cursor(rune::Cursor::Text).on_press_tx(|s: &mut State, tx| s.write_in_the_box(tx)).child(field.w_full()))
         // The files, under the words and over the notes (`.tc-inline .attach-row`).
         .children(attach::rows(s, |r| r.pt(12.0)))
         .children(notes(s, |n| n.pt(12.0)))
@@ -352,10 +358,17 @@ pub fn inline(s: &State) -> El {
 
 /// A value of the card's head (`.tc-word`): the word with a dotted line under it, a point
 /// wide every other point, three under its foot; the line brightens while the word's menu is
-/// open (`.tc-word.open`). The line is as long as the word and stops on the last whole dot.
+/// open (`.tc-word.open`) and while the pointer is on it (`.tc-word:hover`), when the bright
+/// line is laid over the faint one. The line is as long as the word and stops on the last whole
+/// dot.
 fn head_word(words: &str, open: bool) -> El {
-    let dots = row().gap(1.0).children((0..160).map(|_| el().size(1.0, 1.0).fill(if open { muted() } else { rule() })));
-    el().child(pen(text(words).font(TextStyle::new(14.0, 400.0).lh(21.0)).color(ink()), 14.0)).child(el().pin(Some(0.0), Some(18.5), Some(0.0), None).h(1.0).clip_corners([0.0; 4]).child(dots))
+    let dots = |tone| row().gap(1.0).children((0..160).map(move |_| el().size(1.0, 1.0).fill(tone)));
+    let line = |tone| el().pin(Some(0.0), Some(18.5), Some(0.0), None).h(1.0).clip_corners([0.0; 4]).child(dots(tone));
+    el().hover_group()
+        .cursor(rune::Cursor::Pointer)
+        .child(pen(text(words).font(TextStyle::new(14.0, 400.0).lh(21.0)).color(ink()), 14.0))
+        .child(line(if open { muted() } else { rule() }))
+        .child(line(muted()).group_opacity(0.0, 1.0))
 }
 
 /// A field of the card's head (`.tc-field`): its name in small capitals, then its value. A
@@ -380,7 +393,7 @@ fn card_head(s: &State) -> El {
         // (`.tc-word > .agent-face`, a point higher than the word's middle). Who else could get
         // the thread is the web window's to pick: To says Agent here, and opens nothing.
         let face = agent_face().ml(-27.0).mr(9.0).mt(-1.0).mb(1.0);
-        head = head.child(head_field("To", row().items_center().child(face).child(head_word("Agent", false)), true));
+        head = head.child(head_field("To", row().items_center().child(face).child(crate::feel::answers(head_word("Agent", false))), true));
     }
     let open = s.compose.menu.as_ref().is_some_and(|m| m.kind == MenuKind::Model);
     let model = head_word(&rules::model_label(&s.compose_pick(), &s.models), open)
@@ -400,7 +413,16 @@ fn card(s: &State) -> El {
     // In the dialog the caret is the text's own colour, and the words scroll inside a box
     // 156 points tall (`.tc-text`).
     let field = words_field(s, TextStyle::new(15.0, 400.0).lh(23.25), ink());
-    let words = col().h(156.0).pt(12.0).px(18.0).pb(6.0).child(col().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(field.w_full()));
+    // All of it the words' box, as the web window's text box is: the I-beam over it, and a
+    // press anywhere in it puts the caret after the words.
+    let words = col()
+        .h(156.0)
+        .pt(12.0)
+        .px(18.0)
+        .pb(6.0)
+        .cursor(rune::Cursor::Text)
+        .on_press_tx(|s: &mut State, tx| s.write_in_the_box(tx))
+        .child(col().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(field.w_full()));
     // The files, between the words and the notes (`.tc-card .attach-row`).
     let files = attach::rows(s, |r| r.px(18.0).pb(10.0));
     let lines = notes(s, |n| n.px(18.0).pb(10.0));
@@ -648,7 +670,9 @@ pub fn reply_menu_layer(s: &State) -> Option<El> {
     let anchor = rune::memo::window_layout(crate::reply::CHIP)?;
     let (w, h) = s.size;
     let hang = |_| Hang { below: false, gap: 8.0, dx: 0.0 };
-    let (shell, fit) = placed_menu(s, menu, anchor, hang, (chrome::CARD[0], w - chrome::CARD[2]));
+    // The page starts where the card does, further right while the rail is open.
+    let left = chrome::card_left(s);
+    let (shell, fit) = placed_menu(s, menu, anchor, hang, (left, w - chrome::CARD[2]));
     let marks: Vec<(&'static str, [f32; 4])> = crate::reply::MARKS.into_iter().filter_map(|key| rune::memo::window_layout(key).map(|rect| (key, rect))).collect();
     let away = el().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).on_drag(move |s: &mut State, d: &mut Drag, tx: &mut Tx| {
         if d.phase == Phase::Down {
@@ -656,7 +680,7 @@ pub fn reply_menu_layer(s: &State) -> Option<El> {
         }
     });
     let page_top = chrome::page_top(&s.view);
-    let page = el().pin(Some(chrome::CARD[0]), Some(page_top), Some(chrome::CARD[2]), Some(chrome::CARD[3])).clip_corners([0.0, 0.0, 6.0, 6.0]).child(shell.absolute(fit.left - chrome::CARD[0], fit.top - page_top));
+    let page = el().pin(Some(left), Some(page_top), Some(chrome::CARD[2]), Some(chrome::CARD[3])).clip_corners([0.0, 0.0, 6.0, 6.0]).child(shell.absolute(fit.left - left, fit.top - page_top));
     Some(el().absolute(0.0, 0.0).size(w, h).child(away).child(page))
 }
 
@@ -683,7 +707,8 @@ fn menu_layer(s: &State) -> Option<El> {
     };
     // A menu on the page is seen only inside the page, which clips it (`.hm-page`); over the
     // card, anywhere in the window.
-    let sides = if card { (0.0, w) } else { (chrome::CARD[0], w - chrome::CARD[2]) };
+    let left = chrome::card_left(s);
+    let sides = if card { (0.0, w) } else { (left, w - chrome::CARD[2]) };
     let (shell, fit) = placed_menu(s, menu, anchor, hang, sides);
     // On the way down, as the web window's `pointerdown` listener does, so the same press can
     // still land the caret in the words. Where the box's controls are is read here, while the
@@ -708,9 +733,9 @@ fn menu_layer(s: &State) -> Option<El> {
         );
     }
     let page = el()
-        .pin(Some(chrome::CARD[0]), Some(chrome::PAGE_TOP), Some(chrome::CARD[2]), Some(chrome::CARD[3]))
+        .pin(Some(left), Some(chrome::PAGE_TOP), Some(chrome::CARD[2]), Some(chrome::CARD[3]))
         .clip_corners([0.0, 0.0, 6.0, 6.0])
-        .child(shell.absolute(fit.left - chrome::CARD[0], fit.top - chrome::PAGE_TOP));
+        .child(shell.absolute(fit.left - left, fit.top - chrome::PAGE_TOP));
     Some(el().absolute(0.0, 0.0).size(w, h).child(away).child(page))
 }
 

@@ -59,7 +59,8 @@ fn turned(s: &State) -> (Pixels, f32) {
 
 /// The Inbox's sky, as the card draws it under this page: at full strength behind the head and
 /// gone before the tabs, with the card's own glass showing below it. The ring is the sky's own
-/// edge (`.home-sky::after`), which fades with it.
+/// edge (`.home-sky::after`), which fades with it. It stands on the card's right edge, so the
+/// rail opening covers its left edge, as Home's does.
 pub fn sky(s: &State) -> El {
     let (card_w, card_h) = s.card_size();
     let (band, band_h) = turned(s);
@@ -67,7 +68,7 @@ pub fn sky(s: &State) -> El {
         el().pin(Some(0.0), Some(0.0), Some(0.0), None)
             .h(SKY_REACH)
             .clip_fade_linear(0.0, 0.0, 0.0, SKY_REACH - SKY_WHOLE)
-            .child(el().absolute(0.0, 0.0).size(s.sky_size.0, band_h).pixels(&band))
+            .child(el().absolute(card_w - s.sky_size.0, 0.0).size(s.sky_size.0, band_h).pixels(&band))
             .child(el().absolute(0.0, 0.0).size(card_w, card_h).radius(6.0).border(1.0, white(0.07))),
     )
 }
@@ -89,27 +90,50 @@ fn shaded(draw: impl Fn(bool) -> El) -> El {
     el().child(patch).child(draw(false))
 }
 
-/// A square button of the strip: the sky's dark at 82% over the sky blurred behind it.
-fn strip_button() -> El {
-    row().h(32.0).items_center().radius(6.0).backdrop_blur(6.0).fill(under(0.82)).border(1.0, rgb(82, 80, 79)).border_layout()
+/// A square button of the strip: the sky's dark at 82% over the sky blurred behind it. Under the
+/// pointer it gives up the dark and the blur for `--wash-strong` over the sky itself
+/// (`.app.sky-shown:not(.home-shown) :is(.th-new, .th-disp, …):not(:hover)` in
+/// `renderer/src/home/home.css`, and `.th-new:hover, .th-disp:hover` in `threads/pages.css`):
+/// a fill and a blur given up, which Rune's own hover cannot draw, so the window keeps which
+/// button the pointer is on (`feel::pointed`) and draws that one so. `key` names the button.
+fn strip_button(s: &State, key: &'static str) -> El {
+    let button = row().h(32.0).items_center().radius(6.0);
+    let button = if s.pointed.is(key) { button.fill(crate::feel::wash_strong()) } else { button.backdrop_blur(6.0).fill(under(0.82)) };
+    crate::feel::pointed(button.border(1.0, rgb(82, 80, 79)).border_layout().cursor(Cursor::Pointer), key)
 }
 
 /// Where threads run (`CloudButton`): a square like the display button's with a cloud in it,
 /// orange while the cloud is on. It widens to carry how many threads run there, or a word:
 /// "Cloud" until an account is set up, "Sign in again" when one has stopped working. The dot
 /// in its corner is the display button's, for something about the setup that wants a look.
-fn cloud_button(b: cloud::Button) -> El {
+/// Under the pointer its word is the text's own colour (`.th-cloud.named:hover .th-cloud-word`).
+/// Its menu is the web window's, so it opens nothing here.
+fn cloud_button(s: &State, b: cloud::Button) -> El {
     let cloud = icon(&icons::CLOUD, 16.0).color(if b.lit { accent() } else { dim() });
     let said = |words: String, font: TextStyle, c: Color| shaded(move |shadow| pen(text(words.as_str()).font(font).color(if shadow { under(1.0) } else { c }), 13.0));
+    let lit = s.pointed.is(CLOUD);
     let e = match (b.word, b.count) {
         // A word reads as brightly as New thread when it asks for something, and leaves the
         // dot room on its right.
-        (Some(word), _) => strip_button().gap(7.0).pl(9.0).pr(14.0).child(cloud).child(said(word.said().to_string(), sans(13.0, 400.0), if word == cloud::Word::Again { ink() } else { dim() })),
-        (None, Some(running)) => strip_button().gap(7.0).pl(9.0).pr(10.0).child(cloud).child(said(running.to_string(), figures(13.0, 400.0), if b.lit { accent() } else { ink() })),
-        (None, None) => strip_button().w(32.0).justify_center().child(cloud),
+        (Some(word), _) => strip_button(s, CLOUD).gap(7.0).pl(9.0).pr(14.0).child(cloud).child(said(word.said().to_string(), sans(13.0, 400.0), if word == cloud::Word::Again || lit { ink() } else { dim() })),
+        (None, Some(running)) => strip_button(s, CLOUD).gap(7.0).pl(9.0).pr(10.0).child(cloud).child(said(running.to_string(), figures(13.0, 400.0), if b.lit { accent() } else { ink() })),
+        (None, None) => strip_button(s, CLOUD).w(32.0).justify_center().child(cloud),
     };
+    // Its title says what it is, or what it asks (`CloudButton`'s `title`).
+    let title = match b.word {
+        Some(cloud::Word::Again) => "A cloud account needs to sign in again.",
+        Some(cloud::Word::Cloud) => "Set up the cloud",
+        None if b.lit => "Cloud on (⌘C)",
+        None => "Cloud off (⌘C)",
+    };
+    let e = crate::feel::answers(e).help(title);
     if b.dot { e.child(el().pin(None, Some(5.0), Some(5.0), None).size(6.0, 6.0).radius(3.0).fill(accent())) } else { e }
 }
+
+/// The strip's buttons, by the names the pointer keeps them under.
+const NEW_THREAD: &str = "inbox-new-thread";
+const CLOUD: &str = "inbox-cloud";
+const DISPLAY: &str = "inbox-display";
 
 /// The card's top strip beside the arrows: the page's title, and at the right New thread, the
 /// cloud on a Mac that has one, and the display button. New thread opens the New thread card
@@ -117,26 +141,31 @@ fn cloud_button(b: cloud::Button) -> El {
 pub fn strip(s: &State) -> El {
     let (card_w, _) = s.card_size();
     let title = shaded(|shadow| pen(text("Inbox").font(sans(17.0, 400.0).tracking(-0.51)).color(if shadow { under(1.0) } else { ink() }), 17.0));
-    let new_thread = strip_button()
+    let new_thread = strip_button(s, NEW_THREAD)
         .gap(8.0)
         .px(13.0)
         .child(icon(&icons::PEN, 15.0).color(dim()))
         .child(shaded(|shadow| pen(label("New thread", 13.5, 400.0, if shadow { under(1.0) } else { ink() }), 13.5)))
-        .cursor(rune::Cursor::Pointer)
+        .help("New thread (N)")
         .on_press_tx(|s: &mut State, tx| s.open_card(tx));
-    let display = strip_button().w(32.0).justify_center().child(icon(&icons::SLIDERS, 15.0).color(dim()));
-    let mut buttons = row().gap(10.0).child(new_thread);
+    // What the list shows and how is the web window's to choose, so this opens nothing here.
+    let display = crate::feel::answers(strip_button(s, DISPLAY).w(32.0).justify_center().child(icon(&icons::SLIDERS, 15.0).color(dim()))).help("View and filters");
+    // New thread and the cloud carry their keys' hints (`data-hint="new-task"`, `"cloud"`).
+    let mut buttons = row().gap(10.0).child(crate::feel::hinted(new_thread, "new-task", NEW_THREAD, crate::feel::Align::Left, None));
     if let Some(button) = cloud::button(s.snap.rest.get("cloud"), &s.local.cloud_broken_seen) {
-        buttons = buttons.child(cloud_button(button));
+        buttons = buttons.child(crate::feel::hinted(cloud_button(s, button), "cloud", CLOUD, crate::feel::Align::Center, None));
     }
-    // `.topbar`: 64 points with a clear hairline under it, the arrows' 54 and their 12 before the title.
-    row().absolute(chrome::CARD[0], chrome::CARD[1])
+    // `.topbar`: 64 points with a clear hairline under it, the arrows' 54 and their 12 before the
+    // title. It moves the window as the title bar would, its buttons keeping their presses
+    // (`-webkit-app-region: drag`, and `no-drag` on `.topbar button`).
+    row().absolute(chrome::card_left(s), chrome::CARD[1])
         .size(card_w, 64.0)
         .pl(110.0)
         .pr(28.0)
         .pb(1.0)
         .items_center()
         .justify_between()
+        .window_drag()
         .child(title)
         .child(buttons.child(display))
 }
@@ -165,11 +194,9 @@ fn tab(at: Tab, count: usize, open: bool, shadow: bool) -> El {
     if shadow {
         return e;
     }
-    e.key(format!("tab-{}", at.view()))
-        .border_sides([0.0, 0.0, 1.0, 0.0], if open { accent() } else { rgba(0, 0, 0, 0.0) })
-        .hover_group()
-        .cursor(Cursor::Pointer)
-        .on_press(move |s: &mut State| s.show_tab(at))
+    // Every tab carries Tab's hint, since Tab walks them (`data-hint="state-tab"`).
+    let e = e.border_sides([0.0, 0.0, 1.0, 0.0], if open { accent() } else { rgba(0, 0, 0, 0.0) }).hover_group().cursor(Cursor::Pointer).on_press(move |s: &mut State| s.show_tab(at));
+    crate::feel::hinted(e, "state-tab", format!("tab-{}", at.view()), crate::feel::Align::Left, None)
 }
 
 /// `.th-bar`: Needs you, In progress, Later while something is in it, and Done. A number only
@@ -267,14 +294,22 @@ fn status_mark(mark: Mark) -> Option<El> {
 /// A thread's title cell, `room` points wide: the face, the title, and what follows it. An
 /// aside is what the row adds to its title (a comment on a link, how many tasks wait for a
 /// yes, the cause a thread in Later is stuck behind); "not started" is on a thread written
-/// down in Later and never begun; the pin is on one kept at the top.
-fn title_cell(r: &Row, selected: bool, room: f32) -> El {
+/// down in Later and never begun; the pin is on one kept at the top. The title is underlined
+/// on the selected row, and faintly on the row the pointer holds (`.row.pointed .subject`),
+/// which is not the row under it once the keys have taken the list back.
+fn title_cell(r: &Row, selected: bool, pointed: bool, room: f32) -> El {
     // An unread thread's title is heavier, and a square in the gutter says so too.
     let type_ = TextStyle::new(14.0, if r.unread { 530.0 } else { 400.0 }).lh(20.0).tracking(-0.14);
     let words = pen(text(r.title.as_str()).font(type_).color(ink()).truncate(), 14.0);
     // The line is the title's own, so it ends where the words do.
     let line = el().pin(Some(0.0), None, Some(0.0), Some(0.0)).h(1.0);
-    let line = if selected { line.fill(rgba(238, 96, 24, 0.6)) } else { line.fill(rgb(82, 80, 79)).group_opacity(0.0, 1.0) };
+    let line = if selected {
+        line.fill(rgba(238, 96, 24, 0.6))
+    } else if pointed {
+        line.fill(rgb(82, 80, 79))
+    } else {
+        line
+    };
     // Every title starts after a face in a slot of its own, so the titles line up.
     let face = row().size(18.0, 18.0).radius(9.0).center().border(1.0, rgba(239, 235, 231, 0.12)).child(icon(&icons::AGENT_EYES, 16.0).color(dim()));
     let cell = row().items_center().child(face.mr(10.0)).child(el().shrink().child(words).child(line));
@@ -318,8 +353,10 @@ fn title_cell(r: &Row, selected: bool, room: f32) -> El {
 
 /// One thread: 54 points, a hairline above every row but the first, and the title's underline,
 /// which is how a row answers: orange on the selected one, faint under the pointer.
-fn thread(r: &Row, at: usize, picked: usize, cols: &Columns) -> El {
-    let title = title_cell(r, at == picked, cols.title);
+fn thread(s: &State, r: &Row, at: usize, picked: usize, cols: &Columns) -> El {
+    // The title's cell is what the row's hint lines its keys up with (`data-hint-text`).
+    let subject = format!("subject-{}-{}", r.product, r.id);
+    let title = title_cell(r, at == picked, s.pointed.is_row(&r.product, &r.id), cols.title).key(subject.clone());
     let small = |s: &str, c: Color| capitals(s, 11.5, 20.0, 0.575, c).truncate();
     let mut state = row().items_center();
     if let Some(mark) = status_mark(r.mark) {
@@ -339,13 +376,12 @@ fn thread(r: &Row, at: usize, picked: usize, cols: &Columns) -> El {
     // When it was sent, when it was finished on Done, when it comes back on Later.
     let when = pen(text(r.when.as_str()).font(TextStyle::new(13.0, 400.0).lh(20.0)).color(dim()), 13.0);
     let (id, product) = (r.id.clone(), r.product.clone());
-    let mut e = row()
+    let e = row()
         .key(format!("thread-{}-{}", r.product, r.id))
         .h(54.0)
         .pt(19.0)
         .pr(32.0)
         .pl(44.0)
-        .hover_group()
         .cursor(Cursor::Pointer)
         // The row pressed is the row the keys are on when the person comes back.
         .on_press(move |s: &mut State| {
@@ -353,13 +389,15 @@ fn thread(r: &Row, at: usize, picked: usize, cols: &Columns) -> El {
             s.open_thread(&id, &product);
         })
         .child(cols.line(title, state, project, priority, when));
+    let mut e = crate::feel::pointed_row(e, &r.product, &r.id);
     if at > 0 {
         e = e.child(el().pin(Some(20.0), Some(0.0), Some(32.0), None).h(1.0).fill(rgba(70, 68, 67, 0.375)));
     }
     if r.unread {
         e = e.child(el().absolute(13.0, 27.0).size(6.0, 6.0).fill(accent()));
     }
-    e
+    // Its keys' hint, lined up with its title (`data-hint="row"`, `data-hint-text=".subject"`).
+    crate::feel::hinted(e, "row", format!("thread-{}-{}", r.product, r.id), crate::feel::Align::Left, Some(subject))
 }
 
 /// The one quiet line an empty tab carries (`.th-empty`), in the middle of what the tabs leave
@@ -389,5 +427,5 @@ pub fn view(s: &State) -> El {
     // The time column is named for what it tells under this tab: Sent, Back on Later, Done.
     let head = row().h(38.0).pt(10.0).pr(32.0).pl(44.0).child(cols.line(heading("Thread"), heading("Status"), heading("Project"), heading("Priority"), heading(page::time_heading(tab.view()))));
     let picked = s.picked.min(rows.len() - 1);
-    page.child(head).children(rows.iter().enumerate().map(|(i, r)| thread(r, i, picked, &cols)))
+    page.child(head).children(rows.iter().enumerate().map(|(i, r)| thread(s, r, i, picked, &cols)))
 }

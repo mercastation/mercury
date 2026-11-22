@@ -27,6 +27,12 @@ in its head strip, with how many, which opens the list of them ("The files a thr
 does, and runs what this window can do to the thread under the keys and the places it can go
 ("The command bar", below).
 
+Under the pointer it answers as the web window does: the rail opens while the pointer rests on
+it, every control takes the web window's pointer and look under it, a key hint comes after the
+pointer has waited, the strips move the window, words can be selected where the web window's
+can, and a right press on a link or a picture opens the web window's menu for it ("How it answers
+the pointer and the hands", below).
+
 A conversation shows what each of its agent's runs did: what the run said, between the messages,
 and what it ran folded to one line under that, which a press opens. A thread an agent is on says
 at its foot which step it is on and for how long, and is read again as the run goes on ("What a
@@ -307,7 +313,217 @@ The command bar was checked so at 60 frames a second: opening it, moving its lit
 it each land in the next frame, and Rune counts no frame as animating.
 Pressing the fold of what a run ran in `thread-steps`, filmed at 60 frames a second, draws the
 closed fold until the tap lets go and the opened one whole from the next frame on. So does the
-Files button's list (`thread-files`), opened and closed every way it closes.
+Files button's list (`thread-files`), opened and closed every way it closes. So do a tab and a row
+of the Inbox pressed with the pointer resting on them, and a place pressed on the rail while it
+is open. The one thing that eases is the rail opening and folding under the pointer, below.
+
+## How it answers the pointer and the hands
+
+A picture of a screen at rest says nothing of what the pointer does to it. The web window's
+stylesheet says what each control does while the pointer is on it, which pointer it shows, which
+words can be selected and where a press moves the window, and its scripts say what waits on a
+pointer resting. This window does the same, read off the web window the way its screens were.
+`src/feel.rs` holds what several screens share; each screen draws its own controls' looks.
+
+- **The rail opens.** 140 ms after the pointer moves onto the rail it opens from 38 points to 202,
+  the whole sidebar with its words, and leaving it folds it at once (`hoverAt` in
+  `WorkspaceNavigation.tsx`): a pointer passing over it on its way somewhere is gone before then,
+  and a pointer that did not move opens nothing, so a rail uncovered under a pointer standing
+  still (by the command bar closing, say) stays folded until it moves (`pointerMoved`). It
+  eases open over 0.24 s (`cubic-bezier(.22,.61,.36,1)`) and shut over 0.2 s
+  (`cubic-bezier(.4,0,.2,1)`); the words come in 0.08 s later over 0.14 s and go over 0.06 s, and
+  Search's line and Inbox's dot cross over 0.14 s and 0.1 s (`team/rooms/rooms.css`), each frame
+  drawn while it moves. The card moves over with it, 44 points past its edge, rather than being
+  covered, and the skies stay painted for the folded card and pinned to its right edge, so the rail
+  uncovers them rather than painting them again (`sky-follows-the-card.ts`). Open, it says what
+  the web window's says: each place's word, Inbox's count in its accent where the dot was, the
+  team's name, Search with ⌘K, the foot's rows, the usage row naming the agent read last and its
+  headline figure, and the person's name over their email. Its places wash under the pointer.
+  Under the system's Reduce motion it opens and folds whole, as the same stylesheet's
+  `prefers-reduced-motion` block takes every one of those transitions away.
+- **Under the pointer.** Every control these screens draw takes the web window's look while the
+  pointer is on it and gives it up the moment the pointer leaves. The web window's `:hover` rules
+  have no transition unless one says so, and almost none does, so the root lands every hover at
+  once both ways (`hover_motion_within` in `src/main.rs`; Rune's own hover fades out over 0.1 s).
+  The two that ease, a mention and Search's line, land at once here too. On Home: the
+  two doors, the rows (a Needs you row under the pointer becomes the row the keys act on), the
+  cards' links, the box's chips, paper clip, Send and its caret. On the Inbox: New thread, the
+  cloud and the display button give up their dark glass for the wash, back and forward brighten
+  while they have somewhere to go, the tabs, and the rows. Over a conversation: the strip's arrows,
+  the crumb, the thread's name, Done or Reopen, the Files button, the place button and ⋯; the line
+  that shows the earlier messages; a run's fold, whose mark comes in; the options; the folded reply
+  box and its model; the opened box's chips, clip, Send and caret; mentions; pictures, whose edge
+  brightens; a folder's name, its pictures and its "more" line. On the New thread card: the head's
+  words, whose dotted line brightens, and the bar. And in either box, a file's chip and a
+  picture's ×. A control the web window does something with that this window does not do yet
+  still looks and points as it does there (`feel::answers`).
+- **The pointer's shape.** The pointing hand over every control, the magnifier over a picture and a
+  folder's pictures, the I-beam over words a hand can select and over the whole of a box to write
+  in, a press anywhere in which puts the caret after the words (on Home, on the New thread card and
+  in the Later picker), and the arrow everywhere else. The Inbox's row under the pointer is the
+  one Enter, E and L act on, its title faintly underlined, until J, K, the arrows, Escape or Tab
+  take the list back (`pointed` in `renderer/src/App.tsx`).
+- **Key hints.** 700 ms after the pointer moves onto New thread, a tab, a row or the cloud on the
+  Inbox, or onto a conversation's Inbox arrow, its crumb, J and K's arrows, Done, the Files button,
+  the place button or ⋯, a plate under it names its keys and what they do, in the web window's words
+  (`HINTS` in `renderer/src/hint-plate.ts`): seven points under the control, or over it near the
+  window's foot, lined up with its left, its right or its middle as the web window lines each up,
+  kept eight points inside the window, on the window's glass with a cap per key. It goes the moment
+  the pointer leaves or a key is pressed, and comes back after the pointer's next move; none comes
+  while the command bar, the New thread card, the Later picker or the reply box has the keys
+  (`hintsOn`). A pointer that moved, as the web window listens for `mousemove` and not
+  `mouseover`: a row that comes under a pointer standing still, as the next one does when E
+  closes the one under it, claims no plate.
+- **Titles.** What the web window says in a `title` this one says with Rune's `help`: Back's "Back
+  to Home (⌘[)" and the rest, New thread's "New thread (N)", the cloud's question, "View and
+  filters", each rail place, the box's chips, clip, Send and caret, a conversation's whole name, a
+  mention's address, a picture's or a folder's path, and a file in a box: its name, Remove, or why
+  it cannot go. A Mac window hands them to AppKit, which keeps its own wait and look, as Electron's
+  are the system's. ⌘[ goes back, as Back's title says.
+- **Moving the window.** As the web window's `-webkit-app-region: drag`: the band along the window's
+  top, 40 points, over everything but the command bar while it is open
+  (`.workspace-layout::after`), and the card's top strip on the Inbox and over a conversation,
+  whose buttons, crumb and name keep their presses (`no-drag`). Home's strip is hidden there and
+  is no band here, and the rail never is. A double press on a band zooms the window or puts it
+  away, as the system's setting says.
+- **Words to select.** What the web window lets a hand select, this one does: what a conversation's
+  reading column holds (`.focus-body`), its title, the line under it, every message's head and its
+  words, code and tables. The rest of the window, as the web window's `body { user-select: none }`,
+  is not.
+- **A right press.** On a link in a message, the web window's menu (the `context-menu` handler in
+  `main/main.mts`): Copy File first when the link finds a picture or a film in the project's
+  folders, then Open Link and Copy Link Address, the address as Chromium parses it (a site named
+  bare ends in its slash, a file is a `file://` url to where it was found). On a picture, Copy File
+  when the message named it by its whole path, as the web window's picture carries it, and Copy
+  Image over the drawing itself, read whole from its file rather than the small copy drawn here.
+  A folder's pictures carry their whole paths. On the words around them, Rune's own Copy, after
+  selecting the word under the pointer, as Chromium on a Mac does; in a box, Rune's Cut, Copy and
+  Paste. The menus are the system's own, as Electron's are.
+- **Keys.** Tab on Home does nothing to be seen: the web window takes it for the Inbox's tabs and
+  lets its focus go (`onTheTabs`), where Rune would walk the focus into the box. Neither window
+  ever draws a focus ring (`*:focus, *:focus-visible { outline: none }`).
+
+### How it is measured
+
+A scene can leave the pointer resting on something (`tools/scenes/pointer.mjs`): moved onto it in
+two steps, as a hand moves, so the page sees a pointer that moved, then held still for `rested`
+milliseconds before the shutter (`settle`). The reference picture's dump now says, for the middle
+of every element on screen, the pointer's shape there (`pointers`: the computed `cursor`, with
+`auto` taken as Chromium takes it, the I-beam only over words a hand can select), and each
+element's `user-select`, app region and transitions. The scenes: `*-hover-*` (a control under the
+pointer, before its hint's 700 ms), `*-hint-*` (past them), and `*-rail-open`.
+
+```sh
+arch -arm64 node tools/reference.mjs <checkout> shots dark 1280 760 inbox-hover-tab
+python3 tools/hover.py shots inbox-hover-tab=inbox                 # the tab, and the tab at rest
+MERCURY_FEEL=shots/thread cargo test pointer -- --ignored --nocapture # every shape over a scene
+```
+
+`tools/hover.py` moves this window's pointer the same way (a `--script`), draws it that long after
+(`--at`), and measures the control under the pointer, of 255, beside the same box at rest when the
+resting scene is named, which is as close as the two draw that control with no pointer on it; it
+measures a hint's plate too. The ignored test walks the pointer over every point of a scene's dump
+and holds each shape to the web window's (`rt.cursor()`, the shape Rune hands the system).
+
+Under the pointer, the control, at 1280 by 760, 2x; at rest, the same box with no pointer:
+
+| Control | Under the pointer | At rest |
+|---|---|---|
+| Home: a door, a card's link | 6.04, 5.92 | 5.44, 5.35 |
+| Home: a row, the box's chip, clip, Send's caret | 1.11, 2.94, 2.78, 1.61 | 1.39, 2.74, 2.24, 1.34 |
+| Home: a file's chip, a picture's × | 0.43, 7.34 | 0.30, 5.08 |
+| Inbox: back, display, New thread, a tab, a row | 0.01, 0.39, 1.63, 2.23, 0.33 | 0.00, 0.25, 1.46, 1.67, 0.33 |
+| Conversation: Inbox, back, crumb, name | 0.32, 0.42, 1.01, 2.74 | 0.01, 0.12, 1.15, 2.15 |
+| Conversation: J's arrow, Done, Reopen, Files, ⋯ | 0.69, 1.63, 2.80, 1.59, 0.75 | 0.26, 0.93, 1.93, 0.54, 0.06 |
+| Conversation: earlier messages, a run's fold, an option | 3.93, 2.05, 0.76 | 2.41, 1.62, 0.45 |
+| Conversation: a mention | 14.96 | 7.18 |
+| Conversation: a picture, a folder's picture, a folder's name | 0.15, 0.33, 2.76 | 0.14, 0.33, 1.92 |
+| The folded reply box, its model | 0.70, 4.14 | 0.70, 3.28 |
+| The opened reply box: a chip, clip, Send, caret | 1.63, 1.62, 1.25, 0.37 | 1.22, 1.09, 1.20, 0.27 |
+| The New thread card: its model, a chip, Send | 0.73, 1.41, 2.89 | 0.73, 1.23, 2.10 |
+
+The mention is what still differs most: its mark does not brighten with it (see what still
+differs). The plates, with a point around each: New thread 2.67, a tab 2.51, a row 2.17, Done 1.89,
+J's arrow 1.36, the Inbox arrow 1.42, the crumb 4.89 (the edge of its glass over the strip's) and ⋯
+1.09. Each is drawn between 0.70 and 0.74 s after the pointer came onto its control, as the web
+window's comes 700 ms after (`HINT_WAIT`). New thread
+was measured before its title was: since, a headless picture draws Rune's own stand-in for the
+title from 0.5 s, over the plate (36.89), where a Mac window leaves the title to AppKit and its wait.
+
+The rail open, the pointer on Demands: the whole window 0.90 at 1280 by 760, 0.94 at 900 by 760
+and 0.71 at 1600 by 1000, the rail itself 0.21, 0.22 and 0.17, and Demands 0.57, 0.58 and 0.55.
+Over the Inbox 0.26 and a conversation 0.41. With teammates, a recorder and a sign-in (`home-team-
+rail-open`) 0.99, the rail 0.55; while an update waits (`home-update-rail-open`) 1.21, the rail
+1.97, as the update's card is not drawn open (see what still differs).
+
+The pointer's shape, points that match the web window's of all the points in each scene:
+
+| Scene | Arrow | Pointing hand | I-beam | Magnifier |
+|---|---|---|---|---|
+| `home`, `home-attached` | 50 of 50, 56 of 56 | 78 of 78, 76 of 76 | 2 of 2, 1 of 1 | |
+| `inbox` | 29 of 29 | 171 of 172 | | |
+| `compose-card`, `palette` | 186 of 186, 204 of 204 | 17 of 17, 65 of 65 | 19 of 19, 2 of 2 | |
+| `thread`, `thread-reply` | 33 of 41, 34 of 38 | 35 of 35, 47 of 47 | 15 of 15, 10 of 10 | |
+| `thread-options`, `thread-steps` | 37 of 41, 28 of 34 | 62 of 72, 42 of 42 | 24 of 24, 23 of 23 | |
+| `thread-pictures`, `thread-folder` | 35 of 37, 29 of 30 | 46 of 50, 41 of 41 | 11 of 11, 11 of 11 | 9 of 9, 25 of 25 |
+| `thread-links` | 27 of 39 | 63 of 84 | 11 of 11 | |
+| `thread-files-open` | 40 of 40 | 23 of 71 | 0 of 10 | 0 of 3 |
+
+What is left: the I-beam over the end of a line past its last word, every mention's mark, the
+sorting headers of a table in a message, the Inbox's box that ticks every row (not drawn), and the
+page under the open list of files, which shows the arrow. Each is in what still differs. Where the
+46 `*-hover-*` and `*-hint-*` scenes rest the pointer, its shape is the web window's at every one:
+the pointing hand, the I-beam over a conversation's name and the folded reply box, the magnifier
+over a picture and a folder's, and the arrow over Send with nothing to send.
+
+The screens at rest did not move: home, inbox, the Inbox's other tabs and `inbox-later-kinds`,
+thread, `thread-folded`, `thread-later`, `thread-options`, `thread-steps`, `thread-reply`,
+`thread-files`, `thread-files-open`, `thread-pictures`, `thread-folder`, `thread-links`,
+`home-team`, `home-typed`, `home-attached`, `home-attached-picture`, `compose-card`,
+`compose-card-attached`, `palette` and `palette-typed` are drawn to the same pixel as before.
+
+Tests hold the rest to the web window on an invented inbox (`src/feel.rs`): the rail opens 140 ms
+after the pointer moves onto it and folds when it leaves, whole under Reduce motion, and stays
+folded under the command bar and when the bar closes over a pointer standing still; a hint comes
+700 ms after the pointer moved onto its control, hangs where the web window's does, goes with the
+pointer or a key, comes back on the next move, and is claimed by no row that slides under a still
+pointer; the row under the pointer takes Enter until J walks the list; ⌘[ goes where Back's title
+says; the bands move the window and their buttons keep their presses; and a right press on an
+address, a picture's name, a picture named short and one named whole opens the web window's menu
+for it, each item putting on the clipboard what the web window's does.
+
+### What only a screen can show
+
+Everything above was checked headless, and some of it is the system's to do, which a headless run
+does not reach:
+
+- **The pointer itself.** The tests read the shape Rune hands the system (`rt.cursor()`); the shell
+  shows it as the matching `NSCursor` (the magnifier as AppKit's zoom-in cursor). No pointer was
+  seen on a screen.
+- **Moving the window.** The tests see Rune's titlebar action (a drag, a double press), which the
+  shell hands to AppKit (`drag_window`, the double press's zoom). No window was dragged.
+- **Titles and menus.** In a Mac window AppKit draws the titles, after its own wait, and the right
+  press's menus. Neither was seen; a headless picture draws Rune's stand-in titles.
+- **Scrolling** with a trackpad, and the rail's easing at a display's own rate.
+
+### Where Rune, as pinned, stops
+
+- `El::cursor` shows only over something that takes the pointer, so a control this window does not
+  do anything with yet takes it with a handler that does nothing (`feel::answers`).
+- An element has one `on_hover`, and a key hint's wait is a layer of its own around its control.
+  Rune's `hover_delays` waits on a pointer however it came to be there, so the rail's wait and a
+  hint's start from the pointer's own moves (`on_pointer_move_local`) and are kept in the state.
+- Rune's hover fades out over 0.1 s unless the root says otherwise, and almost none of the web
+  window's `:hover` rules fades, so the root lands every hover at once. There is no transition per
+  property, so the rail's easing is drawn frame by frame from the poll (`chrome::Rail`), and the
+  two hovers that ease in the web window do not here.
+- Selectable words show the I-beam over their whole box, where Chromium shows it over the words'
+  lines only.
+- A link covers words and not a mark set in among them, so a mention's mark neither points nor
+  brightens with its words, and a link's look under the pointer lands at once.
+- A right press's menu opens as the button comes up, where a Mac app's opens as it goes down; a
+  handler cannot read the words selected, so a link's menu has no Copy above it; a box's menu is
+  Rune's own.
 
 ## What the keys do, and what it writes
 
@@ -944,6 +1160,35 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
 - **Large text sits a fraction of a pixel differently**, which shows only in a difference map.
 - **A long conversation can sit a pixel higher**, in a tall window: the heights of its parts add
   up a sliver apart.
+- **Under the pointer, where it still differs** (see "How it answers the pointer and the hands"):
+  - The I-beam shows over the whole box of a run of words, past the last word of a short line too,
+    where the web window's shows it over the words' lines only: Rune finds selectable words by
+    their box. Over a title or a heading shorter than the column, the same.
+  - A mention's mark takes the I-beam, not the pointing hand, and stays muted when the words
+    brighten (`a.mention:hover .mention-icon`): Rune's link covers words and not a mark set among
+    them. And a mention's look lands at once, where the web window's eases in over 0.12 s and out
+    over 0.2 s (`components/mention.css`).
+  - Search's line in the open rail brightens at once under the pointer, where the web window's
+    eases over 0.14 s.
+  - The open rail's update card, which the web window draws while a new version waits
+    (`home-update-rail-open`, the rail 1.97 of 255), is its Restart row here, and the usage row
+    opens no panel of its figures under the pointer.
+  - A table in a message does not sort: its headers are words, where the web window's take the
+    pointing hand. The Inbox's head has no box that ticks every row.
+  - With the list of a thread's files or a box's menu open, the page under it shows the arrow: the
+    layer that catches a press outside them covers the page.
+  - A key hint is not taken away when the page scrolls under the pointer, as the web window's is.
+  - A right press's menu opens as the button comes up, where the web window's, as any Mac app's,
+    opens as it goes down, so pressing, moving onto an item and letting go picks nothing here.
+    Words selected before a right press on a link are not offered as Copy above the link's items,
+    as Rune does not tell a handler what is selected. A box's menu is Rune's: Cut, Copy and Paste,
+    the first two greyed with nothing selected, and no Select All (⌘A still selects all). A film
+    alone on its line is its name here, a link, so it offers Open Link and Copy Link Address
+    where the web window's player name offers only its file. Copy File takes the projects' own
+    folders and code folders as the app's; the web window takes the account's folder, which holds
+    the projects', and the code folders.
+  - Tab inside a conversation walks Rune's focus where the web window's walks the browser's, both
+    drawing nothing.
 - **A file named in a message, where it still differs:**
   - A film or a sound is its name, which opens it. The web window plays it in place.
   - A page, a sheet or a note opens with the system. The web window opens it in a pane beside
@@ -960,7 +1205,6 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
     New thread card), where the web window's list takes the Escape before them, its listener
     running before every other. Escape in the reply box, opened with R while the list is open,
     folds the box before it closes the list.
-  - The Files button does not brighten under the pointer, as Done and Reopen beside it do not.
   - A mention's underline sits where the font puts it, two points higher than the web window's
     (`text-underline-offset: 4px`), and runs under the space before a line break. Rune's span
     has an underline and no offset. The same was already true of a link.
@@ -1028,7 +1272,6 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
     (`zero.lastProduct`, `zero.lastModel`, `zero.lastEffort`), which the door does not hand
     over, so each window opens on its own last project, model and effort.
   - A menu lands at once. The web window's fades in and rises three points over 0.13 s (`tc-in`).
-  - A chip does not brighten under the pointer, only while its menu is open.
   - On the card, Escape out of a menu leaves the caret in the words rather than on the chip:
     Rune's dialog hands the keyboard back to its one field. A second Escape still closes the card
     and a letter still goes to the words, as in the web window; ↓ there moves the caret instead of
@@ -1048,7 +1291,6 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
     are most of the box; a drop on the rest of it does nothing there.
   - A picture in the box opens with the system. The web window opens it large in a viewer of its
     own that steps through the box's pictures. A pasted picture is no file yet and opens nothing.
-  - A chip and a × do not brighten under the pointer, as the box's other chips do not.
   - Nothing is read in pieces: a file on this Mac goes as its path, and a pasted picture is held
     as its bytes until Send. So nothing is ever on its way in but a photo being turned, and the
     bar the web window runs along a chip's foot as the pieces of a big file land is never drawn.
@@ -1063,7 +1305,6 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
   - A file that cannot be read when it is attached says so at once, in the web window's words for
     a file that is not there or else the system's own. The web window finds out at Send, and
     says the engine's reason then.
-  - The lit chip's own tooltip (`overTheLimit`) is not drawn; the line under the row says it.
   - A link the app wrote into a person's message is a mention whose underline sits a point or two
     above the web window's, as every mention's does here.
 - **A reply shows in the conversation once it is written.** The web window draws it at once,
@@ -1105,7 +1346,7 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
   no repeating tasks, so the phrase is "not a time" and the hint names only what is read. A
   terminal agent's row cannot be put off here, and the one warning before putting off a thread
   whose agent waits on an answer is not given, as before closing one.
-- **The rail does not widen under the pointer**, and a person's photo is their two letters.
+- **A person's photo is their two letters.**
 - **What the web window remembers only for itself is not known here**: an update card the person
   closed still shows its Restart row, and the Sign in row of someone who skipped signing in is
   not drawn.
@@ -1162,7 +1403,12 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
   behind what else depends on whose Mercury it is: `window.rs` (the team, the account, the rail's
   foot, a project's colour) and `place.rs` (where a conversation runs, what its panel says and
   what a pick there writes).
-- `src/chrome.rs`: the page, the card, the rail. `src/theme.rs`: colours and type.
+- `src/chrome.rs`: the page, the card, the rail and how it opens, the bands that move the window.
+  `src/theme.rs`: colours and type.
+- `src/feel.rs`: what the screens share of answering the pointer: the key hints and their plate,
+  the row under the pointer, the strip's framed buttons, the washes; and the tests of how the
+  window feels. `tools/scenes/pointer.mjs` rests the pointer in a reference picture, and
+  `tools/hover.py` measures the control under it against this window's.
 - `src/home.rs`, `src/inbox.rs`, `src/thread.rs`: the screens. `src/talk.rs` reads a thread's
   ledger and its runs' logs into a conversation (`docs/thread-data.md` says what the engine is
   asked), `src/reads.rs` asks for them and says when, and `src/markdown.rs` draws an agent's words.
