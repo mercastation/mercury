@@ -72,6 +72,13 @@ impl<'a> Files<'a> {
         }
     }
 
+    /// An invented project at `dir` with nothing read yet, for the tests of what a message's
+    /// words become.
+    #[cfg(test)]
+    pub fn invented(dir: &str, snap: &'a crate::data::Snapshot, pictures: &'a Pictures) -> Files<'a> {
+        Files { dir: dir.to_string(), thread: "w-0a1b2c3d4e".to_string(), folder: None, roots: vec![dir.to_string()], draws_pictures: false, snap, pictures, window_h: 760.0, now: 0.0 }
+    }
+
     /// The places a file may be, in the order they are tried, for an address as markdown
     /// hands it on. A whole path, bare or as a file url, is that file and nothing else; a short
     /// one is tried under every root. The web window asks for the name with its escapes still
@@ -347,8 +354,9 @@ fn opens_a_program(path: &std::path::Path) -> bool {
 /// it. One that would run instead is shown in its folder, as the web app shows it
 /// (`openForThePerson`). This is the one place to change when files open inside this window.
 pub fn open_with_system(target: &str) {
-    // A headless run draws pictures and opens nothing.
+    // A headless run opens nothing, and says what a press in its script would have opened.
     if rune::tooling::headless_run().is_some() {
+        eprintln!("a press opens {target}");
         return;
     }
     let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };

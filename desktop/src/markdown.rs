@@ -735,3 +735,111 @@ pub fn blocks(source: &str, size: f32, width: f32, files: &Files) -> Vec<Block> 
 pub fn block(top: f32, bottom: f32, el: El) -> Block {
     Block::leaf(top, bottom, el)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::data::Snapshot;
+    use crate::pictures::Pictures;
+
+    const DIR: &str = "/Users/you/Work/accounts/acct/storefront";
+
+    /// A line's pieces as words: a name that stands for what is drawn under the sentence in
+    /// square brackets, any other link as its words and where it points, code in backticks.
+    fn said(kids: &[Inline]) -> String {
+        kids.iter()
+            .map(|kid| match kid {
+                Inline::Text(words) => words.clone(),
+                Inline::Code(code) => format!("`{code}`"),
+                Inline::Break => "\n".to_string(),
+                Inline::Strong(kids) | Inline::Emphasis(kids) | Inline::Strike(kids) => said(kids),
+                Inline::Link { url, kids, name_only: true } => format!("[{} -> {url}]", plain(kids)),
+                Inline::Link { url, kids, .. } => format!("<{} -> {url}>", plain(kids)),
+                Inline::Image { url, .. } => format!("<picture {url}>"),
+            })
+            .collect()
+    }
+
+    fn shape(nodes: &[Node]) -> Vec<String> {
+        nodes
+            .iter()
+            .map(|node| match node {
+                Node::Paragraph(kids) | Node::Line(kids) => said(kids),
+                Node::Media(shown, row, _) => format!("{}: {}", if *row { "row" } else { "large" }, shown.iter().map(|Shown::Picture(src)| src.as_str()).collect::<Vec<_>>().join(" ")),
+                Node::List(_, items) => format!("list of {}", items.iter().map(|item| shape(item).join(" / ")).collect::<Vec<_>>().join(" | ")),
+                Node::Code(_) => "code".to_string(),
+                _ => "other".to_string(),
+            })
+            .collect()
+    }
+
+    /// What a message's words become before they are drawn.
+    fn read(source: &str) -> Vec<String> {
+        let (snap, pictures) = (Snapshot::default(), Pictures::new(2.0, true, true));
+        let files = Files::invented(DIR, &snap, &pictures);
+        let mut events = Parser::new_ext(source, Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH).peekable();
+        shape(&settle(nodes(&mut events), &files))
+    }
+
+    // tests/media-sit-in-a-row-under-the-whole-sentence.test.mts. A film is played in the row by
+    // the web window and only named by this one, so here a row holds the pictures alone.
+    #[test]
+    fn a_sentence_naming_several_files_stays_whole_over_what_it_draws() {
+        // A PDF does not draw, so it stays the code span it was, which is drawn as its name.
+        assert_eq!(
+            read("I made `chart.png`, `report.pdf` and `clip.mp4` in your working folder."),
+            ["I made [chart.png -> chart.png], `report.pdf` and [clip.mp4 -> clip.mp4] in your working folder.", "row: chart.png"]
+        );
+        // A markdown link and a picture in a sentence move the same way, and keep their words.
+        assert_eq!(read("See [the shot](a.png) and ![it](b.webp) for detail."), ["See [the shot -> a.png] and [it -> b.webp] for detail.", "row: a.png b.webp"]);
+        // Two pictures on a line of their own become a row with no sentence left over.
+        assert_eq!(read("![a](a.png) ![b](b.png)"), ["row: a.png b.png"]);
+        // A sentence in a list keeps what it draws in the list.
+        assert_eq!(read("- The cart is `a.png` now."), ["list of The cart is [a.png -> a.png] now. / large: a.png"]);
+        assert_eq!(read("- The clip `a.mp4` is short."), ["list of The clip [a.mp4 -> a.mp4] is short."]);
+    }
+
+    #[test]
+    fn what_a_row_must_not_change() {
+        // One picture alone on its line is left to draw large.
+        assert_eq!(read("![a](a.png)"), ["large: a.png"]);
+        // A sentence with no media is left alone, and so is a web address that ends like a picture.
+        assert_eq!(read("Read `src/app.ts` and [the docs](https://x.test/a.png)."), ["Read `src/app.ts` and <the docs -> https://x.test/a.png>."]);
+        assert_eq!(read("See [this](https://x.test/a.png) now.").len(), 1);
+        // Code that only looks like a file, in a fence, is not touched.
+        assert_eq!(read("```\nclip.mp4\n```"), ["code"]);
+        // A voice note stays where it is, since it is a message of its own.
+        assert_eq!(read("Listen to [note](attachments/voice-note-1200.webm) now.").len(), 1);
+    }
+
+    // tests/one-picture-named-in-a-sentence-is-drawn-large-under-it.test.mts
+    #[test]
+    fn one_picture_named_in_a_sentence_is_drawn_large_under_it() {
+        assert_eq!(
+            read("Needs you: what waits on you. ![1-needs-you.png](designs/a/1-needs-you.png)"),
+            ["Needs you: what waits on you. [1-needs-you.png -> designs/a/1-needs-you.png]", "large: designs/a/1-needs-you.png"]
+        );
+        // The same for a path in code and a markdown link.
+        assert_eq!(read("See `shot.png` for it.")[1], "large: shot.png");
+        assert_eq!(read("See [the shot](shot.png) for it.")[1], "large: shot.png");
+        // Two in one sentence stay a row, and so does a picture beside a film.
+        assert_eq!(read("Compare ![a](a.png) with ![b](b.png) here.")[1], "row: a.png b.png");
+        assert_eq!(read("See `a.png` and `b.mp4` now.")[1], "row: a.png");
+    }
+
+    #[test]
+    fn a_path_typed_into_a_sentence_is_the_file() {
+        // Bare in prose: a picture is drawn under its sentence and a page is a link by its name.
+        assert_eq!(read("The total is in designs/w-1/total-line.png now."), ["The total is in [designs/w-1/total-line.png -> designs/w-1/total-line.png] now.", "large: designs/w-1/total-line.png"]);
+        assert_eq!(read("The page is pages/checkout.html today."), ["The page is <checkout.html -> pages/checkout.html> today."]);
+        // Written out in full into the project, it is the short path; outside it, it stays words.
+        assert_eq!(read(&format!("It is {DIR}/designs/w-1/tax-line.png here."))[1], "large: designs/w-1/tax-line.png");
+        assert_eq!(read("It wrote /tmp/scratch/out.png and left."), ["It wrote /tmp/scratch/out.png and left."]);
+        // A name with a space in it reaches the disk as written and the page as an address.
+        assert_eq!(read("The old one, \"receipt old.png\", is gone.")[1], "large: receipt%20old.png");
+        // A folder on a line of its own, under the words that lead to it, is a door.
+        assert_eq!(read(&format!("They are in:\n{DIR}/designs/rounds/")), [format!("They are in:\n<{DIR}/designs/rounds/ -> designs/rounds/>")]);
+        // A link that spells out its own path reads as the file's name.
+        assert_eq!(read("See [notes/rounding.md](notes/rounding.md)."), ["See <rounding.md -> notes/rounding.md>."]);
+    }
+}
