@@ -1374,7 +1374,7 @@ fn save(s: &mut State, tx: &mut Tx) {
     let Some(here) = s.changes.here.as_ref() else { return };
     let key = here.key.clone();
     let Some(typed) = s.changes.typed.get(&key).cloned() else { return };
-    let dirty: Vec<(String, Vec<(usize, Vec<rules::Row>, BTreeMap<usize, String>)>)> = typed
+    let dirty: Dirty = typed
         .iter()
         .filter(|(_, byh)| byh.values().any(|r| !r.is_empty()))
         .filter_map(|(path, byh)| {
@@ -1391,9 +1391,21 @@ fn save(s: &mut State, tx: &mut Tx) {
     };
     let (product, src) = (here.product.clone(), here.src.clone());
     s.changes.saves.request((url, token, key, product, src, dirty), |(url, token, key, product, src, dirty)| {
+        let done = save_files(&product, &src, dirty, |channel, ask| crate::source::call(&url, &token, channel, ask));
+        (key, done)
+    });
+}
+
+/// The files typed into, one at a time, through `engine` (a channel and what it is asked):
+/// each read as it is now, its typed lines put back where the run left them, and written
+/// unless nothing changed. What each came to: its path, the lines typed and what to say, or why
+/// nothing was written.
+type Dirty = Vec<(String, Vec<(usize, Vec<rules::Row>, BTreeMap<usize, String>)>)>;
+fn save_files(product: &str, src: &str, dirty: Dirty, engine: impl Fn(&str, &Value) -> Result<Value, String>) -> Vec<Result<(String, Vec<(usize, usize, String)>, String), String>> {
+    {
         let mut done = Vec::new();
         for (path, hunks) in dirty {
-            let read = crate::source::call(&url, &token, "zero:code-file", &json!({ "product": product, "src": src, "path": path }));
+            let read = engine("zero:code-file", &json!({ "product": product, "src": src, "path": path }));
             let answer = match read {
                 Ok(a) if a.get("ok") == Some(&Value::Bool(true)) && a.get("text").is_some_and(Value::is_string) => a,
                 Ok(a) => {
@@ -1420,7 +1432,7 @@ fn save(s: &mut State, tx: &mut Tx) {
                 done.push(Ok((path, typed, String::new())));
                 continue;
             }
-            match crate::source::call(&url, &token, "zero:save-code-file", &json!({ "product": product, "src": src, "path": path, "text": spliced, "mtime": mtime })) {
+            match engine("zero:save-code-file", &json!({ "product": product, "src": src, "path": path, "text": spliced, "mtime": mtime })) {
                 Ok(a) if a.get("ok") == Some(&Value::Bool(true)) => {
                     let said = rules::saved_line(&path, lines);
                     done.push(Ok((path, typed, said)));
@@ -1429,8 +1441,8 @@ fn save(s: &mut State, tx: &mut Tx) {
                 Err(why) => done.push(Err(why)),
             }
         }
-        (key, done)
-    });
+        done
+    }
 }
 
 /// What a save came to: each refusal said, the saved files' rows taking their saved lines and
@@ -1922,6 +1934,75 @@ mod tests {
         rt.frame(1.0 / 60.0);
         assert!(rt.state.toast.as_ref().is_some_and(|t| t.line.contains("save this file")));
         assert_eq!(std::fs::read_to_string(dir.join("code/src/a.ts")).unwrap(), A_TS);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// The engine's two channels for a file of a change, by its rules (`main/code-file.mts`): a
+    /// read hands back the text and when it last moved; a write is refused when something else
+    /// moved the file since that read.
+    fn an_engine(file: std::path::PathBuf) -> impl Fn(&str, &Value) -> Result<Value, String> {
+        let mtime = |f: &std::path::Path| std::fs::metadata(f).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0.0, |d| d.as_millis() as f64);
+        move |channel, ask| match channel {
+            "zero:code-file" => Ok(json!({ "ok": true, "path": file, "text": std::fs::read_to_string(&file).map_err(|e| e.to_string())?, "mtime": mtime(&file) })),
+            "zero:save-code-file" => {
+                let read_at = ask["mtime"].as_f64().unwrap_or(0.0);
+                if read_at > 0.0 && mtime(&file) - read_at > 1000.0 {
+                    return Ok(json!({ "ok": false, "stale": true, "error": "Something else changed this file while you were typing, so nothing was saved." }));
+                }
+                std::fs::write(&file, ask["text"].as_str().unwrap_or_default()).map_err(|e| e.to_string())?;
+                Ok(json!({ "ok": true }))
+            }
+            other => Err(format!("{other} is not asked here")),
+        }
+    }
+
+    /// What `save` hands the engine for the lines typed into `src/a.ts`, by hunk and row.
+    fn typed_into_a(shown: &Shown, lines: &[(usize, usize, &str)]) -> Dirty {
+        let file = shown.files.iter().find(|f| f.path == "src/a.ts").expect("a.ts");
+        let mut by: BTreeMap<usize, BTreeMap<usize, String>> = BTreeMap::new();
+        for (h, r, t) in lines {
+            by.entry(*h).or_default().insert(*r, t.to_string());
+        }
+        vec![("src/a.ts".to_string(), by.into_iter().map(|(h, e)| (h, file.hunks[h].rows.clone(), e)).collect())]
+    }
+
+    #[test]
+    fn save_puts_the_typed_lines_back_where_the_run_left_them_or_says_why_not() {
+        let (mut rt, dir) = with_a_change("save", (1280.0, 760.0), None);
+        open_it(&mut rt);
+        let file = dir.join("code/src/a.ts");
+        let shown = rt.state.shown().expect("read");
+        let key = rt.state.changes.here.as_ref().expect("open").key.clone();
+        // Typed into both hunks: each line lands on its own place, every other byte left alone.
+        rt.update(|s, _| {
+            let t = s.changes.typed.entry(key.clone()).or_default().entry("src/a.ts".into()).or_default();
+            t.entry(0).or_default().insert(2, "let b = 33;".into());
+            t.entry(1).or_default().insert(3, "export { c, d, e };".into());
+        });
+        let done = save_files("storefront", "runs/x/the-change-it-made.change", typed_into_a(&shown, &[(0, 2, "let b = 33;"), (1, 3, "export { c, d, e };")]), an_engine(file.clone()));
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), A_TS.replace("let b = 3;", "let b = 33;").replace("export { c, d };", "export { c, d, e };"));
+        rt.update(move |s, tx| saved(s, &key, done, tx));
+        rt.frame(1.0 / 60.0);
+        assert!(rt.state.toast.as_ref().is_some_and(|t| t.line == "Saved a.ts, 2 lines."));
+        // The drawn rows take the saved lines, and the file is no longer unsaved.
+        let shown = rt.state.shown().expect("read");
+        assert_eq!(shown.files.iter().find(|f| f.path == "src/a.ts").unwrap().hunks[0].rows[2].1, "let b = 33;");
+        assert!(!unsaved(&rt.state, rt.state.changes.here.as_ref().unwrap(), "src/a.ts"));
+        // A file that moved on since the run is refused, and nothing is written.
+        std::fs::write(&file, "something else entirely\n").unwrap();
+        let done = save_files("storefront", "x", typed_into_a(&shown, &[(0, 2, "let b = 4;")]), an_engine(file.clone()));
+        assert_eq!(done, vec![Err("The file has changed since this run, so those lines are not in it any more. Nothing was saved.".to_string())]);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "something else entirely\n");
+        // The engine's own refusal is said as it says it.
+        std::fs::write(&file, A_TS.replace("let b = 3;", "let b = 33;")).unwrap();
+        let stale = |channel: &str, ask: &Value| if channel == "zero:save-code-file" { Ok(json!({ "ok": false, "error": "Something else changed this file while you were typing, so nothing was saved." })) } else { an_engine(dir.join("code/src/a.ts"))(channel, ask) };
+        let done = save_files("storefront", "x", typed_into_a(&shown, &[(0, 2, "let b = 5;")]), stale);
+        assert_eq!(done, vec![Err("Something else changed this file while you were typing, so nothing was saved.".to_string())]);
+        // A line typed back to what it was writes nothing, and says nothing saved.
+        let before = std::fs::read_to_string(&file).unwrap();
+        let done = save_files("storefront", "x", typed_into_a(&shown, &[(0, 2, "let b = 33;")]), an_engine(file.clone()));
+        assert!(matches!(&done[..], [Ok((_, _, said))] if said.is_empty()));
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), before);
         let _ = std::fs::remove_dir_all(dir);
     }
 
