@@ -302,9 +302,21 @@ fn status_mark(mark: Mark, ground: rune::Color) -> Option<El> {
                 .child(el().absolute(1.5, 1.5).size(9.0, 9.0).radius(4.5).fill(ground))
                 .child(breathing(el().absolute(6.0, 1.5).size(4.5, 9.0).corners([0.0, 4.5, 4.5, 0.0]).fill(accent()), 60.0)),
         ),
-        // A mark of strokes is not one the window can step alone, so each frame of its breath
-        // draws the page: a breath is slow, and twenty frames a second draw it smoothly.
-        Mark::Cloud => Some(breathing(el().size(14.0, 11.0).mr(6.0).child(el().absolute(0.0, 0.0).child(icon(&icons::CLOUD_MARK, 14.0).color(accent()))), 20.0)),
+        // A mark of strokes is not one the window can step alone, so the cloud stands still and
+        // a veil of the card's colour over it breathes the other way: where the web window's
+        // cloud is at 45%, 55% of the card's colour covers it.
+        Mark::Cloud => Some(
+            el().size(14.0, 11.0)
+                .mr(6.0)
+                .child(el().absolute(0.0, 0.0).child(icon(&icons::CLOUD_MARK, 14.0).color(accent())))
+                .child(el().absolute(0.0, -2.0).size(14.0, 15.0).fill(ground).a11y_hidden().cycle(rune::Cycle {
+                    period: BREATHE_PERIOD,
+                    phase: 0.0,
+                    stops: crate::rules::motion::breathe_veil_stops(),
+                    still: crate::rules::motion::LEAST,
+                    fps: 60.0,
+                })),
+        ),
     }
 }
 

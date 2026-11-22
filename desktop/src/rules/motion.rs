@@ -93,6 +93,14 @@ pub fn breathe_stops() -> &'static [(f32, f32)] {
     STOPS.get_or_init(|| eased_stops(&[(0.0, 1.0), (0.5, 0.45), (1.0, 1.0)], Easing::EASE_IN_OUT, 24))
 }
 
+/// The same breath as a veil of the ground over a mark that stands still: as much of the ground
+/// as the mark gives up, so the mark under it shows at the breath's opacity (a veil of the
+/// ground at `1 − o` over a mark is the mark at `o`, where the ground is one colour).
+pub fn breathe_veil_stops() -> &'static [(f32, f32)] {
+    static STOPS: OnceLock<Vec<(f32, f32)>> = OnceLock::new();
+    STOPS.get_or_init(|| breathe_stops().iter().map(|&(at, o)| (at, (1.0 - o).max(LEAST))).collect())
+}
+
 /* --------------------------------- the shimmer -------------------------------- */
 
 /// How long the band takes to cross a word (`live-shimmer`, 2.6 s, linear).
@@ -259,6 +267,12 @@ mod tests {
         assert!((sample(stops, 0.5) - 0.45).abs() < 1e-6);
         assert!((sample(stops, 0.25) - 0.725).abs() < 0.002, "ease-in-out is symmetric: half way at a quarter");
         assert!((sample(stops, 1.0) - 1.0).abs() < 1e-6);
+        // As a veil over a mark standing still: nothing of it at the ends, 0.55 at the middle.
+        let veil = breathe_veil_stops();
+        for x in [0.0, 0.1, 0.25, 0.4, 0.5, 0.75] {
+            assert!(((1.0 - sample(veil, x)) - sample(stops, x)).abs() < LEAST + 1e-6, "{x}");
+        }
+        assert!(veil.iter().all(|&(_, a)| a > 0.001 && a <= 1.0), "every stop shows, for a step to draw it");
     }
 
     /// The veil, sampled as Rune samples it, against the web window's mask at the same moment,
