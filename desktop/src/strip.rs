@@ -351,7 +351,7 @@ fn menu_row(at: usize, lit: bool, lead: El, words: &str, aside: Option<El>) -> E
 
 /// A row's key or detail (`.ts-more-menu kbd`): small, in the code face, eighteen points off.
 fn kbd(words: &str) -> El {
-    el().ml(18.0).child(text(words).font(mono(11.0, 14.0)).color(muted()))
+    el().ml(18.0).child(pen(text(words).font(mono(11.0, 14.0)).color(muted()), 11.0))
 }
 
 /// The menu's rows as they stand.
@@ -433,12 +433,12 @@ fn panel_line(name: El, what: El) -> El {
 
 /// The small capitals of a label (`.th-pop .lab`).
 fn panel_label(words: &str, line: f32) -> El {
-    text(words).font(mono(10.5, line).tracking(0.84)).text_case(TextCase::Uppercase).color(muted())
+    pen(text(words).font(mono(10.5, line).tracking(0.84)).text_case(TextCase::Uppercase).color(muted()), 10.5)
 }
 
 /// The faint words under a line (`.th-cloud-note`).
 fn panel_note(words: &str) -> El {
-    text(words).font(TextStyle::new(12.5, 400.0).lh(18.75)).color(muted()).wrap().w(SAYS)
+    pen(text(words).font(TextStyle::new(12.5, 400.0).lh(18.75)).color(muted()).wrap().w(SAYS), 12.5)
 }
 
 /// The panel under the place button (`.th-pop.th-cloud-pop.ts-place-pop`): 440 points wide, its
