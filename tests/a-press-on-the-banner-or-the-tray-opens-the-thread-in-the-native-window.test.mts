@@ -28,6 +28,8 @@ import type { IpcHandler, PushListener } from '../main/serve.mts';
 import { notchIslandRig, WAITING } from './helpers/notch-island-rig.mts';
 import { cornerTagRig } from './helpers/corner-tag-rig.mts';
 
+const root = path.join(import.meta.dirname, '..');
+
 afterEach(() => { vi.useRealTimers(); });
 
 // A native window as this app hears of it, with `streams` event streams open at the door, on
@@ -277,5 +279,12 @@ describe('the door', () => {
     expect(pushes).toEqual([opened('w-1', 'lantern')]);
     expect(ownWindow).toEqual([]);
     stream.destroy();
+  });
+});
+
+describe('desktop/src/front.rs', () => {
+  it('listens for a press on the channel the app sends it on', () => {
+    const front = fs.readFileSync(path.join(root, 'desktop', 'src', 'front.rs'), 'utf8');
+    expect(front).toContain(`pub const OPEN_HERE: &str = "${OPEN_IN_NATIVE}";`);
   });
 });

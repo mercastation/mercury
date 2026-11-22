@@ -7,7 +7,8 @@
 //!   mercury --door-file <path>                              (a JSON file with `port` and `token`)
 //!
 //! With the door, one thread listens to the engine's event stream and another asks for the
-//! snapshot again when the stream says something changed. It also asks unprompted: every five
+//! snapshot again when the stream says something changed. The same stream carries the desktop
+//! app's word to come forward at a thread (`front.rs`). It also asks unprompted: every five
 //! seconds of an engine that has shown it tells, and every two of one that has not, because
 //! not every engine that opens this door pushes. The desktop app's door moves each time the
 //! app starts, and its note is read again when the one in hand stops answering. What the
@@ -221,7 +222,11 @@ pub fn follow_door(door: Door, mailbox: Mailbox, wake: impl Fn() + Send + 'stati
                         match line {
                             Ok(line) if line.starts_with("data:") => {
                                 tells.store(true, Ordering::Relaxed);
-                                told.store(true, Ordering::Relaxed);
+                                // A press on the app's banner or tray, for this window: no news of the inbox.
+                                match crate::front::asked_to_open(&line) {
+                                    Some(opening) => crate::front::come_forward(opening),
+                                    None => told.store(true, Ordering::Relaxed),
+                                }
                             }
                             Ok(_) => {}
                             Err(_) => break,

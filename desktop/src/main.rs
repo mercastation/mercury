@@ -1204,5 +1204,8 @@ fn main() {
         ..AppSpec::new("Mercury", DEFAULT_SIZE, init, view)
     };
     // The web app sets `-webkit-font-smoothing: antialiased`; `Off` is that rendering.
-    App::new(spec).font_smoothing(FontSmoothing::Off).on_focus(front::focus_changed).run();
+    let app = App::new(spec).font_smoothing(FontSmoothing::Off).on_focus(front::focus_changed);
+    // The desktop app's banner and tray bring this window forward from another thread.
+    front::reach(app.handle());
+    app.run();
 }

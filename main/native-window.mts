@@ -7,7 +7,8 @@
 //
 // A word stops counting when it is not said again (shared/notify-rules.mts,
 // nativeInFront) or when the last event stream at the door hangs up: a window
-// that quit or crashed hangs up, and one that hung stops beating.
+// that quit or crashed hangs up, and one that hung stops beating. It beats in
+// front or not, from its own drawing thread (desktop/src/front.rs).
 //
 // AND A PRESS ON THE BANNER OR THE TRAY GOES TO IT (`open`), the window the
 // person works in, rather than bringing this app's own window forward.
