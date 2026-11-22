@@ -329,8 +329,10 @@ pub fn inline(s: &State) -> El {
         // Files dropped anywhere on the box attach. The web window takes them on its words,
         // which are most of it; a drop on the rest of it does nothing there.
         .on_drop_files(|s: &mut State, files, _| s.attach_paths(files))
-        // One line tall until the words need more: 74 points with the room under them.
-        .child(el().min_h(74.0).pb(14.0).child(field.w_full()))
+        // One line tall until the words need more: 74 points with the room under them, all of
+        // it the words' box, as the web window's text box is: the I-beam over it, and a press
+        // anywhere in it puts the caret after the words.
+        .child(el().min_h(74.0).pb(14.0).cursor(rune::Cursor::Text).on_press_tx(|s: &mut State, tx| s.write_in_the_box(tx)).child(field.w_full()))
         // The files, under the words and over the notes (`.tc-inline .attach-row`).
         .children(attach::rows(s, |r| r.pt(12.0)))
         .children(notes(s, |n| n.pt(12.0)))
@@ -396,7 +398,16 @@ fn card(s: &State) -> El {
     // In the dialog the caret is the text's own colour, and the words scroll inside a box
     // 156 points tall (`.tc-text`).
     let field = words_field(s, TextStyle::new(15.0, 400.0).lh(23.25), ink());
-    let words = col().h(156.0).pt(12.0).px(18.0).pb(6.0).child(col().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(field.w_full()));
+    // All of it the words' box, as the web window's text box is: the I-beam over it, and a
+    // press anywhere in it puts the caret after the words.
+    let words = col()
+        .h(156.0)
+        .pt(12.0)
+        .px(18.0)
+        .pb(6.0)
+        .cursor(rune::Cursor::Text)
+        .on_press_tx(|s: &mut State, tx| s.write_in_the_box(tx))
+        .child(col().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(field.w_full()));
     // The files, between the words and the notes (`.tc-card .attach-row`).
     let files = attach::rows(s, |r| r.px(18.0).pb(10.0));
     let lines = notes(s, |n| n.px(18.0).pb(10.0));

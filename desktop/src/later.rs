@@ -101,8 +101,8 @@ fn choice_row(at: usize, choice: &Choice, lit: bool) -> El {
         line = line.fill(white(0.04)).child(el().absolute(0.0, 0.0).size(2.0, 34.0).fill(accent()));
     }
     // The pointer lights the row it moves over, never the one it happened to be resting on
-    // when the picker opened.
-    line.on_pointer_move(move |s: &mut State, _| s.later.selected = at).on_press(move |s: &mut State| s.pick_later(Some(at)))
+    // when the picker opened, and takes the pointing hand over it (`.palette-item`).
+    line.cursor(rune::Cursor::Pointer).on_pointer_move(move |s: &mut State, _| s.later.selected = at).on_press(move |s: &mut State| s.pick_later(Some(at)))
 }
 
 /// The picker, over the whole window, when it is open.
@@ -125,7 +125,20 @@ pub fn view(s: &State) -> Option<El> {
         .on_edit(|s: &mut State| &mut s.later.words)
         .on_submit(|s: &mut State, _| s.pick_later(None))
         .on_input_key(in_the_box);
-    let mut ask = row().h(49.5).px(18.0).items_center().border_sides([0.0, 0.0, 1.0, 0.0], edge()).border_layout().child(pen(field, 16.0));
+    // The whole line is the box to type in (`input.snooze-input`): the I-beam over it, and a press
+    // anywhere on it puts the caret there.
+    let mut ask = row()
+        .h(49.5)
+        .px(18.0)
+        .items_center()
+        .border_sides([0.0, 0.0, 1.0, 0.0], edge())
+        .border_layout()
+        .cursor(rune::Cursor::Text)
+        .on_press_tx(|s: &mut State, tx| {
+            s.later.words.focused = true;
+            tx.focus("later", false);
+        })
+        .child(pen(field, 16.0));
     if let Some((line, was_read)) = preview {
         // What it read stands upright; "not a time" leans, fainter until Enter was refused.
         let colour = if was_read || s.later.refused { dim() } else { muted() };
