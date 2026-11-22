@@ -399,11 +399,11 @@ mod tests {
     fn the_rail_opens_once_the_pointer_has_rested_on_it_and_folds_when_it_leaves() {
         let mut rt = window("rail", &[]);
         assert_eq!(rt.state.lists.needs.len(), 4, "the invented inbox needs the person four times");
-        // Onto Demands, which opens nothing of its own: the pointing hand, and the rail still
-        // folded until 140 ms have gone by.
+        // Onto the rail under its places, where there is nothing to press: the arrow stays, and
+        // the rail is still folded until 140 ms have gone by.
         rt.pointer_move(41.0, 244.0);
         rt.frame(1.0 / 60.0);
-        assert_eq!(rt.cursor(), Cursor::Pointer);
+        assert_eq!(rt.cursor(), Cursor::Default);
         run(&mut rt, 0.1);
         assert_eq!(rt.state.rail.width(rt.state.at), 38.0);
         // Then it eases open over 0.24 s, the card moving over with it.
@@ -415,6 +415,19 @@ mod tests {
         run(&mut rt, 0.3);
         assert_eq!(rt.state.rail.width(rt.state.at), 38.0);
         assert_eq!(chrome::card_left(&rt.state), 82.0);
+    }
+
+    #[test]
+    fn the_rails_settings_button_asks_the_app_and_says_so_when_no_app_is_behind_this_window() {
+        let mut rt = window("rail-settings", &[]);
+        // The invented inbox has no face and no usage, so Settings is the foot's last button,
+        // 12 points over the rail's end (738).
+        rt.pointer_move(41.0, 708.0);
+        rt.frame(1.0 / 60.0);
+        assert_eq!(rt.cursor(), Cursor::Pointer);
+        assert!(rt.state.toast.is_none());
+        press(&mut rt, 41.0, 708.0);
+        assert_eq!(rt.state.toast.as_ref().map(|t| t.line.as_str()), Some(chrome::SETTINGS_REFUSED));
     }
 
     #[test]

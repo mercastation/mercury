@@ -43,7 +43,7 @@ import { FreezeWatch } from './freeze-watch.mts';
 import { applyThrough, phoneDevice } from './phone-inbox.mts';
 import type { PhoneChannel } from './phone-inbox.mts';
 import { answerWhatOnlyTheWindowAnswered } from './serve.mts';
-import { LOCAL_DOOR_NOTE, openLocalDoor, tellTheDoorToo, windowKeeps } from './local-door.mts';
+import { LOCAL_DOOR_NOTE, openLocalDoor, openSettings, tellTheDoorToo, windowKeeps } from './local-door.mts';
 import { createNativeWindow } from './native-window.mts';
 import type { CollectingIpcMain, IpcHandler, PushListener } from './serve.mts';
 import { carryHerBriefsAcross, joinMessageRules, setAsideShippedMessageRules, unifyAgentInstructions } from './instruction-settings.mts';
@@ -1019,7 +1019,19 @@ async function createWindow() {
   if (config.localDoor === true) {
     // And it is told when the inbox changes, as this window is, so it need not keep asking.
     tellTheDoorToo(window.webContents, atTheDoor);
-    void openLocalDoor({ channels: phoneChannels, note: path.join(userDir, LOCAL_DOOR_NOTE), keeps: windowKeeps(askThisWindow), listeners: atTheDoor, native: nativeWindow })
+    // Its rail's Settings button lands on this window's Settings, as the tray's does (main/corner-tag.mts).
+    // The press was in another app, the one in front, so this app takes the front itself, as it does
+    // when a sign-in comes back from the browser (main/ipc.mts).
+    const forward = () => {
+      if (!window || window.isDestroyed()) return false;
+      if (window.isMinimized()) window.restore();
+      window.show();
+      app.focus({ steal: true });
+      window.focus();
+      return true;
+    };
+    const settings = openSettings(forward, (channel, payload) => window?.webContents.send(channel, payload));
+    void openLocalDoor({ channels: phoneChannels, note: path.join(userDir, LOCAL_DOOR_NOTE), keeps: windowKeeps(askThisWindow), listeners: atTheDoor, native: nativeWindow, settings })
       .then((door) => console.log(`local door: open on 127.0.0.1:${door.port}`))
       .catch((err: Error) => console.warn(`local door: ${err.message}`));
   }

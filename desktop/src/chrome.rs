@@ -8,7 +8,7 @@ use rune::{Cursor, Easing, El, Icon, TextCase, TextStyle, Tx, col, el, icon, row
 
 use crate::rules::window;
 use crate::theme::*;
-use crate::{State, View, feel, icons};
+use crate::{State, View, feel, front, icons};
 
 /// The main card's insets from the window with the rail folded: left of it the rail, above it
 /// the title strip. While the rail is open the card starts further right (`card_left`).
@@ -224,12 +224,16 @@ fn my_face(letters: &str) -> El {
         .child(text(letters).font(TextStyle::new(9.0, 500.0).mono().lh(20.0).tracking(0.18)).text_case(TextCase::Uppercase).color(page()))
 }
 
-/// The rail: the mark, search, the places, and a foot that holds what this person's Mercury
-/// has: Record meeting, feedback, settings, what is left of the limit, their own face. Folded
-/// it is the marks alone; while the pointer rests on it, it opens to the whole sidebar, each
-/// mark with its word and Inbox with its count (`Rail`). A page this window does not have yet
-/// is a button that answers the pointer as the web window's does and goes nowhere. `still`: the
-/// system asks for reduced motion.
+/// The rail: the mark, search, Home and the Inbox, and a foot with Restart to update while a new
+/// version waits, Settings, what is left of the limit and the person's own face. Folded it is the
+/// marks alone; while the pointer rests on it, it opens to the whole sidebar, each mark with its
+/// word and Inbox with its count (`Rail`). `still`: the system asks for reduced motion.
+///
+/// ONLY WHAT WORKS HERE. The web window's rail also has Demands, Chats, Connections, Files,
+/// Record meeting and Feedback. Drawn here they were buttons that went nowhere, for things the
+/// owner does not use, and on first using this window they asked for them gone (2026-11-22). A
+/// page this window does not have and the person needs is the app's: Settings, for now, brings
+/// the app's own window forward on them.
 pub fn rail(s: &State, still: bool) -> El {
     let now = s.at;
     let (wide, words, line, dot) = (s.rail.width(now), s.rail.words.at(now), s.rail.line.at(now), s.rail.dot.at(now));
@@ -255,37 +259,27 @@ pub fn rail(s: &State, still: bool) -> El {
     if waiting > 0 {
         inbox = inbox.child(el().absolute(25.0, 8.0).size(6.0, 6.0).radius(3.0).fill(accent()).opacity(dot));
     }
-    let mut places = col()
+    let places = col()
         .absolute(0.0, 98.0)
         .gap(3.0)
         .child(button(&icons::HOME, "Home", on_home).on_press(|s: &mut State| s.go(View::Home)))
-        .child(inbox)
-        .child(feel::answers(button(&icons::DEMANDS, "Demands", false)));
-    // With teammates the one row under the threads is Chats (`teammatesUi.rail`).
-    if window::teammates_live(&s.snap) {
-        places = places.child(feel::answers(button(&icons::CHATS, "Chats", false)));
-    }
-    places = places.child(feel::answers(button(&icons::CONNECTIONS, "Connections", false))).child(feel::answers(button(&icons::FILES, "Files", false)));
+        .child(inbox);
 
     // The foot stands on the rail's end and grows upward: the person's face under a hairline,
-    // over it the usage button, over that the buttons everyone has (`.workspace-bottom`). Their
-    // titles stand whether the rail is open or not.
+    // over it the usage row, over that the buttons (`.workspace-bottom`). Their titles stand
+    // whether the rail is open or not.
     let me = window::my_letters(&s.snap);
     let usage = window::usage_shown(&s.snap, s.now);
     let face_room = if me.is_some() { 54.0 } else { 0.0 };
-    let foot = |glyph: &'static Icon, word: &str| feel::answers(rail_button(glyph, word, false, wide, words).help(word));
+    let foot = |glyph: &'static Icon, word: &str| rail_button(glyph, word, false, wide, words).help(word);
     let mut buttons = col().pin(Some(0.0), None, None, Some(face_room + if usage { 50.0 } else { 12.0 })).gap(2.0);
     if window::update_waits(&s.snap) {
         // Restart to update stands first, with the room its card rises from (`.sb-update-slot`).
-        buttons = buttons.child(el().pb(9.0).child(foot(&icons::RESTART, "Restart to update")));
+        // The app quits onto the new version and comes back, and this window finds its new door.
+        let restart = foot(&icons::RESTART, "Restart to update").on_press_tx(|s: &mut State, tx| s.ask_the_app(front::INSTALL_UPDATE, "Mercury could not restart onto the new version. Try again in a moment.", tx));
+        buttons = buttons.child(el().pb(9.0).child(restart));
     }
-    if window::can_record(&s.snap) {
-        buttons = buttons.child(foot(&icons::RECORD, "Record meeting"));
-    }
-    if window::takes_feedback(&s.snap) {
-        buttons = buttons.child(foot(&icons::FEEDBACK, "Feedback"));
-    }
-    buttons = buttons.child(foot(&icons::SETTINGS, "Settings"));
+    buttons = buttons.child(foot(&icons::SETTINGS, "Settings").on_press_tx(open_settings));
 
     // The team's mark, and its name beside it while the rail is open (`.th-team`), which the
     // rail's edge cuts as it widens.
@@ -348,17 +342,19 @@ pub fn rail(s: &State, still: bool) -> El {
         .child(buttons);
     if usage {
         // Open, it names the agent read last and, where the Inbox has its count, the figure of
-        // its headline window (`.usage-row-label`, `.usage-row-num`).
+        // its headline window (`.usage-row-label`, `.usage-row-num`). The web window opens the
+        // limits under it; here it only reads, so it does not answer the pointer as if it would.
         let (word, used) = window::usage_row(&s.snap, s.now).unwrap_or(("Usage", None));
         let mut row = rail_button(&icons::USAGE, word, false, wide, words);
         if let Some(used) = used {
             row = row.child(spacer()).child(pen(label(&format!("{used}%"), 13.0, 400.0, muted()).group_color(ink()), 13.0).opacity(words));
         }
-        rail = rail.child(el().pin(Some(0.0), None, None, Some(face_room + 12.0)).child(feel::answers(row)));
+        rail = rail.child(el().pin(Some(0.0), None, None, Some(face_room + 12.0)).child(row));
     }
     if let Some(letters) = me {
-        // Open, the person's own row has their name over their email beside their face; it opens
-        // their account menu in the web window, and nothing here (`.th-me-btn`).
+        // Open, the person's own row has their name over their email beside their face
+        // (`.th-me-btn`). The web window opens their account menu on it, whose first row, their
+        // name again, opens Settings (`AccountMenuList`); here, with no menu, it goes straight there.
         let (name, email) = window::my_names(&s.snap).unwrap_or_default();
         let names = col()
             .absolute(39.0, 2.25)
@@ -368,10 +364,19 @@ pub fn rail(s: &State, still: bool) -> El {
         let row = el().pin(Some(0.0), None, None, Some(0.0)).size(wide, 38.0).radius(6.0).clip_rounded(6.0).hover(feel::wash()).cursor(Cursor::Pointer).child(names);
         rail = rail
             .child(el().pin(Some(0.0), None, Some(0.0), Some(45.0)).h(1.0).fill(edge()))
-            .child(feel::answers(row))
+            .child(row.help("Settings").on_press_tx(open_settings))
             .child(el().pin(Some(8.0), None, None, Some(7.5)).child(my_face(&letters)));
     }
     rail
+}
+
+/// What the rail's Settings say when the app's own window is not there to show them.
+pub const SETTINGS_REFUSED: &str = "Settings live in Mercury's other window, and it is not open now.";
+
+/// The app's Settings, from the rail: its own window comes forward on them, since this one has
+/// no Settings page yet.
+fn open_settings(s: &mut State, tx: &mut Tx) {
+    s.ask_the_app(front::OPEN_SETTINGS, SETTINGS_REFUSED, tx);
 }
 
 /// The band along the window's top that moves the window, as the title bar it stands in for

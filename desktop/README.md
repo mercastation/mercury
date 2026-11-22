@@ -121,6 +121,14 @@ so does Settings in the tray's menu. An approval's line in the tray asks for the
 a press on the island itself does, so it brings this window, whose foot says the yes is answered
 in Mercury's own window. With no window beating at the door, a press does what it always did.
 
+The other way, this window asks the app for two things of its own (`ask_the_app` in
+`src/front.rs`). Its rail's Settings, and the person's own row under it, bring the web window
+forward on its Settings (`zero:open-settings-here`, a channel only the desktop app's door answers,
+which takes nothing from the caller and opens Settings and nothing else); and Restart to update,
+while a new version waits, is the web window's own button (`zero:update-install`): the app quits
+onto the new version and comes back, and this window finds its new door. When it works nothing
+here changes; a refusal (no app, or its window gone) is said in a line.
+
 Checked headless on 2026-11-22 against a small door on loopback that answers the snapshot with an
 invented inbox, records what this window says and pushes `zero:open-in-native` at set times; a
 script's `{"t": 0.5, "focus": true}` stands for the window gaining focus:
@@ -450,7 +458,9 @@ window's comes 700 ms after (`HINT_WAIT`). New thread
 was measured before its title was: since, a headless picture draws Rune's own stand-in for the
 title from 0.5 s, over the plate (36.89), where a Mac window leaves the title to AppKit and its wait.
 
-The rail open, the pointer on Demands: the whole window 0.90 at 1280 by 760, 0.94 at 900 by 760
+Measured before the rail lost the buttons nothing here did (see what still differs), so against a
+rail that still had Demands, Connections and Files under the Inbox:
+the rail open, the pointer on Demands: the whole window 0.90 at 1280 by 760, 0.94 at 900 by 760
 and 0.71 at 1600 by 1000, the rail itself 0.21, 0.22 and 0.17, and Demands 0.57, 0.58 and 0.55.
 Over the Inbox 0.26 and a conversation 0.41. With teammates, a recorder and a sign-in (`home-team-
 rail-open`) 0.99, the rail 0.55; while an update waits (`home-update-rail-open`) 1.21, the rail
@@ -1320,6 +1330,13 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
 - **No warning before closing a thread whose agent waits on an answer.** The web window gives it
   once ever, on the first such E, and remembers for itself that it did.
 - **Several rows cannot be ticked**, so nothing is done to many threads at once.
+- **The rail has only what works here**: Search, Home, the Inbox, Restart to update while a new
+  version waits, Settings, the usage row and the person's own row. The web window's also has
+  Demands, Chats (with teammates), Connections, Files, Record meeting and Feedback. Drawn here
+  they were buttons that went nowhere, and the owner, who does not use them, asked for them gone
+  on first using this window (2026-11-22). Settings and the person's row bring the web window
+  forward on its Settings, as there is no Settings page here; the usage row only reads, where the
+  web window's opens the limits under it.
 - **The command bar offers only what this window can do.**
   - Not listed, because nothing here does them yet: New project, Record meeting, Filter,
     Projects and ranking a project first, the cloud's

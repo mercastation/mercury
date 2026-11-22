@@ -19,7 +19,9 @@ macro_rules! stroked {
     };
 }
 
-// The rail. Search and Feedback are drawn at 80% inside their box, as the web app does.
+// The rail. Search is drawn at 80% inside its box, as the web app does. The web window's rail
+// has Demands, Chats, Connections, Files, Record meeting and Feedback too; this one has none of
+// them (`chrome::rail`), and their marks went with them.
 pub static SEARCH: Icon = Icon {
     name: "m-search",
     view: 24.0,
@@ -27,38 +29,13 @@ pub static SEARCH: Icon = Icon {
 };
 stroked!(HOME, "m-home", "1.25", r#"<path d="M5 10.4 12 5l7 5.4v8.6a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z"/><path d="M10 20v-4.6a2 2 0 0 1 4 0V20"/>"#);
 stroked!(INBOX, "m-inbox", "1.25", r#"<path d="M5 7h14M5 12h14M5 17h9"/>"#);
-stroked!(DEMANDS, "m-demands", "1.25", r#"<path d="M6.5 20V4.5"/><path d="M6.5 5.5h10.5l-2.2 3.5 2.2 3.5H6.5"/>"#);
-stroked!(
-    CONNECTIONS,
-    "m-connections",
-    "1.25",
-    r#"<path d="M10 13.5a4 4 0 0 0 5.66 0l2.5-2.5a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10.5a4 4 0 0 0-5.66 0l-2.5 2.5a4 4 0 0 0 5.66 5.66l1-1"/>"#
-);
-stroked!(FILES, "m-files", "1.25", r#"<path d="M7 4.5h6.5l4 4V19a.5.5 0 0 1-.5.5H7a.5.5 0 0 1-.5-.5V5a.5.5 0 0 1 .5-.5z"/><path d="M13.5 4.5v4h4"/>"#);
-pub static FEEDBACK: Icon = Icon {
-    name: "m-feedback",
-    view: 24.0,
-    body: r#"<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(12 12) scale(.8) translate(-12 -12)" stroke-width="1.5625"><path d="M2.5 11.5 21.5 3l-5 18-5-6.5z"/><path d="M11.5 14.5 21.5 3"/><path d="m11.5 14.5-1.2 6 3-3.6"/></g></g>"#,
-};
 stroked!(
     SETTINGS,
     "m-settings",
     "1.25",
     r#"<path d="M4.5 8h8M16.5 8h3M4.5 16h3M11.5 16h8"/><circle cx="14.5" cy="8" r="2"/><circle cx="9.5" cy="16" r="2"/>"#
 );
-// What the rail has only for some, or only sometimes: Chats with teammates, Record meeting,
-// Restart while a new version waits, what is left of the limit.
-stroked!(
-    CHATS,
-    "m-chats",
-    "1.25",
-    r#"<circle cx="9" cy="8.5" r="3"/><path d="M3.5 19c.5-3.2 2.7-5 5.5-5s5 1.8 5.5 5"/><path d="M15 5.8a3 3 0 0 1 0 5.4M16.8 14.2c2 .6 3.3 2.2 3.7 4.8"/>"#
-);
-pub static RECORD: Icon = Icon {
-    name: "m-record",
-    view: 24.0,
-    body: r#"<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(12 12) scale(.8) translate(-12 -12)" stroke-width="1.5625"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></g></g>"#,
-};
+// What the rail has only sometimes: Restart while a new version waits, what is left of the limit.
 pub static RESTART: Icon = Icon {
     name: "m-restart",
     view: 24.0,

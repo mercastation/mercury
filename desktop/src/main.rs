@@ -258,6 +258,14 @@ impl State {
     pub fn tell(&mut self, line: &str, tx: &Tx) {
         self.say(line.to_string(), false, tx);
     }
+    /// Asks the desktop app for one of its own things, its Settings or the restart onto a new
+    /// version (`front::ask_the_app`). A window with no app behind it says `refused` at once.
+    pub fn ask_the_app(&mut self, channel: &'static str, refused: &'static str, tx: &Tx) {
+        match &self.source {
+            Source::Door(door) => front::ask_the_app(door, channel, refused),
+            _ => self.tell(refused, tx),
+        }
+    }
     /// Does something now and writes it in three seconds, unless Z comes first
     /// (`deferCommit` in `renderer/src/App.tsx`). One thing waits at a time: whatever was
     /// waiting before is written at once.

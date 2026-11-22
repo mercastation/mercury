@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { LOCAL_DOOR_NOTE, TOLD_AT_THE_DOOR, WINDOW_KEEPS, openLocalDoor, tellTheDoorToo, windowKeeps } from '../main/local-door.mts';
+import { LOCAL_DOOR_NOTE, OPEN_SETTINGS, TOLD_AT_THE_DOOR, WINDOW_KEEPS, openLocalDoor, openSettings, tellTheDoorToo, windowKeeps } from '../main/local-door.mts';
 import type { LocalDoor, LocalDoorNote } from '../main/local-door.mts';
 import type { IpcHandler, PushListener } from '../main/serve.mts';
 
@@ -188,6 +188,50 @@ describe('what the web window keeps for itself', () => {
   });
 });
 
+describe("the native window's Settings button", () => {
+  it("brings the app's window forward on its Settings, as the tray does", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'local-door-'));
+    folders.push(dir);
+    const channels = new Map<string, IpcHandler>([['zero:snapshot', () => ({ items: [] })]]);
+    let forwarded = 0;
+    const told: [string, unknown][] = [];
+    const settings = openSettings(() => { forwarded += 1; return true; }, (channel, payload) => told.push([channel, payload]));
+    const door = await openLocalDoor({ channels, note: path.join(dir, LOCAL_DOOR_NOTE), settings });
+    open.push(door);
+    // Whatever the caller sends, it opens Settings and nothing else.
+    const res = await ask(door, OPEN_SETTINGS, { key: door.token, body: { pane: 'somewhere-else', channel: 'zero:compose' } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(forwarded).toBe(1);
+    expect(told).toEqual([['zero:open-settings', { pane: 'general' }]]);
+    // The phone's copy is made from the app's Map, and it did not grow.
+    expect([...channels.keys()]).toEqual(['zero:snapshot']);
+  });
+
+  it('says so, and tells nothing, when the app has no window to bring forward', async () => {
+    const told: unknown[] = [];
+    const handler = openSettings(() => false, (...said) => told.push(said));
+    expect(await handler({ sender: null })).toEqual({ ok: false, error: 'the window is gone' });
+    expect(told).toEqual([]);
+  });
+
+  it('is not a channel at all on a door nobody gave it to', async () => {
+    const { door } = await aDoor();
+    expect((await ask(door, OPEN_SETTINGS, { key: door.token })).status).toBe(404);
+  });
+
+  it('still needs the key', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'local-door-'));
+    folders.push(dir);
+    let forwarded = 0;
+    const settings = openSettings(() => { forwarded += 1; return true; }, () => {});
+    const door = await openLocalDoor({ channels: new Map(), note: path.join(dir, LOCAL_DOOR_NOTE), settings });
+    open.push(door);
+    expect((await ask(door, OPEN_SETTINGS)).status).toBe(403);
+    expect(forwarded).toBe(0);
+  });
+});
+
 describe('main/main.mts', () => {
   const source = fs.readFileSync(path.join(import.meta.dirname, '..', 'main', 'main.mts'), 'utf8');
 
@@ -201,5 +245,11 @@ describe('main/main.mts', () => {
 
   it('gives it the handlers the window itself is answered by', () => {
     expect(source).toMatch(/openLocalDoor\(\{ channels: phoneChannels,/);
+  });
+
+  it("gives it the Settings button, made from this app's own window", () => {
+    const call = source.slice(source.indexOf('openLocalDoor({'), source.indexOf('openLocalDoor({') + 400);
+    expect(call).toMatch(/\bsettings\b/);
+    expect(source).toMatch(/const settings = openSettings\(/);
   });
 });

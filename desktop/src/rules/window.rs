@@ -72,11 +72,6 @@ pub fn greeted(snap: &Snapshot) -> Option<&str> {
     text(me, "name")?.split_whitespace().next()
 }
 
-/// The foot's Record meeting button (`canRecord` in `renderer/src/meeting-card.ts`).
-pub fn can_record(snap: &Snapshot) -> bool {
-    part(snap, "meeting").is_some_and(|m| m.get("phase").and_then(Value::as_str) == Some("idle") && m.get("preparing").is_none_or(Value::is_null))
-}
-
 /// The foot's Restart row: a new version is on the disk, or is being built
 /// (`announcesUpdate` in `renderer/src/update-row.ts`). The web window also keeps, for itself,
 /// which version's card the person closed; this window has no such memory yet.
@@ -89,12 +84,6 @@ pub fn update_waits(snap: &Snapshot) -> bool {
 /// it says that one waits: an agent stopped on a question nobody is shown stays stopped.
 pub fn approvals_waiting(snap: &Snapshot) -> usize {
     snap.rest.get("approvals").and_then(Value::as_array).map_or(0, Vec::len)
-}
-
-/// The foot's Feedback button: there unless the engine says this build takes none
-/// (`openFeedback` in `renderer/src/App.tsx`).
-pub fn takes_feedback(snap: &Snapshot) -> bool {
-    snap.rest.get("feedback") != Some(&Value::Bool(false))
 }
 
 /// A window whose reset is this long past has started over (`JUST_RESET_MS` in `shared/usage.mts`).
@@ -242,15 +231,6 @@ mod tests {
     }
 
     #[test]
-    fn the_foot_has_record_only_while_no_meeting_is_on_or_getting_ready() {
-        assert!(!can_record(&snap(json!({}))));
-        assert!(can_record(&snap(json!({ "meeting": { "phase": "idle", "preparing": null } }))));
-        assert!(can_record(&snap(json!({ "meeting": { "phase": "idle" } }))));
-        assert!(!can_record(&snap(json!({ "meeting": { "phase": "recording", "preparing": null } }))));
-        assert!(!can_record(&snap(json!({ "meeting": { "phase": "idle", "preparing": { "at": 1 } } }))));
-    }
-
-    #[test]
     fn an_agent_held_on_a_yes_is_counted() {
         assert_eq!(approvals_waiting(&snap(json!({}))), 0);
         assert_eq!(approvals_waiting(&snap(json!({ "approvals": [] }))), 0);
@@ -263,13 +243,6 @@ mod tests {
         assert!(!update_waits(&snap(json!({ "update": { "ready": false, "installing": false } }))));
         assert!(update_waits(&snap(json!({ "update": { "ready": true } }))));
         assert!(update_waits(&snap(json!({ "update": { "ready": false, "installing": true } }))));
-    }
-
-    #[test]
-    fn the_foot_has_feedback_unless_the_engine_says_this_build_takes_none() {
-        assert!(takes_feedback(&snap(json!({}))));
-        assert!(takes_feedback(&snap(json!({ "feedback": true }))));
-        assert!(!takes_feedback(&snap(json!({ "feedback": false }))));
     }
 
     #[test]

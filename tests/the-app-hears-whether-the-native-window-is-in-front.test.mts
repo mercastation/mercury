@@ -216,6 +216,6 @@ describe('main/main.mts', () => {
 
   it('keeps what the native window says only for a copy whose config opens the door, and hands it to the door', () => {
     expect(source).toMatch(/const nativeWindow = config\.localDoor === true \? createNativeWindow\(\{ listeners: atTheDoor \}\) : null;/);
-    expect(source).toMatch(/openLocalDoor\(\{ channels: phoneChannels,[^\n]*listeners: atTheDoor, native: nativeWindow \}\)/);
+    expect(source).toMatch(/openLocalDoor\(\{ channels: phoneChannels,[^\n]*listeners: atTheDoor, native: nativeWindow\b[^\n]*\}\)/);
   });
 });

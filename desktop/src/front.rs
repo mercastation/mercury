@@ -35,6 +35,15 @@ pub const OPEN_HERE: &str = "zero:open-in-native";
 /// How often that is said again: `NATIVE_BEAT_MS` in `shared/notify-rules.mts`.
 const BEAT: Duration = Duration::from_secs(5);
 
+/// The app's Settings, which this window has no page for yet: the app's own window comes forward
+/// on them (`OPEN_SETTINGS` in `main/local-door.mts`). The rail's Settings button, and the
+/// person's own row under it, ask for them.
+pub const OPEN_SETTINGS: &str = "zero:open-settings-here";
+
+/// The restart onto the version the app has ready, as its own rail's Restart to update asks
+/// (`zero:update-install` in `main/ipc.mts`).
+pub const INSTALL_UPDATE: &str = "zero:update-install";
+
 /// What the thread that speaks to the app hears: a change of focus, or this window's own thread
 /// answering a beat.
 enum Heard {
@@ -121,6 +130,33 @@ pub fn tell_the_app(door: Door) {
             }
         }
     });
+}
+
+/// Asks the app behind `door` for one of its own things, off this window's thread. When it works
+/// nothing on this screen changes, the app's window does, so only a refusal is told here.
+pub fn ask_the_app(door: &Door, channel: &'static str, refused: &'static str) {
+    let Some((url, token)) = door.now() else {
+        tell_here(refused);
+        return;
+    };
+    std::thread::spawn(move || {
+        if !went(source::call_waiting(&url, &token, channel, &Value::Null, Duration::from_secs(5))) {
+            tell_here(refused);
+        }
+    });
+}
+
+/// Whether the app did what it was asked: it answered, and not `{ ok: false }` (no window to
+/// bring forward) or `{ started: false }` (no version ready to restart onto).
+fn went(answer: Result<Value, String>) -> bool {
+    answer.is_ok_and(|said| ["ok", "started"].iter().all(|key| said.get(key) != Some(&Value::Bool(false))))
+}
+
+/// A line on this window's toast, from any thread.
+fn tell_here(line: &'static str) {
+    if let Some(window) = WINDOW.get() {
+        window.update(move |s, tx| s.tell(line, tx));
+    }
 }
 
 /// Asks this window's own thread for a beat, behind whatever it is doing.
@@ -248,5 +284,17 @@ mod tests {
         assert_eq!(named(Some("w-9"), None).thread(&snap), None);
         assert_eq!(named(Some("w-1"), Some("harbor")).thread(&snap), None);
         assert_eq!(named(None, None).thread(&snap), None);
+    }
+
+    #[test]
+    fn the_app_did_what_it_was_asked_unless_it_said_no_or_did_not_answer() {
+        assert!(went(Ok(json!({ "ok": true }))));
+        assert!(went(Ok(json!({ "started": true }))));
+        // The app's window is gone, or no version is ready to restart onto.
+        assert!(!went(Ok(json!({ "ok": false, "error": "the window is gone" }))));
+        assert!(!went(Ok(json!({ "started": false }))));
+        // The app is not there, or its door said no (an old app has no Settings channel: 404).
+        assert!(!went(Err("Connection refused".into())));
+        assert!(!went(Err("http status: 404".into())));
     }
 }

@@ -31,12 +31,14 @@
 // path is a plain 404.
 //
 // WHAT GOES THROUGH IT, EACH WAY. The native window calls the channels the web
-// window calls, and two that only this door answers:
+// window calls, and three that only this door answers:
 // - WINDOW_KEEPS (below): what the web window keeps for itself, so both windows
 //   show the same Inbox.
 // - NATIVE_WINDOW (main/native-window.mts): whether the native window is in
 //   front, at each change and every five seconds, so no banner and no island
 //   comes up over the window the person is working in.
+// - OPEN_SETTINGS (below): its rail's Settings button, which brings this app's
+//   window forward on its Settings until the native window has its own.
 // On its event stream the app tells it two things, and nothing else:
 // - TOLD_AT_THE_DOOR (below): the inbox changed, so it reads it again now.
 // - OPEN_IN_NATIVE (main/native-window.mts): the banner or the tray was
@@ -134,11 +136,33 @@ export interface LocalDoorOptions {
    * Without it the channel is not there.
    */
   native?: Pick<NativeWindow, 'hear' | 'hungUp'> | null;
+  /** What answers `OPEN_SETTINGS` (see `openSettings`). Without it the channel is not there. */
+  settings?: IpcHandler;
   token?: string;
 }
 
+// THE SETTINGS ARE STILL THE WEB WINDOW'S. The native window has no Settings page
+// yet, and its rail's Settings button was a button that went nowhere: "there is
+// no settings page", the owner said on first using it (2026-11-22). So this door
+// has a channel that does what the tray's "Turn off in Settings…" does
+// (main/corner-tag.mts): bring this app's window forward on its Settings. It
+// takes nothing from the caller, so it can open Settings and nothing else.
+export const OPEN_SETTINGS = 'zero:open-settings-here';
+
+/**
+ * Answers `OPEN_SETTINGS`. `forward` brings the app's window to the front and says whether
+ * there is one; `tell` sends that window its own push, the one the tray sends.
+ */
+export function openSettings(forward: () => boolean, tell: (channel: string, payload: unknown) => void): IpcHandler {
+  return () => {
+    if (!forward()) return { ok: false, error: 'the window is gone' };
+    tell('zero:open-settings', { pane: 'general' });
+    return { ok: true };
+  };
+}
+
 /** Opens the door and leaves its note. Rejects if the port cannot be had or the note cannot be written. */
-export async function openLocalDoor({ channels, note, listeners = new Set(), keeps, native = null, token = newToken() }: LocalDoorOptions): Promise<LocalDoor> {
+export async function openLocalDoor({ channels, note, listeners = new Set(), keeps, native = null, settings, token = newToken() }: LocalDoorOptions): Promise<LocalDoor> {
   // A folder that is certain to hold no index.html: the note's own name with a suffix.
   const noScreen = `${note}.no-screen`;
   // The door's own channels are looked up before the app's, and the app's Map is left as it was:
@@ -146,6 +170,7 @@ export async function openLocalDoor({ channels, note, listeners = new Set(), kee
   const own: [string, IpcHandler][] = [];
   if (keeps) own.push([WINDOW_KEEPS, keeps]);
   if (native) own.push([NATIVE_WINDOW, native.hear]);
+  if (settings) own.push([OPEN_SETTINGS, settings]);
   const answered = own.length ? new Map<string, IpcHandler>([...channels, ...own]) : channels;
   const server = http.createServer(createHandler({ channels: answered, token, listeners, hungUp: () => native?.hungUp(), dist: noScreen }));
   await new Promise<void>((resolve, reject) => {
