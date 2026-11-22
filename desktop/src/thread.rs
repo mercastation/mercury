@@ -82,8 +82,10 @@ struct Measure {
     /// The room right of the column and under the reply box.
     right: f32,
     foot: f32,
-    /// The title's size and line, and the newest answer's headline's size and the room under it.
+    /// The title's size and line, the room under it, and the newest answer's headline's size and
+    /// the room under it.
     title: (f32, f32),
+    title_gap: f32,
     headline: (f32, f32),
 }
 
@@ -91,7 +93,7 @@ impl Measure {
     fn of(card: f32) -> Measure {
         let size = (0.0025 * card + 13.0).clamp(16.0, 18.0);
         let column = (size * 47.5).min(card - 96.0);
-        Measure { size, column, indent: ((card - column) * 0.35).max(32.0), right: 32.0, foot: 24.0, title: (1.7 * size, 2.125 * size), headline: (kept(1.05 * size), 10.0) }
+        Measure { size, column, indent: ((card - column) * 0.35).max(32.0), right: 32.0, foot: 24.0, title: (1.7 * size, 2.125 * size), title_gap: 8.0, headline: (kept(1.05 * size), 10.0) }
     }
     /// Beside a file (`[data-artifact-layout="beside"] .focus`): 44 points in, lined up with the
     /// back arrow, 28 from the file, and the page's own sizes rather than the measure that grows
@@ -99,11 +101,11 @@ impl Measure {
     /// where the conversation is 560 points or less (`@container talk`).
     fn beside(wide: f32) -> Measure {
         let title = if wide <= 560.0 { (21.0, 27.3) } else { (27.0, 33.75) };
-        Measure { size: 16.0, column: (wide - 72.0).max(1.0), indent: 44.0, right: 28.0, foot: 24.0, title, headline: (17.0, 8.0) }
+        Measure { size: 16.0, column: (wide - 72.0).max(1.0), indent: 44.0, right: 28.0, foot: 24.0, title, title_gap: 6.0, headline: (17.0, 8.0) }
     }
     /// Under a file that takes the whole card: the reply box twelve points in all round.
     fn under_file(wide: f32) -> Measure {
-        Measure { size: 16.0, column: (wide - 24.0).max(1.0), indent: 12.0, right: 12.0, foot: 12.0, title: (27.2, 34.0), headline: (17.0, 8.0) }
+        Measure { size: 16.0, column: (wide - 24.0).max(1.0), indent: 12.0, right: 12.0, foot: 12.0, title: (27.2, 34.0), title_gap: 6.0, headline: (17.0, 8.0) }
     }
 }
 
@@ -1407,7 +1409,7 @@ pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
 
     let mut summary = col().child(readable(text(title.as_str()).font(TextStyle::new(m.title.0, 500.0).lh(m.title.1).tracking(-0.015 * m.title.0)).color(ink()).wrap()));
     if let Some(words) = &page.toggle {
-        summary = summary.child(toggle(words, thread.clone(), &m).mt(8.0));
+        summary = summary.child(toggle(words, thread.clone(), &m).mt(m.title_gap));
     }
     // Under it, the summary the thread carries, or while an agent works what was asked.
     let problem = item.rest.get("problem").and_then(Value::as_str).filter(|p| !p.trim().is_empty());

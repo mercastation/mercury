@@ -23,9 +23,11 @@ A file an agent names in a conversation is not left as its path: a picture is dr
 other file is a mention that opens it, and a folder on a line of its own shows its newest pictures
 ("The files a message names", below). A thread that made or named files carries the Files button
 in its head strip, with how many, which opens the list of them ("The files a thread made"). A
-press on any of them opens the file big over the window, its versions and the files beside it a
-key away ("A file opened big"), and the rail's Files is the place of every file the threads made
-("The Files place").
+press on a document, a table or a script opens it in a pane beside the conversation, which
+narrows to make room, as the web window's does ("A file opened beside the conversation"); a
+picture, a film, a PDF, a page or a deck opens big over the window, its versions and the files
+beside it a key away ("A file opened big"), and the rail's Files is the place of every file the
+threads made ("The Files place").
 
 ⌘K opens the command bar from anywhere: it finds threads by their words, as the web window's bar
 does, and runs what this window can do to the thread under the keys and the places it can go
@@ -1270,11 +1272,12 @@ wide and the window's height less 320, with its name under it. One that is nowhe
 holds, its six newest three across and a line for the rest, or only its name in a conversation
 that draws pictures of its own.
 
-Pressing a picture, a folder's picture or a mention of a file the big view draws opens it big
-over the window ("A file opened big", below); with ⌘ held, as a browser opens a link in a new
-tab, it opens with the system instead (`asksForANewTab`), and so does any other file and a
-folder's name (`open`, through `files::open_with_system`). A file macOS would run is shown in
-Finder instead, as the web app does (`main/opens-a-program.mts`).
+Pressing a picture, a folder's picture or a mention of a picture, a film, a PDF, a page or a deck
+opens it big over the window ("A file opened big", below); a mention of a document, a table or a
+script opens it beside the conversation ("A file opened beside the conversation"); with ⌘ held,
+as a browser opens a link in a new tab, it opens with the system instead (`asksForANewTab`), and
+so does any other file and a folder's name (`open`, through `files::open_with_system`). A file
+macOS would run is shown in Finder instead, as the web app does (`main/opens-a-program.mts`).
 
 ### How a picture is read
 
@@ -1355,8 +1358,9 @@ each file its kind in a small tile (four letters of its extension at most), its 
 with dots, and how many notes are on any of its versions (`item.artifacts.notes`). Past 440
 points, or seven tenths of the window, the files scroll inside it. The row under the pointer is
 washed, at once both ways, as the web window's has no transition. A press on a file closes the
-list and opens the file big, as a mention opens it (`files::open`); a file the big view does not
-draw opens with the system, and one found nowhere opens nothing. Escape closes the list, and so
+list and opens it as the web window's list opens it (`opensBig(f.src) ? openBig : onOpenDoc`,
+here `pane::open_listed`): what the big view looks at, big, and a document, a table or a script
+beside the conversation. Escape closes the list, and so
 does a press anywhere outside it, on its way down; a
 press on the button closes it on its way up, as the web window's click does. Every other key goes
 on to the page, as in the web window, whose list takes only Escape: J and K go on to another
@@ -1397,21 +1401,154 @@ of Escape or of a press outside it (on the press's way up for the button itself)
 frame after is the same to the pixel; Rune counts no frame as animating. A press on a file in a
 script says what a window would have opened (`a press opens …/notes/rounding-v2.md`).
 
+## A file opened beside the conversation
+
+A document, a table or a script pressed in a conversation opens in a pane on its right, the
+conversation narrowed to what the file leaves it, as the web window's does (`DocPane.tsx`, laid
+out by `App.tsx` with `artifact-layout.ts`, `workspace-navigation.css` and `team/rooms/rooms.css`;
+`src/pane.rs` here, its rules `src/rules/pane.rs`, ported with the web's test cases, and a
+sheet's grid `src/table.rs`).
+
+**Which press opens what** (`whereAFileOpens`, `whereALinkGoes` and `openHref` in `Focus.tsx`,
+the Files button's `onOpen`, `onBeside`, `besideDocument`):
+
+| Pressed | The web window | Here |
+|---|---|---|
+| A mention of a document, a table, a script or any text | beside, at its newest edited version | beside, the same |
+| A mention of a picture, a film, a PDF, a page or a deck | big | big |
+| A picture drawn in a message, a folder's picture | big | big |
+| A folder's name | the system | the system |
+| A row of the Files button's list | big for what is looked at, beside for the rest | the same |
+| A tile of the Files place | big | big |
+| The big view's corners, drawn inward, over a file from a thread | beside, its newest version | the same |
+| Any of them with ⌘ held | the system | the system |
+| An address on the web or a local app's | beside, in a browser of the pane's own | the browser |
+| A file of any other kind | the system | the system |
+| Nothing: the newest answer sets a document, a page, a table or a PDF on a line of its own | beside, by itself | the same |
+
+**The pane.** The body under the strip is shared by the split kept (where it opens before a hand
+has moved it, 0.72 of it), held so that the conversation keeps 400 points and the file 560
+(`artifactFraction`): at 1280 by 760 the file takes 776 points of 1176, at 1600 by 1000 1077 of
+1496. Its card stands twelve points in all round. A document or a script is on the glass card
+(`.doc-md`): an edge of `--line-strong` rounded to twelve, a ground that fades at 145° from
+the text's colour at 5% to the page's at 25%, a highlight of a point along its top, and a head 53
+tall, sixteen in, with a line under it. A picture and a table stand on the page's own ground, the
+picture's card rounded to six and the table's square, their head 52 tall, twelve in and with no
+line.
+
+- **The path** (`crumbParts`): from the deepest of the project's folders that holds the file, its
+  thread folders left out ("designs › receipt-plan.md"), the last three parts when no folder
+  holds it, a file a message carried by its own path; eleven points, the file's name brighter,
+  the whole path its title.
+- **The marks**, 28 points square six apart, faint, and under the pointer in the text's colour
+  with nothing behind them, at once both ways:
+  - the globe, where the app says it shares files (`zero:file-link` names a site) and the file is
+    a kind a link can draw (`canShareFile`), which opens the web window's Share panel (see what
+    still differs);
+  - two panes side by side ("Show notes"), on a document, a page or any text (`takesNotesSidebar`),
+    which opens the file over the whole window where the web window draws its notes;
+  - the frame's corners ("Give this document the full workspace"), which open it big over the
+    window (`docFull`); Escape or the big view's close mark come back to it beside the
+    conversation, and the big view's own corners, drawn inward, put it back beside;
+  - open outside ("Open outside Mercury"), the file in the app that owns it;
+  - close ("Close this document (esc)").
+- **The file.** A document as the big view lays one out, at the pane's width, under "Edited 3 min
+  ago" (`agoWords`, moving on with the minute), its outline's dashes at the right edge opening
+  into its contents under the pointer; a script or any text as its lines, numbered and coloured,
+  flush in the card (`CodeFile`); a table as its grid (`TableView` in the pane), with its bar
+  (Search, Filter, Sort, how many rows), each column marked with what it holds, figures to the
+  right and short lists of words as coloured tags; a picture whole in the middle of the card,
+  never larger than its own pixels. Each scrolls on its own.
+- **The divider** on the card's left edge: nine points to reach for, the resize pointer, and
+  under the pointer and while dragged a pill 7 by 30 on it. Dragged, the file takes what is right
+  of the pointer (`splitFromPointer`, between a quarter and three quarters of the body), kept in
+  this window's picks (`doc_split`) once it is let go; a double press puts it back where it opens.
+- **The keys.** Escape puts down a file the person opened; one the thread opened by itself does
+  not stand in the way, and Escape leaves the thread (`escapeClosesDoc`). Every other key is the
+  conversation's, as the web window's pane takes none: J and K go on to the next thread.
+- **Another file** pressed takes the pane's place. **Leaving the thread** takes the file with it,
+  and coming back with nothing new said puts it back (`leavePlace`, `placeToReturnTo`); a file
+  the thread opened by itself and the person closed stays shut until its next answer
+  (`closedBeside`).
+- **A card under a thousand points** gives the file all of it (`artifactPlacement`): the strip
+  is given up to it, leaving the Inbox, back and forward over the card's top edge, the card has
+  no head, and the reply box stands under it twelve points in. The web window draws the marks
+  there only over a file sent to the whole window, so neither draws them, and Escape is the way
+  out.
+- **Followed on disk**: while it is open the file is asked of the disk every three seconds
+  (`FOLLOW_FILE_MS`) and read again when an agent has written it since (`newerOnDisk`).
+- **The conversation beside it** keeps the page's own sizes rather than the measure that grows
+  with the window (`.app:not(.doc-open)`): 44 points in, lined up with the back arrow, 28 from
+  the file, its words at 16 points, its title 21 points where it is 560 or less (`@container
+  talk`) and 27 where it is wider, six points over the line under it, the newest answer's
+  headline at 17. The strip's arrows stand sixteen points further in (`rooms.css`).
+
+The scenes (`tools/scenes/thread-pane*.mjs`) open the invented thread on an answer that names
+a plan, a script and a sheet in its sentences and press one: `thread-pane` (the plan),
+`thread-pane-code`, `thread-pane-table`, `thread-pane-picture` (a picture pressed big, then put
+beside with the big view's mark), `thread-pane-dragged` (the divider dragged by the pointer),
+`thread-pane-auto` (the plan on a line of its own, opened by itself), `thread-pane-wide` (a wide
+window, a picture in the answer and the divider dragged all the way, laid out as a person reads
+a plan beside its thread), and `thread-pane-hover-*` (the pointer on each mark, the path and the
+divider). The page reads a file through the app, which the harness does not answer, so each
+scene answers it from the planted folder, with the file's own time on disk, which the native
+window reads too: photograph a scene and draw it before the next scene plants the folder again.
+Each fixture says what was pressed (`docOpen`), where the divider was left (`docSplit`) and what
+the app said of sharing (`fileLink`).
+
+At 2x, dark, of 255, the whole window, the conversation beside the file, the card, its head and
+the file under the head:
+
+| Scene | Window | Whole | Conversation | Card | Head | File |
+|---|---|---|---|---|---|---|
+| `thread-pane` | 1280 by 760 | 1.58 | 2.55 | 1.73 | 0.90 | 1.82 |
+| `thread-pane-code` | 1280 by 760 | 1.14 | 2.55 | 0.81 | 0.87 | 0.80 |
+| `thread-pane-table` | 1280 by 760 | 1.01 | 2.55 | 0.53 | 0.21 | 0.56 |
+| `thread-pane-picture` | 1280 by 760 | 0.36 | 0.97 | 0.03 | 0.30 | 0.00 |
+| `thread-pane-auto` | 1280 by 760 | 1.19 | 1.07 | 1.73 | 0.90 | 1.82 |
+PANE_TABLE_REST
+
+The conversation is what differs most where its answer names a script: the web window breaks
+the mention `round-tax.ts` at its hyphen and this window moves it whole to the next line (see
+what still differs). A document's text sits between 1.7 and 1.9, as the text-dense parts of a
+conversation do; a narrow one breaks one line a word apart from the browser's, which moves the
+lines under it (`thread-pane-dragged`). Under the pointer, each mark against the web window's
+under the pointer, and the same box at rest: the globe 0.73 and 0.73, the notes' mark 0.61 and
+0.61, the corners 0.67 and 0.67, open outside 0.92 and 0.92, close 0.63 and 0.63; the divider's
+pill 0.32. The pointer's shape over `thread-pane` matches the web window's at every point of
+the pane but the outline's dashes, which open into their card under a moving pointer here and
+are probed at rest there (`MERCURY_FEEL`).
+
+The screens with no file beside them draw to the same pixel as before (`thread`,
+`thread-folded`, `thread-links`, `thread-pictures`, `thread-files-open`, `file-doc`), and the big
+view of a picture from a thread differs only by its new mark (`thread-file-picture`, 2.34 against
+the web window, where it was 2.35).
+
+Tests hold the rest on invented files (`src/pane.rs`, `src/rules/pane.rs`, `src/table.rs`): a
+document opens beside and leaves the conversation 400 points at 1280 by 760, Escape puts it down
+and the next leaves the thread; a picture still opens big, and the Files list opens each kind
+where the web window's does; the corners open it big, Escape comes back to it, the notes' mark
+opens it big, the big view's mark puts it back and the close mark closes it; the divider is
+dragged to where the pointer is, kept, and put back by a double press; leaving a thread takes
+the file and coming back puts it back until a new answer; the newest answer's file opens by
+itself, Escape then leaves the thread, and once closed it stays shut; a card under a thousand
+points gives the file all of it with no head and the reply box under it; a file rewritten on
+disk is read again once its time has come round; and the rules' own cases, from the web's tests.
+
 ## A file opened big
 
 A file opens over the whole window, as the web window's big view does (`ArtifactView.tsx`, its
 kinds in `ArtifactStage.tsx`; `src/viewer.rs` here, its rules `src/rules/viewer.rs`): the paper
 the file lies on, the bar over it and, from Files, the line of places it was sent in under it.
 
-**What opens it.** In a conversation: a picture, a folder's picture, a mention of a file of a
-kind the view draws (a picture, a film, a PDF, a deck, a page, a document, a table, a script or
-any text), and a row of the Files button's list. In the Files place: a tile. The web window
-opens what is looked at (a picture, a film, a PDF, a page, a deck) over the window and what is
-read (a document, a table, a script) in a pane beside the conversation, which this window does
-not have, so both open big here (`whereAFileOpens`, ported with its cases). With ⌘ held a press
-opens the file with the system, as there; an address goes to the browser; any other file opens
-with the system as before. A picture in the box a thread is started in still opens with the
-system (the web window has a viewer of its own for those).
+**What opens it.** In a conversation: a picture, a folder's picture, and a mention or a row of
+the Files button's list of what is looked at (a picture, a film, a PDF, a page, a deck); what is
+read (a document, a table, a script) opens in the pane beside the conversation instead ("A file
+opened beside the conversation", `whereAFileOpens`, ported with its cases), whose corners mark
+opens it here. In the Files place: a tile, of any kind. With ⌘ held a press opens the file with
+the system, as there; an address goes to the browser; any other file opens with the system as
+before. A picture in the box a thread is started in still opens with the system (the web window
+has a viewer of its own for those).
 
 **What it holds.** The files the lines it was opened on name (`filesInLines`, the pages, tables
 and scripts beside them only when one of them is the file opened), each file's versions in the
@@ -1424,8 +1561,10 @@ picture in the conversation is looked for (`pictureRoots`).
 versions by its first version's name without the version (`familyName`); what the thread called
 it, the words a message put beside it (`labelSaidFor`, ported with the web's test cases: "Before",
 "Option 2: names beside faces"); with versions, ‹ v2 of 3 › and, on an older one, Show v3; then
-the mark that opens it outside, and the close mark. The web window's comments, Approve and Share
-are not drawn (see what still differs), nor the mark that puts the file beside the conversation.
+the mark that opens it outside, opened from a conversation the frame's corners drawn inward that
+put its newest version in the pane beside the conversation (`onBeside`, "Move it to the side · Esc
+closes it"), and the close mark. The web window's comments, Approve and Share are not drawn (see
+what still differs).
 
 **The arrows** at the stage's sides step to the file before and after: through the pictures of
 the part of the thread the pressed picture was in (`picturesFor`, here `turn_pictures`: one of
@@ -1451,8 +1590,12 @@ never the arrows'. One with nowhere to go is not drawn.
   document to the app that owns it), and a picture it names beside itself drawn from its folder.
   Over it who shared it and when ("Shared by your agent · today at 1:19pm", `sharedByWords`). Its
   sheet is the text's 820 points between margins (`.doc-sheet`), and with three headings or more
-  its contents stand in the right margin, or as a column of dashes where the margin is narrow
-  (`DocOutline`); a press on one scrolls to its heading.
+  its contents stand in the right margin, or as a column of dashes where the margin is narrow,
+  which open into a card of the contents under the pointer (`DocOutline`); a press on one
+  scrolls to its heading. Its two largest headings follow the page's width (`5cqi`, `3.4cqi`,
+  between 26 and 34 points and 20 and 23), and a table is the reader's: a frame rounded to ten
+  points, the header on a quiet band, the first column heavier, the columns shared out as a
+  browser shares a table's (`.doc-prose table`).
 - A script or any text: its lines numbered and coloured as an editor colours them
   (`tokenize` in `code-artifact.ts`, ported as `src/rules/code.rs` with the web's test cases) on
   its sheet, at most 980 points and as wide as its widest line, the stage scrolling both ways.
@@ -1505,8 +1648,8 @@ megabytes in under a tenth, its decoding on the worker after that; every frame a
 
 Tests hold the rest on invented files (`src/feel.rs`): a picture pressed in a conversation opens
 big, takes every key (E closes nothing under it, + and 0 zoom), and Escape and the close mark go
-back to the conversation; a mention of a document opens it big, and with ⌘ held does not; the
-rail's Files opens the Files place, a tile opens big from the list and fixture of a Files place,
+back to the conversation; a mention of a document opens it beside the conversation, and with ⌘
+held does not; the rail's Files opens the Files place, a tile opens big from the list and fixture of a Files place,
 the place under it opens its thread, and Escape walks back from the thread to Files and from Files
 to where it was opened from. No test, and no headless run, hands a file to the system.
 
@@ -1892,11 +2035,12 @@ release or a second login.
     drawing nothing.
 - **A file named in a message, where it still differs:**
   - A film or a sound is its name, which opens it. The web window plays it in place.
-  - A document, a table or a script opens big over the window. The web window opens it in a pane
-    beside the conversation, and its rules open a design page or a note on a line of its own
-    there by themselves (`message-artifacts.ts`), neither of which this window has. The
-    reference page has no engine to find a file with, so that pane was never photographed
-    (`thread-links-beside` draws the same in both).
+  - An address on the web or on this Mac opens in the browser. The web window opens it in the
+    pane beside the conversation, in a browser of the pane's own with its own bar (`WebsitePane`,
+    `BrowserChrome`): Rune draws no web page inside a window.
+  - A mention cut by the end of a line moves whole to the next, where Chromium breaks it at a
+    hyphen in its name (`round-` / `tax.ts`), which a conversation narrowed beside a file meets
+    more often.
   - A press outside that list only closes it, where the web window's also lands on what it was
     aimed at (another button of the strip, a mention). And the wheel over the page moves nothing
     while the list is open, where the web window's page scrolls under it: the layer that catches
@@ -1922,6 +2066,39 @@ release or a second login.
     named as a link, which stays a link.
   - With more pictures than the budget holds, one less than half on screen may hold its place
     until more of it shows: Rune reports an element on screen from half of it.
+- **A file opened beside the conversation, where it still differs** (see "A file opened beside
+  the conversation"):
+  - Nothing is typed into it. The web window's pane is an editor: a document takes typing,
+    saved where it opened from when that is the project's own (`paneCanSave`, `DocText`), a
+    table's cells are edited and its rows added (New row), and a teammate on the same thread
+    types into the same copy. Here it is read only, and a link in a document opens at once,
+    where the web window's first shows a small card with Visit, Copy, Edit and Remove.
+  - The globe is drawn where the app says it shares files, and takes the pointer, but its panel
+    (who can open the link, Copy link, Update link, Stop sharing, the people added, the link's
+    comments) is not drawn: making a link anyone can open is a write to the cloud that could not
+    be tried against a real app from here.
+  - Two panes side by side open the file big, where the web window opens it big with its notes
+    down the right, which the big view here does not draw. It counts no notes on its mark.
+  - A page, a PDF or a film the thread sets beside itself is a card saying what it is, with Open
+    outside, where the web window draws the page in a frame, the PDF's pages and the film's player:
+    Rune draws no web page, PDF or film inside a window. A change a run made (`.change`) is the
+    same card; the web window draws the change itself.
+  - A table's bar, Filter, Sort and column menus are drawn and do nothing yet, the first column
+    and the row numbers do not stay put while the rest scrolls sideways, a date column is told
+    only by the ISO day, and a link, an email or a logo in a cell is its words.
+  - A document's outline does not light the section being read.
+  - The split is this window's own, kept with its picks: the web window keeps its own in its
+    storage, which this window cannot read, so a split dragged in one is not the other's. Where
+    a thread had its file open is kept while the window is open, where the web window keeps it
+    across a restart too, and it is let go when the thread's row changes at all, where the web
+    window waits for a new answer.
+  - Over a card under a thousand points wide, the web window hides the marks too (its corner
+    wakes them only over a file sent to the whole window), so there, as here, Escape is the way
+    out; the web window's crumb for it is kept, hidden, in the strip it gave up.
+  - The file is asked of the disk every three seconds while it is open; the web window asks when
+    the app says something changed, at most that often.
+  - A conversation beside a file at 560 points or less sets its code blocks smaller and wrapped
+    in the web window (`@container talk`); here they keep their size and scroll.
 - **A file opened big, where it still differs:**
   - No comments down the right, no box to write one, no Approve and no Share, which are not used
     where this window runs, so the stage takes the whole width, and everything on it
@@ -1938,12 +2115,11 @@ release or a second login.
     of a file is read.
   - The pointer does not pan a zoomed picture by dragging it (the wheel and the trackpad scroll
     it), and a picture shows the arrow where the web window's crosshair offers a pin.
-  - The document's outline does not light the section being read, and its column of dashes
-    does not open into words under the pointer.
+  - The document's outline does not light the section being read.
   - A document cannot be edited and a version cannot be restored (the web window's editor and
     Restore this version), and a file is not renamed by pressing its name.
-  - A document's inline code and table take the message's look, a little smaller than the web
-    window's reader draws them.
+  - A document's inline code takes the message's look, a little smaller than the web window's
+    reader draws it.
 - **The Files place, where it still differs:**
   - Nothing is written from it: no New (a document, a table, a folder, files from the computer),
     no menu on a tile (rename, move to a folder, a new folder, Move to the Trash), no dragging a
@@ -2255,6 +2431,11 @@ release or a second login.
 - `src/viewer.rs`: a file opened big, over the window. `src/rules/viewer.rs`: which files it holds
   and steps through, where a press lands, what the thread called the file, who shared it, and a
   picture's fit and zoom. `src/rules/code.rs`: a script's colours.
+- `src/pane.rs`: a file opened beside a conversation, its card, marks and divider, what opens it
+  and what it keeps. `src/rules/pane.rs`: which press opens what where, the path's crumb, the
+  split, Escape, and the file the newest answer opens by itself. `src/table.rs`: a sheet drawn as
+  its table, each column told what it holds and each tag its colour.
+  `tools/scenes/thread-pane.mjs`: the scenes that open it, answering the page's reads of a file.
 - `src/files_page.rs`: the Files place. `src/rules/files_shown.rs`: what it shows, in what order,
   and what a tile says.
   `src/rules/paths.rs`, `mentions.rs`, `roots.rs`: which words name a file, what kind it is and

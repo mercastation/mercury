@@ -766,18 +766,26 @@ fn table(head: &[String], rows: &[Vec<String>], p: Page) -> Block {
 /// much more each would take.
 fn doc_table(head: &[String], rows: &[Vec<Vec<Inline>>], p: Page) -> Block {
     let columns = head.len().max(rows.iter().map(Vec::len).max().unwrap_or(0));
-    let body = |c: usize| TextStyle::new(14.5, if c == 0 { 560.0 } else { 400.0 }).lh(21.75).features("'tnum' 1");
-    let heading = TextStyle::new(13.0, 560.0).lh(19.5).features("'tnum' 1");
+    // The page's tighter letters reach into the table too (`.doc-prose { letter-spacing: -0.003em }`).
+    let body = |c: usize| TextStyle::new(14.5, if c == 0 { 560.0 } else { 400.0 }).lh(21.75).features("'tnum' 1").tracking(-0.003 * 14.5);
+    let heading = TextStyle::new(13.0, 560.0).lh(19.5).features("'tnum' 1").tracking(-0.003 * 13.0);
     let wide = |s: &str, style: TextStyle| rune::text::measure(s, &[], style, None).0;
-    let edge_x = 28.0 + 1.0;
+    // Fourteen in either side, and the line before every cell but the first.
+    let edge_x = |c: usize| if c == 0 { 28.0 } else { 29.0 };
     let (mut least, mut most) = (vec![0.0f32; columns], vec![0.0f32; columns]);
+    // A cell's words are as wide as they are drawn: a strong one at the strong weight.
+    let strong = |kids: &[Inline]| kids.iter().any(|k| matches!(k, Inline::Strong(_)));
     for c in 0..columns {
         let mut said: Vec<(String, TextStyle)> = vec![(head.get(c).cloned().unwrap_or_default(), heading)];
-        said.extend(rows.iter().map(|r| (r.get(c).map(|k| plain(k)).unwrap_or_default().trim().to_string(), body(c))));
+        said.extend(rows.iter().map(|r| {
+            let kids = r.get(c).map(Vec::as_slice).unwrap_or_default();
+            let style = if strong(kids) { TextStyle::new(14.5, 640.0).lh(21.75).features("'tnum' 1").tracking(-0.003 * 14.5) } else { body(c) };
+            (plain(kids).trim().to_string(), style)
+        }));
         for (words, style) in said {
-            most[c] = most[c].max(wide(&words, style) + edge_x);
+            most[c] = most[c].max(wide(&words, style) + edge_x(c));
             for word in words.split_whitespace() {
-                least[c] = least[c].max(wide(word, style) + edge_x);
+                least[c] = least[c].max(wide(word, style) + edge_x(c));
             }
         }
     }
@@ -794,11 +802,11 @@ fn doc_table(head: &[String], rows: &[Vec<Vec<Inline>>], p: Page) -> Block {
     let cell = |c: usize, first_row: bool| {
         row().w(widths[c]).items_start().px(14.0).py(10.0).border_sides([if first_row { 0.0 } else { 1.0 }, 0.0, 0.0, if c == 0 { 0.0 } else { 1.0 }], edge()).border_layout()
     };
-    let heads = row().fill(white(0.04)).children((0..columns).map(|c| cell(c, true).child(readable(text(head.get(c).cloned().unwrap_or_default()).font(heading).color(dim()).wrap()).w(widths[c] - edge_x + 1.0))));
+    let heads = row().fill(white(0.04)).children((0..columns).map(|c| cell(c, true).child(readable(text(head.get(c).cloned().unwrap_or_default()).font(heading).color(dim()).wrap()).w(widths[c] - edge_x(c)))));
     let lines = rows.iter().map(|r| {
         row().items_stretch().children((0..columns).map(|c| {
             let kids = r.get(c).cloned().unwrap_or_default();
-            cell(c, false).child(words(&kids, body(c), Page { ink: ink(), ..p }).w(widths[c] - edge_x + 1.0))
+            cell(c, false).child(words(&kids, body(c), Page { ink: ink(), ..p }).w(widths[c] - edge_x(c)))
         }))
     });
     let frame = col().w(p.width).border(1.0, edge()).border_layout().radius(10.0).clip_rounded(10.0).child(heads).children(lines);
@@ -832,15 +840,22 @@ fn lay_doc(nodes: Vec<Node>, p: Page) -> Vec<Block> {
     let heading = |size: f32, line: f32, tracking: f32| TextStyle::new(size, 620.0).lh(kept(line * size)).tracking(tracking * size);
     let (stage, editor) = DOC_LOOK.with(std::cell::Cell::get);
     let (h1, h2) = ((0.05 * stage).clamp(26.0, 34.0), (0.034 * stage).clamp(20.0, 23.0));
+    // The pane's editor keeps the space after a line's last word on that line
+    // (`white-space: break-spaces` on `.ProseMirror`), so a word fits only with room for the
+    // space after it: its lines break one space short of the reader's.
+    let said = |r: &[Inline]| {
+        let words = lines(r, p.body(), p);
+        if editor { col().w(p.width).pr(rune::text::measure(" ", &[], p.body(), None).0).child(words) } else { words }
+    };
     nodes
         .into_iter()
         .map(|n| match n {
-            Node::Line(r) => Block::leaf(0.0, 0.0, lines(&r, p.body(), p)),
+            Node::Line(r) => Block::leaf(0.0, 0.0, said(&r)),
             // A picture alone in its paragraph is the paragraph (`p:has(> img:only-child)`), set
             // in the middle at the text's width with its own room around it.
             Node::Paragraph(r) => match r.as_slice() {
                 [Inline::Image { url, .. }] => Block::leaf(25.6, 25.6, files::doc_picture(p.files, url, p.width)),
-                _ => Block::leaf(0.0, p.size, lines(&r, p.body(), p)),
+                _ => Block::leaf(0.0, p.size, said(&r)),
             },
             Node::Heading(1, r) => Block::leaf(0.0, 18.0, words(&r, heading(h1, 1.18, -0.026), p).key(heading_key())),
             Node::Heading(2, r) => Block::leaf(2.1 * h2, 0.5 * h2, words(&r, heading(h2, 1.3, -0.016), p).key(heading_key())),
