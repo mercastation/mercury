@@ -207,7 +207,9 @@ pub fn picture(f: &Files, src: &str, room: f32, size: f32, line: f32) -> El {
     // place held for one not yet seen is a block of its own, with no line around it.
     let after = 8.0 + if stands { line - baseline_in(size, line) } else { 0.0 } - 2.0;
     let block = col().child(frame(held, wide, tall, None).mt(8.0)).child(name_under(src, wide, f.now).mt(after).mb(8.0));
-    watched(opens(block, held, src, (8.0, 8.0 + tall)), places, want)
+    // As wide as the picture and not the column, as the button around it is
+    // (`.inline-image-open`): the magnifier and the look under the pointer stop where it does.
+    row().child(watched(opens(block, held, src, (8.0, 8.0 + tall)), places, want))
 }
 
 /// One thing a row holds.
