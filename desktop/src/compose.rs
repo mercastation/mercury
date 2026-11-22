@@ -228,25 +228,55 @@ fn menu_chip(s: &State, kind: MenuKind, inside: impl FnOnce(rune::Color) -> Vec<
 
 /// The project's chip and the level's, which every bar has.
 fn filed_chips(s: &State) -> [El; 2] {
+    [project_chip(s), level_chip(s, false)]
+}
+
+/// The project's chip, titled with the project's name (`title` on `.tc-chip`).
+fn project_chip(s: &State) -> El {
     let project = s.compose_project();
-    // Their titles: the project's name, and what the level is (`title` on each `.tc-chip`).
     let named = project.map_or_else(|| "No project".to_string(), |p| p.name.clone());
-    [
-        menu_chip(s, MenuKind::Project, |tone| match project {
-            Some(p) => vec![swatch(&p.slug), label(&p.name, 13.0, 400.0, tone).group_color(ink())],
-            None => vec![label("No project", 13.0, 400.0, tone).group_color(ink())],
-        })
-        .help(named),
-        menu_chip(s, MenuKind::Level, |tone| vec![level_mark(s.compose.level), label(rules::choice_label(s.compose.level), 13.0, 400.0, tone).group_color(ink())]).help("Priority"),
-    ]
+    menu_chip(s, MenuKind::Project, |tone| match project {
+        Some(p) => vec![swatch(&p.slug), label(&p.name, 13.0, 400.0, tone).group_color(ink())],
+        None => vec![label("No project", 13.0, 400.0, tone).group_color(ink())],
+    })
+    .help(named)
+}
+
+/// The level's chip. On a team's Home (`quiet`) a level nobody picked is its mark alone in a
+/// square with no edge, washed under the pointer and while its menu is open, its word kept for its
+/// title (`.tc-quiet .tc-chip.tc-at-rest`); a level picked is the chip with its word.
+fn level_chip(s: &State, quiet: bool) -> El {
+    let level = s.compose.level;
+    if quiet && level.is_none() {
+        let open = s.compose.menu.as_ref().is_some_and(|m| m.kind == MenuKind::Level);
+        let mark = row().size(28.0, 28.0).radius(6.0).center().hover_group().hover(crate::feel::wash()).child(level_mark(None));
+        let mark = if open { mark.fill(crate::feel::wash()) } else { mark };
+        return mark
+            .key(MenuKind::Level.trigger())
+            .cursor(rune::Cursor::Pointer)
+            .help(format!("Priority: {}", rules::choice_label(None)))
+            .on_background_press_tx(|s: &mut State, tx| s.toggle_menu(MenuKind::Level, tx));
+    }
+    let title = if quiet { format!("Priority: {}", rules::choice_label(level)) } else { "Priority".to_string() };
+    menu_chip(s, MenuKind::Level, |tone| vec![level_mark(level), label(rules::choice_label(level), 13.0, 400.0, tone).group_color(ink())]).help(title)
+}
+
+/// The model's chip, which leads with its agent's mark (`EngineLogo` on the model's trigger).
+fn model_chip(s: &State) -> El {
+    let pick = s.compose_pick();
+    let model = rules::model_label(&pick, &s.models);
+    menu_chip(s, MenuKind::Model, |tone| vec![engine_mark(&pick.engine, 14.0), label(&model, 13.0, 400.0, tone).group_color(ink())])
 }
 
 /// The caret half of Send, which opens the menu to send later; with Later picked it says so
-/// before the caret (`.tc-send-caret`, and `.set` with `.tc-send-when`).
+/// before the caret (`.tc-send-caret`, and `.set` with `.tc-send-when`). It dims with Send while
+/// there is nothing to send.
 fn later_caret(s: &State) -> El {
+    let dimmed = !s.compose_ready();
     let caret = if s.compose.later {
         let set = row()
-            .h(32.0)
+            .h(SEND_TALL)
+            .opacity(if dimmed { 0.45 } else { 1.0 })
             .items_center()
             .gap(6.0)
             .pl(11.0)
@@ -259,35 +289,82 @@ fn later_caret(s: &State) -> El {
             .child(icon(&icons::CARET, 13.0).color(ink()).group_color(white(1.0)));
         home::brightened(set).cursor(rune::Cursor::Pointer)
     } else {
-        home::send_caret()
+        home::send_caret_at(SEND_TALL, dimmed)
     };
     caret.key(CARET).help("Send later").on_background_press_tx(|s: &mut State, tx| s.toggle_menu(MenuKind::Later, tx))
 }
 
-/// The paper clip, why Send is off when it is off for want of a project, and Send.
-fn bar_end(s: &State) -> Vec<El> {
-    // The two halves of Send are one control with no room between them (`.tc-send`).
-    let send = row().key(MenuKind::Later.anchor()).child(home::send_main(s.compose_ready()).key(SEND).help("Send · ⌘↵").on_background_press_tx(|s: &mut State, tx| s.send_thread(tx))).child(later_caret(s));
-    let clip = home::attach().key(CLIP).help("Attach files").on_background_press_tx(|s: &mut State, tx| s.pick_files(Holder::Compose, tx));
-    if s.compose_project().is_none() {
-        // `.tc-why` takes the room the clip would otherwise push Send across, so the clip
-        // stays by the chips. Making a project is the web window's to do, so the way out is
-        // words here and not a button.
-        let why = label(&format!("{} {}", rules::NO_PROJECT_REASON, rules::NO_PROJECT_ACTION), 13.0, 400.0, dim());
-        return vec![clip, row().grow(1.0).min_w(0.0).pl(8.0).child(why), send];
-    }
-    vec![spacer(), clip, send]
+/// How tall Send and its caret are on this box (`.tc-send`), and the paper clip's square
+/// (`.tc-icon`): the chips' 28 points, so the bar is one line of them.
+const SEND_TALL: f32 = 28.0;
+
+/// Send with its caret, as one control with no room between them (`.tc-send`).
+fn send_pair(s: &State) -> El {
+    row().key(MenuKind::Later.anchor()).child(home::send_main_at(s.compose_ready(), SEND_TALL).key(SEND).help("Send · ⌘↵").on_background_press_tx(|s: &mut State, tx| s.send_thread(tx))).child(later_caret(s))
 }
 
-/// The bar under the words on the page: who gets the thread where someone besides the agent
-/// could, the model, the project, the level, and Send.
-fn bar(s: &State) -> El {
-    let mut bar = row().pt(14.0).items_center().gap(8.0);
-    if window::to_offered(&s.snap) {
-        bar = bar.child(crate::feel::answers(home::chip(vec![label("Agent", 13.0, 400.0, dim()).group_color(ink())])));
+/// The paper clip, which opens the system's file picker.
+fn clip(_: &State) -> El {
+    home::attach_at(SEND_TALL).key(CLIP).help("Attach files").on_background_press_tx(|s: &mut State, tx| s.pick_files(Holder::Compose, tx))
+}
+
+/// Why Send is off, when it is off for want of a project (`.tc-why`): it takes the room the clip
+/// would otherwise push Send across. Making a project is the web window's to do, so the way out
+/// is words here and not a button.
+fn why_not(s: &State) -> Option<El> {
+    s.compose_project().is_none().then(|| row().grow(1.0).min_w(0.0).pl(8.0).child(label(&format!("{} {}", rules::NO_PROJECT_REASON, rules::NO_PROJECT_ACTION), 13.0, 400.0, dim())))
+}
+
+/// The paper clip, why Send is off when it is off for want of a project, and Send.
+fn bar_end(s: &State) -> Vec<El> {
+    match why_not(s) {
+        // The clip stays by the chips, and the words take what is left.
+        Some(why) => vec![clip(s), why, send_pair(s)],
+        None => vec![spacer(), clip(s), send_pair(s)],
     }
-    let model = rules::model_label(&s.compose_pick(), &s.models);
-    bar.child(menu_chip(s, MenuKind::Model, |tone| vec![label(&model, 13.0, 400.0, tone).group_color(ink())])).children(filed_chips(s)).children(bar_end(s))
+}
+
+/// The bar under the words on the page: the model, the project, the level, and Send. Where
+/// someone besides the agent could get the thread it is the quiet bar instead.
+fn bar(s: &State) -> El {
+    if window::to_offered(&s.snap) {
+        return quiet_bar(s);
+    }
+    row().pt(14.0).items_center().gap(BAR_GAP).child(model_chip(s)).children(filed_chips(s)).children(bar_end(s))
+}
+
+/// The bar on Home's box where the thread could go to someone besides the agent, a teammate's
+/// Home (`quietBar`, `.tc-quiet`): what nobody changed is drawn as a mark. Who it is to is the
+/// agent's face alone, so the bar keeps room for the level (`.tc-face-only`), and To says Agent
+/// in its title; then the model and the project, then the room left, then the level, the paper
+/// clip and Send, four points apart. Who else could get the thread is the web window's to pick,
+/// so To opens nothing here.
+fn quiet_bar(s: &State) -> El {
+    let face = row().size(14.0, 14.0).radius(7.0).center().border(1.0, rgba(239, 235, 231, 0.12)).child(icon(&icons::AGENT_EYES, 12.0).color(muted()));
+    let to = crate::feel::answers(home::chip(vec![face]).px(7.0)).help("To: Agent");
+    row()
+        .pt(14.0)
+        .items_center()
+        .gap(4.0)
+        .child(to)
+        // The bar's own six points between To and the model (`margin-left: 2px`).
+        .child(model_chip(s).ml(2.0))
+        .child(project_chip(s))
+        // `.tc-gap`: what is left, and never less than six points.
+        .child(el().grow(1.0).min_w(6.0))
+        .child(level_chip(s, true))
+        .children(why_not(s))
+        .child(clip(s))
+        .child(send_pair(s))
+}
+
+/// The room between the bar's controls (`.tc-bar`).
+const BAR_GAP: f32 = 6.0;
+
+/// An agent's mark, `size` points: Claude's in its own orange, the others in the faint ink the
+/// chips draw their marks in (`.tc-chip svg`).
+fn engine_mark(engine: &str, size: f32) -> El {
+    icon(icons::engine_logo(engine), size).color(muted())
 }
 
 /// The field the words are typed in, in the type of the place it is drawn in.
@@ -361,21 +438,28 @@ pub fn inline(s: &State) -> El {
 /// wide every other point, three under its foot; the line brightens while the word's menu is
 /// open (`.tc-word.open`) and while the pointer is on it (`.tc-word:hover`), when the bright
 /// line is laid over the faint one. The line is as long as the word and stops on the last whole
-/// dot.
+/// dot. It lights with the button it is in (`head_value`).
 fn head_word(words: &str, open: bool) -> El {
     let dots = |tone| row().gap(1.0).children((0..160).map(move |_| el().size(1.0, 1.0).fill(tone)));
     let line = |tone| el().pin(Some(0.0), Some(18.5), Some(0.0), None).h(1.0).clip_corners([0.0; 4]).child(dots(tone));
-    el().hover_group()
-        .cursor(rune::Cursor::Pointer)
-        .child(pen(text(words).font(TextStyle::new(14.0, 400.0).lh(21.0)).color(ink()), 14.0))
+    el().child(pen(text(words).font(TextStyle::new(14.0, 400.0).lh(21.0)).color(ink()), 14.0))
         .child(line(if open { muted() } else { rule() }))
         .child(line(muted()).group_opacity(0.0, 1.0))
 }
 
-/// A field of the card's head (`.tc-field`): its name in small capitals, then its value. A
-/// field under another has a hairline over it.
+/// The button a head's value is (`.tc-word`): its mark, To's face or the model's agent, hanging
+/// `hang` points to the left of the word so the values of both fields start on one line, and the
+/// word. The mark is part of the button: it takes the pointer and the press and lights the line.
+fn head_value(mark: El, hang: f32, word: El) -> El {
+    row().ml(-hang).items_center().hover_group().cursor(rune::Cursor::Pointer).child(mark).child(word)
+}
+
+/// A field of the card's head (`.tc-field`): its name in the faint ink, in the card's own type
+/// rather than small capitals (`.tc-label`), then its value. A field under another has a hairline
+/// over it.
 fn head_field(name: &str, value: El, first: bool) -> El {
-    let field = row().h(42.0).px(18.0).items_center().child(el().w(84.0).child(text(name).font(mono(11.0, 11.0).tracking(0.88)).text_case(TextCase::Uppercase).color(muted()))).child(value);
+    let name = pen(text(name).font(TextStyle::new(13.0, 400.0).lh(13.0)).color(muted()), 13.0);
+    let field = row().h(42.0).px(18.0).items_center().child(el().w(84.0).child(name)).child(value);
     if first { field } else { field.border_sides([1.0, 0.0, 0.0, 0.0], hair()).border_layout() }
 }
 
@@ -393,20 +477,22 @@ fn card_head(s: &State) -> El {
         // The face hangs to the left of the word, so the two values start on one line
         // (`.tc-word > .agent-face`, a point higher than the word's middle). Who else could get
         // the thread is the web window's to pick: To says Agent here, and opens nothing.
-        let face = agent_face().ml(-27.0).mr(9.0).mt(-1.0).mb(1.0);
-        head = head.child(head_field("To", row().items_center().child(face).child(crate::feel::answers(head_word("Agent", false))), true));
+        let face = agent_face().mr(9.0).mt(-1.0).mb(1.0);
+        head = head.child(head_field("To", crate::feel::answers(head_value(face, 27.0, head_word("Agent", false))), true));
     }
     let open = s.compose.menu.as_ref().is_some_and(|m| m.kind == MenuKind::Model);
-    let model = head_word(&rules::model_label(&s.compose_pick(), &s.models), open)
-        .key(MenuKind::Model.trigger())
-        .cursor(rune::Cursor::Pointer)
+    let pick = s.compose_pick();
+    // The agent's mark hangs to the left of the model's word as To's face does, a point over
+    // the word's middle (`.tc-word > .engine-logo`). The menu hangs from the word itself.
+    let mark = engine_mark(&pick.engine, 14.0).mr(11.0).mt(-1.0).mb(1.0);
+    let model = head_value(mark, 25.0, head_word(&rules::model_label(&pick, &s.models), open).key(MenuKind::Model.trigger()))
         .on_background_press_tx(|s: &mut State, tx| s.toggle_menu(MenuKind::Model, tx));
     head.child(head_field("Model", model, !to))
 }
 
 /// The New thread card over the page (`.modal-backdrop.tc-veil` around `.tc-card`): the page
-/// veiled and blurred a little behind it, and the card centred a little above the middle of
-/// the window. The same box as Home's, with its head over the words and its bar under a
+/// darkened behind it as under the command bar, and the card centred a little above the middle
+/// of the window. The same box as Home's, with its head over the words and its bar under a
 /// hairline. A press outside it closes it, keeping every word.
 fn card(s: &State) -> El {
     let (w, h) = s.size;
@@ -432,10 +518,10 @@ fn card(s: &State) -> El {
     // line a note and the bar.
     let fields = if window::to_offered(&s.snap) { 2.0 } else { 1.0 };
     let filed = if files.is_empty() { 0.0 } else { attach::rows_tall(&s.compose.files) + 10.0 };
-    let tall = rune::memo::layout_size(CARD).map_or(2.0 + fields * 42.0 + 1.0 + 156.0 + filed + lines.len() as f32 * 29.0 + 57.0, |[_, tall]| tall);
+    let tall = rune::memo::layout_size(CARD).map_or(2.0 + fields * 42.0 + 1.0 + 156.0 + filed + lines.len() as f32 * 29.0 + 53.0, |[_, tall]| tall);
     // `place-items: center` in the window less a tenth of its height at the foot.
     let top = ((h - 0.1 * h - tall) / 2.0).max(0.0).round();
-    let bar = row().pt(12.0).pr(14.0).pb(12.0).pl(18.0).gap(8.0).items_center().border_sides([1.0, 0.0, 0.0, 0.0], hair()).border_layout().children(filed_chips(s)).children(bar_end(s));
+    let bar = row().pt(12.0).pr(14.0).pb(12.0).pl(18.0).gap(BAR_GAP).items_center().border_sides([1.0, 0.0, 0.0, 0.0], hair()).border_layout().children(filed_chips(s)).children(bar_end(s));
     col()
         .key(CARD)
         .absolute(((w - width) / 2.0).round(), top)
@@ -465,8 +551,10 @@ fn card(s: &State) -> El {
 pub fn layers(s: &State) -> Vec<El> {
     let mut layers = Vec::new();
     if s.compose.card {
+        // Over the command bar's own scrim, unblurred: a brown veil of its own turned light pages
+        // muddy (`.modal-backdrop.tc-veil`, `--scrim`).
         let (w, h) = s.size;
-        layers.push(el().absolute(0.0, 0.0).size(w, h).backdrop_blur(3.0).fill(rgba(16, 14, 13, 0.52)).child(card(s)));
+        layers.push(el().absolute(0.0, 0.0).size(w, h).fill(rgba(0, 0, 0, 0.72)).child(card(s)));
     }
     layers.extend(menu_layer(s));
     // And the same model menu, raised out of a conversation's reply box.
@@ -1307,20 +1395,30 @@ impl State {
     /// that is not already open (`opensTheToast`). With a thread still on its way, O waits
     /// for it. False when O is nobody's.
     pub fn open_what_the_line_names(&mut self) -> bool {
-        let goes = self.toast.as_ref().and_then(|t| t.goes.clone());
-        let Some((id, product)) = goes else {
-            if self.compose.not_taken_at.is_some() {
+        let here = |s: &State, id: &str, product: &str| matches!(&s.view, View::Thread { id: open, product: of } if open == id && of == product);
+        match self.toast.as_ref().and_then(|t| t.goes.clone()) {
+            Some((id, product)) if !here(self, &id, &product) => {
+                self.toast = None;
+                self.open_thread(&id, &product);
+                return true;
+            }
+            Some(_) => {}
+            None if self.compose.not_taken_at.is_some() => {
                 self.compose.o_waits = Some(self.view.clone());
                 return true;
             }
-            return false;
-        };
-        if matches!(&self.view, View::Thread { id: open, product: of } if open == &id && of == &product) {
-            return false;
+            None => {}
         }
-        self.toast = None;
-        self.open_thread(&id, &product);
-        true
+        // Once the line has gone, O still opens the thread the last line named, for a while
+        // (`opensTheLastToast`).
+        if let Some(((id, product), _)) = self.last_toast.clone().filter(|(_, at)| rules::o_still_opens(*at, self.at)) {
+            if !here(self, &id, &product) {
+                self.toast = None;
+                self.open_thread(&id, &product);
+                return true;
+            }
+        }
+        false
     }
 
     /// Z on a thread sent from the box: it is closed, which stops its agent, unless the agent
@@ -1355,8 +1453,9 @@ impl State {
             self.last = Some(taking_back(&id, &product, &title, draft));
             return;
         }
-        // Out of Done from now on: a send taken back is not finished work.
+        // Out of Done from now on: a send taken back is not finished work, and nowhere for O to go.
         self.withdrawn.insert(id, crate::clock());
+        self.last_toast = None;
         self.refresh();
         let back = self.compose.put_back(draft);
         self.say(rules::said_withdrawn(&title, back), false, tx);

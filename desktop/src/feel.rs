@@ -820,6 +820,26 @@ pub(crate) mod tests {
         println!("drawn first in {:?}; a frame with the pointer moving: half under {:?}, the slowest {:?}", first, frames[15], frames[29]);
     }
 
+    #[test]
+    fn o_opens_the_thread_the_last_line_named_after_the_line_has_gone_for_two_minutes() {
+        let mut rt = window("last-line", &["--view", "inbox"]);
+        let named = |rt: &Runtime<State>| (rt.state.lists.needs[1].id.clone(), rt.state.lists.needs[1].product.clone());
+        let (id, product) = named(&rt);
+        let line = (id.clone(), product.clone());
+        rt.update(move |s, tx| s.say_about("Started in Storefront · Z to undo", line, tx));
+        // The line goes after its six seconds, and O still goes into the thread it named.
+        run(&mut rt, 6.5);
+        assert!(rt.state.toast.is_none());
+        key(&mut rt, Key::Text("o".into()));
+        assert!(matches!(&rt.state.view, View::Thread { id: open, .. } if open == &id), "O opens the thread the line named");
+        // Two minutes on, O opens nothing: a stray one would land on a thread no longer in mind.
+        key(&mut rt, Key::Escape);
+        let at = rt.state.at;
+        rt.state.last_toast = Some(((id.clone(), product.clone()), at - 120.0));
+        key(&mut rt, Key::Text("o".into()));
+        assert!(!matches!(rt.state.view, View::Thread { .. }), "two minutes after, O opens nothing");
+    }
+
     /// The web window's word for a pointer (`cursor`), as Rune names it.
     fn shape(css: &str) -> Option<Cursor> {
         Some(match css {

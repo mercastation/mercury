@@ -142,6 +142,9 @@ pub struct State {
     last: Option<write::Undo>,
     /// The line about it.
     pub toast: Option<write::Toast>,
+    /// The thread the last line about one named, and when that line went up on the window's
+    /// clock: O still opens it for a while after the line has gone (`opensTheLastToast`).
+    pub last_toast: Option<((String, String), f64)>,
     /// The threads closed here whose close the engine has not told back yet: out of the lists
     /// from the moment E is pressed.
     hidden: HashSet<String>,
@@ -275,6 +278,7 @@ impl State {
     fn say_about(&mut self, line: &str, goes: (String, String), tx: &Tx) {
         let (line, undo) = rules::compose::toast_parts(line);
         let since = tx.clock();
+        self.last_toast = Some((goes.clone(), since));
         self.toast = Some(write::Toast { line, undo, since, until: since + rules::compose::TOAST_GOES_MS / 1000.0, goes: Some(goes) });
     }
     /// A line that only tells: nothing was done, so there is nothing for Z.
@@ -321,6 +325,8 @@ impl State {
     /// can be taken back, a close or a thread sent.
     pub fn undo(&mut self, tx: &mut Tx) {
         if let Some(held) = self.held.take() {
+            // What is taken back is no longer somewhere for O to go.
+            self.last_toast = None;
             if let Some(item) = &held.closes {
                 self.hidden.remove(&item.id);
                 self.refresh();
@@ -354,6 +360,7 @@ impl State {
             }
             let (id, product) = last.thread.clone();
             if self.send_all(last.writes, last.sent) {
+                self.last_toast = None;
                 self.say(last.said, false, tx);
                 // What it puts back in front of the person is opened, so Z is seen to have
                 // done something (`brings` in `renderer/src/App.tsx`).
@@ -936,6 +943,7 @@ fn init_from(args: &[String]) -> State {
         held: None,
         last: None,
         toast: None,
+        last_toast: None,
         hidden: HashSet::new(),
         later: later::Picker::closed(),
         palette: palette::Bar::closed(),

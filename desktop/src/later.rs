@@ -97,8 +97,10 @@ fn choice_row(at: usize, choice: &Choice, lit: bool) -> El {
         // words a point and a half lower in the row.
         .child(pen(label(choice.name, 14.0, 400.0, ink()), 14.0).mt(8.0))
         .child(pen(label(&choice.hint, 12.5, 400.0, muted()), 12.5).mt(9.5));
+    // The lit row is the command bar's: a wash, with no accent down its left edge any more
+    // (`.palette-item.selected`).
     if lit {
-        line = line.fill(white(0.04)).child(el().absolute(0.0, 0.0).size(2.0, 34.0).fill(accent()));
+        line = line.fill(white(0.04));
     }
     // The pointer lights the row it moves over, never the one it happened to be resting on
     // when the picker opened, and takes the pointing hand over it (`.palette-item`).

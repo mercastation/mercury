@@ -1,11 +1,11 @@
 [
-  ["greeting and doors", [290, 157, 760, 85]],
-  ["the box", [290, 263, 760, 211]],
-  ["the attachment row", [309, 354, 722, 36]],
-  ["the file", [309, 366, 120, 24]],
-  ["why it cannot go", [309, 390, 722, 24]],
-  ["its bar", [309, 413, 722, 46]],
-  ["the cards", [290, 498, 760, 240]],
+  ["greeting and doors", [290, 159, 760, 85]],
+  ["the box", [290, 265, 760, 208]],
+  ["the attachment row", [309, 356, 722, 36]],
+  ["the file", [309, 368, 120, 24]],
+  ["why it cannot go", [309, 392, 722, 24]],
+  ["its bar", [309, 415, 722, 43]],
+  ["the cards", [290, 496, 760, 242]],
   ["sky, left of column", [90, 300, 190, 430]],
   ["sky, right of column", [1060, 300, 190, 430]]
 ]
