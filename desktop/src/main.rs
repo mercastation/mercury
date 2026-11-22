@@ -31,6 +31,7 @@ mod pictures;
 mod reads;
 mod reply;
 mod rules;
+mod settings;
 mod sky;
 mod source;
 mod strip;
@@ -155,6 +156,8 @@ pub struct State {
     /// on the ledger, and is not finished work (`withdrawnSend` in
     /// `renderer/src/withdraw-send.ts`).
     withdrawn: HashMap<String, f64>,
+    /// Settings, a screen over everything while it is open (`settings.rs`).
+    pub settings: settings::Screen,
 }
 
 impl State {
@@ -894,6 +897,7 @@ fn init_from(args: &[String]) -> State {
         reading_models: Latest::default(),
         picks,
         withdrawn: HashMap::new(),
+        settings: settings::Screen::default(),
     };
     // The first skies and a fixture are in place before the first frame, so a picture is whole.
     let first = paint_skies(s.card_size());
@@ -996,6 +1000,8 @@ fn init_from(args: &[String]) -> State {
     }
     // And one taken with files in that box says which (`attached`, `pasted`).
     s.picture_attached();
+    // And one of Settings says its page and what its reads were answered (`settingsPage`).
+    settings::picture(&mut s);
     s
 }
 
@@ -1039,6 +1045,7 @@ fn setup(s: &mut State, wake: Waker) {
     s.read_the_models();
     s.outbox.wake_with(wake.clone());
     s.compose.staging.wake_with(wake.clone());
+    s.settings.wake_with(wake.clone());
     s.pictures.set_waker(wake.clone());
     if let Source::Door(door) = s.source.clone() {
         front::tell_the_app(door.clone());
@@ -1117,6 +1124,8 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
     }
     // A picture the engine has turned for the box a thread is started in.
     changed |= s.land_staged();
+    // What Settings' reads and writes were answered.
+    changed |= settings::tend(s, tx);
     changed |= chrome::rail_moves(s, at, tx);
     changed |= feel::hint_due(s, at);
     if let Some((key, answer)) = s.asking.take() {
@@ -1163,11 +1172,6 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
     let (w, h) = s.size;
     // A picture's copy is made for this screen's pixels.
     s.pictures.set_scale(cx.env().scale);
-    let page = match &s.view {
-        View::Home => home::view(s),
-        View::Inbox => inbox::view(s),
-        View::Thread { id, product } => thread::view(s, id, product),
-    };
     let root = el().w_full()
         .h_full()
         .fill(theme::page())
@@ -1183,7 +1187,19 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
         // second. A control the web eases says so on itself (`feel.rs`).
         .hover_motion_within(rune::Anim::INSTANT, rune::Anim::INSTANT)
         .on_layout(resized)
-        .child(chrome::backdrop(w, h))
+        .child(chrome::backdrop(w, h));
+    // Settings is a screen over everything: the rail, the card and the page under it are not
+    // drawn while it is up (`.workspace-settings`), only its own, the line about the last thing
+    // done and the band that moves the window.
+    if s.settings.open {
+        return root.children(settings::view(s)).children(chrome::toast_corner(s)).children(chrome::drag_band(s));
+    }
+    let page = match &s.view {
+        View::Home => home::view(s),
+        View::Inbox => inbox::view(s),
+        View::Thread { id, product } => thread::view(s, id, product),
+    };
+    let root = root
         .child(chrome::card(s))
         .child(chrome::rail(s, cx.is_reduced_motion()))
         .child(chrome::back_forward(s))

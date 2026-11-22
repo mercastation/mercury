@@ -166,7 +166,8 @@ pub fn hint_due(s: &mut State, at: f64) -> bool {
 /// whole (the command bar, the New thread card, the Later picker, the reply box: `hintsOn`).
 pub fn plate(s: &State) -> Option<El> {
     let hint = s.pointed.hint.as_ref()?;
-    if s.palette.open || s.compose.card || s.later.on.is_some() || s.replying {
+    // Settings' "Show keyboard shortcut hints", turned off, draws none; every key still works.
+    if s.palette.open || s.compose.card || s.later.on.is_some() || s.replying || !s.picks.get().key_hints.unwrap_or(true) {
         return None;
     }
     let lines = hint_lines(hint.id);
@@ -418,16 +419,22 @@ mod tests {
     }
 
     #[test]
-    fn the_rails_settings_button_asks_the_app_and_says_so_when_no_app_is_behind_this_window() {
-        let mut rt = window("rail-settings", &[]);
+    fn the_rails_settings_button_opens_settings_over_everything_and_escape_goes_back() {
+        let mut rt = window("rail-settings", &["--view", "inbox"]);
         // The invented inbox has no face and no usage, so Settings is the foot's last button,
         // 12 points over the rail's end (738).
         rt.pointer_move(41.0, 708.0);
         rt.frame(1.0 / 60.0);
         assert_eq!(rt.cursor(), Cursor::Pointer);
-        assert!(rt.state.toast.is_none());
         press(&mut rt, 41.0, 708.0);
-        assert_eq!(rt.state.toast.as_ref().map(|t| t.line.as_str()), Some(chrome::SETTINGS_REFUSED));
+        assert!(rt.state.settings.open, "Settings is open");
+        assert_eq!(rt.state.settings.pane, crate::rules::settings::Pane::Page(crate::rules::settings::PageId::General));
+        // It owns the keys: N opens no card under it, and Escape goes back to the Inbox.
+        key(&mut rt, Key::Text("n".into()));
+        assert!(!rt.state.compose.card);
+        key(&mut rt, Key::Escape);
+        assert!(!rt.state.settings.open);
+        assert_eq!(rt.state.view, View::Inbox);
     }
 
     #[test]

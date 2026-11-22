@@ -33,6 +33,7 @@ pub mod rank;
 pub mod reply_pick;
 pub mod roots;
 pub mod search;
+pub mod settings;
 pub mod shipping;
 pub mod status;
 pub mod thread_files;

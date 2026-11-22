@@ -109,6 +109,10 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
     // A key hint is for the hand on the pointer, and any key takes it away (`keydown` in
     // `renderer/src/App.tsx`'s hint guards).
     s.pointed.hint = None;
+    // Settings owns the keyboard while it is up, as the web window's does.
+    if let Some(taken) = crate::settings::key(s, e, tx) {
+        return taken;
+    }
     // ⌘K from anywhere, and every key while the command bar is open, are the bar's. One thing
     // stands over the page at a time, as the web window's one `modal`: the bar opening closes
     // the New thread card, which keeps its words.

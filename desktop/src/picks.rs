@@ -27,6 +27,13 @@ pub struct Picks {
     pub model: BTreeMap<String, String>,
     /// And the level, the same way.
     pub effort: BTreeMap<String, String>,
+    /// Two of Settings' switches that each window keeps for itself, as the web window keeps
+    /// its own (`zero.hints`, `agentbox.sidebarShrinks`): whether a key hint comes under a
+    /// pointer that waits, and whether the rail folds to its marks. Both are on until turned off.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key_hints: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rail_shrinks: Option<bool>,
 }
 
 /// The picks, and the file they are kept in when there is one.
