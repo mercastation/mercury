@@ -1206,6 +1206,14 @@ scrolls, where the web window's narrower stage fits it whole at 84% (`thread-fil
 35.6): the rule is the web window's, on a wider stage. A page is the web window's white frame
 with the page in it, and a card here (`file-page`, 107.6 whole).
 
+A long file is read once and laid out once, the stage built again only when the version, the
+stage's size or the pictures held change (`rune::memo`). Measured in a release build on the
+person's own largest files, through the ignored test `a_big_file_opens_in` (`MERCURY_BIG=<a
+fixture> cargo test --release -- --ignored --nocapture a_big_file_opens`): a script of 15,160
+lines (837 KB) opens in 207 ms, a document of 1,409 lines (509 KB) in 272 ms and a picture of
+4.6 MB in 76 ms, its decoding on the worker after that; every frame after is 1 to 2 ms. A debug
+build takes about five seconds to open the first two.
+
 Tests hold the rest on invented files (`src/feel.rs`): a picture pressed in a conversation opens
 big, takes every key (E closes nothing under it, + and 0 zoom), and Escape and the close mark go
 back to the conversation; a mention of a document opens it big, and with ⌘ held does not; the

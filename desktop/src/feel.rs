@@ -759,6 +759,27 @@ mod tests {
         let _ = std::fs::remove_dir_all(shot.parent().and_then(std::path::Path::parent).expect("its folder"));
     }
 
+    /// How long a file takes to open big, and a frame after it, on the fixture `MERCURY_BIG`
+    /// names (one whose `fileOpen` a Files place's lines open): a measurement, run with
+    /// `MERCURY_BIG=<fixture> cargo test --release -- --ignored --nocapture a_big_file_opens`.
+    #[test]
+    #[ignore]
+    fn a_big_file_opens_in() {
+        let Ok(path) = std::env::var("MERCURY_BIG") else { return };
+        let s = crate::init_from(&["--fixture".to_string(), path]);
+        let text = rune::text::TextSystem::new(crate::FONTS, ("Geist", "Geist Mono, ui-monospace"));
+        let mut rt = Runtime::with_text(s, crate::view, (1280.0, 760.0), rune::Env::new(true, 2.0), text);
+        rt.poll = Some(crate::poll);
+        let started = std::time::Instant::now();
+        rt.frame(0.0);
+        rt.frame(1.0 / 60.0);
+        let opened = started.elapsed();
+        let again = std::time::Instant::now();
+        rt.frame(1.0 / 60.0);
+        println!("opened big in {:?}, a frame after it in {:?}", opened, again.elapsed());
+        assert!(rt.state.viewer.open.is_some());
+    }
+
     /// The web window's word for a pointer (`cursor`), as Rune names it.
     fn shape(css: &str) -> Option<Cursor> {
         Some(match css {

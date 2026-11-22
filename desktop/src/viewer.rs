@@ -632,7 +632,17 @@ pub fn outline(headings: &[(u8, String)]) -> Vec<(usize, bool, String)> {
     kept.into_iter().map(|(at, level, words)| (at, Some(level) != top, words)).collect()
 }
 
+/// A document's stage, built again only when the version, the stage's size or the pictures held
+/// change: a long document is parsed and laid out once, not on every frame.
 fn doc_stage(s: &State, open: &Open, words: &Rc<str>, stage: (f32, f32)) -> El {
+    let v = open.version();
+    let held = s.pictures.held();
+    // The byline says "today" until midnight.
+    let version = (v.id.clone(), v.path.clone(), stage.0.to_bits(), stage.1.to_bits(), held, (s.now / 86_400_000.0).floor() as i64);
+    rune::memo("viewer-doc", version, || doc_stage_built(s, open, words, stage))
+}
+
+fn doc_stage_built(s: &State, open: &Open, words: &Rc<str>, stage: (f32, f32)) -> El {
     let (left, column, right, gap) = sheet(stage.0);
     let narrow = stage.0 <= 600.0;
     let folder = open.found.as_deref().and_then(|f| f.rsplit_once('/')).map_or(String::new(), |(dir, _)| dir.to_string());
@@ -690,7 +700,13 @@ fn doc_outline(entries: &[(usize, bool, String)], x: f32, room: f32, wide: f32) 
 
 /* ------------------------------ a script, a table ------------------------------ */
 
-fn code_stage(code: &Code, stage: (f32, f32)) -> El {
+/// A script's stage, built again only when the version or the stage's size change.
+fn code_stage(open: &Open, code: &Rc<Code>, stage: (f32, f32)) -> El {
+    let v = open.version();
+    rune::memo("viewer-code", (v.id.clone(), v.path.clone(), stage.0.to_bits(), stage.1.to_bits()), || code_stage_built(code, stage))
+}
+
+fn code_stage_built(code: &Code, stage: (f32, f32)) -> El {
     // The sheet: at most 980 points, 52 in from either side, and as wide as its widest line.
     let advance = 0.6 * 12.5;
     let line = kept(1.65 * 12.5);
@@ -890,7 +906,7 @@ pub fn layer(s: &State) -> Option<El> {
         (_, _) if open.found.is_none() => said(&format!("{} could not be found.", open.version().name)),
         (Some("image"), _) => picture_stage(s, open, stage),
         (Some("markdown"), Some(Words::Doc(words))) => doc_stage(s, open, words, stage),
-        (Some("code" | "table"), Some(Words::Code(code))) => code_stage(code, stage),
+        (Some("code" | "table"), Some(Words::Code(code))) => code_stage(open, code, stage),
         (Some("markdown" | "code" | "table"), _) => said(&format!("{} could not be opened.", open.version().name)),
         _ => outside_stage(open, stage),
     };
