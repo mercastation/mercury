@@ -32,6 +32,10 @@ pub struct Ui {
     /// The row under the pointer, whose buttons come up to the dim ink and To top into view
     /// (`.pp-row:hover .pp-acts button`): a second level of hover, which Rune's groups lack.
     pub hovered: Option<String>,
+    /// The row last moved by a press, which ⌥↑ and ⌥↓ go on moving: in the web window the
+    /// pressed button keeps the focus, and the row around it answers those keys. Rows here
+    /// take no focus, so the move stands for it.
+    pub held: Option<String>,
 }
 
 /// A project's mark (`ProductMark` with no picture): its own colour, a square inside the box a
@@ -89,8 +93,34 @@ fn lines(s: &State) -> Vec<Line> {
     out
 }
 
+/// The rows the search leaves, by name, slug or either folder.
+fn shown<'a>(s: &State, rows: &'a [Line]) -> Vec<&'a Line> {
+    let needle = s.settings.projects.filter.text.trim().to_lowercase();
+    rows.iter().filter(|p| needle.is_empty() || [p.name.as_str(), p.slug.as_str(), p.dir.as_str(), p.repo.as_deref().unwrap_or("")].iter().any(|f| f.to_lowercase().contains(&needle))).collect()
+}
+
+/// ⌥↑ or ⌥↓ on the Projects page: the row last moved moves again, among the rows shown, and
+/// says whether it did.
+pub fn nudge_held(s: &mut State, up: bool, tx: &mut Tx) -> bool {
+    let ui = &s.settings.projects;
+    let typing = ui.filter.focused || s.settings.search.focused;
+    let (Some(slug), false, false) = (ui.held.clone(), ui.selecting, typing) else { return false };
+    if s.settings.pane != Pane::Page(PageId::Projects) {
+        return false;
+    }
+    let rows = lines(s);
+    let shown: Vec<String> = shown(s, &rows).iter().map(|l| l.slug.clone()).collect();
+    if !shown.contains(&slug) {
+        return false;
+    }
+    let next = rules::nudge(&order(s), &shown, &slug, up);
+    commit(s, &slug, next, tx);
+    true
+}
+
 /// Writes a new order: it shows at once, and the engine's comes back with the snapshot.
 fn commit(s: &mut State, slug: &str, next: Option<Vec<String>>, tx: &mut Tx) {
+    s.settings.projects.held = Some(slug.to_string());
     let Some(next) = next else { return };
     s.settings.projects.undone = None;
     s.settings.projects.pending = Some((next.clone(), saved_order(s)));
@@ -109,8 +139,7 @@ pub fn list_page(s: &State, column: f32) -> Vec<El> {
     let rows = lines(s);
     let full = order(s);
     let all: Vec<String> = rows.iter().map(|l| l.slug.clone()).collect();
-    let needle = ui.filter.text.trim().to_lowercase();
-    let shown: Vec<&Line> = rows.iter().filter(|p| needle.is_empty() || [p.name.as_str(), p.slug.as_str(), p.dir.as_str(), p.repo.as_deref().unwrap_or("")].iter().any(|f| f.to_lowercase().contains(&needle))).collect();
+    let shown = shown(s, &rows);
     let shown_slugs: Vec<String> = shown.iter().map(|l| l.slug.clone()).collect();
     let home = s.settings.workspace().and_then(|w| t(w, "homePath")).map(str::to_string);
 

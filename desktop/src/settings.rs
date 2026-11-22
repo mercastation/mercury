@@ -90,11 +90,10 @@ pub struct Reads {
     /// Each Codex login's, and the reading Refresh fetched (`codexReadings`, `codexReading`).
     pub codex: Vec<Value>,
     pub codex_now: Option<Value>,
-    /// The cloud plan (`zero:cloud-account-plan`), what is kept in the cloud (`zero:files-cloud`)
-    /// and the links made public (`zero:file-links`).
+    /// The cloud plan (`zero:cloud-account-plan`) and what is kept in the cloud
+    /// (`zero:files-cloud`).
     pub plan: Option<Value>,
     pub files: Option<Value>,
-    pub links: Option<Value>,
     /// A project's branches and its browser, by its slug.
     pub branches: Option<(String, Value)>,
     pub browser: Option<(String, Value)>,
@@ -129,7 +128,6 @@ enum What {
     Codex,
     Plan,
     Files,
-    Links,
     Branches(String),
     Browser(String),
     /// The update check, stamped with the snapshot's update it was asked against.
@@ -242,11 +240,6 @@ pub fn go(s: &mut State, pane: Pane, tx: &mut Tx) {
         Pane::Page(PageId::Codex) => read(s, What::Codex),
         Pane::Page(PageId::Cloud) => read(s, What::Plan),
         Pane::Page(PageId::Files) => read(s, What::Files),
-        Pane::Page(PageId::General) => {
-            if crate::rules::window::me(&s.snap).is_some() {
-                read(s, What::Links);
-            }
-        }
         Pane::Project(slug) => {
             let slug = slug.clone();
             read(s, What::Branches(slug.clone()));
@@ -285,7 +278,6 @@ pub fn picture(s: &mut State) {
     screen.reads.codex = part("codexUsage").map(|a| rules::list(&a, "readings").to_vec()).unwrap_or_default();
     screen.reads.plan = part("cloudAccountPlan");
     screen.reads.files = part("filesCloud");
-    screen.reads.links = part("fileLinks");
     if let Pane::Project(slug) = &screen.pane {
         screen.reads.branches = part("projectBranches").map(|b| (slug.clone(), b));
         screen.reads.browser = part("projectBrowser").map(|b| (slug.clone(), b));
@@ -336,7 +328,6 @@ fn read(s: &mut State, what: What) {
         What::Accounts => ("zero:account-usage", json!({ "refresh": false })),
         What::Plan => ("zero:cloud-account-plan", Value::Null),
         What::Files => ("zero:files-cloud", Value::Null),
-        What::Links => ("zero:file-links", Value::Null),
         What::Branches(slug) => ("zero:project-branches", json!({ "product": slug })),
         What::Browser(slug) => {
             // A project with no site listed has no browser to ask about.
@@ -546,7 +537,6 @@ fn land(s: &mut State, what: What, answer: Result<Value, String>) {
         }
         What::Plan => s.settings.reads.plan = answer.ok(),
         What::Files => s.settings.reads.files = answer.ok(),
-        What::Links => s.settings.reads.links = answer.ok().filter(|l| l.get("ok") == Some(&Value::Bool(true))),
         What::Branches(slug) => s.settings.reads.branches = answer.ok().map(|b| (slug, b)),
         What::Browser(slug) => {
             s.settings.busy.remove("browser");
@@ -597,6 +587,9 @@ pub fn key(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> Option<bool> {
         search.focused = true;
         (search.anchor, search.focus) = (0, search.text.len());
         tx.focus("settings-search", false);
+        return Some(true);
+    }
+    if e.mods.alt && !e.mods.cmd && !e.mods.ctrl && matches!(e.key, Key::Up | Key::Down) && projects::nudge_held(s, e.key == Key::Up, tx) {
         return Some(true);
     }
     if e.mods.cmd || e.mods.ctrl || e.mods.alt {
@@ -1068,8 +1061,14 @@ mod tests {
         press(&mut rt, 1025.0, y);
         let shown = rt.state.settings.projects.pending.as_ref().map(|(shown, _)| shown.clone());
         assert_eq!(shown, Some(vec!["mobile".to_string(), "storefront".to_string(), "docs".to_string()]));
-        // It stands second now; a press on the row itself opens the project's page.
-        let (_, y) = rt.find("project-storefront").expect("Storefront's row, moved");
+        // It stands second now, and ⌥↑ moves the same row back, as the web window's row with the
+        // pressed button in it does.
+        rt.key(KeyEvent { key: Key::Up, mods: Mods { alt: true, ..Mods::default() } });
+        rt.frame(1.0 / 60.0);
+        let shown = rt.state.settings.projects.pending.as_ref().map(|(shown, _)| shown.clone());
+        assert_eq!(shown, Some(vec!["storefront".to_string(), "mobile".to_string(), "docs".to_string()]));
+        // A press on the row itself opens the project's page.
+        let (_, y) = rt.find("project-storefront").expect("Storefront's row, moved back");
         press(&mut rt, x - 200.0, y);
         assert_eq!(rt.state.settings.pane, Pane::Project("storefront".into()));
         assert!(rt.find("project-name").is_none(), "its name is a title until pressed");
