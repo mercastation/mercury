@@ -13,6 +13,7 @@
 #![forbid(unsafe_code)]
 
 mod attach;
+mod change;
 mod chips;
 mod chrome;
 mod compose;
@@ -180,6 +181,9 @@ pub struct State {
     pub viewer: viewer::Viewer,
     /// A file opened beside the conversation (`pane.rs`).
     pub pane: pane::Pane,
+    /// The code the threads' runs changed: the strip's figures and a change open in the pane
+    /// (`change.rs`).
+    pub changes: change::Changes,
     /// The Files place's list and how it is narrowed (`files_page.rs`).
     pub files: files_page::Place,
     /// Settings, a screen over everything while it is open (`settings.rs`).
@@ -974,6 +978,7 @@ fn init_from(args: &[String]) -> State {
         withdrawn: HashMap::new(),
         viewer: viewer::Viewer::default(),
         pane: pane::Pane::default(),
+        changes: change::Changes::default(),
         files: files_page::Place::default(),
         settings: settings::Screen::default(),
     };
@@ -1121,6 +1126,7 @@ fn press_what_the_picture_pressed(s: &mut State, tx: &mut Tx) {
     s.picture_live();
     // A file beside the conversation, before one opened big over it.
     pane::pictured(s);
+    change::pictured(s);
     viewer::pictured(s);
     // And one taken after a model was picked in the reply box (`replyPick`), and after picks in
     // its priority and mode chips (`replyPicked`).
@@ -1159,6 +1165,7 @@ fn setup(s: &mut State, wake: Waker) {
     s.settings.wake_with(wake.clone());
     s.pictures.set_waker(wake.clone());
     s.files.set_waker(wake.clone());
+    s.changes.set_waker(wake.clone());
     if let Source::Door(door) = s.source.clone() {
         front::tell_the_app(door.clone());
         source::follow_door(door, s.mailbox.clone(), move || wake());
@@ -1246,6 +1253,8 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
     changed |= settings::tend(s, tx);
     // The file beside a conversation: opened by the newest answer, and read again as it changes.
     changed |= pane::tend(s, clock(), tx);
+    // The code a thread changed: its figures read, the change read, a save landing.
+    changed |= change::tend(s, clock(), stale, tx);
     changed |= chrome::rail_moves(s, at, tx);
     changed |= usage::tend(s, at, tx);
     changed |= feel::hint_due(s, at);
@@ -1346,6 +1355,8 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
     let root = root.children(compose::layers(s));
     // The menu of the reply box's priority or mode chip, over the page.
     let root = root.children(chips::layer(s));
+    // The marks over a change that takes the workspace, woken by the pointer moving.
+    let root = change::over_the_workspace(s, root);
     let root = match chrome::toast_card(s) {
         Some(toast) => root.child(toast),
         None => root,

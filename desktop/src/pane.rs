@@ -121,6 +121,9 @@ pub struct Pane {
     /// its answers landing from the thread that asked.
     links: HashMap<String, Value>,
     landed: Links,
+    /// A change given the whole workspace by its corners, which keeps the pane's own full
+    /// screen rather than the big view (`artifactMode` 'focus', `change.rs`).
+    pub full: bool,
 }
 
 /// The newest answer of a thread, which a place left is kept against (`arrivedAt`).
@@ -165,7 +168,7 @@ impl State {
     }
     /// How the pane stands now: beside the conversation, taking the card, or not open.
     pub fn pane_placement(&self) -> Option<Placement> {
-        self.beside().map(|_| rules::artifact_placement(self.page_size().0))
+        self.beside().map(|_| if self.pane.full { Placement::Focus } else { rules::artifact_placement(self.page_size().0) })
     }
     /// The conversation's box beside the pane: the page, less what the file takes.
     pub fn conversation_size(&self) -> (f32, f32) {
@@ -187,8 +190,14 @@ impl State {
         doc.land(crate::clock());
         self.close_files();
         self.pointed.hint = None;
+        let change = (doc.kind() == Kind::Change).then(|| (doc.product.clone(), doc.src.clone()));
         self.pane.doc = Some(doc);
+        self.pane.full = false;
         self.ask_about_sharing();
+        // A change is read from the engine each time it opens (`change.rs`).
+        if let Some((product, src)) = change {
+            self.change_opened(&product, &src);
+        }
     }
     /// A file pressed in a message or in the Files list, opened beside at its newest version.
     fn open_beside_newest(&mut self, src: &str) {
@@ -208,6 +217,7 @@ impl State {
             self.pane.closed_beside.insert(closed_key(item, &doc.src));
         }
         self.pane.dragging = None;
+        self.pane.full = false;
     }
     /// Leaving a thread takes its file with it, kept against its newest answer (`leavePlace`).
     pub(crate) fn leave_the_pane(&mut self) {
@@ -245,6 +255,11 @@ impl State {
     /// gives it back to the pane when it closes (`docFull`, `fullAt`).
     pub fn pane_full(&mut self) {
         let Some(src) = self.beside().map(|d| d.src.clone()) else { return };
+        // A change keeps the pane's own full screen (`fullScreenTakes` is false for it).
+        if rules::pane_kind(&src) == Kind::Change {
+            self.pane.full = true;
+            return;
+        }
         self.open_big(&src, None);
     }
     /// The open mark: the file in the app that owns it, an address in the browser
@@ -261,6 +276,11 @@ impl State {
     /// Escape over a conversation with a file beside it: true when it closed the file, which a
     /// file the thread opened by itself does not stand in the way of (`escapeClosesDoc`).
     pub fn escape_beside(&mut self) -> bool {
+        // A change given the whole workspace goes back beside the conversation first.
+        if self.pane.full && self.beside().is_some() {
+            self.pane.full = false;
+            return true;
+        }
         match self.beside() {
             Some(doc) if rules::escape_closes_doc(doc.auto, false) => {
                 self.close_beside();
@@ -416,7 +436,8 @@ fn glass(kind: Kind) -> bool {
 
 /// The head of the card: the path, and the marks (`.doc-head`).
 fn head(s: &State, doc: &Doc, w: f32) -> El {
-    let crumb = rules::crumb_parts(doc.found.as_deref().unwrap_or(&doc.src), &doc.crumb_roots);
+    // A run's change is named by what it is, not by the folder the app keeps it in.
+    let crumb = if crate::rules::change::is_a_runs_change(&doc.src) { vec!["The change".to_string()] } else { rules::crumb_parts(doc.found.as_deref().unwrap_or(&doc.src), &doc.crumb_roots) };
     let last = crumb.len().saturating_sub(1);
     let font = sans(11.0, 400.0).lh(14.0);
     let mut path = row().min_w(0.0).shrink().gap(6.0).items_center().help(doc.found.clone().unwrap_or_else(|| doc.src.clone()));
@@ -425,7 +446,7 @@ fn head(s: &State, doc: &Doc, w: f32) -> El {
         if i > 0 {
             piece = piece.child(text("›").font(font).color(muted()).opacity(0.55));
         }
-        let (words, tone) = if i == last { (crate::rules::roots::shown_name(doc.found.as_deref().unwrap_or(&doc.src), s.now), dim()) } else { (part.clone(), muted()) };
+        let (words, tone) = if i == last && part != "The change" { (crate::rules::roots::shown_name(doc.found.as_deref().unwrap_or(&doc.src), s.now), dim()) } else if i == last { (part.clone(), dim()) } else { (part.clone(), muted()) };
         let words = if words.is_empty() { part.clone() } else { words };
         piece = piece.child(text(words).font(font).color(tone).truncate());
         path = path.child(if i == last { piece.shrink() } else { piece });
@@ -444,12 +465,18 @@ fn head(s: &State, doc: &Doc, w: f32) -> El {
     if rules::takes_notes_sidebar(&doc.src) {
         marks = marks.child(mark(&icons::PANE_NOTES, 16.0, "Show notes").key("pane-notes").on_press(|s: &mut State| s.pane_full()));
     }
-    if crate::rules::pane::full_screen_takes(&doc.src) {
+    if crate::rules::pane::full_screen_takes(&doc.src) || kind == Kind::Change {
         marks = marks.child(mark(&icons::PANE_FULL, 16.0, "Give this document the full workspace").key("pane-full").on_press(|s: &mut State| s.pane_full()));
     }
-    marks = marks
-        .child(mark(&icons::FILE_OUTSIDE, 16.0, if kind == Kind::Change { "Open this file in your editor" } else { "Open outside Mercury" }).key("pane-outside").on_press(|s: &mut State| s.pane_outside()))
-        .child(mark(&icons::FILE_CLOSE, 16.0, "Close this document (esc)").key("pane-close").on_press(|s: &mut State| s.close_beside()));
+    // Over a change the open mark is the editor's, on the file at the top of its column.
+    let outside = mark(&icons::FILE_OUTSIDE, 16.0, if kind == Kind::Change { "Open this file in your editor" } else { "Open outside Mercury" }).key("pane-outside");
+    let outside = if kind == Kind::Change { outside.on_press_tx(|s: &mut State, tx| crate::change::open_outside(s, tx)) } else { outside.on_press(|s: &mut State| s.pane_outside()) };
+    marks = marks.child(outside).child(mark(&icons::FILE_CLOSE, 16.0, "Close this document (esc)").key("pane-close").on_press(|s: &mut State| s.close_beside()));
+    // A change is flush on the code's own ground, its head eighteen in on the left and twelve on
+    // the right, over its line (`.doc-pane.doc-code .doc-head`).
+    if kind == Kind::Change {
+        return row().w(w).h(52.0).pl(18.0).pr(12.0).gap(8.0).items_center().fill(crate::change::ground()).border_sides([0.0, 0.0, 1.0, 0.0], edge()).border_layout().child(path).child(el().grow(1.0)).child(marks);
+    }
     let (pad_x, line) = if glass(kind) { (16.0, true) } else { (12.0, false) };
     let head = row().w(w).h(if line { 53.0 } else { 52.0 }).pl(pad_x).pr(pad_x).gap(8.0).items_center().child(path).child(el().grow(1.0)).child(marks);
     if line { head.border_sides([0.0, 0.0, 1.0, 0.0], edge()).border_layout() } else { head.fill(paper()) }
@@ -469,6 +496,10 @@ fn missing(words: &str, w: f32) -> El {
 fn body(s: &State, doc: &Doc, w: f32, h: f32) -> El {
     let kind = doc.kind();
     let name = crate::rules::roots::shown_name(&doc.src, s.now);
+    // A change is what the engine answers for it, wherever it keeps the file (`change.rs`).
+    if kind == Kind::Change {
+        return crate::change::view(s, w, h);
+    }
     if doc.found.is_none() {
         return missing("That file could not be found.", w);
     }
@@ -522,7 +553,6 @@ fn outside(doc: &Doc, name: &str, w: f32, h: f32) -> El {
         Kind::Film => "a film, which plays in the app that opens it",
         Kind::Pdf => "a PDF, which opens in the app that reads it",
         Kind::Website => "a page on the web, which opens in your browser",
-        Kind::Change => "a change, which opens in your editor",
         _ => "a file this window cannot draw",
     };
     let button = row()
@@ -551,8 +581,11 @@ fn grip(s: &State, body: (f32, f32), body_x: f32, card_h: f32) -> El {
     let pill = el().absolute(1.0, (card_h - 30.0) / 2.0).size(7.0, 30.0).radius(6.0).fill(rule());
     let pill = if dragging { pill } else { pill.group_opacity(0.0, 1.0) };
     let (body_w, _) = body;
+    // Beside a change the divider is a hairline on the card's edge (`.doc-code .doc-grip::before`).
+    let hairline = s.beside().is_some_and(|d| d.kind() == Kind::Change).then(|| el().absolute(4.0, 0.0).size(1.0, card_h).fill(edge()));
     // Kept as it moves and written down once it is let go, as the web window writes its own.
     el().size(9.0, card_h)
+        .children(hairline)
         .key("pane-grip")
         .hover_group()
         .cursor(Cursor::ResizeColumn)
@@ -582,6 +615,12 @@ fn grip(s: &State, body: (f32, f32), body_x: f32, card_h: f32) -> El {
 /// none is drawn and Escape is the way out, as there.
 fn card(s: &State, doc: &Doc, w: f32, h: f32, headed: bool) -> El {
     let kind = doc.kind();
+    // A change has no frame of its own: the card is its ground, flush (`.doc-pane.doc-code`).
+    if kind == Kind::Change {
+        let head_h = if headed { 52.0 } else { 0.0 };
+        let file = if s.viewer.open.is_some() { el().size(w, h - head_h) } else { body(s, doc, w, (h - head_h).max(1.0)) };
+        return col().size(w, h).fill(crate::change::ground()).children(headed.then(|| head(s, doc, w))).child(file).role("complementary").label("The change");
+    }
     let inner_w = w - 2.0;
     let head_h = if !headed { 0.0 } else if glass(kind) { 53.0 } else { 52.0 };
     let foot = if kind == Kind::Image { 16.0 } else { 0.0 };

@@ -271,6 +271,8 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
     if !files.is_empty() {
         group = group.child(crate::feel::hinted(files_button(files.len(), s.files_open()), "thread-files", FILES_BUTTON, crate::feel::Align::Right, None));
     }
+    // The code its run changed, with the figures, beside the files (`change.rs`).
+    group = group.children(item(s, id, product).and_then(|i| crate::change::button(s, i)));
     let group = group.children(place).child(close).child(more);
     let actions = actions.child(group.ml(10.0));
     // The arrows at the strip's left end take `--film-strong` under the pointer, and only while

@@ -166,6 +166,13 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
         }
         return true;
     }
+    // A change open beside the conversation answers its own keys before the page's: ⌘S, the
+    // arrows, the page keys, ] and [, and J and K, which do nothing there (`change.rs`).
+    if s.later.on.is_none()
+        && let Some(taken) = crate::change::key(s, e, tx)
+    {
+        return taken;
+    }
     if e.mods.cmd || e.mods.ctrl || e.mods.alt {
         return false;
     }

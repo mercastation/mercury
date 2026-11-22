@@ -197,7 +197,7 @@ pub(crate) fn code_of(text: &str, colour: bool) -> Code {
 }
 
 /// A piece's colour on the dark ground (`--code-com` and the rest).
-fn colour_of(kind: Kind) -> Option<rune::Color> {
+pub(crate) fn colour_of(kind: Kind) -> Option<rune::Color> {
     Some(match kind {
         Kind::Plain => return None,
         Kind::Comment => rgb(0x8b, 0x94, 0x9e),
