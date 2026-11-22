@@ -49,6 +49,28 @@ pub struct Picks {
     /// divider (`zero.docPane.split.v1`); none until one has.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub doc_split: Option<f32>,
+    /// Where the person was in each conversation they left, the newest fifty, as the web window
+    /// keeps its own across a restart (`zero.threadPlaces`, `thread-place.ts`).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub thread_places: Vec<ThreadPlace>,
+}
+
+/// Where the person was in one conversation when they left it (`ThreadPlace`): its newest answer
+/// then, how far they had scrolled it themselves, and what they had unfolded in it.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ThreadPlace {
+    /// `product/id`.
+    pub thread: String,
+    pub news: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top: Option<f32>,
+    /// The earlier messages shown, and the middle asked back.
+    pub earlier: bool,
+    pub whole: bool,
+    /// The folds of what a run ran that were open, and the lines in them and how far, by name.
+    pub runs: Vec<String>,
+    pub lines: Vec<(String, u8)>,
 }
 
 /// The picks, and the file they are kept in when there is one.
@@ -167,5 +189,15 @@ mod tests {
         }
         let said = ["--picks".to_string(), "/tmp/elsewhere.json".to_string()];
         assert_eq!(file(&said, Some("/somewhere/Mercury/local-door.json")), Some(PathBuf::from("/tmp/elsewhere.json")));
+    }
+
+    /// `tests/coming-back-to-a-thread-puts-you-where-you-were.test.mts`, across a restart: the
+    /// place a conversation was left at is read back by the next window.
+    #[test]
+    fn where_a_conversation_was_left_is_read_by_the_next_window() {
+        let file = scratch("places");
+        let place = ThreadPlace { thread: "shop/w-1".into(), news: 7.0, top: Some(900.0), earlier: true, whole: true, runs: vec!["shop/w-1|run>m5".into()], lines: vec![("shop/w-1|line>w9:ran:npm test".into(), 2)] };
+        Kept::at(Some(file.clone())).change(|p| p.thread_places.push(place.clone()));
+        assert_eq!(Kept::at(Some(file)).get().thread_places, vec![place]);
     }
 }

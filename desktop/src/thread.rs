@@ -77,9 +77,6 @@ pub struct Reading {
     /// The conversation on screen when `tend` last looked, as `product/id`: a change of it is
     /// leaving one and landing on another.
     landed: Option<String>,
-    /// Where each conversation was left, newest last and fifty at most (`thread-place.ts`): its
-    /// newest answer then (`arrivedAt`), and how far the person had scrolled it, if they had.
-    left: Vec<(String, f64, Option<f32>)>,
     /// Since when, on the window's clock in milliseconds, the open conversation is landing: on
     /// the top of its last message, or on the place it was left at (`holdAtBottom`'s landing,
     /// `resumeTo`). The person's own scroll ends it, as do 2.5 seconds.
@@ -684,13 +681,23 @@ impl State {
             if let Some(was) = self.reading.landed.take() {
                 let news = self.item_by_key(&was).map_or(0.0, arrived_at);
                 let top = (self.reading.touched.as_deref() == Some(was.as_str())).then(|| self.reading.scrolled.get());
-                // Leaving it again without scrolling keeps the place it had.
-                let kept = self.reading.left.iter().position(|(k, _, _)| *k == was).map(|at| self.reading.left.remove(at));
-                let top = top.or_else(|| kept.filter(|(_, n, _)| *n == news).and_then(|(_, _, top)| top));
-                self.reading.left.push((was, news, top));
-                if self.reading.left.len() > PLACES_KEPT {
-                    self.reading.left.remove(0);
-                }
+                let prefix = format!("{was}|");
+                let r = &self.reading;
+                let mut runs: Vec<String> = r.runs_open.iter().filter(|k| k.starts_with(&prefix)).cloned().collect();
+                runs.sort();
+                let mut lines: Vec<(String, u8)> = r.lines_open.iter().filter(|(k, _)| k.starts_with(&prefix)).map(|(k, v)| (k.clone(), *v)).collect();
+                lines.sort();
+                let place = crate::picks::ThreadPlace { thread: was.clone(), news, top, earlier: r.unfolded.contains(&was), whole: r.whole.contains(&was), runs, lines };
+                // Written down for this window and the next (`leavePlace`); leaving it again
+                // without scrolling keeps the place it had.
+                self.picks.change(|p| {
+                    let kept = p.thread_places.iter().position(|k| k.thread == was).map(|at| p.thread_places.remove(at));
+                    let top = place.top.or_else(|| kept.filter(|k| k.news == news).and_then(|k| k.top));
+                    p.thread_places.push(crate::picks::ThreadPlace { top, ..place });
+                    if p.thread_places.len() > PLACES_KEPT {
+                        p.thread_places.remove(0);
+                    }
+                });
             }
             self.reading.visit_runs.clear();
             self.reading.visit_lines.clear();
@@ -702,23 +709,30 @@ impl State {
             let since = tx.clock() * 1000.0;
             if let Some(thread) = &on {
                 let news = self.item_by_key(thread).map_or(0.0, arrived_at);
-                let kept = self.reading.left.iter().find(|(k, n, _)| k == thread && *n == news).map(|(_, _, top)| *top);
-                // A picture taken scrolled says how far (`scrolledTo`).
-                let kept = kept.or_else(|| self.fixture.get("scrolledTo").and_then(Value::as_f64).map(|top| Some(top as f32)));
-                match kept {
-                    Some(top) => self.reading.landing = Some((thread.clone(), since, top)),
-                    None => {
-                        // Opened as new: nothing of an earlier visit stays unfolded.
-                        let prefix = format!("{thread}|");
-                        let r = &mut self.reading;
-                        r.left.retain(|(k, _, _)| k != thread);
-                        r.unfolded.remove(thread);
-                        r.whole.remove(thread);
-                        r.runs_open.retain(|k| !k.starts_with(&prefix));
-                        r.lines_open.retain(|k, _| !k.starts_with(&prefix));
-                        r.landing = Some((thread.clone(), since, None));
+                let kept = self.picks.get().thread_places.iter().find(|k| k.thread == *thread && k.news == news).cloned();
+                // Whatever was unfolded in it goes, and comes back from where it was left only
+                // while nothing new was answered since (`placeToReturnTo`).
+                let prefix = format!("{thread}|");
+                let r = &mut self.reading;
+                r.unfolded.remove(thread);
+                r.whole.remove(thread);
+                r.runs_open.retain(|k| !k.starts_with(&prefix));
+                r.lines_open.retain(|k, _| !k.starts_with(&prefix));
+                if let Some(place) = &kept {
+                    if place.earlier {
+                        r.unfolded.insert(thread.clone());
                     }
+                    if place.whole {
+                        r.whole.insert(thread.clone());
+                    }
+                    r.runs_open.extend(place.runs.iter().cloned());
+                    r.lines_open.extend(place.lines.iter().cloned());
+                } else {
+                    self.picks.change(|p| p.thread_places.retain(|k| k.thread != *thread));
                 }
+                // A picture taken scrolled says how far (`scrolledTo`).
+                let top = kept.and_then(|k| k.top).or_else(|| self.fixture.get("scrolledTo").and_then(Value::as_f64).map(|top| top as f32));
+                self.reading.landing = Some((thread.clone(), since, top));
             }
             self.reading.landed = on.clone();
             changed = true;
@@ -2054,7 +2068,7 @@ mod tests {
         run(&mut rt, 0.1);
         assert_eq!(rt.state.reading.runs_open.len(), 1, "kept");
         assert!(rt.state.reading.visit_at.is_none(), "a fold kept from before is no step of this visit");
-        assert!(rt.state.reading.left.iter().any(|(k, _, _)| *k == thread));
+        assert!(rt.state.picks.get().thread_places.iter().any(|k| k.thread == thread && k.runs.len() == 1), "written down for the next window too");
         // Away, an answer arrives, and back: it opens as new.
         rt.state.leave_thread();
         run(&mut rt, 0.1);
