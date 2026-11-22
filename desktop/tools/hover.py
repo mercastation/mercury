@@ -1,14 +1,16 @@
 """Draw a scene with the pointer resting where the web window's picture had it, and say how far
 the control under it is from the web window's.
 
-  python3 tools/hover.py <shots dir> <scene> [<scene> ...]
+  python3 tools/hover.py <shots dir> <scene>[=<scene at rest>] ...
 
 A scene that rests the pointer (`tools/scenes/pointer.mjs`) leaves in its fixture where
 (`pointer`) and for how long (`rested`, in milliseconds). This moves the native window's pointer
 there the same way, in two steps 30 ms apart (a `--script`), draws it that long after the second
 (`--snap --at`), and measures, of 255, the control the pointer is on: the element under it in the
 web window's dump and every element around it that wears the same pointer, the row a title is
-in, say. Run from `desktop/`, after `cargo build`.
+in, say. Given the same screen at rest (`thread-hover-done=thread-options`), whose pictures are
+both in the folder, it says how far apart the same box is there too, which is as close as the
+two windows draw that control with no pointer on it. Run from `desktop/`, after `cargo build`.
 """
 import json, os, subprocess, sys
 
@@ -55,7 +57,8 @@ def mean(a, b, box, scale=2):
     return float(d.mean()) if d.size else float('nan')
 
 
-for scene in scenes:
+for asked in scenes:
+    scene, _, still = asked.partition('=')
     base = os.path.join(shots, scene)
     fixture = json.load(open(base + '-fixture.json'))
     dump = json.load(open(base + '-dump.json'))
@@ -77,4 +80,9 @@ for scene in scenes:
     box = top['rect']
     grown = [box[0] - 4, box[1] - 4, box[2] + 8, box[3] + 8]
     name = f"{top['tag']}.{'.'.join((top.get('cls') or '').split()[:2])}"
-    print(f"{scene:26} {name:34.34} [{box[0]:7.1f} {box[1]:6.1f} {box[2]:6.1f} {box[3]:5.1f}]  control {mean(a, b, box):5.2f}  with 4 around {mean(a, b, grown):5.2f}  whole {float(np.abs(a.astype(np.int16) - b.astype(np.int16)).mean()):5.2f}  web pointer {web}")
+    at_rest = ''
+    if still:
+        ra = np.asarray(Image.open(os.path.join(shots, still + '-real.png')).convert('RGB'))
+        rb = np.asarray(Image.open(os.path.join(shots, still + '.png')).convert('RGB'))
+        at_rest = f'  at rest {mean(ra, rb, box):5.2f}'
+    print(f"{scene:26} {name:34.34} [{box[0]:7.1f} {box[1]:6.1f} {box[2]:6.1f} {box[3]:5.1f}]  control {mean(a, b, box):5.2f}{at_rest}  with 4 around {mean(a, b, grown):5.2f}  whole {float(np.abs(a.astype(np.int16) - b.astype(np.int16)).mean()):5.2f}  web pointer {web}")

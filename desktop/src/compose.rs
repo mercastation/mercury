@@ -218,10 +218,10 @@ fn filed_chips(s: &State) -> [El; 2] {
     let project = s.compose_project();
     [
         menu_chip(s, MenuKind::Project, |tone| match project {
-            Some(p) => vec![swatch(&p.slug), label(&p.name, 13.0, 400.0, tone)],
-            None => vec![label("No project", 13.0, 400.0, tone)],
+            Some(p) => vec![swatch(&p.slug), label(&p.name, 13.0, 400.0, tone).group_color(ink())],
+            None => vec![label("No project", 13.0, 400.0, tone).group_color(ink())],
         }),
-        menu_chip(s, MenuKind::Level, |tone| vec![level_mark(s.compose.level), label(rules::choice_label(s.compose.level), 13.0, 400.0, tone)]),
+        menu_chip(s, MenuKind::Level, |tone| vec![level_mark(s.compose.level), label(rules::choice_label(s.compose.level), 13.0, 400.0, tone).group_color(ink())]),
     ]
 }
 
@@ -229,7 +229,7 @@ fn filed_chips(s: &State) -> [El; 2] {
 /// before the caret (`.tc-send-caret`, and `.set` with `.tc-send-when`).
 fn later_caret(s: &State) -> El {
     let caret = if s.compose.later {
-        row()
+        let set = row()
             .h(32.0)
             .items_center()
             .gap(6.0)
@@ -239,19 +239,20 @@ fn later_caret(s: &State) -> El {
             .fill(rgba(239, 235, 231, 0.15))
             .border_sides([0.0, 0.0, 0.0, 1.0], rgba(26, 24, 23, 0.55))
             .border_layout()
-            .child(pen(text(rules::LATER_WORD).font(figures(12.5, 500.0)).color(ink()), 12.5))
-            .child(icon(&icons::CARET, 13.0).color(ink()))
+            .child(pen(text(rules::LATER_WORD).font(figures(12.5, 500.0)).color(ink()).group_color(white(1.0)), 12.5))
+            .child(icon(&icons::CARET, 13.0).color(ink()).group_color(white(1.0)));
+        home::brightened(set).cursor(rune::Cursor::Pointer)
     } else {
         home::send_caret()
     };
-    caret.key(CARET).cursor(rune::Cursor::Pointer).on_background_press_tx(|s: &mut State, tx| s.toggle_menu(MenuKind::Later, tx))
+    caret.key(CARET).on_background_press_tx(|s: &mut State, tx| s.toggle_menu(MenuKind::Later, tx))
 }
 
 /// The paper clip, why Send is off when it is off for want of a project, and Send.
 fn bar_end(s: &State) -> Vec<El> {
     // The two halves of Send are one control with no room between them (`.tc-send`).
-    let send = row().key(MenuKind::Later.anchor()).child(home::send_main(s.compose_ready()).key(SEND).cursor(rune::Cursor::Pointer).on_background_press_tx(|s: &mut State, tx| s.send_thread(tx))).child(later_caret(s));
-    let clip = home::attach().key(CLIP).cursor(rune::Cursor::Pointer).on_background_press_tx(|s: &mut State, tx| s.pick_files(tx));
+    let send = row().key(MenuKind::Later.anchor()).child(home::send_main(s.compose_ready()).key(SEND).on_background_press_tx(|s: &mut State, tx| s.send_thread(tx))).child(later_caret(s));
+    let clip = home::attach().key(CLIP).on_background_press_tx(|s: &mut State, tx| s.pick_files(tx));
     if s.compose_project().is_none() {
         // `.tc-why` takes the room the clip would otherwise push Send across, so the clip
         // stays by the chips. Making a project is the web window's to do, so the way out is
@@ -267,10 +268,10 @@ fn bar_end(s: &State) -> Vec<El> {
 fn bar(s: &State) -> El {
     let mut bar = row().pt(14.0).items_center().gap(8.0);
     if window::to_offered(&s.snap) {
-        bar = bar.child(home::chip(vec![label("Agent", 13.0, 400.0, dim())]));
+        bar = bar.child(crate::feel::answers(home::chip(vec![label("Agent", 13.0, 400.0, dim()).group_color(ink())])));
     }
     let model = rules::model_label(&s.compose_pick(), &s.models);
-    bar.child(menu_chip(s, MenuKind::Model, |tone| vec![label(&model, 13.0, 400.0, tone)])).children(filed_chips(s)).children(bar_end(s))
+    bar.child(menu_chip(s, MenuKind::Model, |tone| vec![label(&model, 13.0, 400.0, tone).group_color(ink())])).children(filed_chips(s)).children(bar_end(s))
 }
 
 /// The field the words are typed in, in the type of the place it is drawn in.
@@ -340,10 +341,17 @@ pub fn inline(s: &State) -> El {
 
 /// A value of the card's head (`.tc-word`): the word with a dotted line under it, a point
 /// wide every other point, three under its foot; the line brightens while the word's menu is
-/// open (`.tc-word.open`). The line is as long as the word and stops on the last whole dot.
+/// open (`.tc-word.open`) and while the pointer is on it (`.tc-word:hover`), when the bright
+/// line is laid over the faint one. The line is as long as the word and stops on the last whole
+/// dot.
 fn head_word(words: &str, open: bool) -> El {
-    let dots = row().gap(1.0).children((0..160).map(|_| el().size(1.0, 1.0).fill(if open { muted() } else { rule() })));
-    el().child(pen(text(words).font(TextStyle::new(14.0, 400.0).lh(21.0)).color(ink()), 14.0)).child(el().pin(Some(0.0), Some(18.5), Some(0.0), None).h(1.0).clip_corners([0.0; 4]).child(dots))
+    let dots = |tone| row().gap(1.0).children((0..160).map(move |_| el().size(1.0, 1.0).fill(tone)));
+    let line = |tone| el().pin(Some(0.0), Some(18.5), Some(0.0), None).h(1.0).clip_corners([0.0; 4]).child(dots(tone));
+    el().hover_group()
+        .cursor(rune::Cursor::Pointer)
+        .child(pen(text(words).font(TextStyle::new(14.0, 400.0).lh(21.0)).color(ink()), 14.0))
+        .child(line(if open { muted() } else { rule() }))
+        .child(line(muted()).group_opacity(0.0, 1.0))
 }
 
 /// A field of the card's head (`.tc-field`): its name in small capitals, then its value. A
@@ -368,7 +376,7 @@ fn card_head(s: &State) -> El {
         // (`.tc-word > .agent-face`, a point higher than the word's middle). Who else could get
         // the thread is the web window's to pick: To says Agent here, and opens nothing.
         let face = agent_face().ml(-27.0).mr(9.0).mt(-1.0).mb(1.0);
-        head = head.child(head_field("To", row().items_center().child(face).child(head_word("Agent", false)), true));
+        head = head.child(head_field("To", row().items_center().child(face).child(crate::feel::answers(head_word("Agent", false))), true));
     }
     let open = s.compose.menu.as_ref().is_some_and(|m| m.kind == MenuKind::Model);
     let model = head_word(&rules::model_label(&s.compose_pick(), &s.models), open)

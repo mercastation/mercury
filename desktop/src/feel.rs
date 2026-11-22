@@ -7,7 +7,7 @@
 //! lands every hover at once both ways (`hover_motion_within` in `main.rs`): Rune's own hover
 //! overlay would otherwise fade out over a tenth of a second.
 
-use rune::{Color, El};
+use rune::{Color, El, el};
 
 use crate::State;
 use crate::theme::*;
@@ -18,6 +18,27 @@ use crate::theme::*;
 /// does nothing and goes nowhere else, as one on a button goes to the button.
 pub fn answers(e: El) -> El {
     e.on_hover(|_: &mut State| {})
+}
+
+/// A control's one point edge drawn as a layer of its own, over the edge it has, point for point.
+/// `laid_out` is whether the control's edge takes room in its layout (`border_layout`), which
+/// puts the control's inside, where this layer is pinned, a point in from it.
+pub fn edge(radius: f32, color: Color, laid_out: bool) -> El {
+    let inset = if laid_out { -1.0 } else { 0.0 };
+    el().pin(Some(inset), Some(inset), Some(inset), Some(inset)).radius(radius).border(1.0, color)
+}
+
+/// The edge a framed control turns while the pointer is on it (`border-color` under `:hover`),
+/// laid over the edge it has at rest: the control is a `hover_group`. Opaque over opaque, the
+/// lit edge is what shows.
+pub fn edge_lit(radius: f32, color: Color, laid_out: bool) -> El {
+    edge(radius, color, laid_out).group_opacity(0.0, 1.0)
+}
+
+/// The same for a translucent edge, which laid over another would add up to more than either:
+/// the control's own edge is left clear, and the edge at rest gives way to the lit one.
+pub fn edges(radius: f32, rest: Color, lit: Color, laid_out: bool) -> [El; 2] {
+    [edge(radius, rest, laid_out).group_opacity(1.0, 0.0), edge(radius, lit, laid_out).group_opacity(0.0, 1.0)]
 }
 
 /// `--wash`: what a quiet control's ground turns under the pointer.

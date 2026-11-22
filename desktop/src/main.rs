@@ -1100,6 +1100,10 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
         // others, and the highlight trailed the press. Both settings reach the whole window.
         .instant_changes()
         .motion(rune::Spring::NONE)
+        // And what the pointer changes comes and goes at once, as the web window's `:hover`
+        // rules do with no transition of their own; Rune's own fades out over a tenth of a
+        // second. A control the web eases says so on itself (`feel.rs`).
+        .hover_motion_within(rune::Anim::INSTANT, rune::Anim::INSTANT)
         .on_layout(resized)
         .child(chrome::backdrop(w, h))
         .child(chrome::card(s))

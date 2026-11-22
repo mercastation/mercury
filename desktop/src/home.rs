@@ -2,12 +2,12 @@
 //! you beside what is in progress. Built from the web app's own measurements
 //! (`renderer/src/home`).
 
-use rune::{El, Icon, ScrollSpec, TextCase, TextStyle, col, el, icon, row, text};
+use rune::{Cursor, El, Icon, ScrollSpec, TextCase, TextStyle, col, el, icon, row, text};
 
-use crate::data::{Priority, Row};
+use crate::data::{Priority, Row, Tab};
 use crate::rules::window;
 use crate::theme::*;
-use crate::{State, View, icons};
+use crate::{State, View, feel, icons};
 
 /// The page's column: 760 points, or what the card leaves it.
 const COLUMN: f32 = 760.0;
@@ -79,11 +79,13 @@ fn greeting(now_ms: f64, name: Option<&str>) -> String {
 /// `.hm-glass`: a faint white wash over the page. The web app also blurs the page behind it;
 /// Rune blurs four surfaces a frame (`MAX_BACKDROP_BLURS`) and Home has five, so the three
 /// cards take the blur, where the sky's streak runs, and the two small doors go without.
-/// A door with no count (Team) is its icon and its name.
+/// A door with no count (Team) is its icon and its name. Under the pointer the door is whole
+/// where it stood at .9, and its edge brighter (`.hm-door:hover`): its look is a layer the
+/// door's hover lifts, and its translucent edge two, the one at rest giving way to the other.
 fn door(glyph: &'static Icon, name: &str, count: Option<usize>, hot: bool) -> El {
     // A Rune that blurs five or more gives the doors theirs back with no change here.
     let glass = if rune::MAX_BACKDROP_BLURS >= 5 { row().backdrop_blur(20.0) } else { row() };
-    let door = glass
+    let face = glass
         .h(32.0)
         .items_center()
         .gap(8.0)
@@ -91,22 +93,38 @@ fn door(glyph: &'static Icon, name: &str, count: Option<usize>, hot: bool) -> El
         .pr(12.0)
         .radius(8.0)
         .fill(white(0.043))
-        .border(1.0, white(0.15))
+        .border(1.0, rgba(0, 0, 0, 0.0))
         .border_layout()
         .box_shadow(shadow(0.0, 1.0, 0.0, 0.0, white(0.06), true))
-        .opacity(0.9)
+        .group_opacity(0.9, 1.0)
+        .children(feel::edges(8.0, white(0.15), white(0.26), true))
         .child(icon(glyph, 14.0).color(ink()).opacity(0.65))
         .child(label(name, 13.5, 400.0, ink()));
-    match count {
-        Some(n) => door.child(text(n.to_string()).font(figures(12.0, 400.0)).color(if hot { ink() } else { muted() })),
-        None => door,
-    }
+    let face = match count {
+        Some(n) => face.child(text(n.to_string()).font(figures(12.0, 400.0)).color(if hot { ink() } else { muted() })),
+        None => face,
+    };
+    row().hover_group().cursor(Cursor::Pointer).child(face)
 }
 
 /// One of the small framed words under a box to write in (`.tc-chip`): here and in a
-/// conversation's reply box.
+/// conversation's reply box. Under the pointer its edge is `--line-strong` and its words the
+/// text's own colour (`.tc-chip:hover`, `.dock-chips .compose-word:hover`), which they take with
+/// `group_color(ink())`.
 pub fn chip(children: Vec<El>) -> El {
-    row().h(28.0).items_center().gap(8.0).px(10.0).radius(6.0).fill(white(0.03)).border(1.0, edge()).border_layout().children(children)
+    row()
+        .h(28.0)
+        .items_center()
+        .gap(8.0)
+        .px(10.0)
+        .radius(6.0)
+        .fill(white(0.03))
+        .border(1.0, edge())
+        .border_layout()
+        .hover_group()
+        .cursor(Cursor::Pointer)
+        .children(children)
+        .child(feel::edge_lit(6.0, rule(), true))
 }
 
 /// `--send-fill`: the text colour at 15%.
@@ -114,9 +132,18 @@ fn send_fill() -> rune::Color {
     rgba(239, 235, 231, 0.15)
 }
 
-/// Send with its key. Faint until there is something to send.
+/// Send, and the caret beside it, under the pointer: `filter: brightness(1.15)`
+/// (`.tc-send > button:hover:not(:disabled)`, `.dock-send-pair > .dock-send:hover`), which takes
+/// their words to white and their fill, the text's colour at 15%, two levels lighter over the
+/// box's dark glass, which this much white laid over it gives. Rune has no brightness filter.
+pub fn brightened(e: El) -> El {
+    e.hover_group().hover(white(0.013))
+}
+
+/// Send with its key. Faint until there is something to send, when it takes neither the
+/// pointing hand nor a look under the pointer (`:disabled`).
 pub fn send_main(ready: bool) -> El {
-    row()
+    let send = row()
         .key("send")
         .h(32.0)
         .items_center()
@@ -125,13 +152,14 @@ pub fn send_main(ready: bool) -> El {
         .corners([6.0, 0.0, 0.0, 6.0])
         .fill(send_fill())
         .opacity(if ready { 1.0 } else { 0.45 })
-        .child(label("Send", 13.5, 500.0, ink()))
-        .child(text("⌘↵").font(mono(11.0, 14.0)).color(ink()).opacity(0.75))
+        .child(label("Send", 13.5, 500.0, ink()).group_color(white(1.0)))
+        .child(text("⌘↵").font(mono(11.0, 14.0)).color(ink()).group_color(white(1.0)).opacity(0.75));
+    if ready { brightened(send).cursor(Cursor::Pointer) } else { send.cursor(Cursor::Default) }
 }
 
 /// The caret beside Send, for sending later.
 pub fn send_caret() -> El {
-    row()
+    let caret = row()
         .size(32.0, 32.0)
         .items_center()
         .pl(9.0)
@@ -139,7 +167,8 @@ pub fn send_caret() -> El {
         .fill(send_fill())
         .border_sides([0.0, 0.0, 0.0, 1.0], rgba(26, 24, 23, 0.55))
         .border_layout()
-        .child(icon(&icons::CARET, 13.0).color(ink()))
+        .child(icon(&icons::CARET, 13.0).color(ink()).group_color(white(1.0)));
+    brightened(caret).cursor(Cursor::Pointer)
 }
 
 /// The two as a conversation's reply box draws them: one pair, pressed as one.
@@ -147,9 +176,9 @@ pub fn send_pair(ready: bool) -> El {
     row().child(send_main(ready)).child(send_caret())
 }
 
-/// The paper clip beside Send.
+/// The paper clip beside Send, the text's own colour under the pointer (`.tc-icon:hover`).
 pub fn attach() -> El {
-    row().size(30.0, 30.0).radius(6.0).center().child(icon(&icons::ATTACH, 16.0).color(muted()))
+    row().size(30.0, 30.0).radius(6.0).center().hover_group().cursor(Cursor::Pointer).child(icon(&icons::ATTACH, 16.0).color(muted()).group_color(ink()))
 }
 
 fn priority_mark(p: Priority) -> Option<El> {
@@ -168,8 +197,12 @@ enum Card {
     Progress,
 }
 
-/// `on` is the row the keys are on, which wears what the pointer's does (`.hm-row.on`).
-fn task_row(r: &Row, first: bool, on: bool, card: Card) -> El {
+/// `on` is the row the keys are on, which wears what the pointer's does (`.hm-row.on`). The
+/// pointer coming onto a row of Needs you puts the keys there (`onMouseEnter={() => setPick(i)}`
+/// in `HomePage.tsx`), so that row is lit by being the keys', and stays the keys' when the
+/// pointer leaves; a row In progress is only washed while the pointer is on it.
+fn task_row(r: &Row, at: usize, on: bool, card: Card) -> El {
+    let first = at == 0;
     // A thread not yet read has its title a step heavier (`.hm-row.unread .hm-text b`).
     let title = text(r.title.as_str()).font(TextStyle::new(14.5, if r.unread && card == Card::Needs { 500.0 } else { 400.0 }).lh(20.0)).color(ink()).truncate();
     let under = match card {
@@ -191,7 +224,11 @@ fn task_row(r: &Row, first: bool, on: bool, card: Card) -> El {
         // The green dot of a thread an agent is on (`.hm-face.live::after`), ringed in the card's dark.
         face = face.child(el().absolute(21.0, 21.0).size(8.0, 8.0).radius(4.0).fill(rgb(0x8f, 0xd1, 0x8f)).box_shadow(shadow(0.0, 0.0, 0.0, 2.0, rgba(18, 16, 18, 0.95), false)));
     }
-    let mut line = row().key(format!("{}-{}", if card == Card::Needs { "need" } else { "progress" }, r.id)).items_center().gap(12.0).py(10.0).px(18.0).hover(white(0.045));
+    let mut line = row().key(format!("{}-{}", if card == Card::Needs { "need" } else { "progress" }, r.id)).items_center().gap(12.0).py(10.0).px(18.0).cursor(Cursor::Pointer);
+    line = match card {
+        Card::Needs => line.on_hover(move |s: &mut State| s.home_pick = Some(at)),
+        Card::Progress => line.hover(white(0.045)),
+    };
     if !first {
         // The CSS says .065; the browser keeps alpha in 255ths, which lands it on 17.
         line = line.border_sides([1.0, 0.0, 0.0, 0.0], white(17.0 / 255.0)).border_layout();
@@ -207,8 +244,20 @@ fn task_row(r: &Row, first: bool, on: bool, card: Card) -> El {
         .child(label(&r.when, 12.5, 400.0, dim()))
 }
 
-/// One of Home's two cards: a head with a link out, and what is in it.
-fn home_card(title: &str, count: Option<usize>, link: &str, to: Option<View>, body: El, height: f32) -> El {
+/// Where a door or a card's link goes: the Inbox on one of its tabs (`onDoor` in `App.tsx`), or a
+/// page this window does not have yet, which a press goes nowhere from.
+fn door_to(tab: Option<Tab>) -> impl Fn(&mut State) + 'static {
+    move |s: &mut State| {
+        if let Some(tab) = tab {
+            s.go(View::Inbox);
+            s.show_tab(tab);
+        }
+    }
+}
+
+/// One of Home's two cards: a head with a link out, and what is in it. The link is the text's
+/// own colour under the pointer (`.hm-link:hover`).
+fn home_card(title: &str, count: Option<usize>, link: &str, to: Option<Tab>, body: El, height: f32) -> El {
     let mut name = row().items_center().child(label(title, 14.0, 500.0, ink()));
     if let Some(n) = count {
         name = name.child(text(n.to_string()).font(figures(14.0, 400.0)).color(muted()).ml(8.0));
@@ -222,12 +271,7 @@ fn home_card(title: &str, count: Option<usize>, link: &str, to: Option<View>, bo
         .border_sides([0.0, 0.0, 1.0, 0.0], white(0.07))
         .border_layout()
         .child(name)
-        .child(label(link, 13.0, 400.0, dim()).on_press(move |s: &mut State| {
-            // A link to a page this window does not have yet goes nowhere.
-            if let Some(to) = &to {
-                s.go(to.clone());
-            }
-        }));
+        .child(row().hover_group().cursor(Cursor::Pointer).child(label(link, 13.0, 400.0, dim()).group_color(ink())).on_press(door_to(to)));
     glass(col())
         .h(height)
         .radius(10.0)
@@ -270,7 +314,7 @@ pub fn view(s: &State) -> El {
             el().py(14.0).px(18.0).child(label(empty, 13.5, 400.0, dim()))
         } else {
             // Only Needs you is walked by the keys.
-            col().children(rows.iter().enumerate().map(|(i, r)| task_row(r, i == 0, card == Card::Needs && s.home_pick == Some(i), card)))
+            col().children(rows.iter().enumerate().map(|(i, r)| task_row(r, i, card == Card::Needs && s.home_pick == Some(i), card)))
         }
     };
     // Home shows the first eighty that need the person and the first sixty in progress (`App.tsx`).
@@ -283,10 +327,10 @@ pub fn view(s: &State) -> El {
         .mt(16.0)
         .gap(8.0)
         // Only the Inbox's count is lit, and only above zero (`.hm-door.hot`).
-        .child(door(&icons::DOOR_INBOX, "Inbox", Some(needs.len()), !needs.is_empty()).on_press(|s: &mut State| s.go(View::Inbox)))
-        .child(door(&icons::DOOR_PROGRESS, "In progress", Some(progress.len()), false));
+        .child(door(&icons::DOOR_INBOX, "Inbox", Some(needs.len()), !needs.is_empty()).on_press(door_to(Some(Tab::Needs))))
+        .child(door(&icons::DOOR_PROGRESS, "In progress", Some(progress.len()), false).on_press(door_to(Some(Tab::Progress))));
     if team {
-        doors = doors.child(door(&icons::DOOR_TEAM, "Team", None, false));
+        doors = doors.child(feel::answers(door(&icons::DOOR_TEAM, "Team", None, false)));
     }
     let second = if team {
         // The team's rows are the Team page's, which this window does not have yet: the card
@@ -294,7 +338,7 @@ pub fn view(s: &State) -> El {
         let nobody = if window::team_has_others(&s.snap) { el() } else { el().py(14.0).px(18.0).child(label("Nobody else on your team yet.", 13.5, 400.0, dim())) };
         home_card("Team this week", None, "Open Team →", None, nobody, cards_h)
     } else {
-        home_card("In progress", count(progress.len()), "Open →", Some(View::Inbox), working, cards_h)
+        home_card("In progress", count(progress.len()), "Open →", Some(Tab::Progress), working, cards_h)
     };
 
     let page = col()
@@ -317,13 +361,13 @@ pub fn view(s: &State) -> El {
             el().mt(22.0).child(crate::compose::inline(s).w_full())
         })
         .child(if stacked {
-            col().mt(24.0).gap(22.0).child(home_card("Needs you", count(needs.len()), "Open inbox →", Some(View::Inbox), rows, cards_h).w(column)).child(second.w(column))
+            col().mt(24.0).gap(22.0).child(home_card("Needs you", count(needs.len()), "Open inbox →", Some(Tab::Needs), rows, cards_h).w(column)).child(second.w(column))
         } else {
             row()
                 .mt(24.0)
                 .gap(22.0)
                 // `grid-template-columns: 1.35fr 1fr`: the shares are of the row less its gap.
-                .child(home_card("Needs you", count(needs.len()), "Open inbox →", Some(View::Inbox), rows, cards_h).w((column - 22.0) * 1.35 / 2.35))
+                .child(home_card("Needs you", count(needs.len()), "Open inbox →", Some(Tab::Needs), rows, cards_h).w((column - 22.0) * 1.35 / 2.35))
                 .child(second.w((column - 22.0) / 2.35))
         });
     row().w_full().justify_center().child(page)
