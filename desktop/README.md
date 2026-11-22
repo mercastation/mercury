@@ -1221,37 +1221,39 @@ The scenes: `settings` (General), `settings-running`, `-claude`, `-antigravity`,
 (`settings-running-menu`, `-phone-menu`, and `-claude-menu`, scrolled to its pick); the search
 typed into (`settings-search`); and the pointer resting on a control (`settings-hover-*`). Each
 answers the web window with invented settings in the engine's shape (`tools/scenes/settings.mjs`),
-which the picture's fixture carries to this window. Of 255, at 1280 by 760, 2x, the whole window
-and the open page's column:
+which the picture's fixture carries to this window. Measured against the web window whose menu
+down the side is the app sidebar's (rows 36 points tall, marks of 18, a search with no box) and
+whose switches are the text's ink when on. Of 255, at 1280 by 760, 2x, the whole window and the
+open page's column:
 
 | Page | Whole | Page |
 |---|---|---|
-| General | 0.39 | 0.68 |
-| Running | 0.27 | 0.38 |
-| Claude Code | 0.27 | 0.38 |
-| Antigravity | 0.20 | 0.23 |
-| Codex | 0.26 | 0.36 |
-| Projects | 0.24 | 0.31 |
-| A project | 0.29 | 0.44 |
-| Phone | 0.34 | 0.57 |
-| Plan and Billing | 0.29 | 0.44 |
-| Files | 0.17 | 0.16 |
-| Alpha features | 0.28 | 0.40 |
-| A menu open: Running, Phone, Claude Code | 0.29, 0.35, 0.26 | 0.43, 0.59, 0.32 |
+| General | 0.38 | 0.68 |
+| Running | 0.25 | 0.36 |
+| Claude Code | 0.26 | 0.38 |
+| Antigravity | 0.19 | 0.23 |
+| Codex | 0.25 | 0.36 |
+| Projects | 0.23 | 0.31 |
+| A project | 0.28 | 0.42 |
+| Phone | 0.33 | 0.57 |
+| Plan and Billing | 0.28 | 0.44 |
+| Files | 0.16 | 0.16 |
+| Alpha features | 0.27 | 0.40 |
+| A menu open: Running, Phone, Claude Code | 0.27, 0.34, 0.25 | 0.41, 0.59, 0.32 |
 | The search typed into | 0.39 | 0.68 |
 
-The menu down the side is 0.31 to 0.38 on every page. At 900 by 760, where the column narrows to
+The menu down the side is 0.28 to 0.31 on every page. At 900 by 760, where the column narrows to
 488 points and the plans' prices break onto a second line, General, Running, Claude Code,
-Projects, a project, Phone and Plan and Billing are 0.29 to 0.48 whole; at 1600 by 1000, 0.18 to
-0.30. Most of what is left is a wrapped line drawn a device pixel lower than Chromium draws it
+Projects, a project, Phone and Plan and Billing are 0.28 to 0.46 whole; at 1600 by 1000, 0.18 to
+0.29. Most of what is left is a wrapped line drawn a device pixel lower than Chromium draws it
 (below), which comes more often in a narrower column.
 
-Under the pointer (`tools/hover.py`), the control and the same box at rest: Back to app 0.26 and
-0.42, a page's row in the menu 0.64 and 0.48, a ghost button 1.18 and 0.90, a picker's chip 1.61
+Under the pointer (`tools/hover.py`), the control and the same box at rest: Back to app 0.29 and
+0.34, a page's row in the menu 0.49 and 0.33, a ghost button 1.09 and 0.81, a picker's chip 1.61
 and 1.59, a project's row 0.56 and 0.53, Switch 1.18 and 1.27, Add account 0.96 and 0.89, the
 crumb back to Projects 0.58 and 0.39; and, measured on their own boxes, a row of an open menu 0.91
 and 0.49, a project's name 2.81 and 2.24. The pointer walk holds the shape to the web window's at
-every point of every page but one to four a page, past the end of the last line of a wrapped
+every point of every page but one to six a page, past the end of the last line of a wrapped
 description, where the web window shows the arrow and this one the I-beam.
 
 Every write was tried on a scratch engine (`MERCURY_HOME` in a temporary folder, run from the main
@@ -1454,8 +1456,8 @@ release or a second login.
     point lower; which way they round follows where the box falls on a device pixel.
   - A project's rank takes the grab, as the web window's does, but dragging a row does nothing:
     it is moved with the arrows, To top and ⌥↑ ⌥↓.
-  - What eases in the web window lands at once: a switch's knob, a moved row's wash and its fade,
-    the controls coming up on a row in hand, the flash on a setting a search lands on.
+  - What eases in the web window lands at once: a switch's knob, a moved row's wash fading, a
+    meter's bar, and the flash on a setting a search lands on, which is not drawn.
   - A press outside an open menu closes it, and opens another picker if it was on one; any other
     control under it waits for a second press, where the web window's takes the first.
   - Not drawn: General's public links (the files made public, with Copy link and Stop sharing),
