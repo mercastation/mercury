@@ -9,7 +9,7 @@
 
 use std::sync::mpsc::{Receiver, Sender, channel};
 
-use rune::{El, TextStyle, Tx, Waker, el, icon, row, text};
+use rune::{El, TextStyle, Tx, Waker, col, el, icon, row, text};
 use serde_json::Value;
 
 use crate::data::Item;
@@ -259,20 +259,30 @@ pub fn tend(s: &mut State, tx: &mut Tx) -> bool {
 /* ------------------------------------- the why card ------------------------------------- */
 
 /// The card saying why the cloud has not got a thread (`.th-why-card`): 320 points wide, 11 by
-/// 14 inside, on the pop-up's ground inside the strong edge with the large shadow; its head in
-/// the text's ink, weight 500, three points over its body in dim ink, 13 points on a 1.45 line.
+/// 14 inside, on the pop-up's ground inside the strong edge with the large shadow and a corner of
+/// 10; its head in the text's ink, weight 500, three points over its body in dim ink, 13 points
+/// on a 1.45 line.
 pub fn why_card(head: &str, body: &str) -> El {
-    let words = TextStyle::new(13.0, 400.0).lh(kept(18.85));
-    el().w(320.0)
+    col().w(320.0)
         .pt(12.0)
         .pb(13.0)
         .px(15.0)
-        .fill(page())
-        .border(1.0, white(0.24))
+        .radius(10.0)
+        .fill(rgb(54, 52, 49))
+        .border(1.0, rule())
         .box_shadow(shadow(0.0, 18.0, 50.0, 0.0, rgba(0, 0, 0, 0.45), false))
         .a11y_hidden()
-        .child(text(head).font(TextStyle::new(13.0, 500.0).lh(kept(18.85))).color(ink()).wrap())
-        .child(text(body).font(words).color(dim()).wrap().mt(3.0))
+        .child(pen(text(head).font(WHY_HEAD).color(ink()).wrap(), 13.0))
+        .child(pen(text(body).font(WHY_BODY).color(dim()).wrap(), 13.0).mt(3.0))
+}
+
+const WHY_HEAD: TextStyle = TextStyle::new(13.0, 500.0).lh(18.85);
+const WHY_BODY: TextStyle = TextStyle::new(13.0, 400.0).lh(18.85);
+
+/// How tall that card stands: its words wrapped in its 290 points, and what is round them.
+fn why_card_height(head: &str, body: &str) -> f32 {
+    let tall = |words: &str, font: TextStyle| rune::text::measure(words, &[], font, Some(290.0)).1;
+    1.0 + 11.0 + tall(head, WHY_HEAD) + 3.0 + tall(body, WHY_BODY) + 12.0 + 1.0
 }
 
 /// Where a card is up: the element keyed `at` the pointer rests on, and what its card says.
@@ -284,12 +294,17 @@ pub struct WhyUp {
     /// Under the element (a row's Status word), or over it (the working line's place, as the
     /// reply box sits right under that line).
     pub over: bool,
+    /// The element whose foot is as far as the card shows: the web window's rows paint over a
+    /// card hanging from the row above them, so under a row with another after it only the
+    /// card's top shows, down to that row's foot.
+    pub cut_at: Option<String>,
 }
 
 /// Has `e` put its card up while the pointer rests on it, and take it down when the pointer
-/// leaves (`.has-card:hover .th-why-card { display: block }`), keyed `at`.
-pub fn with_card(e: El, at: String, (head, body): (String, String), over: bool) -> El {
-    let up = WhyUp { at: at.clone(), head, body, over };
+/// leaves (`.has-card:hover .th-why-card { display: block }`), keyed `at`. `cut_at` is what the
+/// card shows no further than (see `WhyUp`).
+pub fn with_card(e: El, at: String, (head, body): (String, String), over: bool, cut_at: Option<String>) -> El {
+    let up = WhyUp { at: at.clone(), head, body, over, cut_at };
     e.key(at.clone()).on_hover_change(move |s: &mut State, inside, _| {
         if inside {
             s.why_up = Some(up.clone());
@@ -305,12 +320,14 @@ pub fn why_layer(s: &State) -> Option<El> {
     let up = s.why_up.as_ref()?;
     let [x, y, _, h] = rune::memo::window_layout(&up.at)?;
     let card = why_card(&up.head, &up.body);
+    let tall = why_card_height(&up.head, &up.body);
     if up.over {
-        // Its own height is what it was laid out at last; the first frame stands it on the line.
-        let tall = rune::memo::layout_size("why-card").map_or(0.0, |[_, tall]| tall);
-        return Some(el().absolute(x, y - 10.0 - tall).child(card.key("why-card")));
+        return Some(el().absolute(x, y - 10.0 - tall).child(card));
     }
-    Some(el().absolute(x, y + h + 10.0).child(card.key("why-card")))
+    let top = y + h + 10.0;
+    // Shown only down to the foot of the row it hangs from, where the next row paints over it.
+    let shown = up.cut_at.as_deref().and_then(rune::memo::window_layout).map_or(tall + 60.0, |[_, ry, _, rh]| (ry + rh - top).max(0.0));
+    Some(el().absolute(x, top).size(320.0, shown.min(tall + 60.0)).clip_rounded(0.0).child(card))
 }
 
 #[cfg(test)]

@@ -254,7 +254,7 @@ function conversation(item, found, waiting = false, said = SHIPPED, runs = null,
 // names the Inbox's tab the thread is then opened from, whichever run is on it. `fleet` changes
 // what the supervisor says about it once the run is set (`fleet(snapshot, row, now)`): queued,
 // stopped, signed out, the run taken away.
-export async function open(h, { unfold, found = FOUND, shipped = SHIPPED, files = null, waiting = false, then = null, runs = null, reply = REPLY, marks = null, dress = null, fromTab = null, fleet = null, trace = null }) {
+export async function open(h, { unfold, found = FOUND, shipped = SHIPPED, files = null, waiting = false, then = null, runs = null, reply = REPLY, marks = null, dress = null, fromTab = null, fleet = null, trace = null, ledger = null }) {
   const snapshot = await h.evaluate('window.__SNAP__');
   // The Inbox opens on its first row; the snapshot's first thread is not always that one.
   await toInbox(h);
@@ -266,7 +266,9 @@ export async function open(h, { unfold, found = FOUND, shipped = SHIPPED, files 
   const planted = files ? plant({ thread: snapshot.items[at].id, large: !!files.large }) : null;
   const words = (text) => (typeof text === 'function' ? text(planted) : text);
   const made = conversation(snapshot.items[at], words(found), waiting, words(shipped), runs, words(reply));
-  const { row, lines, session = null } = made;
+  const { row, session = null } = made;
+  // `ledger` changes the thread's ledger lines before they are served (more said on it).
+  const lines = ledger ? ledger(made.lines, row) : made.lines;
   // `trace` changes the runs' logs before they are served (a line added to one).
   const sessions = trace ? trace(made.sessions ?? []) : made.sessions ?? [];
   if (marks) row.artifacts = marks;

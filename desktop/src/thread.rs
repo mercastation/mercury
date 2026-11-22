@@ -86,6 +86,9 @@ pub struct Reading {
     /// scrolled, which `on_scroll_offset` keeps up to date with no view run.
     touched: Option<String>,
     scrolled: Rc<std::cell::Cell<f32>>,
+    /// The block, by its line's name, under the line for a long conversation's missing middle
+    /// when that line was pressed: it is held in place as the middle comes in (`openGap`).
+    gap_anchor: Option<String>,
 }
 
 /// How long a conversation keeps landing where it opens while its page settles
@@ -694,6 +697,8 @@ impl State {
             if let Some(thread) = &on {
                 let news = self.item_by_key(thread).map_or(0.0, arrived_at);
                 let kept = self.reading.left.iter().find(|(k, n, _)| k == thread && *n == news).map(|(_, _, top)| *top);
+                // A picture taken scrolled says how far (`scrolledTo`).
+                let kept = kept.or_else(|| self.fixture.get("scrolledTo").and_then(Value::as_f64).map(|top| Some(top as f32)));
                 match kept {
                     Some(top) => self.reading.landing = Some((thread.clone(), since, top)),
                     None => {
@@ -1068,13 +1073,28 @@ fn line_ids(said: &[Said]) -> Vec<String> {
         .collect()
 }
 
-/// The line that stands for a long conversation's missing middle, which asks for it whole.
-fn gap_line(omitted: usize, thread: String) -> El {
-    let line = el().h(kept(25.6)).items_center().child(text(work::conversation_gap(omitted)).font(TextStyle::new(13.0, 400.0).lh(kept(25.6))).color(muted()));
-    line.mt(18.0).cursor(rune::Cursor::Pointer).on_press(move |s: &mut State| {
+/// The line that stands for a long conversation's missing middle (`.thread-gap`): as wide as the
+/// column, its words faint, and dim and underlined under the pointer. A press asks for the
+/// middle whole, and what is under the line stays where it is on the screen as the middle comes
+/// in over it (`openGap`): `after` names the block under it, which the window holds in place.
+fn gap_line(omitted: usize, thread: String, after: Option<String>) -> El {
+    let words = text(work::conversation_gap(omitted)).font(TextStyle::new(13.0, 400.0).lh(kept(20.8))).color(muted()).group_color(dim());
+    // The underline is where Chromium puts Geist's at 13 points: 15.3 points down the line, a
+    // point thick, as wide as the words.
+    let wide = rune::text::measure(&work::conversation_gap(omitted), &[], TextStyle::new(13.0, 400.0), None).0;
+    let under = el().absolute(0.0, 15.3).size(wide, 1.0).fill(dim()).group_opacity(0.0, 1.0);
+    row().w_full().mt(18.0).hover_group().cursor(rune::Cursor::Pointer).role("button").child(el().child(pen(words, 13.0)).child(under)).on_press_tx(move |s: &mut State, tx| {
         s.reading.whole.insert(thread.clone());
+        if let Some(after) = &after {
+            s.reading.gap_anchor = Some(after.clone());
+            tx.keep_on_screen(GAP_ANCHOR);
+        }
     })
 }
+
+/// The key of the block under the line for a long conversation's missing middle, held in place
+/// while the middle comes in.
+const GAP_ANCHOR: &str = "gap-anchor";
 
 /// The conversation: each thing said or done under the last, 22 points apart, with what
 /// happened drawn closer to what it follows, and each stretch of what a run ran folded to one
@@ -1092,6 +1112,7 @@ fn conversation(s: &State, thread: &str, page: &Page, now: f64, m: &Measure, fil
     let mut name_above = "start".to_string();
     let (mut i, mut runs) = (0, 0);
     while i < said.len() {
+        let start = i;
         let (block, holds) = match &said[i] {
             Said::Work(_) => {
                 let from = i;
@@ -1124,9 +1145,12 @@ fn conversation(s: &State, thread: &str, page: &Page, now: f64, m: &Measure, fil
             Some(_) if gap_above => 22.0,
             Some(a) => room(a, holds),
         };
+        // The block the line for the middle was over when it was pressed stays put as the middle
+        // comes in over it.
+        let block = if s.reading.gap_anchor.as_deref() == Some(ids[start].as_str()) { col().key(GAP_ANCHOR).child(block) } else { block };
         gap_above = cut == Some(i - 1);
         let block = match page.gap.filter(|_| gap_above) {
-            Some((_, omitted)) => col().child(block).child(gap_line(omitted, thread.to_string())),
+            Some((_, omitted)) => col().child(block).child(gap_line(omitted, thread.to_string(), ids.get(i).cloned())),
             None => block,
         };
         above = Some(holds);
@@ -1302,7 +1326,7 @@ fn live_line(s: &State, item: &Item, thread: &str, run: String, line: &live::Foo
         let said = text(place.word.as_str()).font(font.features("'tnum' 1")).color(muted());
         words = words.child(match &place.why {
             // Its card opens upward, as the reply box sits right under this line (`.live-place .th-why-card`).
-            Some(why) => crate::foot::with_card(el().child(said), "live-place".to_string(), why.clone(), true),
+            Some(why) => crate::foot::with_card(el().child(said), "live-place".to_string(), why.clone(), true, None),
             None => said,
         });
     }
@@ -1847,6 +1871,9 @@ pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
         .grow(1.0)
         .min_h(0.0)
         .scroll(ScrollSpec { stick_bottom: as_conversation })
+        // What is read stays put when something over it changes height, as a browser keeps it
+        // (`overflow-anchor`), off the foot.
+        .scroll_anchor()
         .on_scroll_offset(move |at| scrolled.set(at.offset[1]))
         .on_wheel(move |s: &mut State, _, tx| {
             if s.reading.touched.as_deref() == Some(thread.as_str()) {
