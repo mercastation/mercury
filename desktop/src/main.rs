@@ -1144,8 +1144,9 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
         Some(notice) => root.child(notice),
         None => root,
     };
-    // The key hint of the control the pointer has waited on, over everything (`feel.rs`).
-    root.children(feel::plate(s))
+    // The band that moves the window, and the key hint of the control the pointer has waited
+    // on, over everything (`chrome.rs`, `feel.rs`).
+    root.children(chrome::drag_band(s)).children(feel::plate(s))
 }
 
 static FONTS: &[&[u8]] = &[include_bytes!("../assets/fonts/Geist-Variable.ttf"), include_bytes!("../assets/fonts/GeistMono-Variable.ttf")];

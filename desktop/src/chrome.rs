@@ -334,6 +334,20 @@ pub fn rail(s: &State) -> El {
     rail
 }
 
+/// The band along the window's top that moves the window, as the title bar it stands in for
+/// does (`.workspace-layout::after`, 40 points of `-webkit-app-region: drag`), and a double
+/// press there zooms it as the system says. It stands over everything, the New thread card's
+/// and the Later picker's veils included, since the web window's band is not cut by them; it
+/// is not there while the command bar is open (`:has(> .palette-backdrop)::after { no-drag }`).
+/// Above it the system's own title bar band moves the window whatever is open, as the band
+/// `hiddenInset` keeps does in the web window (`.find-bar` in `renderer/src/styles.css`). The
+/// rail is never part of it (`.workspace-navigation { no-drag }`), nor is anything else in the
+/// window but the card's top strip on the Inbox and over a conversation: Home's strip is
+/// hidden (`.app.home-shown > .topbar { visibility: hidden }`), which takes it out.
+pub fn drag_band(s: &State) -> Option<El> {
+    (!s.palette.open).then(|| el().absolute(0.0, 0.0).size(s.size.0, CARD[1]).window_drag())
+}
+
 /// One quiet line at the card's foot when the engine cannot be read, so an empty inbox is never
 /// mistaken for a finished one; and when an agent asks for a yes this window cannot yet give.
 pub fn notice(s: &State) -> Option<El> {
@@ -502,10 +516,11 @@ pub fn back_forward(s: &State) -> El {
         return crate::thread::head(s, id, product);
     }
     // An arrow with somewhere to go takes `--film-strong` under the pointer; one with nowhere
-    // keeps the arrow pointer and no look (`.back-forward button:disabled`).
+    // keeps the arrow pointer and no look (`.back-forward button:disabled`). Either keeps its
+    // press from the strip under it, which moves the window (`.topbar button { no-drag }`).
     let arrow = |glyph: &'static Icon, live: bool| {
         let e = row().size(26.0, 26.0).radius(6.0).center().opacity(if live { 1.0 } else { 0.45 }).child(icon(glyph, 15.0).color(if live { ink() } else { muted() }));
-        if live { e.hover(crate::feel::film()).cursor(rune::Cursor::Pointer) } else { e }
+        if live { e.hover(crate::feel::film()).cursor(rune::Cursor::Pointer) } else { e.no_window_drag() }
     };
     // 44 points into the card (`.gt-inset .topbar`), wherever the rail has put the card.
     let arrows = row().absolute(card_left(s) + 44.0, 58.5).gap(2.0).child(arrow(&icons::BACK, !s.history.is_empty()).on_press(|s: &mut State| s.back())).child(arrow(&icons::FORWARD, false));

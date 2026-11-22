@@ -144,7 +144,8 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
                 let b = b.hover_group().hover(crate::feel::wash_strong()).cursor(rune::Cursor::Pointer).on_press(move |s: &mut State| s.step_to_thread(&id, &product));
                 crate::feel::hinted(b, hint, format!("strip-{hint}"), crate::feel::Align::Right, None)
             }
-            None => b.opacity(0.35),
+            // Kept from the strip under it, which moves the window (`.topbar button { no-drag }`).
+            None => b.opacity(0.35).no_window_drag(),
         }
     };
     let crumbs = mono(11.0, 14.0).tracking(0.99);
@@ -193,6 +194,9 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
     // The arrows at the strip's left end take `--film-strong` under the pointer, and only while
     // there is somewhere to go (`.back-forward button:not(:disabled):hover`).
     let arrow = |e: El| e.hover(crate::feel::film()).cursor(rune::Cursor::Pointer);
+    // The strip moves the window as the title bar would (`.topbar`, `-webkit-app-region: drag`),
+    // and every button keeps its press (`no-drag`), as does all of the middle, where the crumb
+    // and the name stand (`.workspace-task-header { no-drag }`).
     row().absolute(chrome::card_left(s), chrome::CARD[1])
         .size(card_w, 56.0)
         .items_center()
@@ -200,16 +204,18 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
         .pr(28.0)
         .border_sides([0.0, 0.0, 1.0, 0.0], edge())
         .border_layout()
+        .window_drag()
         .child(crate::feel::hinted(arrow(square(&icons::INBOX, 15.0, 26.0, ink())).on_press(|s: &mut State| s.go(View::Inbox)), "inbox", "strip-inbox", crate::feel::Align::Left, None).mr(10.0))
         // Back is where the person came from, and a thread opened from nowhere came from the Inbox.
         .child(arrow(square(&icons::BACK, 15.0, 26.0, ink())).ml(2.0).on_press(|s: &mut State| s.leave_thread()))
-        .child(square(&icons::FORWARD, 15.0, 26.0, muted()).ml(2.0).opacity(0.45))
+        .child(square(&icons::FORWARD, 15.0, 26.0, muted()).ml(2.0).opacity(0.45).no_window_drag())
         .child(
             row().grow(1.0)
                 .min_w(0.0)
                 .h(28.0)
                 .ml(12.0)
                 .items_center()
+                .no_window_drag()
                 // The tab the thread is in, which goes back to it: a solid ground under the
                 // pointer, from its left edge to eight points past its words (`.thread-crumb-back`).
                 .child(crate::feel::hinted(

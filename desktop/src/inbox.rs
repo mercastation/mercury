@@ -147,7 +147,9 @@ pub fn strip(s: &State) -> El {
     if let Some(button) = cloud::button(s.snap.rest.get("cloud"), &s.local.cloud_broken_seen) {
         buttons = buttons.child(crate::feel::hinted(cloud_button(s, button), "cloud", CLOUD, crate::feel::Align::Center, None));
     }
-    // `.topbar`: 64 points with a clear hairline under it, the arrows' 54 and their 12 before the title.
+    // `.topbar`: 64 points with a clear hairline under it, the arrows' 54 and their 12 before the
+    // title. It moves the window as the title bar would, its buttons keeping their presses
+    // (`-webkit-app-region: drag`, and `no-drag` on `.topbar button`).
     row().absolute(chrome::card_left(s), chrome::CARD[1])
         .size(card_w, 64.0)
         .pl(110.0)
@@ -155,6 +157,7 @@ pub fn strip(s: &State) -> El {
         .pb(1.0)
         .items_center()
         .justify_between()
+        .window_drag()
         .child(title)
         .child(buttons.child(display))
 }
