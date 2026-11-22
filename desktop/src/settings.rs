@@ -695,21 +695,22 @@ pub fn view(s: &State) -> Vec<El> {
 
 /// The menu, in the rail's place (`.set-nav`).
 fn nav(s: &State, h: f32) -> El {
+    // The menu's rows, its back row and its search are the app sidebar's, so opening Settings
+    // does not change how the side of the window looks (`.set-nav-back`, `.set-search`).
     let back = row()
-        .h(32.0)
+        .h(36.0)
         .px(10.0)
-        .gap(9.0)
+        .gap(11.0)
         .radius(6.0)
         .items_center()
         .cursor(Cursor::Pointer)
         .hover_group()
         .hover(rgb(46, 44, 43))
         .help("Back to app (esc)")
-        // Under the pointer only its ground darkens: the screen's own rule keeps its words dim
-        // (`.settings-screen[data-pane] .set-nav-back` over `.back-esc:hover`).
-        .child(icon(&marks::BACK, 15.0).color(dim()))
-        .child(row().grow(1.0).child(pen(text("Back to app").font(sans(13.0, 400.0)).color(dim()), 13.0)))
-        .child(pen(text("esc").font(sans(11.0, 400.0).tracking(0.52)).color(muted()), 11.0).opacity(0.8))
+        // Under the pointer its mark and words come up to the text's ink; esc keeps its own.
+        .child(icon(&marks::BACK, 18.0).color(muted()).group_color(ink()))
+        .child(row().grow(1.0).child(pen(text("Back to app").font(sans(13.0, 400.0)).color(muted()).group_color(ink()), 13.0)))
+        .child(pen(text("esc").font(sans(12.0, 400.0).tracking(0.24)).color(muted()), 12.0).opacity(0.7))
         .on_press(|s: &mut State| close(s));
     let field = text_input(&s.settings.search, sans(13.0, 400.0))
         .key("settings-search")
@@ -723,18 +724,15 @@ fn nav(s: &State, h: f32) -> El {
             &mut s.settings.search
         })
         .on_input_key(search_keys);
+    // A row like the ones under it, with no box of its own.
     let search = row()
-        .mt(8.0)
+        .mt(6.0)
         .h(32.0)
         .px(10.0)
-        .gap(8.0)
+        .gap(11.0)
         .items_center()
-        .radius(6.0)
-        .fill(white(0.04))
-        .border(1.0, if s.settings.search.focused { rule() } else { edge() })
-        .border_layout()
         .cursor(Cursor::Text)
-        .child(icon(&marks::SEARCH, 15.0).color(muted()))
+        .child(icon(&marks::SEARCH, 18.0).color(muted()))
         .child(pen(field, 13.0))
         .on_press_tx(|s: &mut State, tx| {
             s.settings.search.focused = true;
@@ -773,14 +771,16 @@ fn menu_rows(s: &State) -> Vec<El> {
         rows.push(el().pt(20.0).px(10.0).pb(6.0).child(pen(text(group.label()).font(sans(11.5, 500.0)).color(muted()), 11.5)));
         for (at, page) in mine.into_iter().enumerate() {
             let on = lit(s, page);
-            let item = nav_item(icon(marks::page(page), 16.0).color(if on { ink() } else { muted() }), page.label(), on, false).on_press_tx(move |s: &mut State, tx| go(s, Pane::Page(page), tx));
-            rows.push(if at > 0 { item.mt(1.0) } else { item });
+            // The mark takes the row's ink, as the words do.
+            let mark = icon(marks::page(page), 18.0).color(if on { ink() } else { muted() }).group_color(ink());
+            let item = nav_item(mark, page.label(), on, false).on_press_tx(move |s: &mut State, tx| go(s, Pane::Page(page), tx));
+            rows.push(if at > 0 { item.mt(3.0) } else { item });
             if page == PageId::Projects {
                 if let Some(p) = s.settings.current() {
                     let slug = rules::text(p, "slug").unwrap_or("").to_string();
                     let name = rules::text(p, "name").unwrap_or("").to_string();
                     let mark = projects::mark(&slug, 14.0);
-                    rows.push(nav_item(mark, &name, true, true).mt(1.0).on_press_tx(move |s: &mut State, tx| go(s, Pane::Project(slug.clone()), tx)));
+                    rows.push(nav_item(mark, &name, true, true).mt(3.0).on_press_tx(move |s: &mut State, tx| go(s, Pane::Project(slug.clone()), tx)));
                 }
             }
         }
@@ -792,10 +792,10 @@ fn menu_rows(s: &State) -> Vec<El> {
 /// under the pointer. A project's row, under Projects, stands a step in and is not washed
 /// while lit, only under the pointer.
 fn nav_item(mark: El, word: &str, on: bool, sub: bool) -> El {
-    let tone = if on { ink() } else { dim() };
-    let b = row().h(32.0).pl(if sub { 24.0 } else { 10.0 }).pr(10.0).gap(10.0).radius(6.0).items_center().cursor(Cursor::Pointer).hover_group().hover(white(0.04));
+    let tone = if on { ink() } else { muted() };
+    let b = row().h(36.0).pl(if sub { 24.0 } else { 10.0 }).pr(10.0).gap(11.0).radius(6.0).items_center().cursor(Cursor::Pointer).hover_group().hover(white(0.04));
     let b = if on && !sub { b.fill(white(0.04)) } else { b };
-    b.child(row().size(16.0, 16.0).center().child(mark))
+    b.child(row().size(18.0, 18.0).center().child(mark))
         .child(row().grow(1.0).min_w(0.0).child(pen(text(word).font(sans(13.0, if on { 500.0 } else { 400.0 })).color(tone).group_color(ink()).truncate(), 13.0)))
 }
 
@@ -817,7 +817,7 @@ fn hit_rows(s: &State) -> Vec<El> {
                 .child(pen(text(hit.page_label).font(TextStyle::new(11.5, if lit { 500.0 } else { 400.0 }).lh(kept(15.525))).color(muted()), 11.5));
             let b = col().min_h(44.0).py(6.0).px(10.0).radius(6.0).justify_center().cursor(Cursor::Pointer).child(words);
             let b = if lit { b.fill(white(0.04)) } else { b.hover(white(0.04)) };
-            let b = if at > 0 { b.mt(1.0) } else { b };
+            let b = if at > 0 { b.mt(3.0) } else { b };
             b.on_hover_change(move |s: &mut State, inside, tx| {
                 if inside {
                     s.settings.hit_at = at;
@@ -947,17 +947,17 @@ mod tests {
         rt.frame(1.0 / 60.0);
     }
 
-    /// The middle of the menu's row for a page: the groups' rows 33 points apart under their
+    /// The middle of the menu's row for a page: the groups' rows 39 points apart under their
     /// headings, as `.set-nav-item` stands.
     fn row_of(page: PageId) -> (f32, f32) {
         let y = match page {
-            PageId::General => 185.0,
-            PageId::Appearance => 218.0,
-            PageId::Phone => 284.0,
-            PageId::Claude => 390.0,
-            PageId::Running => 489.0,
-            PageId::Instructions => 522.0,
-            PageId::Projects => 595.0,
+            PageId::General => 189.0,
+            PageId::Appearance => 228.0,
+            PageId::Phone => 306.0,
+            PageId::Claude => 422.0,
+            PageId::Running => 539.0,
+            PageId::Instructions => 578.0,
+            PageId::Projects => 655.0,
             _ => unreachable!("not a row these tests press"),
         };
         (100.0, y)

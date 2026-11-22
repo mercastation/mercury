@@ -416,21 +416,26 @@ pub fn counted(accounts: &[Value]) -> Vec<&Value> {
     accounts.iter().filter(|a| text(a, "state") != Some("duplicate")).collect()
 }
 
-/// A login's name: its address, or the agent's word, numbered when there are several
-/// (`accountLabel`, `accountName` in `shared/account-names.mts`).
+/// What a login with no address is called (`accountName` in `shared/account-names.mts`): the
+/// agent's word, numbered by its place among that agent's logins when there are several.
+pub fn account_name(engine: &str, index: usize, total: usize) -> String {
+    let word = match engine {
+        "codex" => "Codex",
+        "antigravity" => "Antigravity",
+        _ => "Claude",
+    };
+    if total > 1 { format!("{word} account {}", index + 1) } else { format!("{word} account") }
+}
+
+/// A cloud login's name: its address, or what a login with none is called (`accountLabel`).
 pub fn account_label(a: &Value, all: &[&Value]) -> String {
     if let Some(email) = text(a, "name") {
         return email.to_string();
     }
     let engine = text(a, "engine").unwrap_or("claude");
     let same: Vec<&&Value> = all.iter().filter(|x| text(x, "engine").unwrap_or("claude") == engine).collect();
-    let word = match engine {
-        "codex" => "Codex",
-        "antigravity" => "Antigravity",
-        _ => "Claude",
-    };
     let index = same.iter().position(|x| std::ptr::eq(**x, a)).unwrap_or(0);
-    if same.len() > 1 { format!("{word} account {}", index + 1) } else { format!("{word} account") }
+    account_name(engine, index, same.len())
 }
 
 /// The one login the cloud runs an agent on (`cloudAccountInUse`).
@@ -487,7 +492,9 @@ pub fn claude_logins(w: &Value) -> Vec<HereLogin> {
                 email: text(a, "email").map(str::to_string),
                 plan: a.get("plan").and_then(|p| text(p, "label")).map(str::to_string),
                 chosen: on(a, "chosen"),
-                signed_in: text(a, "email").is_some(),
+                // The computer's own answer where it gave one: a login Claude Code runs on may
+                // have no address on file.
+                signed_in: a.get("signedIn").and_then(Value::as_bool).unwrap_or(text(a, "email").is_some()),
                 trouble: trouble.and_then(|t| text(t, "note")).map(str::to_string),
                 at_limit: trouble.and_then(|t| text(t, "cause")) == Some("at-limit"),
                 limit_at: trouble.and_then(|t| num(t, "at")),
@@ -516,7 +523,7 @@ pub fn codex_logins(w: &Value) -> Vec<HereLogin> {
 }
 
 /// Each account once, wherever it is signed in, with one reading (`OneAccount`).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct OneAccount {
     pub key: String,
     pub name: String,
@@ -564,8 +571,9 @@ fn reading_for(profile: &str, readings: &[Value], current: Option<&Value>) -> Op
 
 /// Every account once: the one in use here first, then the rest of this computer's in their
 /// order, then the cloud's signed in nowhere here (`accountsOnce`). `cloud` is the counted
-/// logins of this agent, oldest first.
-pub fn accounts_once(here: &[HereLogin], cloud: &[Value], readings: &[Value], current: Option<&Value>) -> Vec<OneAccount> {
+/// logins of this agent, oldest first; `claude` whether they are Claude Code's, whose login
+/// signed in with no address is named for its place, where Codex's keeps "Not signed in".
+pub fn accounts_once(here: &[HereLogin], cloud: &[Value], readings: &[Value], current: Option<&Value>, claude: bool) -> Vec<OneAccount> {
     let mut paired: Vec<(String, usize)> = Vec::new();
     for (at, c) in cloud.iter().enumerate() {
         if let Some(p) = text(c, "profile") {
@@ -591,7 +599,11 @@ pub fn accounts_once(here: &[HereLogin], cloud: &[Value], readings: &[Value], cu
         let local_error = h.and_then(|h| readings.iter().find(|r| text(r, "profile") == Some(h.profile.as_str())).and_then(|r| text(r, "error")).map(str::to_string));
         OneAccount {
             key: h.map_or_else(|| format!("cloud:{}", c.and_then(|c| text(c, "key")).unwrap_or("")), |h| h.profile.clone()),
-            name: h.and_then(|h| h.email.clone()).or_else(|| c.map(|c| account_label(c, &cloud_refs))).unwrap_or_else(|| "Not signed in".to_string()),
+            name: h
+                .and_then(|h| h.email.clone())
+                .or_else(|| c.map(|c| account_label(c, &cloud_refs)))
+                .or_else(|| h.filter(|h| h.signed_in && claude).map(|h| account_name("claude", here.iter().position(|x| x.profile == h.profile).unwrap_or(0), here.len())))
+                .unwrap_or_else(|| "Not signed in".to_string()),
             plan: h.filter(|h| h.signed_in).and_then(|h| h.plan.clone()).or_else(|| c.and_then(|c| text(c, "plan")).map(str::to_string)),
             here: h.cloned(),
             cloud: c.cloned(),
@@ -632,7 +644,7 @@ pub fn codex_accounts_once(here: &[HereLogin], cloud: &[Value], readings: &[Valu
         }
         c
     });
-    accounts_once(here, &matched, readings, current.as_ref())
+    accounts_once(here, &matched, readings, current.as_ref(), false)
 }
 
 /// Where an account is signed in and working, a tag each.
@@ -677,9 +689,13 @@ pub struct Tile {
     pub none: Option<String>,
 }
 
+/// What a Claude Code usage read says when it came back empty (`USAGE_UNREADABLE`).
+pub const USAGE_UNREADABLE: &str = "Claude Code didn't report usage for this account. Check that its plan is active at claude.ai.";
+
 /// An account's one tile (`accountTile`): `many` is whether this computer has more than one
-/// login, `cloud` whether a cloud is set up, `cloud_sign_in` whether a tile may offer one.
-pub fn account_tile(a: &OneAccount, many: bool, now: f64, cloud: bool, cloud_sign_in: bool) -> Tile {
+/// login, `cloud` whether a cloud is set up, `cloud_sign_in` whether a tile may offer one, and
+/// `claude` whether the login is Claude Code's.
+pub fn account_tile(a: &OneAccount, many: bool, now: f64, cloud: bool, cloud_sign_in: bool, claude: bool) -> Tile {
     let h = a.here.as_ref();
     let c = a.cloud.as_ref();
     let broken = c.is_some_and(|c| text(c, "state") == Some("broken"));
@@ -728,7 +744,8 @@ pub fn account_tile(a: &OneAccount, many: bool, now: f64, cloud: bool, cloud_sig
         in_use: h.is_some_and(|h| h.chosen) && !signing_in,
         limits: a.limits.clone(),
         checked_at: a.checked_at,
-        usage_error: a.usage_error.clone(),
+        // An empty read says nothing about the plan of a Claude login signed in with no trouble.
+        usage_error: if claude && a.usage_error.as_deref() == Some(USAGE_UNREADABLE) && h.is_some_and(|h| h.signed_in && h.trouble.is_none()) { None } else { a.usage_error.clone() },
         use_: h.filter(|h| h.signed_in && !h.chosen && many).map(|h| ("Switch".to_string(), TileAct::Use(h.profile.clone()))),
         places,
         cloud_act,
@@ -1345,33 +1362,68 @@ mod tests {
             json!({ "engine": "claude", "key": "c3", "name": "c@example.com", "plan": "Pro", "state": "ready" }),
         ];
         let readings = vec![json!({ "profile": "default", "limits": read(10.0, 1000.0), "at": 1000.0 }), json!({ "profile": "studio", "limits": read(20.0, 1500.0), "at": 1500.0 })];
-        let once = accounts_once(&here, &cloud, &readings, None);
+        let once = accounts_once(&here, &cloud, &readings, None, true);
         // The one in use first, then the rest here, then the cloud's alone.
         assert_eq!(once.iter().map(|a| a.key.as_str()).collect::<Vec<_>>(), ["studio", "default", "cloud:c3"]);
         // The cloud's reading of the same account is newer, and wins.
         assert_eq!(once[1].checked_at, Some(2000.0));
         assert_eq!(once[0].checked_at, Some(1500.0));
-        let tile = account_tile(&once[1], true, 0.0, true, true);
+        let tile = account_tile(&once[1], true, 0.0, true, true, true);
         assert_eq!(tile.places, [Place::Here, Place::Cloud]);
         assert_eq!(tile.use_, Some(("Switch".to_string(), TileAct::Use("default".to_string()))));
         assert!(!tile.in_use);
-        let tile = account_tile(&once[0], true, 0.0, true, true);
+        let tile = account_tile(&once[0], true, 0.0, true, true, true);
         assert!(tile.in_use && tile.use_.is_none());
         // Here and not in the cloud: the tile offers to add it.
         assert_eq!(tile.cloud_act, Some(("Add to cloud".to_string(), TileAct::CloudSignIn(None))));
         // One account alone offers no switch, and with no cloud, no places.
-        let lone = accounts_once(&here[..1], &[], &readings, None);
-        assert_eq!(account_tile(&lone[0], false, 0.0, false, true).use_, None);
-        assert!(account_tile(&lone[0], false, 0.0, false, true).places.is_empty());
+        let lone = accounts_once(&here[..1], &[], &readings, None, true);
+        assert_eq!(account_tile(&lone[0], false, 0.0, false, true, true).use_, None);
+        assert!(account_tile(&lone[0], false, 0.0, false, true, true).places.is_empty());
     }
 
     #[test]
     fn an_account_not_signed_in_is_never_in_use_and_says_to_finish() {
         let here = vec![HereLogin { profile: "codex-2".into(), chosen: true, signed_in: false, ..HereLogin::default() }];
-        let tile = account_tile(&accounts_once(&here, &[], &[], None)[0], true, 0.0, true, true);
+        let tile = account_tile(&accounts_once(&here, &[], &[], None, true)[0], true, 0.0, true, true, true);
         assert!(!tile.in_use);
+        assert_eq!(tile.name, "Not signed in");
         assert_eq!(tile.about, ["Finish signing in to use it"]);
         assert!(tile.places.is_empty() && tile.cloud_act.is_none());
+    }
+
+    #[test]
+    fn a_working_claude_login_with_no_address_on_file_reads_as_signed_in() {
+        // The computer's yes wins over the missing address, and its no over a present one.
+        let row = |email: Value, signed_in: Value| claude_logins(&json!({ "accounts": [{ "profile": "default", "email": email, "signedIn": signed_in, "chosen": true }] })).remove(0);
+        assert!(row(Value::Null, json!(true)).signed_in);
+        assert!(!row(json!("one@example.test"), json!(false)).signed_in);
+        // With no answer, the address says, as before.
+        assert!(row(json!("one@example.test"), Value::Null).signed_in);
+        assert!(!row(Value::Null, Value::Null).signed_in);
+        // Named as a Claude account, in use, never asked to finish signing in.
+        let here = vec![HereLogin { profile: "default".into(), chosen: true, signed_in: true, ..HereLogin::default() }];
+        let tile = account_tile(&accounts_once(&here, &[], &[], None, true)[0], false, 0.0, false, true, true);
+        assert_eq!(tile.name, "Claude account");
+        assert!(tile.in_use && tile.about.is_empty());
+        // Numbered by its place where there are several.
+        let two = vec![HereLogin { profile: "default".into(), email: Some("one@example.test".into()), signed_in: true, ..HereLogin::default() }, HereLogin { profile: "second".into(), signed_in: true, ..HereLogin::default() }];
+        assert_eq!(accounts_once(&two, &[], &[], None, true)[1].name, "Claude account 2");
+        // Codex's keeps the words it had.
+        assert_eq!(codex_accounts_once(&here, &[], &[], None)[0].name, "Not signed in");
+    }
+
+    #[test]
+    fn an_empty_usage_read_says_nothing_about_a_healthy_claude_logins_plan() {
+        let here = HereLogin { profile: "default".into(), chosen: true, signed_in: true, ..HereLogin::default() };
+        let account = |here: HereLogin| OneAccount { key: "default".into(), name: "Claude account".into(), here: Some(here), usage_error: Some(USAGE_UNREADABLE.into()), ..OneAccount::default() };
+        let tile = account_tile(&account(here.clone()), false, 0.0, false, true, true);
+        assert_eq!(tile.usage_error, None);
+        assert!(tile.meters, "it promises a reading, not a check of its plan");
+        // Beside a trouble of its own, it still says so; and for Codex, always.
+        let troubled = HereLogin { trouble: Some("This subscription has ended.".into()), ..here.clone() };
+        assert_eq!(account_tile(&account(troubled), false, 0.0, false, true, true).usage_error.as_deref(), Some(USAGE_UNREADABLE));
+        assert_eq!(account_tile(&account(here), false, 0.0, false, false, false).usage_error.as_deref(), Some(USAGE_UNREADABLE));
     }
 
     #[test]

@@ -96,14 +96,15 @@ fn engine_page(s: &State, engine: Engine, column: f32) -> Vec<El> {
     let current = snapshot_reading(s, engine);
     let accounts = match engine {
         Engine::Codex => rules::codex_accounts_once(&here, &cloud_logins, &s.settings.reads.codex, newer(current, s.settings.reads.codex_now.clone()).as_ref()),
-        _ => rules::accounts_once(&here, &cloud_logins, &s.settings.reads.accounts, current.as_ref()),
+        _ => rules::accounts_once(&here, &cloud_logins, &s.settings.reads.accounts, current.as_ref(), true),
     };
     let set_up = super::pages::part(s, "cloud").is_some_and(|c| on(c, "setUp"));
     let busy = s.settings.busy.contains("refresh");
     let tiles: Vec<Tile> = accounts
         .iter()
         .map(|a| {
-            let mut tile = rules::account_tile(a, here.len() > 1, s.now, set_up, engine == Engine::Claude);
+            let claude = engine == Engine::Claude;
+            let mut tile = rules::account_tile(a, here.len() > 1, s.now, set_up, claude, claude);
             if a.limits.as_ref().is_some_and(|l| !l.is_empty()) {
                 return tile;
             }

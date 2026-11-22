@@ -186,12 +186,13 @@ pub fn ghost(word: &str, enabled: bool) -> El {
     if enabled { b.hover_group().cursor(Cursor::Pointer).child(feel::edge_lit(6.0, rule(), true)) } else { feel::answers(b) }
 }
 
-/// A switch (`Switch`, `.set-sw`): a hairline track with a dark knob off, the Send orange with a
-/// light knob on. It flips on the press and shows what was saved once the answer lands.
+/// A switch (`Switch`, `.set-sw`): a hairline track with a dark knob off; on, the text's ink with
+/// a knob of the ground, as every other switch in the app (the accent is only ever a small dot).
+/// It flips on the press and shows what was saved once the answer lands.
 pub fn switch(on: bool, flip: impl Fn(&mut State, bool, &mut Tx) + 'static) -> El {
     let track = el().size(30.0, 18.0).radius(9.0).cursor(Cursor::Pointer);
-    let track = if on { track.fill(accent()).border(1.0, accent()) } else { track.fill(white(0.08)).border(1.0, rule()) };
-    let knob = el().absolute(if on { 15.0 } else { 3.0 }, 3.0).size(12.0, 12.0).radius(6.0).fill(if on { rgb(255, 255, 255) } else { rgb(40, 38, 37) });
+    let track = if on { track.fill(ink()).border(1.0, ink()) } else { track.fill(white(0.08)).border(1.0, rule()) };
+    let knob = el().absolute(if on { 15.0 } else { 3.0 }, 3.0).size(12.0, 12.0).radius(6.0).fill(if on { page() } else { rgb(40, 38, 37) });
     track.child(knob).on_press_tx(move |s: &mut State, tx| flip(s, !on, tx))
 }
 

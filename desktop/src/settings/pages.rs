@@ -176,7 +176,7 @@ pub fn running(s: &State, column: f32) -> Vec<El> {
         let now = t(left, "now").map(|n| format!(" {n}")).unwrap_or_default();
         rows.push(kit::line(
             "Stop programs agents leave behind",
-            Some(format!("Dev servers, previews and test runs an agent started keep running until you close its task, or until memory runs short. Apps installed on this computer are never stopped.{}{now}", if two { " Codex agents’ programs are not found yet." } else { "" }).into()),
+            Some(format!("Dev servers and test runs an agent started stop when you close its task or memory runs short. Your own apps never do.{}{now}", if two { " Codex agents’ programs are not found yet." } else { "" }).into()),
             vec![workspace_switch(s, "cleanupLeftovers", on(left, "on"))],
         ));
     }
@@ -222,7 +222,7 @@ pub fn running(s: &State, column: f32) -> Vec<El> {
                 ),
                 kit::line(
                     "Bring in new chats",
-                    Some("A new Claude Code or Codex chat in one of your projects comes in after ten quiet minutes. Waiting ones go to Needs you, finished ones to Done.".into()),
+                    Some("A Claude Code or Codex chat in one of your projects comes in after ten quiet minutes.".into()),
                     vec![workspace_switch(s, "importNew", w.get("importNew") == Some(&Value::Bool(true)))],
                 ),
             ],

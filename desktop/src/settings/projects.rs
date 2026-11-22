@@ -443,7 +443,7 @@ pub fn project_page(s: &State, _column: f32) -> Vec<El> {
     let auto_slug = slug.clone();
     rows.push(kit::line(
         "Let agents start the tasks they file here",
-        Some("A task an agent writes on this project gets a session straight away. Without this it waits in your inbox for your yes. Questions and reviews always wait for you either way.".into()),
+        Some("A task an agent writes here starts at once instead of waiting for your yes. Questions and reviews still wait.".into()),
         vec![kit::switch(autonomous, move |s: &mut State, to, _| write_project(s, &format!("pj:{auto_slug}:autonomous"), &auto_slug, "autonomous", Value::Bool(to)))],
     ));
     let accounts = list(&w, "accounts");
@@ -545,7 +545,7 @@ pub fn project_page(s: &State, _column: f32) -> Vec<El> {
             "Archive",
             vec![kit::line(
                 "Archive this project",
-                Some(format!("It leaves your inbox, the sidebar and Projects, and no new agents start on it{}. Its files stay where they are, and you can bring it back from Projects.", if running { "; the ones running now finish" } else { "" }).into()),
+                Some(format!("It leaves your inbox and sidebar{}. Its files stay, and Projects can bring it back.", if running { ", and the agents running now finish" } else { "" }).into()),
                 vec![kit::ghost("Archive", true).on_press(move |s: &mut State| write_other(s, "archive", "zero:project-archive", json!({ "product": gone, "archived": true })))],
             )],
         )
