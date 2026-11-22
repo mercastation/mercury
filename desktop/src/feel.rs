@@ -38,6 +38,12 @@ pub struct Pointed {
     pub hint: Option<Hint>,
     /// The control the pointer moved onto, and when its plate is due.
     waiting: Option<(Hint, f64)>,
+    /// The control carrying a hint that the pointer is in, by its layout key.
+    over: Option<String>,
+    /// The one a press landed on, which says nothing until the pointer has left it (`pressed` in
+    /// `renderer/src/App.tsx`'s hint listener): a plate under a tab just pressed told the person
+    /// what they had just done.
+    pressed: Option<String>,
 }
 
 impl Pointed {
@@ -116,6 +122,10 @@ fn caps_of(key: &str) -> Vec<String> {
 /// and one a key took away comes back after the pointer's next move. The control is laid out
 /// under `key`, which the plate is hung from. The wait is a layer around the control, so a
 /// control that already follows the pointer keeps doing so.
+///
+/// A control the person pressed says nothing until the pointer has left it, and one whose menu
+/// is open says nothing at all, as the plate would sit on the menu's first row: a press on one
+/// calls `pressed`, and `menu_open` knows which have menus.
 pub fn hinted(e: El, id: &'static str, key: impl Into<String>, align: Align, words: Option<String>) -> El {
     let hint = Hint { id, key: key.into(), align, words };
     let control = e.key(hint.key.clone());
@@ -124,6 +134,14 @@ pub fn hinted(e: El, id: &'static str, key: impl Into<String>, align: Align, wor
     col()
         .on_pointer_move_local(move |s: &mut State, _, tx| {
             let mine = |h: &Hint| h.key == hint.key;
+            if s.pointed.pressed.as_deref() == Some(hint.key.as_str()) || menu_open(s, hint.id) {
+                // Nothing waits on it: a plate on its way is called off.
+                if s.pointed.waiting.as_ref().is_some_and(|(h, _)| mine(h)) {
+                    s.pointed.waiting = None;
+                }
+                tx.live_only();
+                return;
+            }
             if s.pointed.hint.as_ref().is_some_and(mine) || s.pointed.waiting.as_ref().is_some_and(|(h, _)| mine(h)) {
                 tx.live_only();
                 return;
@@ -133,6 +151,18 @@ pub fn hinted(e: El, id: &'static str, key: impl Into<String>, align: Align, wor
         })
         .on_hover_change(move |s: &mut State, inside, tx| {
             let mine = |h: &Hint| h.key == left;
+            // Where the pointer is, for a press to know what it landed on; leaving the control
+            // pressed lets it speak again next time.
+            if inside {
+                s.pointed.over = Some(left.clone());
+            } else {
+                if s.pointed.over.as_deref() == Some(left.as_str()) {
+                    s.pointed.over = None;
+                }
+                if s.pointed.pressed.as_deref() == Some(left.as_str()) {
+                    s.pointed.pressed = None;
+                }
+            }
             if inside || !(s.pointed.hint.as_ref().is_some_and(mine) || s.pointed.waiting.as_ref().is_some_and(|(h, _)| mine(h))) {
                 tx.live_only();
                 return;
@@ -147,12 +177,37 @@ pub fn hinted(e: El, id: &'static str, key: impl Into<String>, align: Align, wor
         .child(control)
 }
 
+/// A press on a control that carries a hint: its plate goes at once, and so does one on its way,
+/// and the control says nothing again until the pointer has left it (`onPress` in the web
+/// window's hint listener, which stops the plate on every `pointerdown`).
+pub fn pressed(s: &mut State) {
+    s.pointed.hint = None;
+    s.pointed.waiting = None;
+    s.pointed.pressed = s.pointed.over.clone();
+}
+
+/// Whether the control carrying hint `id` has its menu, list or panel open (`aria-expanded`):
+/// the cloud's menu, the Files button's list, the place's panel, the dots' menu.
+fn menu_open(s: &State, id: &str) -> bool {
+    match id {
+        "cloud" => s.head_open() == Some(crate::head::Menu::Cloud),
+        "thread-files" => s.files_open(),
+        "runs-on" => matches!(s.strip_open(), Some(crate::strip::Over::Place)),
+        "more" => matches!(s.strip_open(), Some(crate::strip::Over::More { .. })),
+        _ => false,
+    }
+}
+
 /// The poll's part: the plate the pointer has waited 700 ms for comes. A key pressed while it
 /// waits does not call it off, as the web window's keys take away only a plate already drawn.
+/// One due while its control's menu is open never comes.
 pub fn hint_due(s: &mut State, at: f64) -> bool {
     let Some((hint, due)) = s.pointed.waiting.take() else { return false };
     if at < due {
         s.pointed.waiting = Some((hint, due));
+        return false;
+    }
+    if menu_open(s, hint.id) {
         return false;
     }
     s.pointed.hint = Some(hint);
@@ -168,6 +223,10 @@ pub fn plate(s: &State) -> Option<El> {
     let hint = s.pointed.hint.as_ref()?;
     // Settings' "Show keyboard shortcut hints", turned off, draws none; every key still works.
     if s.palette.open || s.compose.card || s.later.on.is_some() || s.replying || !s.picks.get().key_hints.unwrap_or(true) {
+        return None;
+    }
+    // Nor beside a control whose menu is open, which it would cover.
+    if menu_open(s, hint.id) {
         return None;
     }
     let lines = hint_lines(hint.id);
@@ -530,6 +589,61 @@ pub(crate) mod tests {
         assert_eq!(rt.state.pointed.hint.as_ref().map(|h| h.id), Some("row"));
         key(&mut rt, Key::Down);
         assert!(rt.state.pointed.hint.is_none(), "a key takes it away");
+    }
+
+    #[test]
+    fn a_control_just_pressed_says_nothing_until_the_pointer_has_left_it() {
+        // In progress, the second tab: its plate comes after 700 ms, and a press on it takes the
+        // plate away at once (the web window's `pointerdown` stops the plate and its wait).
+        let mut rt = window("hint-pressed", &["--view", "inbox"]);
+        rt.pointer_move(280.0, 133.0);
+        run(&mut rt, 0.8);
+        assert_eq!(rt.state.pointed.hint.as_ref().map(|h| h.id), Some("state-tab"));
+        press(&mut rt, 281.0, 133.0);
+        assert_eq!(rt.state.inbox_tab, crate::data::Tab::Progress, "the press turned the tab");
+        assert!(rt.state.pointed.hint.is_none(), "the press took the plate away");
+        // Moving on the tab it pressed brings none back (`quietOnceClicked`, the plate a hint of
+        // what was just done)...
+        rt.pointer_move(284.0, 134.0);
+        run(&mut rt, 0.9);
+        assert!(rt.state.pointed.hint.is_none(), "not on the tab just pressed");
+        // ...until the pointer has been somewhere else.
+        rt.pointer_move(640.0, 600.0);
+        rt.frame(1.0 / 60.0);
+        rt.pointer_move(282.0, 133.0);
+        run(&mut rt, 0.8);
+        assert_eq!(rt.state.pointed.hint.as_ref().map(|h| h.id), Some("state-tab"), "back on it after leaving");
+        // A press on the way, before the 700 ms are up, calls the plate off too.
+        rt.pointer_move(640.0, 600.0);
+        rt.frame(1.0 / 60.0);
+        rt.pointer_move(170.0, 133.0);
+        run(&mut rt, 0.3);
+        press(&mut rt, 171.0, 133.0);
+        run(&mut rt, 0.8);
+        assert!(rt.state.pointed.hint.is_none(), "a press inside the wait");
+    }
+
+    #[test]
+    fn a_button_whose_menu_is_open_shows_no_plate() {
+        // The dots over a conversation: pressed, the menu is open, and the pointer resting on
+        // them draws no plate, which would sit on the menu's first row.
+        // A thread still open, whose menu has rows (a finished one's dots only say where they are).
+        let mut rt = window_dressed("hint-menu", &["--thread", "w-feel0"], "/fixtures/storefront", "Done, and tested. Merge it?", |f| f["snapshot"]["items"][0]["status"] = json!("open"));
+        let dots = rt.find(crate::strip::MORE_BUTTON).expect("the dots");
+        press(&mut rt, dots.0, dots.1);
+        assert!(matches!(rt.state.strip_open(), Some(crate::strip::Over::More { .. })), "the menu is open");
+        rt.pointer_move(dots.0 + 2.0, dots.1 + 1.0);
+        run(&mut rt, 0.9);
+        assert!(rt.find("hint-plate").is_none(), "no plate while its menu is open");
+        // Closed again, the dots carry their plate as before, once the pointer has left them.
+        press(&mut rt, dots.0, dots.1);
+        assert!(rt.state.strip_open().is_none(), "the menu closed");
+        rt.pointer_move(640.0, 400.0);
+        rt.frame(1.0 / 60.0);
+        rt.pointer_move(dots.0, dots.1);
+        run(&mut rt, 0.8);
+        assert_eq!(rt.state.pointed.hint.as_ref().map(|h| h.id), Some("more"));
+        assert!(rt.find("hint-plate").is_some(), "its plate");
     }
 
     #[test]

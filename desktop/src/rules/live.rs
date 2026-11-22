@@ -184,12 +184,18 @@ fn instruction_of(body: &str) -> &str {
 re!(PARAGRAPHS, r"\n\s*\n", "");
 re!(SPACES, r"\s+", "g");
 re!(ENDS_A_SENTENCE, r"[.!?]$", "");
+re!(LEAD_IN, r":\s*$", "");
+re!(LINK, r"\[([^\]\n]+)\]\([^)\s]+\)", "g");
 
 /// The line under the title while an agent works: the first paragraph of what was asked,
-/// unless the title already says it (`askLine`).
+/// unless the title already says it (`askLine`). A paragraph that ends in a colon is a lead-in
+/// ("Priya Shah asked:") that says who and not what, so the first one that does not is taken,
+/// and a link in it reads as its words.
 pub fn ask_line(ask: &str, title: &str) -> Option<String> {
     let flat = |s: &str| js::trim(&SPACES.replace_all(s, |_| " ".to_string())).to_string();
-    let first = flat(PARAGRAPHS.split(js::trim(instruction_of(ask)))[0]);
+    let paragraphs = PARAGRAPHS.split(js::trim(instruction_of(ask)));
+    let at = paragraphs.iter().position(|p| !LEAD_IN.test(p)).unwrap_or(0);
+    let first = flat(&LINK.replace_all(paragraphs.get(at).copied().unwrap_or(""), |caps| js::group(caps, 1).to_string()));
     let named = flat(title).to_lowercase();
     let lower = first.to_lowercase();
     // A repeating run's title is its ask with the day after it.
@@ -266,6 +272,19 @@ mod tests {
         let repeating = "THIS IS ONE RUN OF A REPEATING TASK.\nbrief\nHER INSTRUCTION FOLLOWS.\nSend the weekly news";
         assert_eq!(ask_line(repeating, "Weekly news").as_deref(), Some("You asked: Send the weekly news."));
         assert_eq!(ask_line("", "x"), None);
+    }
+
+    /// `tests/a-thread-started-from-an-ask-says-what-was-asked-not-who-asked.test.mts`.
+    #[test]
+    fn the_line_under_the_title_passes_over_who_asked_and_reads_a_link_as_its_words() {
+        const LINK: &str = "https://app.agentbox.ac/t/priya/w-0123456789";
+        assert_eq!(ask_line("Priya Shah asked:\n\nCan a declined card leave a hold?\n\nSay whether it looks good.", "Friendlier copy").as_deref(), Some("You asked: Can a declined card leave a hold?"));
+        assert_eq!(ask_line(&format!("Priya Shah asked:\n\n[Friendlier payment failed copy]({LINK})\n\nPriya: is it friendly enough?"), "Friendlier payment failed copy"), None);
+        assert_eq!(ask_line(&format!("Priya Shah asked:\n\n[Friendlier payment failed copy]({LINK})"), "Payment copy").as_deref(), Some("You asked: Friendlier payment failed copy."));
+        // A colon inside the first paragraph is not a lead-in; an ask that is all lead-in stays.
+        assert_eq!(ask_line("Fix this: the totals are off", "Totals").as_deref(), Some("You asked: Fix this: the totals are off."));
+        assert_eq!(ask_line("Three fixes:", "Fixes").as_deref(), Some("You asked: Three fixes:."));
+        assert_eq!(ask_line("Fix the login bug", "Fix the login bug"), None);
     }
 
     fn took(at: f64, verb: &str, subject: &str, full: &str) -> Took {

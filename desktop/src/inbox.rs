@@ -118,9 +118,10 @@ fn cloud_button(s: &State, b: cloud::Button) -> El {
     let said = |words: String, font: TextStyle, c: Color| shaded(move |shadow| pen(text(words.as_str()).font(font).color(if shadow { under(1.0) } else { c }), 13.0));
     let lit = s.pointed.is(CLOUD) || open;
     let e = match (b.word, b.count) {
-        // A word reads as brightly as New thread when it asks for something, and leaves the
-        // dot room on its right.
-        (Some(word), _) => strip_button(s, CLOUD).gap(7.0).pl(9.0).pr(14.0).child(cloud).child(said(word.said().to_string(), sans(13.0, 400.0), if word == cloud::Word::Again || lit { ink() } else { dim() })),
+        // A word reads as brightly as New thread when it asks for something. With the dot it
+        // leaves the dot a corner of its own rather than touching the word's last letter
+        // (`.th-cloud.named:has(> i)`).
+        (Some(word), _) => strip_button(s, CLOUD).gap(7.0).pl(9.0).pr(if b.dot { 20.0 } else { 14.0 }).child(cloud).child(said(word.said().to_string(), sans(13.0, 400.0), if word == cloud::Word::Again || lit { ink() } else { dim() })),
         (None, Some(running)) => strip_button(s, CLOUD).gap(7.0).pl(9.0).pr(10.0).child(cloud).child(said(running.to_string(), figures(13.0, 400.0), if b.lit { accent() } else { ink() })),
         (None, None) => strip_button(s, CLOUD).w(32.0).justify_center().child(cloud),
     };
@@ -131,7 +132,10 @@ fn cloud_button(s: &State, b: cloud::Button) -> El {
         None if b.lit => "Cloud on (⌘C)",
         None => "Cloud off (⌘C)",
     };
-    let e = e.help(title).expanded(open).on_press(|s: &mut State| s.toggle_head(head::Menu::Cloud));
+    let e = e.help(title).expanded(open).on_press(|s: &mut State| {
+        crate::feel::pressed(s);
+        s.toggle_head(head::Menu::Cloud)
+    });
     if b.dot { e.child(el().pin(None, Some(5.0), Some(5.0), None).size(6.0, 6.0).radius(3.0).fill(accent())) } else { e }
 }
 
@@ -153,6 +157,7 @@ pub fn strip(s: &State) -> El {
         .child(shaded(|shadow| pen(label("New thread", 13.5, 400.0, if shadow { under(1.0) } else { ink() }), 13.5)))
         .help("New thread (N)")
         .on_press_tx(|s: &mut State, tx| {
+            crate::feel::pressed(s);
             s.close_head();
             s.open_card(tx);
         });
@@ -213,8 +218,12 @@ fn tab(at: Tab, count: usize, open: bool, shadow: bool) -> El {
     if shadow {
         return e;
     }
-    // Every tab carries Tab's hint, since Tab walks them (`data-hint="state-tab"`).
-    let e = e.border_sides([0.0, 0.0, 1.0, 0.0], if open { accent() } else { rgba(0, 0, 0, 0.0) }).hover_group().cursor(Cursor::Pointer).on_press(move |s: &mut State| s.show_tab(at));
+    // Every tab carries Tab's hint, since Tab walks them (`data-hint="state-tab"`), but not the
+    // tab just pressed while the pointer stays on it (`quietOnceClicked`).
+    let e = e.border_sides([0.0, 0.0, 1.0, 0.0], if open { accent() } else { rgba(0, 0, 0, 0.0) }).hover_group().cursor(Cursor::Pointer).on_press(move |s: &mut State| {
+        crate::feel::pressed(s);
+        s.show_tab(at)
+    });
     crate::feel::hinted(e, "state-tab", format!("tab-{}", at.view()), crate::feel::Align::Left, None)
 }
 
@@ -246,7 +255,9 @@ impl Columns {
         // Project at 785, where Status also gives the title 16 points back.
         let state = rows.iter().any(|r| !r.status.is_empty()).then_some(if table <= 785.0 { 160.0 } else { 176.0 });
         let project = (table > 785.0 && rows.iter().any(|r| !r.place.is_empty())).then_some(150.0);
-        let priority = (table > 915.0 && rows.iter().any(|r| r.priority != Priority::Medium)).then_some(112.0);
+        // Every row now says its level, Medium included, so the column is drawn wherever the
+        // table has room for it.
+        let priority = (table > 915.0 && !rows.is_empty()).then_some(112.0);
         // The rows sit 76 points inside the table, and the title takes what the others leave.
         let taken: f32 = [state, project, priority].into_iter().flatten().map(|w| w + GAP).sum();
         Columns { title: (table - 76.0 - WHEN - GAP - taken).max(0.0), state, project, priority }
@@ -273,14 +284,16 @@ fn heading(s: &str) -> El {
     row().child(capitals(s, 10.5, 20.0, 0.84, muted()))
 }
 
-/// The marks beside a priority's word: one to four bars, the strength filled in.
-fn priority_mark(p: Priority) -> Option<El> {
+/// The marks beside a priority's word: one to four bars, the strength filled in. Every level
+/// has them, Medium included: a blank there read as a gap in the column (`RowCells`).
+fn priority_mark(p: Priority) -> El {
     let off = rgb(82, 80, 79);
+    let three = |filled: usize| row().items_end().gap(1.5).children([4.0, 7.5, 11.0].into_iter().enumerate().map(move |(n, h)| el().size(3.0, h).radius(1.0).fill(if n < filled { dim() } else { off })));
     match p {
-        Priority::Urgent => Some(bars(&[4.0, 7.0, 10.0, 13.0], ink())),
-        Priority::High => Some(bars(&[4.0, 7.5, 11.0], ink())),
-        Priority::Low => Some(row().items_end().gap(1.5).child(el().size(3.0, 4.0).radius(1.0).fill(dim())).child(el().size(3.0, 7.5).radius(1.0).fill(off)).child(el().size(3.0, 11.0).radius(1.0).fill(off))),
-        Priority::Medium => None,
+        Priority::Urgent => bars(&[4.0, 7.0, 10.0, 13.0], ink()),
+        Priority::High => bars(&[4.0, 7.5, 11.0], ink()),
+        Priority::Medium => three(2),
+        Priority::Low => three(1),
     }
 }
 
@@ -288,8 +301,8 @@ fn priority_word(p: Priority) -> &'static str {
     match p {
         Priority::Urgent => "Urgent",
         Priority::High => "High",
+        Priority::Medium => "Medium",
         Priority::Low => "Low",
-        Priority::Medium => "",
     }
 }
 
@@ -339,7 +352,29 @@ fn status_mark(mark: Mark, ground: rune::Color) -> Option<El> {
     }
 }
 
-/// A thread's title cell, `room` points wide: the face, the title, and what follows it. An
+/// The mark a thread of the person's own leads with (`HarnessMark`): its harness's mark, 11
+/// points across in a tile of 18, on a faint wash of the text's colour inside a stronger one,
+/// Claude Code's in its own orange; and for a harness with no mark, the agent's two eyes in
+/// their ring (`AgentFace`). `harness` is `rules::engine::harness_mark`'s word.
+fn harness_mark(harness: &str) -> El {
+    let glyph = match harness {
+        "claude" => &icons::HARNESS_CLAUDE,
+        "codex" => &icons::HARNESS_CODEX,
+        "antigravity" => &icons::HARNESS_ANTIGRAVITY,
+        _ => return row().size(18.0, 18.0).radius(9.0).center().border(1.0, rgba(239, 235, 231, 0.12)).child(icon(&icons::AGENT_EYES, 16.0).color(dim())),
+    };
+    let tone = if harness == "claude" { rgb(0xd9, 0x77, 0x57) } else { ink() };
+    row()
+        .size(18.0, 18.0)
+        .radius(5.0)
+        .center()
+        .fill(rgba(239, 235, 231, 0.07))
+        .border(1.0, rgba(239, 235, 231, 0.16))
+        .border_layout()
+        .child(icon(glyph, 16.0).color(tone))
+}
+
+/// A thread's title cell, `room` points wide: the mark, the title, and what follows it. An
 /// aside is what the row adds to its title (a comment on a link, how many tasks wait for a
 /// yes, the cause a thread in Later is stuck behind); "not started" is on a thread written
 /// down in Later and never begun; the pin is on one kept at the top. The title is underlined
@@ -358,9 +393,8 @@ fn title_cell(r: &Row, selected: bool, pointed: bool, room: f32) -> El {
     } else {
         line
     };
-    // Every title starts after a face in a slot of its own, so the titles line up.
-    let face = row().size(18.0, 18.0).radius(9.0).center().border(1.0, rgba(239, 235, 231, 0.12)).child(icon(&icons::AGENT_EYES, 16.0).color(dim()));
-    let cell = row().items_center().child(face.mr(10.0)).child(el().shrink().child(words).child(line));
+    // Every title starts after a mark in a slot of its own, so the titles line up.
+    let cell = row().items_center().child(harness_mark(r.harness).mr(10.0)).child(el().shrink().child(words).child(line));
     // Faint words after the title (`.th-aside`), 12 points on, in the title's own type.
     let faint = |s: &str| pen(text(s).font(type_).color(muted()), 14.0);
     let held = || el().ml(12.0).child(faint("not started"));
@@ -419,11 +453,8 @@ fn thread(s: &State, r: &Row, at: usize, picked: usize, cols: &Columns) -> El {
     if r.place_more > 0 {
         project = project.child(el().ml(6.0).child(capitals(&format!("+{}", r.place_more), 11.5, 20.0, 0.575, muted())));
     }
-    let mut priority = row().items_center();
-    if let Some(mark) = priority_mark(r.priority) {
-        let c = if r.priority == Priority::Urgent { accent() } else { muted() };
-        priority = priority.child(mark.mr(8.0)).child(capitals(priority_word(r.priority), 11.5, 20.0, 0.575, c));
-    }
+    let c = if r.priority == Priority::Urgent { accent() } else { muted() };
+    let priority = row().items_center().child(priority_mark(r.priority).mr(8.0)).child(capitals(priority_word(r.priority), 11.5, 20.0, 0.575, c));
     // When it was sent, when it was finished on Done, when it comes back on Later.
     let when = pen(text(r.when.as_str()).font(TextStyle::new(13.0, 400.0).lh(20.0)).color(dim()), 13.0);
     let (id, product) = (r.id.clone(), r.product.clone());
@@ -436,6 +467,7 @@ fn thread(s: &State, r: &Row, at: usize, picked: usize, cols: &Columns) -> El {
         .cursor(Cursor::Pointer)
         // The row pressed is the row the keys are on when the person comes back.
         .on_press(move |s: &mut State| {
+            crate::feel::pressed(s);
             s.picked = at;
             s.open_thread(&id, &product);
         })

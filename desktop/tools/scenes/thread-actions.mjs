@@ -9,10 +9,12 @@
 import { open } from './thread.mjs';
 
 // The rows as the page drew them, by the mark each wears: `ThreadMenu.tsx` names a row by its
-// verb, and the mark is the verb's own.
+// verb, and the mark is the verb's own. A key is a cap (`kbd`); a value said in words, such as
+// a priority, is a detail (`.ts-more-detail`).
 export const rowsOnScreen = (h) => h.evaluate(`[...document.querySelectorAll('.ts-more-menu .ts-more-row')].map((row) => ({
   label: row.querySelector('.ts-more-label')?.textContent ?? '',
   key: row.querySelector('kbd')?.textContent ?? '',
+  detail: row.querySelector('.ts-more-detail')?.textContent ?? '',
   mark: row.querySelector('.ico svg')?.innerHTML ?? '',
 }))`);
 

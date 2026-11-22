@@ -53,12 +53,29 @@ fn number(digits: &str) -> f64 {
 }
 
 // Agents do not always write the heading. Without it, a numbered list counts as an offer only
-// when it closes the message, runs 1, 2, 3..., and marks one choice recommended, so a list of
-// steps stays prose.
+// when it closes the message, runs 1, 2, 3..., and either marks one choice recommended or
+// follows a paragraph that asks a question, so a list of steps stays prose.
 re!(ITEM, r"^ {0,3}(\d+)[.)]\s+(.*)$", "");
 re!(LEADING_MARK, r"^(?:\*\*|__)?\[?recommended(?:\]|\s*[:\p{Pd}]|\*\*|__)\s*(?:\*\*|__)?\s*[:\p{Pd}]?\s*", "iu");
 re!(TRAILING_MARK, r"\s*(?:\p{Pd}\s*)?(?:\*\*|__)?[([]recommended\b[^)\]]*[)\]](?:\*\*|__)?\s*$|\s*\p{Pd}\s*(?:\*\*|__)?recommended(?:\*\*|__)?\s*$", "iu");
 re!(INDENTED, r"^\s{2,}\S", "");
+re!(QUESTION, r"\?(?:\*\*|__|\*|_)?(?=\s|$)", "");
+
+/// Whether the paragraph right before line `start`, past the blank lines between, asks a
+/// question (`asksRightBefore`): the list after it is the agent's own choices, marked or not.
+fn asks_right_before(lines: &[&str], start: usize) -> bool {
+    let mut i = start;
+    while i > 0 && js::trim(lines[i - 1]).is_empty() {
+        i -= 1;
+    }
+    while i > 0 && !js::trim(lines[i - 1]).is_empty() {
+        if QUESTION.test(lines[i - 1]) {
+            return true;
+        }
+        i -= 1;
+    }
+    false
+}
 
 struct Headless {
     options: Vec<Choice>,
@@ -93,7 +110,10 @@ fn headless_options(lines: &[&str]) -> Option<Headless> {
         let words = if marked { format!("{} (recommended)", TRAILING_MARK.strip(&bare)) } else { text.to_string() };
         options.push(Choice { n: number(group(&m, 1)), text: words, recommended: marked });
     }
-    if options.len() < 2 || options.iter().enumerate().any(|(i, o)| o.n != (i + 1) as f64) || !options.iter().any(|o| o.recommended) {
+    if options.len() < 2 || options.iter().enumerate().any(|(i, o)| o.n != (i + 1) as f64) {
+        return None;
+    }
+    if !options.iter().any(|o| o.recommended) && !asks_right_before(lines, start) {
         return None;
     }
     Some(Headless { options })
@@ -312,6 +332,31 @@ mod tests {
         assert!(!options[1].recommended);
         assert!(parse_options(Some("Steps taken:\n1. Read the log\n2. Fixed the test")).is_empty());
         assert!(parse_options(None).is_empty());
+    }
+
+    // tests/a-thread-offers-the-agents-own-choice-before-shipping.test.mts
+    #[test]
+    fn a_closing_list_right_after_a_question_is_the_agents_own_choice() {
+        let reported = [
+            "I added an `Idempotency-Key` check to `POST /payments`, and a table that keeps each key.",
+            "",
+            "One decision before I go on. **Should I drop it in this migration?** Dropping it is simpler.",
+            "",
+            "1. Drop it in this migration",
+            "2. Keep it for now and drop it in a later release",
+        ]
+        .join("\n");
+        let options = parse_options(Some(&reported));
+        assert_eq!(options, [
+            Choice { n: 1.0, text: "Drop it in this migration".into(), recommended: false },
+            Choice { n: 2.0, text: "Keep it for now and drop it in a later release".into(), recommended: false },
+        ]);
+        // The question may end the line right before the list.
+        let asked = parse_options(Some("Which layout do you want?\n1. Columns\n2. Cards"));
+        assert_eq!(asked.iter().map(|o| o.text.as_str()).collect::<Vec<_>>(), ["Columns", "Cards"]);
+        // A list of what it did stays prose, and so does one whose question is a paragraph earlier.
+        assert!(parse_options(Some("Done. What I changed:\n\n1. Added the key check\n2. Added the table")).is_empty());
+        assert!(parse_options(Some("Should I worry about the old index? No, it still holds.\n\nSteps I took:\n1. Added the check\n2. Added the table")).is_empty());
     }
 
     #[test]

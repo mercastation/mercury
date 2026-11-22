@@ -192,8 +192,9 @@ pub fn empty_tab_words(tab: &str, waiting: usize) -> String {
             1 => "Nothing is running. One thread waits in Needs you.".to_string(),
             n => format!("Nothing is running. {n} threads wait in Needs you."),
         },
-        "snoozed" => "Nothing is waiting for later. \"Add it to Later\" on a new thread writes one down without starting it.".to_string(),
-        "done" => "Nothing closed yet. A finished thread waits in Needs you until you close it.".to_string(),
+        // One short line each, like In progress's.
+        "snoozed" => "Nothing is waiting for later.".to_string(),
+        "done" => "Nothing done yet. Finished threads wait in Needs you.".to_string(),
         _ => "Nothing needs you.".to_string(),
     }
 }
@@ -407,7 +408,9 @@ mod tests {
         assert_eq!(labels(&empty, Tab::Needs), ["Needs you", "In progress", "Done"]);
         assert_eq!(labels(&empty, Tab::Later), ["Needs you", "In progress", "Later", "Done"]);
         assert!(later_tab_shown(1, false) && later_tab_shown(0, true) && !later_tab_shown(0, false));
-        assert_eq!(empty_tab_words("snoozed", 3), "Nothing is waiting for later. \"Add it to Later\" on a new thread writes one down without starting it.");
+        // Later and Done say one short line each, like In progress's.
+        assert_eq!(empty_tab_words("snoozed", 3), "Nothing is waiting for later.");
+        assert_eq!(empty_tab_words("done", 0), "Nothing done yet. Finished threads wait in Needs you.");
         assert_eq!(empty_tab_words("progress", 0), "Nothing is running.");
         assert_eq!(empty_tab_words("progress", 1), "Nothing is running. One thread waits in Needs you.");
         assert_eq!(empty_tab_words("progress", 4), "Nothing is running. 4 threads wait in Needs you.");

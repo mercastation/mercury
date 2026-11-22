@@ -151,6 +151,11 @@ fn crumb_from(s: &State, id: &str, product: &str) -> &'static str {
     }
 }
 
+/// How tall the strip over a conversation is, and the side of its square buttons and the
+/// height of its worded ones (`.ts-more`, `.ts-done`, `.ts-more.one-step`).
+pub const STRIP: f32 = 64.0;
+const BUTTON: f32 = 32.0;
+
 /// The card's top strip over a conversation: the Inbox, back and forward, where the thread
 /// is, the threads before and after it in Needs you, and what can be done to it.
 pub fn head(s: &State, id: &str, product: &str) -> El {
@@ -161,11 +166,14 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
     // (`.ts-more.one-step:hover`) and carries its key's hint; one with none is faded and keeps
     // the arrow pointer.
     let step = |glyph: &'static Icon, hint: &'static str, to: Option<&crate::data::Row>| {
-        let b = square(glyph, 14.0, 30.0, dim());
+        let b = square(glyph, 14.0, BUTTON, dim());
         match to {
             Some(r) => {
                 let (id, product) = (r.id.clone(), r.product.clone());
-                let b = b.hover_group().hover(crate::feel::wash_strong()).cursor(rune::Cursor::Pointer).on_press(move |s: &mut State| s.step_to_thread(&id, &product));
+                let b = b.hover_group().hover(crate::feel::wash_strong()).cursor(rune::Cursor::Pointer).on_press(move |s: &mut State| {
+                    crate::feel::pressed(s);
+                    s.step_to_thread(&id, &product)
+                });
                 crate::feel::hinted(b, hint, format!("strip-{hint}"), crate::feel::Align::Right, None)
             }
             // Kept from the strip under it, which moves the window (`.topbar button { no-drag }`).
@@ -175,17 +183,21 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
     let crumbs = mono(11.0, 14.0).tracking(0.99);
     let title = item(s, id, product).map(name).unwrap_or_default();
     let finished = item(s, id, product).is_some_and(|i| i.status == "done");
-    let close = crate::feel::strip_button(row().h(30.0).items_center().gap(7.0).pl(9.0).pr(12.0).radius(6.0).border(1.0, edge()).border_layout(), true);
+    let close = crate::feel::strip_button(row().h(BUTTON).items_center().gap(7.0).pl(9.0).pr(12.0).radius(6.0).border(1.0, rule()).border_layout(), true);
     let close = if finished {
         close.child(label("Reopen", 13.0, 400.0, dim()).group_color(ink())).on_press(|s: &mut State| s.reopen_thread())
     } else {
-        let done = close.child(icon(&icons::DONE, 16.0).color(dim()).group_color(ink())).child(label("Done", 13.0, 400.0, dim()).group_color(ink())).on_press_tx(|s: &mut State, tx| s.close_thread(false, tx));
+        let done = close.child(icon(&icons::DONE, 16.0).color(dim()).group_color(ink())).child(label("Done", 13.0, 400.0, dim()).group_color(ink())).on_press_tx(|s: &mut State, tx| {
+            crate::feel::pressed(s);
+            s.close_thread(false, tx)
+        });
         crate::feel::hinted(done, "done", "strip-done", crate::feel::Align::Right, None)
     };
     let open = s.strip_open().cloned();
-    // A button of the strip whose menu or panel is up is brighter, inside a stronger edge, on
-    // the wash (`.ts-more[aria-expanded="true"]`, `.ts-place.open`).
-    let lit = |b: El, on: bool| if on { b.border(1.0, rule()).fill(white(0.08)) } else { b.border(1.0, edge()) };
+    // A button of the strip whose menu or panel is up is brighter, on the wash
+    // (`.ts-more[aria-expanded="true"]`, `.ts-place.open`); every one wears the strong line, as
+    // the Inbox strip's buttons do (`.ts-more`, `.ts-done`).
+    let lit = |b: El, on: bool| if on { b.border(1.0, rule()).fill(white(0.08)) } else { b.border(1.0, rule()) };
     // Where the thread runs, for one the cloud could take (`PlaceButton.tsx`): a cloud or a Mac,
     // faded while the whole cloud is off, dotted when it was handed back for something. A press
     // opens the panel that says why and offers the other place; under the pointer it takes the
@@ -194,18 +206,25 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
     let place = item(s, id, product).and_then(|i| strip::place_view(s, i)).map(|v| {
         let m = place::mark_of(&v);
         let glyph = icon(if m.cloud { &icons::PLACE_CLOUD } else { &icons::PLACE_MAC }, 16.0).color(if placing { ink() } else { dim() }).group_color(ink()).opacity(if m.faded { 0.7 } else { 1.0 });
-        let button = lit(crate::feel::strip_button(row().size(30.0, 30.0).radius(6.0).center(), false).child(glyph), placing).label(if m.faded { "Runs on: This Mac, the cloud is off" } else if m.cloud { "Runs on: Cloud" } else { "Runs on: This Mac" }).expanded(placing).on_background_press(|s: &mut State| s.toggle_place());
-        let button = if m.dot { button.child(el().absolute(20.0, 4.0).size(6.0, 6.0).radius(3.0).fill(accent())) } else { button };
+        let button = lit(crate::feel::strip_button(row().size(BUTTON, BUTTON).radius(6.0).center(), false).child(glyph), placing).label(if m.faded { "Runs on: This Mac, the cloud is off" } else if m.cloud { "Runs on: Cloud" } else { "Runs on: This Mac" }).expanded(placing).on_background_press(|s: &mut State| {
+            crate::feel::pressed(s);
+            s.toggle_place()
+        });
+        // The dot four points in from the top right corner (`.ts-place-dot`).
+        let button = if m.dot { button.child(el().absolute(BUTTON - 10.0, 4.0).size(6.0, 6.0).radius(3.0).fill(accent())) } else { button };
         // Laid out under the key the panel hangs from.
         crate::feel::hinted(button, "runs-on", strip::PLACE_BUTTON, crate::feel::Align::Right, None)
     });
     // The dots, which the web window draws over every thread of work: its menu always holds the
     // terminal and renaming there, which this window does not do (`threadMenuRows`).
     let more_open = matches!(open, Some(strip::Over::More { .. }));
-    let more = lit(crate::feel::strip_button(square(&icons::MORE, 16.0, 30.0, if more_open { ink() } else { dim() }), false), more_open)
+    let more = lit(crate::feel::strip_button(square(&icons::MORE, 16.0, BUTTON, if more_open { ink() } else { dim() }), false), more_open)
         .label("More actions")
         .expanded(more_open)
-        .on_background_press_tx(|s: &mut State, tx| s.toggle_more(tx));
+        .on_background_press_tx(|s: &mut State, tx| {
+            crate::feel::pressed(s);
+            s.toggle_more(tx)
+        });
     // Laid out under the key the menu hangs from.
     let more = crate::feel::hinted(more, "more", strip::MORE_BUTTON, crate::feel::Align::Right, None);
     let mut actions = row().ml(16.0).min_w(0.0).items_center();
@@ -237,9 +256,10 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
     // The strip moves the window as the title bar would (`.topbar`, `-webkit-app-region: drag`),
     // and every button keeps its press (`no-drag`), as does all of the middle, where the crumb
     // and the name stand (`.workspace-task-header { no-drag }`). It starts where the card does,
-    // further right while the rail is open.
+    // further right while the rail is open. It is the Inbox strip's 64 points, so the arrows do
+    // not move between the two (`.workspace-task:has(.thread-crumb) > .topbar`).
     row().absolute(chrome::card_left(s), chrome::CARD[1])
-        .size(card_w, 56.0)
+        .size(card_w, STRIP)
         .items_center()
         .pl(20.0)
         .pr(28.0)
@@ -250,6 +270,7 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
         .child(
             crate::feel::hinted(
                 arrow(square(&icons::INBOX, 15.0, 26.0, ink())).on_press(|s: &mut State| {
+                    crate::feel::pressed(s);
                     s.go(View::Inbox);
                     s.show_tab(Tab::Needs);
                 }),
@@ -275,7 +296,10 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
                 // under the pointer, from its left edge to eight points past its words
                 // (`.thread-crumb-back`).
                 .child(crate::feel::hinted(
-                    row().h(28.0).pr(8.0).items_center().radius(6.0).hover(rgb(46, 44, 43)).cursor(rune::Cursor::Pointer).child(text(crumb_from(s, id, product)).font(crumbs).text_case(TextCase::Uppercase).color(muted())).on_press(|s: &mut State| s.close_onto_its_tab()),
+                    row().h(28.0).pr(8.0).items_center().radius(6.0).hover(rgb(46, 44, 43)).cursor(rune::Cursor::Pointer).child(text(crumb_from(s, id, product)).font(crumbs).text_case(TextCase::Uppercase).color(muted())).on_press(|s: &mut State| {
+                        crate::feel::pressed(s);
+                        s.close_onto_its_tab()
+                    }),
                     "back",
                     "strip-crumb",
                     crate::feel::Align::Left,
@@ -329,14 +353,17 @@ pub fn files_made_here(s: &State, item: &Item) -> Rc<Vec<ThreadFile>> {
 
 /// The button (`.ts-done.ts-files`): Done's frame around the files mark and how many there are.
 fn files_button(count: usize, open: bool) -> El {
-    let button = row().key(FILES_BUTTON).h(30.0).min_w(30.0).px(9.0).gap(6.0).justify_center().items_center().radius(6.0).border(1.0, edge()).border_layout();
+    let button = row().key(FILES_BUTTON).h(BUTTON).min_w(BUTTON).px(9.0).gap(6.0).justify_center().items_center().radius(6.0).border(1.0, rule()).border_layout();
     // Done's look under the pointer too (`.ts-done:hover`).
     crate::feel::strip_button(button, true)
         .child(icon(&icons::THREAD_FILES, 16.0).color(dim()).group_color(ink()))
         .child(text(count.to_string()).font(figures(12.5, 400.0)).color(dim()).group_color(ink()))
         .label(format!("Files in this thread ({count})"))
         .expanded(open)
-        .on_press(|s: &mut State| s.toggle_files())
+        .on_press(|s: &mut State| {
+            crate::feel::pressed(s);
+            s.toggle_files()
+        })
 }
 
 /// One file of the list: its kind, four letters at most in a small tile, its name, cut short
@@ -1165,6 +1192,18 @@ fn reply_box(s: &State, item: &Item, m: &Measure) -> El {
         .child(key.mr(14.0))
 }
 
+/// The mark of the agent a reply goes to, before the model's name on the reply box's chip
+/// (`EngineLogo`, 14 points): Claude Code's in its own orange, Codex's and Antigravity's in the
+/// chip's faint ink (`.tc-chip svg`). An agent with no mark of its own wears Claude Code's, as
+/// in the web window.
+fn engine_logo(engine: &str) -> El {
+    match engine {
+        "codex" => icon(&icons::ENGINE_CODEX, 14.0).color(muted()),
+        "antigravity" => icon(&icons::ENGINE_ANTIGRAVITY, 14.0).color(muted()),
+        _ => icon(&icons::ENGINE_CLAUDE, 14.0).color(rgb(0xd9, 0x77, 0x57)),
+    }
+}
+
 /// The reply box opened (`.dock-card`): the words, then who takes them and Send. The words
 /// are the person's to type. Of the three chips the model's opens its menu (`reply.rs`); the
 /// level and what the message may do are drawn, not chosen here.
@@ -1198,7 +1237,9 @@ fn composer(s: &State, item: &Item, m: &Measure) -> El {
     let open = s.reply_menu.is_some();
     let (model, level_said) = s.reply_chip_words(item);
     let said = level_said.map_or_else(|| model.clone(), |level| format!("{model} · {level}"));
-    let model_chip = home::chip(vec![pen(label(&said, 13.0, 400.0, if open { ink() } else { dim() }).group_color(ink()), 13.0)])
+    // Led by the mark of the agent the reply goes to (`EngineLogo`, the box's `engineShown`).
+    let (_, shown) = s.reply_engines(item);
+    let model_chip = home::chip(vec![engine_logo(&shown), pen(label(&said, 13.0, 400.0, if open { ink() } else { dim() }).group_color(ink()), 13.0)])
         .key(reply::CHIP)
         .cursor(rune::Cursor::Pointer)
         .label("Which model this conversation runs on")
@@ -1222,7 +1263,8 @@ fn composer(s: &State, item: &Item, m: &Measure) -> El {
         .border_sides([1.0, 0.0, 0.0, 0.0], edge())
         .border_layout()
         .child(chip(vec![level.0, pen(label(level.1, 13.0, 400.0, dim()).group_color(ink()), 13.0)]).help("Priority"))
-        .child(chip(vec![pen(label(&mode, 13.0, 400.0, dim()).group_color(ink()), 13.0)]).help("What this message may do"))
+        // Led by its shield (`ModeMark`), faint as every mark on a chip is (`.tc-chip svg`).
+        .child(chip(vec![icon(&icons::MODE_MARK, 14.0).color(muted()), pen(label(&mode, 13.0, 400.0, dim()).group_color(ink()), 13.0)]).help("What this message may do"))
         .child(model_chip)
         .child(spacer())
         .child(home::attach().help("Attach files").on_background_press_tx(|s: &mut State, tx| s.pick_files(Holder::Reply, tx)))
