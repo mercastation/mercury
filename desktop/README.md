@@ -4,8 +4,10 @@ Mercury's window drawn with [Rune](https://github.com/anomalyco/rune) (Rust, GPU
 inside) instead of a web page in Electron. The engine stays what it is: this window only draws,
 and asks the engine for everything through a local door.
 
-Phase 1, where this is now: it reads. Home, the Inbox and one conversation, from the same snapshot
-the web window gets, kept current while the engine works. It does not write yet.
+Where this is now: it reads, and it has begun to write. Home, the Inbox and one conversation come
+from the same snapshot the web window gets and are kept current while the engine works. A
+conversation can be answered, by typing or by picking one of its agent's options, marked done and
+opened again, and the keys walk the lists (see "What the keys do, and what it writes").
 
 The Inbox is its head strip (the title, New thread, the cloud button on a Mac set up for the cloud
 or offered it, the display button), its tabs (Needs you, In progress, Later while something is in
@@ -133,6 +135,53 @@ cargo run -- --fixture shots/inbox-fixture.json --view inbox --script /tmp/tab.j
 
 The frame after the press should be the new page whole, and every frame after it the same.
 
+## What the keys do, and what it writes
+
+The keys are the web window's (`src/keys.rs`, from the keydown handler in `renderer/src/App.tsx`):
+
+| Where | Key | Does |
+|---|---|---|
+| A list | J, K, ↓, ↑ | Walks the rows |
+| A list | Enter | Opens the row, which reads it |
+| The Inbox | Tab, Shift Tab | Turns its tabs |
+| The Inbox | E | Marks the row done (under Needs you and In progress) |
+| A conversation | Esc | Folds the reply box, then goes back |
+| A conversation | J, K | Goes to the next thread that needs the person, or the one before |
+| A conversation | ↓, ↑, Enter | Walks the agent's options and sends the one lit |
+| A conversation | 1 to 9 | Sends that option |
+| A conversation | R | Opens the reply box; ⌘Return sends what is in it |
+| A conversation | E | Marks it done and goes on to the next thread |
+| Anywhere | Z | Takes back the last thing done |
+
+Everything written is one call on a channel the web window calls too, with the web window's own
+words in it (`src/rules/writes.rs`): a reply, a picked option ("Option 2: …") and a close go to
+`zero:answer`, Reopen to `zero:reopen`, and a thread opened is told to the web window, which
+alone keeps what has been read, the way a phone tells it (`zero:phone-seen`). An option that
+closes ("Close this task"), leaves the work on its branch or needs the person's own words
+("Change something first") does that instead of being sent, by the web window's rules.
+
+What is done waits three seconds before it is written, as in the web window (`deferCommit`): it
+shows at once, a line says so with Z and Undo beside it, and Z inside that time takes it back
+whole, because nothing was written. After a close is written, Z opens the thread again as it
+was, blocked if it was blocked, so no run starts. If the engine refuses a write, its own reason
+is said in one line and what was refused is put back.
+
+To try any of this without touching a real inbox, run an engine with no window and no agents on
+an empty store, and point the window at it:
+
+```sh
+env -i HOME=/tmp/scratch/home PATH="$PATH" MERCURY_HOME=/tmp/scratch/store ZERO_NO_SUPERVISOR=1 \
+  AGENTBOX_NO_SYSTEM_WINDOWS=1 node bin/mercury.mjs --no-open --dir /tmp/scratch/proj   # prints its address
+cargo run -- --door http://127.0.0.1:<port> --token <key> --thread <id> \
+  --script keys.json --realtime --strip shots/keys.png --frames 6 --fps 1 --size 1280x760 --scale 1
+```
+
+A script is a list of events (`{"t": 0.5, "type": "key", "name": "e"}`, `"type": "type"` with
+`"text"`, `"type": "tap"` with `x` and `y`); `--realtime` lets the three seconds pass. The scenes
+`thread-options`, `thread-option-picked`, `thread-reply`, `thread-reply-typed`,
+`thread-options-reply`, `thread-done-held` and `inbox-done-held` are the web window in each of
+these states; a fixture says what its picture had open (`replying`, `option`, `closed`).
+
 ## The same rows as the web window
 
 Which threads are in which list, in which order and with which words is decided by rules ported
@@ -173,8 +222,21 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
   page, a document or a film a link; here they are the words the agent wrote.
 - **The team's card has no rows.** With teammates, Home's second card is the team's week; it says
   so when nobody else is on the team and is bare otherwise, until the Team page is drawn.
-- **The composer's chips are drawn, not chosen.** The model always reads Opus 5.5, and To always
-  reads Agent.
+- **The composer's chips are drawn, not chosen.** The model always reads Opus 5.5, To always
+  reads Agent, and in a conversation's reply box the priority, the mode and the model cannot be
+  changed, nothing can be attached and nothing can be sent later. Home's box cannot be typed in
+  yet, so a new thread still starts in the web window.
+- **A reply shows in the conversation once it is written.** The web window draws it at once,
+  marked as sending. Here the box folds, the line says Sent, and the words appear three seconds
+  later with the engine's next answer.
+- **Z after a reply or a pick is written takes nothing back.** The web window withdraws it and
+  stops the run it started. Here Z works for the three seconds before, and after only for a close.
+- **No question before throwing work away.** An option that discards the change asks first in
+  the web window. Here it is not sent, and the line says to pick it there.
+- **No warning before closing a thread whose agent waits on an answer.** The web window gives it
+  once ever, on the first such E, and remembers for itself that it did.
+- **E does nothing under Later and Done**, where the web window's brings a thread back; several
+  rows cannot be ticked; L (Later), N (New thread), ⌘K and the More menu are not there yet.
 - **The rail does not widen under the pointer**, and a person's photo is their two letters.
 - **What the web window remembers only for itself is not known here**: an update card the person
   closed still shows its Restart row, and the Sign in row of someone who skipped signing in is
@@ -198,7 +260,10 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
 
 ## What is where
 
-- `src/main.rs`: the state, the three screens' routing, the command line.
+- `src/main.rs`: the state, the three screens' routing, the command line, and what a reply, a
+  pick, a close and Z do to that state.
+- `src/keys.rs`: what each key does. `src/write.rs`: sending, off the main thread, and what
+  waits to be sent.
 - `src/source.rs`: fixtures and the door.
 - `src/data.rs`: the snapshot's shapes and the lists the screens draw. `src/rules/`: the rules
   behind those lists, behind the Inbox's tabs and its cloud button (`page.rs`, `cloud.rs`), and

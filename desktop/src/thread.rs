@@ -342,7 +342,8 @@ fn pictured_unfolded(s: &State, thread: &str) -> bool {
     s.fixture.get("unfolded").and_then(Value::as_array).is_some_and(|list| list.iter().any(|k| k.as_str() == Some(thread)))
 }
 
-/// The reply box at the foot. Phase 1 only draws it.
+/// The reply box folded to its one line, as a conversation first shows it. R, or a press,
+/// opens it (`composer`).
 fn reply_box(m: &Measure) -> El {
     let size = (0.78 * m.size).max(14.5);
     let model = el()
