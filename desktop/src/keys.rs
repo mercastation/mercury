@@ -307,12 +307,13 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
             if letter == "e" || letter == "j" || letter == "k" {
                 s.answering.moved_by_key_at = Some(s.at);
             }
-            // Escape is one step back: the steps the working line unfolded onto, the open reply
-            // box, then the conversation, onto the tab the strip names (`putAwayTheNewest`,
-            // `closeThreadOntoItsTab`); a thread the person stopped or stayed on after a reply
-            // goes back to Needs you, where it now waits (`wayOut`).
+            // Escape is one step back: what was opened in the conversation on this visit, newest
+            // first (the folds and lines of what a run ran, the working line's steps), the open
+            // reply box, then the conversation, onto the tab the strip names
+            // (`putAwayTheNewest`, `closeThreadOntoItsTab`); a thread the person stopped or
+            // stayed on after a reply goes back to Needs you, where it now waits (`wayOut`).
             if e.key == Key::Escape {
-                if s.fold_live_steps() {
+                if s.escape_in_the_conversation() {
                     return true;
                 }
                 // Then a file beside the conversation the person opened (`escapeClosesDoc`).

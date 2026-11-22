@@ -386,6 +386,14 @@ pub struct Row {
     pub pinned: bool,
     /// The mark before the Status word.
     pub mark: Mark,
+    /// What the Status word says under the pointer: its whole sentence (`title`), or, where the
+    /// cloud says why it has not got the thread, the card saying so instead (`why`: its head and
+    /// body), as `RowCells` draws them.
+    pub status_title: Option<String>,
+    pub why: Option<(String, String)>,
+    /// Try again follows the Status word: nothing will start the thread without a person
+    /// (`TryAgainButton`).
+    pub retry: bool,
     /// Faint words after the title in the Inbox table: a comment on a link, a wait that ended,
     /// how many tasks it filed still wait for a yes.
     pub aside: String,

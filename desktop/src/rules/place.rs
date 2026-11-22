@@ -203,7 +203,7 @@ fn local(why: &str, detail: Option<&str>) -> String {
 }
 
 /// The body of `whyWords`: why it waits or runs where it does.
-fn why_words(w: &Why) -> String {
+pub fn why_words(w: &Why) -> String {
     let detail = w.detail.as_deref();
     match w.at.as_str() {
         "wait-cloud" => match w.why.as_str() {

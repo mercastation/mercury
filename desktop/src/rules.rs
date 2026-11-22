@@ -285,6 +285,11 @@ fn row(w: &World, i: &Item, tab: &str, to_approve: &HashMap<String, usize>) -> R
     // Either takes the word's place and keeps the mark the row would have worn; a row whose
     // word the tab dropped keeps the mark of the cell it started from.
     let in_its_place = behind.as_ref().map(|behind| kinds::cause_word(behind.len())).or(stuck_on.map(|_| kinds::CAUSE_WAIT_WORD.to_string()));
+    // What the word says under the pointer goes with it wherever it goes, and with no word there
+    // is nothing to rest on. Try again follows the word on a thread's own row, and not on a
+    // cause's or one behind a cause (`RowCells`' `retry`, passed on the last of them only).
+    let (status_title, why) = if in_its_place.is_some() || shown.is_some() { (cell.title.clone(), cell.why.clone()) } else { (None, None) };
+    let retry = cell.retry && behind.is_none() && stuck_on.is_none();
     let (status, mark) = match (in_its_place, shown) {
         (Some(word), Some(_)) => (word, worded_mark),
         (Some(word), None) => (word, cell.mark),
@@ -342,6 +347,9 @@ fn row(w: &World, i: &Item, tab: &str, to_approve: &HashMap<String, usize>) -> R
         unread: in_needs_you && i.wrote("result").and_then(|w| w.ts).or(i.created_at).unwrap_or(0.0) > w.seen(i),
         pinned,
         mark,
+        status_title,
+        why,
+        retry,
         aside: aside.unwrap_or_default(),
         held,
         place,

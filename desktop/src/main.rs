@@ -22,6 +22,7 @@ mod drafts;
 mod feel;
 mod files;
 mod files_page;
+mod foot;
 mod front;
 mod head;
 mod home;
@@ -199,6 +200,11 @@ pub struct State {
     pub files: files_page::Place,
     /// Settings, a screen over everything while it is open (`settings.rs`).
     pub settings: settings::Screen,
+    /// What Try again's presses came back with, the card saying why the cloud has not got a
+    /// thread while one is up, and the repeating tasks' rules (`foot.rs`).
+    pub retries: foot::Retries,
+    pub why_up: Option<foot::WhyUp>,
+    pub repeats: foot::Repeats,
 }
 
 impl State {
@@ -1212,6 +1218,9 @@ fn init_from(args: &[String]) -> State {
         pane: pane::Pane::default(),
         files: files_page::Place::default(),
         settings: settings::Screen::default(),
+        retries: foot::Retries::default(),
+        why_up: None,
+        repeats: foot::Repeats::default(),
     };
     // The first skies and a fixture are in place before the first frame, so a picture is whole.
     let first = paint_skies(s.card_size());
@@ -1404,6 +1413,8 @@ fn setup(s: &mut State, wake: Waker) {
     s.files.set_waker(wake.clone());
     // The replies the last window never saw land are looked for (`answer.rs`).
     s.look_for_unsent(wake.clone());
+    s.retries.wake_with(wake.clone());
+    s.repeats.wake_with(wake.clone());
     if let Source::Door(door) = s.source.clone() {
         front::tell_the_app(door.clone());
         source::follow_door(door, s.mailbox.clone(), move || wake());
@@ -1507,7 +1518,13 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
     changed |= chrome::rail_moves(s, at, tx);
     changed |= usage::tend(s, at, tx);
     changed |= feel::hint_due(s, at);
+    // What Try again came back with, and the line at a conversation's foot kept counting.
+    changed |= foot::tend(s, tx);
+    // Where the person was in the conversation they left, and where they land in this one.
+    changed |= s.tend_the_reading(tx);
     if let Some((key, answer)) = s.asking.take() {
+        // Whether it came back is said under the working line's steps (`thread.rs`).
+        s.read_came_back(&key, answer.is_ok());
         match answer {
             Ok(answer) => {
                 let answer = reads::landed(s.threads.get(&key), answer);
@@ -1599,6 +1616,8 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
     // The list a conversation's Files button opens, over the page and under everything else, and
     // what the rest of its strip opens; over the Inbox, what its strip opens.
     let root = root.children(thread::files_list(s)).children(strip::layer(s)).children(head::layer(s));
+    // The card saying why the cloud has not got a thread, while the pointer rests on its word.
+    let root = root.children(foot::why_layer(s));
     // The box a thread is started in: its open menu over the page it hangs in, or the New
     // thread card over the whole page, under the line about the last thing done.
     let root = root.children(compose::layers(s));

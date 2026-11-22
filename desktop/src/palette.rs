@@ -203,6 +203,10 @@ fn own_lines(s: &State, threads: Vec<rules::Row>) -> Vec<Line> {
     };
     let under = under_the_keys(s);
     let mut commands = rules::commands(&facts, under);
+    // Try again, after Reply, on a thread nothing will start without the person (`foot.rs`).
+    if let Some((item, _)) = under.filter(|(item, _)| crate::foot::offered_on_the_bar(s, item)) {
+        rules::with_try_again(&mut commands, (item.id.clone(), item.product.clone()));
+    }
     // Stop, on a thread under way: after the thread's rows, before Open and the places.
     if let Some((item, _)) = under.filter(|(item, _)| s.stoppable_now(item)) {
         let at = commands.iter().position(|r| r.id == "open" || r.id == "view-home").unwrap_or(commands.len());
@@ -453,6 +457,7 @@ fn run(s: &mut State, does: Does, tx: &mut Tx) {
         Does::Later((id, product)) => s.open_later(&id, &product, tx),
         Does::Back((id, product)) => s.bring_back(&id, &product),
         Does::Files(project) => s.open_files_place(project),
+        Does::TryAgain((id, product)) => s.try_again(&id, &product, tx),
         Does::Approve(thread) => {
             if let Some(item) = item(s, &thread) {
                 s.approve(&item, tx);

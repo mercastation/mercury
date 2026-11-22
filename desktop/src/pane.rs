@@ -57,6 +57,9 @@ pub struct Doc {
     pub src: String,
     /// Opened by the thread itself rather than by a press: Escape then leaves the thread.
     pub auto: bool,
+    /// When it was opened, on the clock in milliseconds: what was opened in the conversation
+    /// after it is put away by Escape before it (`docOpenedAt`).
+    pub opened: f64,
     /// Where it is looked for, likeliest first, and the project's folders its path is told from.
     roots: Vec<String>,
     crumb_roots: Vec<String>,
@@ -183,7 +186,7 @@ impl State {
         let roots = Files::of(self, item).roots;
         let crumb_roots = crumb_roots(self, &product);
         let src = crate::rules::paths::decode_uri(src.strip_prefix("file://").unwrap_or(src));
-        let mut doc = Doc { product, thread: id, src, auto, roots, crumb_roots, found: None, read: None, mtime: 0.0, looked: 0.0 };
+        let mut doc = Doc { product, thread: id, src, auto, opened: crate::clock(), roots, crumb_roots, found: None, read: None, mtime: 0.0, looked: 0.0 };
         doc.land(crate::clock());
         self.close_files();
         self.pointed.hint = None;

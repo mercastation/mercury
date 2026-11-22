@@ -251,11 +251,13 @@ function conversation(item, found, waiting = false, said = SHIPPED, runs = null,
 // `marks` is what the store folds a thread's marks on its files into (`item.artifacts`): the
 // notes on them, which the list of the thread's files counts.
 // `dress` changes the thread's row before the page opens (a label, a status), and `fromTab`
-// names the Inbox's tab the thread is then opened from.
+// names the Inbox's tab the thread is then opened from, whichever run is on it.
 // `hang` leaves every reply the page writes on its way for ever, as an engine that has not
 // answered yet would: the harness's own bridge refuses writes at once. `runEngine` names the
-// coding agent the run that is up says it is on.
-export async function open(h, { unfold, found = FOUND, shipped = SHIPPED, files = null, waiting = false, then = null, runs = null, reply = REPLY, marks = null, dress = null, fromTab = null, hang = false, runEngine = null }) {
+// coding agent the run that is up says it is on. `fleet` changes what the supervisor says
+// about it once the run is set (`fleet(snapshot, row, now)`): queued, stopped, signed out,
+// the run taken away.
+export async function open(h, { unfold, found = FOUND, shipped = SHIPPED, files = null, waiting = false, then = null, runs = null, reply = REPLY, marks = null, dress = null, fromTab = null, hang = false, runEngine = null, fleet = null, trace = null, ledger = null }) {
   const snapshot = await h.evaluate('window.__SNAP__');
   // The Inbox opens on its first row; the snapshot's first thread is not always that one.
   await toInbox(h);
@@ -266,12 +268,18 @@ export async function open(h, { unfold, found = FOUND, shipped = SHIPPED, files 
   if (at < 0) throw new Error('thread scene: the Inbox\'s first row is not in the snapshot');
   const planted = files ? plant({ thread: snapshot.items[at].id, large: !!files.large }) : null;
   const words = (text) => (typeof text === 'function' ? text(planted) : text);
-  const { row, lines, sessions = [], session = null } = conversation(snapshot.items[at], words(found), waiting, words(shipped), runs, words(reply));
+  const made = conversation(snapshot.items[at], words(found), waiting, words(shipped), runs, words(reply));
+  const { row, session = null } = made;
+  // `ledger` changes the thread's ledger lines before they are served (more said on it).
+  const lines = ledger ? ledger(made.lines, row) : made.lines;
+  // `trace` changes the runs' logs before they are served (a line added to one).
+  const sessions = trace ? trace(made.sessions ?? []) : made.sessions ?? [];
   if (marks) row.artifacts = marks;
   if (dress) dress(row);
   snapshot.items[at] = row;
   if (session && runEngine) session.engine = runEngine;
   if (session) snapshot.supervisor.running = [session];
+  if (fleet) fleet(snapshot, row, Date.now());
   if (planted) {
     const project = snapshot.products.find((p) => p.slug === row.product);
     project.dir = planted.dir;
@@ -318,8 +326,8 @@ export async function open(h, { unfold, found = FOUND, shipped = SHIPPED, files 
   await h.evaluate('(async () => { await document.fonts.ready; })()');
   await h.wait(2000);
   // A thread an agent is on is In progress, the only row there.
-  if (session) await tab(h, 'In progress');
-  else if (fromTab) await tab(h, fromTab);
+  if (fromTab) await tab(h, fromTab);
+  else if (session) await tab(h, 'In progress');
   else await toInbox(h);
   await h.call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
   await h.call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });

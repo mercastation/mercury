@@ -1,14 +1,17 @@
 //! What one thread is doing, in one word and one mark: the Inbox table's Status cell. A port
-//! of `statusCell` in `renderer/src/status-word.ts`, of `liveLine` in `renderer/src/live-line.ts`
-//! (which of its states holds; its sentence is only read aloud), and of `threadState` in
-//! `shared/thread-cards.mts`.
+//! of `statusCell` in `renderer/src/status-word.ts`, which reads `liveLine` (`rules::live`, the
+//! same line a conversation's foot draws), and of `threadState` in `shared/thread-cards.mts`.
+//! The cell also carries what it says under the pointer (its sentence, or the card saying why
+//! the cloud does not have it) and whether Try again follows its word (`offersTryAgain`).
 
-use serde_json::{Map, Value};
+use serde_json::Value;
 
+use super::js::re;
 use super::kinds::{asks_who, catch_up_due, is_auto};
+use super::live::{self, State as Live};
 use super::nowhere::says_a_run_got_nowhere;
 use super::shipping::{closed_unshipped, not_shipped_line, shipped_by_the_app};
-use crate::data::{Item, Mark, Run, Supervisor, truthy};
+use crate::data::{Item, Mark, Run, Supervisor};
 
 /// One of four states and only four.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -72,141 +75,31 @@ pub struct Facts<'a> {
 }
 
 impl Facts<'_> {
-    fn listed(&self, list: &str, id: &str) -> bool {
-        self.supervisor.rest.get(list).and_then(Value::as_array).is_some_and(|ids| ids.iter().any(|v| v.as_str() == Some(id)))
-    }
-    fn keyed(&self, map: &str, id: &str) -> Option<&Value> {
-        self.supervisor.rest.get(map).and_then(Value::as_object).and_then(|m| m.get(id)).filter(|v| truthy(Some(v)))
-    }
-}
-
-/// Which of the things that can be true of a thread's agent is true (`LiveState`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Live {
-    Asking,
-    Working,
-    Elsewhere,
-    Shipping,
-    Next,
-    Queued,
-    Cannot,
-    SignIn,
-    Limit,
-    Paused,
-    Silent,
-    Idle,
-}
-
-/// The one word each state gets (`shortWord`). A run's subagents are counted in the open
-/// thread's own line, not in the table.
-fn short_word(state: Live) -> &'static str {
-    match state {
-        Live::Asking => "Asking",
-        // The same word for a run of ours and one outside this window; the mark says where.
-        Live::Working | Live::Elsewhere => "Working",
-        Live::Shipping => "Shipping",
-        Live::Next => "Up next",
-        Live::Queued => "Queued",
-        Live::Cannot => "Not started",
-        Live::SignIn => "Signed out",
-        Live::Limit => "At its limit",
-        Live::Paused => "Paused",
-        Live::Silent => "Nothing came back",
-        Live::Idle => "Nothing running",
+    /// The same facts as the line at a conversation's foot reads, for this row (`factsFor`, with
+    /// `inProgress` the row's tab, the practice project, and no moment it is put off to, which
+    /// the row's facts do not carry). The run is the one the caller found for the row.
+    pub fn live(&self, i: &Item) -> live::Facts {
+        let mut f = live::Facts::of(self.supervisor, &i.id, self.now);
+        if let Some(run) = self.session {
+            let mut facts = run.rest.clone();
+            facts.insert("itemId".to_string(), Value::String(run.item_id.clone()));
+            facts.insert("product".to_string(), Value::String(run.product.clone()));
+            f.session = serde_json::from_value(Value::Object(facts)).ok();
+        }
+        f.asking = self.asking;
+        f.in_progress = self.in_progress;
+        f.practice = self.practice;
+        f
     }
 }
 
-/// Has an agent actually written something here. `(withdrawn)` is the app's own word for a
-/// field that has been taken back.
-fn said(text: Option<&str>) -> bool {
-    text.map(crate::rules::js::trim).is_some_and(|t| !t.is_empty() && t != "(withdrawn)")
+/// Whether anything is actually happening on this thread (`liveLine`), with `stalled` handed
+/// over as false: the Status cell says Stopped itself.
+fn live_line(i: &Item, f: &live::Facts) -> Option<live::Line> {
+    live::line(i, &live::Facts { stalled: false, ..f.clone() })
 }
 
-/// How long a thread just sent reads Queued before the fleet has listed it.
-const JUST_SENT_MS: f64 = 30_000.0;
-
-/// Sent or replied to moments ago, and no agent has claimed it or written on it since.
-fn just_sent(i: &Item, now: f64) -> bool {
-    let created = i.created_at.unwrap_or(0.0);
-    let sent_at = created.max(i.wrote_at("answer"));
-    if now - sent_at >= JUST_SENT_MS {
-        return false;
-    }
-    if i.created_at == Some(sent_at) && i.number("epoch").unwrap_or(0.0) > 0.0 {
-        return false;
-    }
-    let wrote: Option<&Map<String, Value>> = i.object("wrote");
-    !wrote.is_some_and(|w| w.values().any(|w| w.get("source").and_then(Value::as_str) == Some("agent") && w.get("ts").and_then(Value::as_f64).is_some_and(|ts| ts >= sent_at)))
-}
-
-/// The reasons a queued row cannot start that the app has a sentence for (`cannotStartLine`).
-const CANNOT_START: [&str; 9] = ["setup", "asleep", "cloud-carried", "engine", "login", "memory", "slow-folder", "error", "brake"];
-
-/// Whether anything is actually happening on this thread (`liveLine`). `stalled` is always
-/// handed over as false by the Status cell, which says Stopped itself.
-fn live_line(i: &Item, f: &Facts) -> Option<Live> {
-    // An imported session is not one of ours, and the walkthrough's practice rows are
-    // answered by the app and never started.
-    if i.truthy("agent") || i.has_label("first-run") {
-        return None;
-    }
-    // Finished is finished.
-    if i.status == "done" {
-        return None;
-    }
-    // Above the session: a worker waiting on an approval is a live session in every list.
-    if f.asking {
-        return Some(Live::Asking);
-    }
-    if f.session.is_some() {
-        return Some(Live::Working);
-    }
-    let shipping = f.listed("shipping", &i.id);
-    // Signed out is not queued, and it is said in or out of In progress.
-    if f.keyed("signInNeeded", &i.id).is_some() && !shipping {
-        return Some(Live::SignIn);
-    }
-    // A run ended here and wrote nothing down. Above the In progress gate on purpose: such a
-    // row sits in the inbox looking untouched. Never under something there is to read.
-    if f.keyed("silent", &i.id).is_some() && !said(i.result.as_deref()) && !said(i.string("note")) {
-        return Some(Live::Silent);
-    }
-    if !f.in_progress {
-        return None;
-    }
-    // The app is shipping it: no agent is on it and none is coming.
-    if shipping {
-        return Some(Live::Shipping);
-    }
-    let remote_held = f.listed("remoteHeld", &i.id);
-    // A live claim that no session of ours holds.
-    if i.status == "claimed" && i.truthy("claim") && !i.truthy("claimExpired") && !remote_held {
-        return Some(Live::Elsewhere);
-    }
-    if f.keyed("atLimit", &i.id).is_some() {
-        return Some(Live::Limit);
-    }
-    // Queued is a promise that an agent is coming, and for these it is not.
-    let queued = f.listed("queued", &i.id);
-    let why = f.keyed("cannotStart", &i.id).and_then(|c| c.get("why")).and_then(Value::as_str);
-    if queued && why.is_some_and(|why| CANNOT_START.contains(&why)) {
-        return Some(Live::Cannot);
-    }
-    if queued && f.listed("runNow", &i.id) {
-        return Some(Live::Next);
-    }
-    if queued {
-        return Some(Live::Queued);
-    }
-    if truthy(f.supervisor.rest.get("paused")) {
-        return Some(Live::Paused);
-    }
-    // The window draws a thread just sent before the fleet's next snapshot lists it.
-    if just_sent(i, f.now) {
-        return Some(Live::Queued);
-    }
-    Some(Live::Idle)
-}
+re!(SHIPPED_AS, r" as ([0-9a-f]{7,40})\.", "");
 
 /// The Status cell's word and the mark before it. `mark` is drawn only for a word about an
 /// agent, now: working, waiting its turn, or held (`StatusCell`, with `agent` folded into it).
@@ -216,88 +109,132 @@ pub struct Cell {
     pub mark: Mark,
     /// An agent is on it this second.
     pub live: bool,
+    /// The whole sentence, for the pointer resting on the word, where there is more to say.
+    pub title: Option<String>,
+    /// Why it is not in the cloud, as a card under the word, which the sentence then gives way to:
+    /// its head and its body (`whyWords`).
+    pub why: Option<(String, String)>,
+    /// Try again follows the word: nothing will start the thread without a person
+    /// (`offersTryAgain`, on the row's own facts).
+    pub retry: bool,
 }
 
-fn says(word: &str, mark: Mark) -> Cell {
-    Cell { word: word.to_string(), mark, live: false }
+fn says(word: &str, mark: Mark, title: Option<&str>) -> Cell {
+    Cell { word: word.to_string(), mark, live: false, title: title.map(str::to_string), why: None, retry: false }
 }
 
 /// What one thread is doing (`statusCell`): live-line first, falling back to the thread's own
 /// state word. Under Later the state is the tab's, whatever the thread itself would say
 /// (`laterCell`): a thread finished while it was still written down there reads as the rest do.
 pub fn status_cell(i: &Item, f: &Facts) -> Cell {
+    let facts = f.live(i);
+    Cell { retry: live::offers_try_again(i, &facts), ..cell(i, f, &facts) }
+}
+
+fn cell(i: &Item, f: &Facts, facts: &live::Facts) -> Cell {
     let state = if f.later { State::Scheduled } else { thread_state(i, f.now) };
     // Said over "Waiting" and "Done", which do not tell a shipped thread from one that never
     // shipped. A person's word that it shipped counts, and their zero takes the app's back.
     let shipped_at = i.number("shippedAt");
-    let shipped = shipped_at.is_some_and(|at| at > 0.0) || (shipped_by_the_app(i) && shipped_at != Some(0.0));
+    let shipped = if shipped_at.is_some_and(|at| at > 0.0) {
+        Some("Marked as shipped".to_string())
+    } else if shipped_by_the_app(i) && shipped_at != Some(0.0) {
+        Some(match i.string("note").and_then(|note| SHIPPED_AS.exec(note)).map(|caps| super::js::group(&caps, 1).to_string()) {
+            Some(sha) if !sha.is_empty() => format!("Shipped to main as {sha}"),
+            _ => "Shipped to main".to_string(),
+        })
+    } else {
+        None
+    };
 
     if state == State::Done {
-        if shipped {
-            return says("Shipped", Mark::None);
+        if let Some(title) = &shipped {
+            return says("Shipped", Mark::None, Some(title));
         }
         if closed_unshipped(i) {
-            return says("Not shipped", Mark::None);
+            return says("Not shipped", Mark::None, Some("Closed without its work reaching main"));
         }
-        return says(state_word_of(i, state), Mark::None);
+        return says(state_word_of(i, state), Mark::None, None);
     }
     if catch_up_due(i) {
-        return says("Getting ready", Mark::None);
+        return says("Getting ready", Mark::None, Some("This chat is being summarized so you can answer it."));
     }
     // Sent to Auto and not given to anyone yet. Ahead of Stopped: a thread that asks the
     // person is on the supervisor's stalled list, and no agent died on it.
     if is_auto(i) {
-        return if asks_who(i) { says("Asks you who", Mark::None) } else { says("Assigning", Mark::Queued) };
+        return if asks_who(i) {
+            says("Asks you who", Mark::None, Some("Auto could not tell which teammate should take this. Open it to pick."))
+        } else {
+            says("Assigning", Mark::Queued, Some("Auto is picking who takes this."))
+        };
     }
     // Signed out is the reason a stopped thread is stopped, so it is the word.
-    if f.keyed("signInNeeded", &i.id).is_some() && live_line(i, f) == Some(Live::SignIn) {
-        return says(short_word(Live::SignIn), Mark::Held);
+    if facts.sign_in_needed.is_some()
+        && let Some(signed_out) = live_line(i, facts).filter(|l| l.state == Live::SignIn)
+    {
+        return says(&live::short_word(Live::SignIn, 0), Mark::Held, Some(&signed_out.line));
     }
-    if f.listed("stalled", &i.id) {
-        return says("Stopped", Mark::Held);
+    if facts.stalled {
+        return says("Stopped", Mark::Held, Some("The agent that was on this died without finishing. Send it a message to start it again."));
     }
     if state == State::Scheduled {
-        return says(state_word_of(i, state), Mark::None);
+        return says(state_word_of(i, state), Mark::None, None);
     }
 
-    let live = live_line(i, f);
-    let away = f.keyed("whyNotCloud", &i.id);
-    if live == Some(Live::Working) {
-        let cloud = f.session.and_then(|s| s.rest.get("where")).and_then(Value::as_str) == Some("cloud");
+    let live = live_line(i, facts);
+    let away = facts.why_not_cloud.as_ref();
+    let why = away.map(|w| (live::why_head(w).to_string(), super::place::why_words(w)));
+    // Where the cloud says why, the card says it, and the sentence leads with it.
+    let titled = |line: &str| why.as_ref().map_or_else(|| line.to_string(), |(head, body)| format!("{head}. {body}"));
+    if let Some(working) = live.as_ref().filter(|l| l.state == Live::Working) {
+        let cloud = facts.session.as_ref().and_then(|s| s.place.as_deref()) == Some("cloud");
         // With the cloud taking everything, a run on this Mac says why it is here.
-        let local = !cloud && away.and_then(|a| a.get("at")).and_then(Value::as_str) == Some("mac");
-        let moving = away.and_then(|a| a.get("why")).and_then(Value::as_str) == Some("moving");
-        let word = if !local { short_word(Live::Working) } else if moving { "Moving to cloud" } else { "Working locally" };
-        return Cell { word: word.to_string(), mark: if cloud { Mark::Cloud } else { Mark::Running }, live: true };
+        let local = !cloud && away.is_some_and(|a| a.at == "mac");
+        let moving = away.is_some_and(|a| a.why == "moving");
+        let word = if !local { live::short_word(Live::Working, 0) } else if moving { "Moving to cloud".to_string() } else { "Working locally".to_string() };
+        return Cell {
+            word,
+            mark: if cloud { Mark::Cloud } else { Mark::Running },
+            live: true,
+            title: Some(if local { titled(&working.line) } else { working.line.clone() }),
+            why: if local { why } else { None },
+            retry: false,
+        };
     }
     // Over "Waiting": the agent's last word, written before, says it ships.
-    if not_shipped_line(i).is_some() {
-        return says("Not shipped", Mark::None);
+    if let Some(unshipped) = not_shipped_line(i) {
+        return says("Not shipped", Mark::None, Some(&unshipped));
     }
     // "Nothing running" is a claim about the whole fleet, and so is an agent being on it
     // outside this window. Both are only said where the fleet has really been read.
-    let fleet_unread = !f.supervisor.rest.get("queued").is_some_and(Value::is_array) || f.practice;
-    if (live == Some(Live::Idle) && (fleet_unread || f.listed("remoteHeld", &i.id))) || (live == Some(Live::Elsewhere) && fleet_unread) {
-        return says(state_word_of(i, state), Mark::None);
+    let fleet_unread = facts.queued.is_none() || f.practice;
+    let state_now = live.as_ref().map(|l| l.state);
+    if (state_now == Some(Live::Idle) && (fleet_unread || facts.remote_held)) || (state_now == Some(Live::Elsewhere) && fleet_unread) {
+        return says(state_word_of(i, state), Mark::None, None);
     }
     // Drawn as one of ours is: the cloud when a cloud run holds it, the half-dot otherwise.
-    if live == Some(Live::Elsewhere) {
+    if let Some(elsewhere) = live.as_ref().filter(|l| l.state == Live::Elsewhere) {
         let cloud = i.object("claim").and_then(|c| c.get("holder")).and_then(Value::as_str).is_some_and(|h| h.starts_with("mcp-cloud-"));
-        return Cell { word: short_word(Live::Elsewhere).to_string(), mark: if cloud { Mark::Cloud } else { Mark::Running }, live: true };
+        return Cell { word: live::short_word(Live::Elsewhere, 0), mark: if cloud { Mark::Cloud } else { Mark::Running }, live: true, title: Some(elsewhere.line.clone()), why: None, retry: false };
     }
     if let Some(live) = live {
         // Waiting its turn resolves itself; held does not.
-        let waits_its_turn = matches!(live, Live::Queued | Live::Next | Live::Shipping);
-        return says(short_word(live), if waits_its_turn { Mark::Queued } else { Mark::Held });
+        let waits_its_turn = matches!(live.state, Live::Queued | Live::Next | Live::Shipping);
+        // Waiting its turn for the cloud or for this Mac, the card says why.
+        let waiting = waits_its_turn && live.state != Live::Shipping && away.is_some_and(|a| a.at == "wait-cloud" || a.at == "wait-mac");
+        let cell = says(&live::short_word(live.state, 0), if waits_its_turn { Mark::Queued } else { Mark::Held }, Some(&if waiting { titled(&live.line) } else { live.line.clone() }));
+        return if waiting { Cell { why, ..cell } } else { cell };
     }
-    if state == State::Waiting && shipped {
-        return says("Shipped", Mark::None);
+    if state == State::Waiting
+        && let Some(title) = &shipped
+    {
+        return says("Shipped", Mark::None, Some(title));
     }
     // The app's own note that a run got nowhere is not an answer.
     if state == State::Waiting && i.wrote("result").is_some_and(|w| w.source == "agent") && says_a_run_got_nowhere(i.result.as_deref()) {
-        return says("Stopped", Mark::Held);
+        return says("Stopped", Mark::Held, i.result.as_deref().map(|r| r.split('\n').next().unwrap_or("")));
     }
-    says(state_word_of(i, state), Mark::None)
+    says(state_word_of(i, state), Mark::None, None)
 }
 
 /// Whether Try again is offered: nothing will start the thread without a person
@@ -307,29 +244,8 @@ pub fn status_cell(i: &Item, f: &Facts) -> Cell {
 /// the agent out where Try again stands for them. `scheduledUntil` is never among the facts
 /// those callers hand it (`factsFor`), so it is not asked here.
 pub fn offers_try_again(i: &Item, f: &Facts) -> bool {
-    if i.truthy("agent") || i.status == "done" || f.session.is_some() || f.practice || i.has_label("first-run") {
-        return false;
-    }
-    // Without the fleet this window knows nothing about what is coming.
-    let Some(queued) = f.supervisor.rest.get("queued").and_then(Value::as_array) else {
-        return false;
-    };
-    if f.asking || f.listed("shipping", &i.id) || f.listed("remoteHeld", &i.id) {
-        return false;
-    }
-    if f.listed("stalled", &i.id) && f.keyed("signInNeeded", &i.id).is_none() {
-        return true;
-    }
-    if let Some(live) = live_line(i, f) {
-        return matches!(live, Live::Idle | Live::Silent | Live::Limit);
-    }
-    // Out of In progress, the newest word on it is the app's own note that a run stopped, and
-    // no start is queued for it yet; a model it can run is the way on, not another try.
-    i.status == "open"
-        && !queued.iter().any(|q| q.as_str() == Some(i.id.as_str()))
-        && i.wrote("result").is_some_and(|w| w.source == "agent")
-        && says_a_run_got_nowhere(i.result.as_deref())
-        && !super::nowhere::says_the_model_is_for_another_engine(i.result.as_deref())
+    // One rule, the line's own (`rules/live.rs`), asked with what a row knows.
+    live::offers_try_again(i, &f.live(i))
 }
 
 #[cfg(test)]

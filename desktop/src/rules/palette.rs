@@ -53,6 +53,8 @@ pub enum Does {
     Back(Thread),
     /// The Files place: All files, or one project's page.
     Files(Option<String>),
+    /// Puts an agent back on a thread nothing will start without the person.
+    TryAgain(Thread),
     /// Stops its agent, which moves it to Needs you.
     Stop(Thread),
     /// Approves what the agent asks, held three seconds (`resolve`).
@@ -426,8 +428,9 @@ pub fn priority_rows(item: &Item, snap: &Snapshot) -> Vec<Row> {
 /// Left out: Remote control and Open terminal (no such panels here), Close task, Mark unread
 /// (only the web window keeps what has been read, and nothing sets it back), the team's rows,
 /// Rename (no box to rename in), Stop repeating (repeating tasks are not read here) and Add
-/// people. Stop is added by the bar where the thread is under way (`stop_row`), which these
-/// rules cannot tell; Try again and View code changes are their own controls' to bring.
+/// people. Stop is added by the bar where the thread is under way (`stop_row`), and Try again
+/// after Reply where the window offers it (`with_try_again`), which these rules cannot tell;
+/// View code changes is its own control's to bring.
 pub fn thread_commands(f: &Facts, item: &Item, open: bool) -> Vec<Row> {
     let thread = || (item.id.clone(), item.product.clone());
     let agent = item.truthy("agent");
@@ -613,6 +616,19 @@ pub fn stop_row(running: bool, thread: Thread) -> Row {
     let mut row = Row::command("stop", label, Does::Stop(thread));
     row.hint = hint.map(str::to_string);
     row
+}
+
+/// Try again on the thread under the keys, which the window offers where nothing will start
+/// it without the person (`try-again` in `itemCommands`, in place of Resume this agent). It
+/// goes after Reply, as the web window's does.
+pub fn try_again_row(thread: Thread) -> Row {
+    Row::command("try-again", "Try again", Does::TryAgain(thread)).found_by("resume restart retry start stuck run again")
+}
+
+/// Puts Try again after Reply in `rows`, as the web's list has it.
+pub fn with_try_again(rows: &mut Vec<Row>, thread: Thread) {
+    let at = rows.iter().position(|r| r.id == "reply").map_or(rows.len(), |at| at + 1);
+    rows.insert(at, try_again_row(thread));
 }
 
 /// Every row the bar has before anything is typed, in the web's order: starting a thread,
@@ -1863,5 +1879,20 @@ mod tests {
         assert_eq!(icon_for("pause", "Unpause agents"), "play");
         assert_eq!(icon_for("priority-urgent", "Urgent"), "priority-urgent");
         assert_eq!(icon_for("priority-low", "Low"), "priority-low");
+    }
+
+    /// `tests/a-stuck-thread-offers-try-again.test.mts`: the bar's row is `try-again`, labelled
+    /// Try again, after Reply, found by the words a person reaching for it types.
+    #[test]
+    fn try_again_goes_after_reply_and_is_found_by_what_a_stuck_thread_is_called() {
+        let mut rows = World::empty().on(&open_thread(), true);
+        with_try_again(&mut rows, ("w-1".to_string(), "shop".to_string()));
+        let at = ids(&rows).iter().position(|id| *id == "try-again").expect("the row");
+        assert_eq!(ids(&rows)[at - 1], "reply");
+        assert_eq!(rows[at].does, Does::TryAgain(("w-1".to_string(), "shop".to_string())));
+        assert_eq!(icon_for("try-again", "Try again"), "refresh");
+        for q in ["try again", "retry", "stuck", "restart", "resume"] {
+            assert!(matches_query(q, &rows[at]), "{q}");
+        }
     }
 }

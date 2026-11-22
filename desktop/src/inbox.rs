@@ -435,7 +435,7 @@ fn title_cell(r: &Row, selected: bool, pointed: bool, room: f32) -> El {
 
 /// One thread: 54 points, a hairline above every row but the first, and the title's underline,
 /// which is how a row answers: orange on the selected one, faint under the pointer.
-fn thread(s: &State, r: &Row, at: usize, picked: usize, cols: &Columns) -> El {
+fn thread(s: &State, r: &Row, (at, count): (usize, usize), picked: usize, cols: &Columns) -> El {
     // The title's cell is what the row's hint lines its keys up with (`data-hint-text`).
     let subject = format!("subject-{}-{}", r.product, r.id);
     let title = title_cell(r, at == picked, s.pointed.is_row(&r.product, &r.id), cols.title).key(subject.clone());
@@ -448,6 +448,17 @@ fn thread(s: &State, r: &Row, at: usize, picked: usize, cols: &Columns) -> El {
         state = state.child(mark);
     }
     let state = state.child(small(&r.status, dim()));
+    // Try again after the word, on a thread nothing will start without the person.
+    let state = state.children(r.retry.then(|| crate::foot::row_retry(&r.id, &r.product)));
+    // Under the pointer the word says its whole sentence, or the card says why the cloud has not
+    // got the thread, in its place (`RowCells`' `title`, `.th-cell-state.has-card`).
+    // The rows after it paint over the card, so it shows down to this row's foot unless it is the last.
+    let cut_at = (at + 1 < count).then(|| format!("thread-{}-{}", r.product, r.id));
+    let state = match (&r.why, &r.status_title) {
+        (Some(why), _) => crate::foot::with_card(state, format!("status-{}-{}", r.product, r.id), why.clone(), false, cut_at),
+        (None, Some(title)) => state.help(title.as_str()),
+        (None, None) => state,
+    };
     // A cause's row names where most of the threads behind it are, and counts the other projects.
     let mut project = row().items_center().child(small(&r.place, muted()));
     if r.place_more > 0 {
@@ -515,5 +526,5 @@ pub fn view(s: &State) -> El {
     // The time column is named for what it tells under this tab: Sent, Back on Later, Done.
     let head = row().h(38.0).pt(10.0).pr(32.0).pl(44.0).child(cols.line(heading("Thread"), heading("Status"), heading("Project"), heading("Priority"), heading(page::time_heading(tab.view()))));
     let picked = s.picked.min(rows.len() - 1);
-    page.child(head).children(rows.iter().enumerate().map(|(i, r)| thread(s, r, i, picked, &cols)))
+    page.child(head).children(rows.iter().enumerate().map(|(i, r)| thread(s, r, (i, rows.len()), picked, &cols)))
 }
