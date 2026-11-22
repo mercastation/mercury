@@ -1096,6 +1096,34 @@ mod tests {
         assert_eq!(talk.page(false, false, false).toggle.as_deref(), Some("Show 3 earlier messages"));
     }
 
+    /// A log read as a live run writes it, one line more each time: what is already drawn never
+    /// changes, and only the last thing can still be growing (a sentence running onto another
+    /// line, a command's output arriving).
+    #[test]
+    fn a_log_that_grows_only_ever_adds_at_its_foot() {
+        let (_, sessions) = checkout();
+        let whole = &sessions[0];
+        let all: Vec<&str> = whole.text.split('\n').collect();
+        let full = run_nodes(whole);
+        let same = |a: &Said, b: &Said| match (a, b) {
+            (Said::Message(x), Said::Message(y)) => y.text.starts_with(&x.text),
+            (Said::Work(x), Said::Work(y)) => (x.verb.as_str(), x.subject.as_str()) == (y.verb.as_str(), y.subject.as_str()) && y.output.starts_with(&x.output),
+            _ => false,
+        };
+        for k in 1..=all.len() {
+            let part = run_nodes(&TraceSession { started_at: whole.started_at, text: all[..k].join("\n") });
+            assert!(part.len() <= full.len(), "{k} lines");
+            for (n, node) in part.iter().enumerate() {
+                assert!(same(node, &full[n]), "{k} lines, node {n}");
+                if n + 1 < part.len()
+                    && let (Said::Message(a), Said::Message(b)) = (node, &full[n])
+                {
+                    assert_eq!(a.text, b.text, "{k} lines: only the last can still be growing");
+                }
+            }
+        }
+    }
+
     /// `tests/the-thinking-mark-is-the-lowest-thing.test.mts`: while a run is up, the work since
     /// anybody last spoke is the live line's to say, and comes back once the run ends.
     #[test]

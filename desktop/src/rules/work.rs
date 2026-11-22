@@ -789,6 +789,86 @@ mod tests {
         assert_eq!(command_work("sed -i \"\" s/a/b/ src/cart.js", "", "").unwrap().verb, "changed");
     }
 
+    /// Commands the invented logs and real runs hold, with what the web window's own
+    /// `plainCommand` and `commandWork` answer for each (run with node from the checkout,
+    /// 2026-11-22): the port says the same, or nothing where the web says nothing.
+    #[test]
+    fn a_command_reads_as_the_web_window_reads_it() {
+        let table: [(&str, &str, Option<(&str, &str)>); 60] = [
+            ("git log --oneline -8", "git log --oneline -8", Some(("read the code history", ""))),
+            ("cd /Users/you/dev/storefront && git log --oneline -8", "git log --oneline -8", Some(("read the code history", ""))),
+            ("npm test -- tax", "npm test -- tax", Some(("ran the tests", ""))),
+            ("npm test -- checkout", "npm test -- checkout", Some(("ran the tests", ""))),
+            ("git commit -am \"Round tax before adding it to the total\"", "git commit -am \"Round tax before adding it to the total\"", Some(("saved the changes", ""))),
+            ("git push origin main", "git push origin main", Some(("pushed the branch", "main"))),
+            ("node scripts/failed-orders.mjs --since 08:00", "node scripts/failed-orders.mjs --since 08:00", Some(("ran a script", "failed-orders.mjs"))),
+            ("node scripts/queue-refunds.mjs --after-note", "node scripts/queue-refunds.mjs --after-note", Some(("ran a script", "queue-refunds.mjs"))),
+            ("ls -la src", "ls -la src", Some(("listed", "./"))),
+            ("cat a.md | head -20", "cat a.md | head -20", Some(("read", "a.md"))),
+            ("grep -rn \"TODO\" src | wc -l", "grep -rn \"TODO\" src | wc -l", Some(("searched for", "TODO"))),
+            ("find . -name \"*.ts\" -not -path \"./node_modules/*\"", "find . -name \"*.ts\" -not -path \"./node_modules/*\"", Some(("looked for", "*.ts"))),
+            ("rg roundTax", "rg roundTax", Some(("searched for", "roundTax"))),
+            ("curl -s -o /dev/null -w \"%{http_code}\" https://example.com/health", "curl -s -o /dev/null -w \"%{http_code}\" https://example.com/health", Some(("fetched", "https://example.com/health"))),
+            ("mkdir -p a/b c/d", "mkdir -p a/b c/d", Some(("made folders", "a/b and c/d"))),
+            ("touch x.txt y.txt", "touch x.txt y.txt", Some(("made files", "x.txt and y.txt"))),
+            ("rm -rf dist && npm run build", "rm -rf dist && npm run build", None),
+            ("npx vite build", "npx vite build", Some(("built the app", ""))),
+            ("pnpm install", "pnpm install", Some(("installed the packages", ""))),
+            ("yarn lint", "yarn lint", Some(("checked the code style", ""))),
+            ("bash -c \"npm test\"", "bash -c \"npm test\"", Some(("ran the tests", ""))),
+            ("sh -c 'git status'", "sh -c 'git status'", Some(("checked what changed", ""))),
+            ("timeout 300 npx vitest run tests/a.test.ts", "timeout 300 npx vitest run tests/a.test.ts", Some(("ran the tests", "a.test.ts"))),
+            ("arch -arm64 node tools/reference.mjs x", "arch -arm64 node tools/reference.mjs x", Some(("ran a script", "reference.mjs"))),
+            ("python3 -m http.server 8000", "python3 -m http.server 8000", Some(("ran a script", "http.server"))),
+            ("echo hello > out.txt", "echo hello > out.txt", None),
+            ("sed -n 10,20p src/a.ts", "sed -n 10,20p src/a.ts", Some(("read", "src/a.ts"))),
+            ("sed -i \"\" \"s/a/b/\" src/a.ts src/b.ts", "sed -i \"\" \"s/a/b/\" src/a.ts src/b.ts", Some(("changed", "src/b.ts"))),
+            ("git diff --stat", "git diff --stat", Some(("checked what changed", ""))),
+            ("git checkout -b feature/x", "git checkout -b feature/x", Some(("switched branch", "feature/x"))),
+            ("git switch main", "git switch main", Some(("switched branch", "main"))),
+            ("git fetch origin", "git fetch origin", Some(("fetched the latest code", ""))),
+            ("git pull --rebase origin main", "git pull --rebase origin main", Some(("fetched the latest code", "main"))),
+            ("git branch -a", "git branch -a", Some(("looked at the branches", ""))),
+            ("git show HEAD~1", "git show HEAD~1", Some(("read the code history", "HEAD~1"))),
+            ("git blame src/a.ts", "git blame src/a.ts", Some(("read the code history", "src/a.ts"))),
+            ("git add -A", "git add -A", Some(("saved the changes", ""))),
+            ("tsc --noEmit", "tsc --noEmit", Some(("checked the types", ""))),
+            ("eslint src", "eslint src", Some(("checked the code style", ""))),
+            ("npx tsc -p .", "npx tsc -p .", Some(("checked the types", ""))),
+            ("cp a.txt b.txt", "cp a.txt b.txt", Some(("copied", "a.txt and b.txt"))),
+            ("mv old.ts new.ts", "mv old.ts new.ts", Some(("moved", "old.ts and new.ts"))),
+            ("wc -l src/*.ts", "wc -l src/*.ts", Some(("counted the lines in", "src/*.ts"))),
+            ("head -5 package.json", "head -5 package.json", Some(("read", "package.json"))),
+            ("cat <<EOF > notes.md\nhello\nEOF", "cat … > notes.md", None),
+            ("export FOO=1; npm test", "npm test", Some(("ran the tests", ""))),
+            ("FOO=bar npm run dev", "FOO=bar npm run dev", None),
+            ("source .env && node app.js", "node app.js", Some(("ran a script", "app.js"))),
+            ("deno run main.ts", "deno run main.ts", Some(("ran a script", "main.ts"))),
+            ("ruby script.rb", "ruby script.rb", Some(("ran a script", "script.rb"))),
+            ("jest --watch", "jest --watch", Some(("ran the tests", ""))),
+            ("pytest tests/test_a.py -k thing", "pytest tests/test_a.py -k thing", Some(("ran the tests", "test_a.py"))),
+            ("npm run test -- --run", "npm run test -- --run", Some(("ran the tests", ""))),
+            ("bun test", "bun test", Some(("ran the tests", ""))),
+            ("echo \"=== banner ===\" && ls", "ls", Some(("listed", "./"))),
+            ("cat a && cat b && cat c && cat d", "cat a && cat b && cat c && cat d", Some(("read", ""))),
+            ("grep foo a.txt b.txt", "grep foo a.txt b.txt", Some(("searched for", "foo"))),
+            ("ls | sort | uniq -c", "ls | sort | uniq -c", Some(("listed", "./"))),
+            ("npm ci", "npm ci", Some(("installed the packages", ""))),
+            ("docker compose up", "docker compose up", None),
+        ];
+        for (command, plain, words) in table {
+            assert_eq!(plain_command(command), plain, "{command}");
+            let read = command_work(command, "", "");
+            assert_eq!(read.as_ref().map(|w| (w.verb.as_str(), w.subject.as_str())), words, "{command}");
+        }
+        for (tool, verb) in [("Glob", "looked for"), ("mcp__claude_ai_Linear__list_teams", "list teams"), ("mcp__mercury__look_at_page", "look at page"), ("Task", "sent off a helper"), ("weird_tool__x", "weird tool x")] {
+            assert_eq!(work_verb(tool), verb);
+        }
+        for (path, short) in [("/Users/you/dev/storefront/src/checkout/tax.ts", "…/src/checkout/tax.ts"), ("/tmp/a.ts", "/tmp/a.ts"), ("~/x/y/z/w.md", "…/y/z/w.md"), ("relative/path.ts", "relative/path.ts"), ("/a/b", "/a/b")] {
+            assert_eq!(short_path(path, "", ""), short);
+        }
+    }
+
     #[test]
     fn a_run_of_them_folds_into_words_and_not_tool_names() {
         assert_eq!(activity_summary([("changed", "src/cart.js")]), "Changed src/cart.js");
