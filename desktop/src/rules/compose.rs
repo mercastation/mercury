@@ -5,9 +5,10 @@
 //! `compose-says.ts`, `withdraw-send.ts`, `toast-parts.ts`, `reply-keys.ts`,
 //! `keep-in-window.ts` and `compose-project.ts`.
 //!
-//! Left out, with the parts of the card this window does not draw yet: a thread to a person or
-//! to a teammate, files, a moment to start at (Later, which has none, is in), a repeating task,
-//! a branch, a demand, and who sees it.
+//! What its files are, and how they go, is `rules/attach.rs`. Left out, with the parts of the
+//! card this window does not draw yet: a thread to a person or to a teammate, a moment to
+//! start at (Later, which has none, is in), a repeating task, a branch, a demand, and who sees
+//! it.
 
 use std::collections::HashSet;
 
@@ -73,10 +74,14 @@ pub fn split_message(message: &str) -> Message {
 }
 
 /// The title and body of what is in the box, or nothing when there is nothing to send
-/// (`threadMessage`, with no files and nobody named).
-pub fn thread_message(text: &str) -> Option<Message> {
+/// (`threadMessage`, with nobody named). Files with no words are a thread too, named after
+/// the first of them; `first_file` is its name when the box holds any.
+pub fn thread_message(text: &str, first_file: Option<&str>) -> Option<Message> {
     let trimmed = js::trim(text);
-    (!trimmed.is_empty()).then(|| split_message(trimmed))
+    if trimmed.is_empty() {
+        return first_file.map(|name| split_message(&format!("Attached: {name}")));
+    }
+    Some(split_message(trimmed))
 }
 
 /* -------------------------------- priority -------------------------------- */
@@ -962,10 +967,14 @@ mod tests {
         }
     }
 
+    // tests/threads-the-composer-addresses-a-thread-like-an-email.test.mts
     #[test]
-    fn nothing_typed_is_nothing_to_send() {
-        assert_eq!(thread_message("  \n "), None);
-        assert_eq!(thread_message(" Ship it "), Some(message("Ship it", "")));
+    fn nothing_typed_is_nothing_to_send_and_files_alone_are_named_after_the_first() {
+        assert_eq!(thread_message("  \n ", None), None);
+        assert_eq!(thread_message(" Ship it ", None), Some(message("Ship it", "")));
+        assert_eq!(thread_message("   ", Some("shot.png")), Some(message("Attached: shot.png", "")));
+        // Words name the thread themselves, whatever is attached.
+        assert_eq!(thread_message("Draft the renewal\n\nAt 8% over last year.", Some("shot.png")), Some(message("Draft the renewal", "At 8% over last year.")));
     }
 
     #[test]

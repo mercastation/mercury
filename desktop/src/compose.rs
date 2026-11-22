@@ -769,7 +769,7 @@ impl State {
 
     /// Whether Send is lit: there is something to send, and somewhere it can run (`canSend`).
     pub fn compose_ready(&self) -> bool {
-        rules::thread_message(&self.compose.words.text).is_some() && self.compose_project().is_some_and(|p| rules::practice_refusal(Some(p)).is_none())
+        rules::thread_message(&self.compose.words.text, None).is_some() && self.compose_project().is_some_and(|p| rules::practice_refusal(Some(p)).is_none())
     }
 
     /// The level last picked for an agent, when it is one worth keeping.
@@ -1007,7 +1007,7 @@ impl State {
     /// the card closes, and a line says where the thread is going; a refusal puts every word
     /// back.
     pub fn send_thread(&mut self, tx: &mut Tx) {
-        let Some(message) = rules::thread_message(&self.compose.words.text) else {
+        let Some(message) = rules::thread_message(&self.compose.words.text, None) else {
             return;
         };
         let Some(product) = self.compose_project().filter(|p| rules::practice_refusal(Some(p)).is_none()).map(|p| p.slug.clone()) else {

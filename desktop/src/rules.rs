@@ -10,6 +10,7 @@
 //! the rows the web window draws from the same snapshot.
 
 pub mod answers;
+pub mod attach;
 pub mod calendar;
 pub mod cloud;
 pub mod compose;
