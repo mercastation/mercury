@@ -268,8 +268,18 @@ fn mention(r: &mut Run, href: &str, words: impl FnOnce(&mut Run)) {
     r.presses.push((from, r.text.len(), href.to_string()));
 }
 
-/// A line's pieces as one run of words with its styles.
-fn flow(kids: &[Inline], f: &Files, r: &mut Run) {
+/// A link in a document opened big: its own words with a line under them in the accent
+/// (`.doc-prose a`), pressed as a link. Neither a mention nor a name shortened.
+fn doc_link(r: &mut Run, href: &str, words: impl FnOnce(&mut Run)) {
+    let from = r.text.len();
+    words(r);
+    r.spans.push(Span::new(from, r.text.len()).underline(rgba(238, 96, 24, 0.6)));
+    r.presses.push((from, r.text.len(), href.to_string()));
+}
+
+/// A line's pieces as one run of words with its styles. `doc`: a document's words, whose
+/// links stay words and whose code is code (`.doc-prose`).
+fn flow(kids: &[Inline], f: &Files, r: &mut Run, doc: bool) {
     for kid in kids {
         let from = r.text.len();
         match kid {
@@ -277,17 +287,20 @@ fn flow(kids: &[Inline], f: &Files, r: &mut Run) {
             Inline::Text(words) => r.text.push_str(&words.replace('\n', " ")),
             Inline::Break => r.text.push('\n'),
             Inline::Strong(kids) => {
-                flow(kids, f, r);
-                r.spans.push(Span::new(from, r.text.len()).weight(650.0));
+                flow(kids, f, r, doc);
+                r.spans.push(Span::new(from, r.text.len()).weight(if doc { 640.0 } else { 650.0 }));
             }
             Inline::Emphasis(kids) => {
-                flow(kids, f, r);
+                flow(kids, f, r, doc);
                 r.spans.push(Span::new(from, r.text.len()).italic());
             }
             Inline::Strike(kids) => {
-                flow(kids, f, r);
+                flow(kids, f, r, doc);
                 r.strikes.push((from, r.text.len()));
             }
+            Inline::Code(code) if doc => doc_code_span(code, r),
+            Inline::Link { url, kids, .. } if doc => doc_link(r, url, |r| flow(kids, f, r, doc)),
+            Inline::Image { url, alt } if doc => doc_link(r, url, |r| r.text.push_str(if alt.is_empty() { url } else { alt })),
             Inline::Code(code) => code_span(code, f, r),
             // What a link's own words become (`linkLabel`): a path or an address written out
             // is shortened to the name it goes by, and words the worker chose stay theirs.
@@ -300,7 +313,7 @@ fn flow(kids: &[Inline], f: &Files, r: &mut Run) {
                 };
                 mention(r, &href, |r| match label {
                     Some(name) => r.text.push_str(&name),
-                    None => flow(kids, f, r),
+                    None => flow(kids, f, r, doc),
                 });
             }
             // A picture that stayed in its line (in a heading, inside bold) is its name there.
@@ -342,6 +355,23 @@ fn code_span(code: &str, f: &Files, r: &mut Run) {
     r.text.push('\u{a0}');
     r.spans.push(Span { start: a as u32, end: b as u32, ..pad.clone() });
     r.spans.push(Span::new(b, c).mono().size(CODE).bg(white(0.07), 0.0));
+    r.spans.push(Span { start: c as u32, end: r.text.len() as u32, ..pad });
+    r.pads.extend([(a, b), (c, r.text.len())]);
+}
+
+/// Code in a document's sentence: 0.86 of the words' size, its box 0.38 of that past it on
+/// either side, on `--wash-strong` (`.doc-prose :not(pre) > code`). Never a mention.
+fn doc_code_span(code: &str, r: &mut Run) {
+    let size = 0.86 * DOC_SIZE;
+    let pad = Span::new(0, 0).mono().size(0.38 * size / MONO_ADVANCE).bg(white(0.08), 0.0);
+    let a = r.text.len();
+    r.text.push('\u{a0}');
+    let b = r.text.len();
+    r.text.push_str(code);
+    let c = r.text.len();
+    r.text.push('\u{a0}');
+    r.spans.push(Span { start: a as u32, end: b as u32, ..pad.clone() });
+    r.spans.push(Span::new(b, c).mono().size(size).bg(white(0.08), 0.0));
     r.spans.push(Span { start: c as u32, end: r.text.len() as u32, ..pad });
     r.pads.extend([(a, b), (c, r.text.len())]);
 }
@@ -475,11 +505,17 @@ struct Page<'a> {
     /// How deep in lists, for the bullet's shape.
     depth: usize,
     files: &'a Files<'a>,
+    /// A document opened big, read as a page and not a message (`.doc-prose`): its links are
+    /// words with a line under them and its paths are words, as the web window's reader leaves
+    /// them.
+    doc: bool,
 }
 
 impl Page<'_> {
     fn body(&self) -> TextStyle {
-        TextStyle::new(self.size, self.weight).lh(self.line())
+        let body = TextStyle::new(self.size, self.weight).lh(self.line());
+        // A document's words sit a little tighter (`letter-spacing: -0.003em`).
+        if self.doc { body.tracking(-0.003 * self.size) } else { body }
     }
     /// A line of reading text: 1.6 of its size, or 1.55 of a person's.
     fn line(&self) -> f32 {
@@ -503,7 +539,7 @@ fn icon_of(kind: Kind) -> &'static rune::Icon {
 
 fn words(kids: &[Inline], font: TextStyle, p: Page) -> El {
     let mut r = Run::default();
-    flow(kids, p.files, &mut r);
+    flow(kids, p.files, &mut r, p.doc);
     let Run { text, spans, marks, presses, strikes, pads } = r;
     let mut e = readable(rich(text, spans).font(font).color(p.ink).wrap()).span_radius(6.0).strikes(strikes.into_iter().map(|(a, b)| (a, b, None)));
     for (a, b) in pads {
@@ -515,6 +551,17 @@ fn words(kids: &[Inline], font: TextStyle, p: Page) -> El {
     if presses.is_empty() {
         return e;
     }
+    // A document's link firms its line under the pointer (`.doc-prose a:hover`), and goes where
+    // the web window's reader sends it: an address to the browser, a file beside the document
+    // to the app that owns it (`FileLink` in `ArtifactStage.tsx`).
+    if p.doc {
+        let lit = LinkPaint::new().underline(dim());
+        for (a, b, href) in presses {
+            e = e.link(Link::new(a..b, href.clone()).hover(lit).pressed(lit).help(paths::decode_uri(&href)));
+        }
+        let folder = p.files.dir.clone();
+        return e.on_link(move |_: &mut crate::State, href: &str, _: &mut rune::Tx| crate::viewer::open_doc_link(&folder, href));
+    }
     // Each mention is pressed like a link, and says where it points when the pointer rests on it.
     // Under the pointer what is behind it lightens a step and its line firms, and held down the
     // line firms again (`a.mention:hover`, `:active` in `renderer/src/components/mention.css`).
@@ -523,7 +570,7 @@ fn words(kids: &[Inline], font: TextStyle, p: Page) -> El {
         e = e.link(Link::new(a..b, href.clone()).hover(lit).pressed(held).help(paths::decode_uri(&href)));
     }
     // A right press on one opens its menu; on the words around it, the words' own Copy.
-    e.on_link(|s: &mut crate::State, href: &str, _: &mut rune::Tx| files::open(s, href)).on_link_secondary(files::link_menu)
+    e.on_link(|s: &mut crate::State, href: &str, tx: &mut rune::Tx| files::open(s, href, tx.mods().cmd)).on_link_secondary(files::link_menu)
 }
 
 /// The folder a link points at, when it is one: an address that keeps its slash, which is how
@@ -700,7 +747,105 @@ fn table(head: &[String], rows: &[Vec<String>], p: Page) -> Block {
     Block::leaf(18.0, 18.0, row().scroll_x().child(col().child(heads).children(body)))
 }
 
+/// A document's words, as `.doc-prose` sets them.
+const DOC_SIZE: f32 = 16.0;
+
+thread_local! {
+    /// How many headings of the document being laid out have been laid: each is keyed by its
+    /// place among them (`doc-heading-<n>`), which its outline scrolls to.
+    static HEADINGS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// The next heading's key.
+fn heading_key() -> String {
+    HEADINGS.with(|n| {
+        let at = n.get();
+        n.set(at + 1);
+        format!("doc-heading-{at}")
+    })
+}
+
+/// A document's blocks, as `.doc-prose` lays them out (`renderer/src/components/doc-reading.css`):
+/// headings at weight 620 and drawn tight, each block's margins in its own ems.
+fn lay_doc(nodes: Vec<Node>, p: Page) -> Vec<Block> {
+    let heading = |size: f32, line: f32, tracking: f32| TextStyle::new(size, 620.0).lh(kept(line * size)).tracking(tracking * size);
+    nodes
+        .into_iter()
+        .map(|n| match n {
+            Node::Line(r) => Block::leaf(0.0, 0.0, lines(&r, p.body(), p)),
+            // A picture alone in its paragraph is the paragraph (`p:has(> img:only-child)`), set
+            // in the middle at the text's width with its own room around it.
+            Node::Paragraph(r) => match r.as_slice() {
+                [Inline::Image { url, .. }] => Block::leaf(25.6, 25.6, files::doc_picture(p.files, url, p.width)),
+                _ => Block::leaf(0.0, p.size, lines(&r, p.body(), p)),
+            },
+            Node::Heading(1, r) => Block::leaf(0.0, 18.0, words(&r, heading(34.0, 1.18, -0.026), p).key(heading_key())),
+            Node::Heading(2, r) => Block::leaf(48.3, 11.5, words(&r, heading(23.0, 1.3, -0.016), p).key(heading_key())),
+            Node::Heading(3, r) => Block::leaf(32.4, 6.3, words(&r, heading(18.0, 1.4, -0.008), p).key(heading_key())),
+            Node::Heading(_, r) => Block::leaf(24.0, 4.8, words(&r, heading(16.0, 1.5, 0.0), p).key(heading_key())),
+            // Quieter and a little larger, behind a line (`blockquote`); its last paragraph
+            // keeps no room under it.
+            Node::Quote(inside) => {
+                let said = Page { size: 17.0, leading: 1.6, width: p.width - 20.0, ink: dim(), ..p };
+                let mut laid = lay_doc(inside, said);
+                if let Some(last) = laid.last_mut() {
+                    last.own[1] = 0.0;
+                }
+                let (content, top, bottom) = stack(laid, false);
+                Block { own: [23.8, 23.8], through: [top, bottom], el: content.pt(2.0).pb(2.0).pl(18.0).border_sides([0.0, 0.0, 0.0, 2.0], rule()).border_layout() }
+            }
+            Node::Code(code) => {
+                let lines = readable(text(code).font(mono(13.5, kept(1.65 * 13.5))).color(dim()));
+                let block = el().fill(rgb(34, 32, 31)).border(1.0, edge()).border_layout().radius(10.0).clip_rounded(10.0).child(row().scroll_x().child(el().py(16.0).px(18.0).child(lines)));
+                Block::leaf(17.55, 20.25, block)
+            }
+            Node::List(start, items) => doc_list(start, items, p),
+            Node::Table(head, rows) => {
+                let mut laid = table(&head, &rows, p);
+                laid.own = [20.3, 23.2];
+                laid
+            }
+            Node::Rule => Block::leaf(38.4, 38.4, el().h(1.0).fill(edge())),
+            // Nothing is moved under a document's sentences.
+            Node::Media(..) => Block::leaf(0.0, 0.0, el()),
+        })
+        .collect()
+}
+
+/// A document's list (`.doc-prose ul, ol`): 1.5 em in, each item 0.2 em further and 0.3 em
+/// from the next, the markers faint, and a paragraph in an item with no room of its own.
+fn doc_list(start: Option<u64>, items: Vec<Vec<Node>>, p: Page) -> Block {
+    let inner = Page { width: p.width - 1.7 * p.size, depth: p.depth + 1, ..p };
+    let laid: Vec<Block> = items
+        .into_iter()
+        .enumerate()
+        .map(|(i, item)| {
+            let item = item.into_iter().map(|n| if let Node::Paragraph(r) = n { Node::Line(r) } else { n }).collect();
+            let (content, top, bottom) = stack(lay_doc(item, inner), false);
+            let em = p.size / 16.0;
+            let marker = match start {
+                Some(n) => row().absolute(-60.0, 0.0).w(60.0).h(p.line()).items_center().justify_end().child(text(format!("{}.\u{a0}", n + i as u64)).font(TextStyle::new(0.92 * p.size, p.weight).lh(p.line()).features("'tnum' 1")).color(muted())),
+                // The browser's disc, a ring one level in, then a square, on the first line's middle.
+                None => {
+                    let top = 10.5 * em + (p.line() - 25.6 * em) / 2.0;
+                    match p.depth {
+                        0 => el().absolute(-14.09 * em, top).size(5.5 * em, 5.5 * em).radius(2.75 * em).fill(muted()),
+                        1 => el().absolute(-14.59 * em, top - 0.5 * em).size(6.5 * em, 6.5 * em).radius(3.25 * em).border(1.0, muted()),
+                        _ => el().absolute(-14.09 * em, top).size(5.5 * em, 5.5 * em).fill(muted()),
+                    }
+                }
+            };
+            Block { own: [0.3 * p.size, 0.3 * p.size], through: [top, bottom], el: el().pl(0.2 * p.size).child(marker).child(content.w_full()) }
+        })
+        .collect();
+    let (items, top, bottom) = stack(laid, false);
+    Block { own: [0.0, p.size], through: [top, bottom], el: items.ml(1.5 * p.size) }
+}
+
 fn lay(nodes: Vec<Node>, p: Page) -> Vec<Block> {
+    if p.doc {
+        return lay_doc(nodes, p);
+    }
     nodes
         .into_iter()
         .map(|n| match n {
@@ -736,7 +881,36 @@ fn lay(nodes: Vec<Node>, p: Page) -> Vec<Block> {
 /// it has, and `files` what the files it names are read against. Stack them with [`stack`].
 pub fn blocks(source: &str, size: f32, width: f32, files: &Files) -> Vec<Block> {
     let mut events = Parser::new_ext(source, Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH).peekable();
-    lay(settle(nodes(&mut events), files), Page { size, width, ink: ink(), weight: 400.0, leading: 1.6, depth: 0, files })
+    lay(settle(nodes(&mut events), files), Page { size, width, ink: ink(), weight: 400.0, leading: 1.6, depth: 0, files, doc: false })
+}
+
+/// A document opened big, as blocks `width` wide (`.doc-prose`, 16 points on lines of 1.72):
+/// read as the web window's reader reads it, its paths left as words and its links as links.
+/// `files` finds the pictures it names, beside it.
+pub fn blocks_doc(source: &str, width: f32, files: &Files) -> Vec<Block> {
+    HEADINGS.with(|n| n.set(0));
+    let mut events = Parser::new_ext(source, Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS).peekable();
+    lay(nodes(&mut events), Page { size: DOC_SIZE, width, ink: ink(), weight: 400.0, leading: 1.72, depth: 0, files, doc: true })
+}
+
+/// The headings of a document, each its level and words, in order: what its outline lists
+/// (`outlineOf` in `renderer/src/doc-outline.ts` reads them off the page drawn).
+pub fn headings(source: &str) -> Vec<(u8, String)> {
+    let mut out = Vec::new();
+    let mut at: Option<(u8, String)> = None;
+    for event in Parser::new_ext(source, Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS) {
+        match event {
+            Event::Start(Tag::Heading { level, .. }) => at = Some((level as u8, String::new())),
+            Event::Text(t) | Event::Code(t) => {
+                if let Some((_, words)) = at.as_mut() {
+                    words.push_str(&t);
+                }
+            }
+            Event::End(pulldown_cmark::TagEnd::Heading(_)) => out.extend(at.take()),
+            _ => {}
+        }
+    }
+    out
 }
 
 /// The same for a line the app wrote into a person's own message (`rules/typed.rs`), in the
@@ -744,7 +918,7 @@ pub fn blocks(source: &str, size: f32, width: f32, files: &Files) -> Vec<Block> 
 /// (`.msg.yours .msg-body`, which the web window's `.typed-embed` inherits).
 pub fn blocks_typed(source: &str, size: f32, width: f32, files: &Files) -> Vec<Block> {
     let mut events = Parser::new_ext(source, Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH).peekable();
-    lay(settle(nodes(&mut events), files), Page { size, width, ink: ink(), weight: 500.0, leading: 1.55, depth: 0, files })
+    lay(settle(nodes(&mut events), files), Page { size, width, ink: ink(), weight: 500.0, leading: 1.55, depth: 0, files, doc: false })
 }
 
 /// One block that is not markdown, to stack among those that are.

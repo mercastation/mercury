@@ -18,6 +18,7 @@ mod compose;
 mod data;
 mod feel;
 mod files;
+mod files_page;
 mod front;
 mod home;
 mod icons;
@@ -37,6 +38,7 @@ mod strip;
 mod talk;
 mod theme;
 mod thread;
+mod viewer;
 mod write;
 
 use std::collections::{HashMap, HashSet};
@@ -54,6 +56,8 @@ pub enum View {
     Home,
     Inbox,
     Thread { id: String, product: String },
+    /// The Files place: All files, or one project's page (`files_page.rs`).
+    Files { project: Option<String> },
 }
 
 /// Both skies for one card size, painted off the main thread, so changing screen never waits.
@@ -155,6 +159,10 @@ pub struct State {
     /// on the ledger, and is not finished work (`withdrawnSend` in
     /// `renderer/src/withdraw-send.ts`).
     withdrawn: HashMap<String, f64>,
+    /// A file opened big over the whole window (`viewer.rs`).
+    pub viewer: viewer::Viewer,
+    /// The Files place's list and how it is narrowed (`files_page.rs`).
+    pub files: files_page::Place,
 }
 
 impl State {
@@ -185,6 +193,8 @@ impl State {
     fn put_the_reply_away(&mut self) {
         self.close_files();
         self.leave_the_strip();
+        // A file open big belongs to the page it was opened over.
+        self.viewer.open = None;
         if let View::Thread { id, product } = &self.view {
             let key = format!("{product}/{id}");
             if self.reply.text.trim().is_empty() {
@@ -856,6 +866,7 @@ fn init_from(args: &[String]) -> State {
         at: 0.0,
         view: match args.iter().position(|a| a == "--view").and_then(|i| args.get(i + 1)).map(String::as_str) {
             Some("inbox") => View::Inbox,
+            Some("files") => View::Files { project: None },
             _ => View::Home,
         },
         // `--tab later` opens the Inbox on that tab, for a picture of it.
@@ -894,6 +905,8 @@ fn init_from(args: &[String]) -> State {
         reading_models: Latest::default(),
         picks,
         withdrawn: HashMap::new(),
+        viewer: viewer::Viewer::default(),
+        files: files_page::Place::default(),
     };
     // The first skies and a fixture are in place before the first frame, so a picture is whole.
     let first = paint_skies(s.card_size());
@@ -947,6 +960,7 @@ fn init_from(args: &[String]) -> State {
     if s.view == View::Inbox {
         s.history.push(View::Home);
     }
+    files_page::pictured(&mut s);
     // `--thread` opens the first thread that needs the person, for a picture of it; `--thread <id>` that one.
     if let Some(at) = args.iter().position(|a| a == "--thread") {
         // Or the one its fixture says was open, for a picture of a thread elsewhere than first in Needs you.
@@ -1019,10 +1033,11 @@ fn press_what_the_picture_pressed(s: &mut State, tx: &mut Tx) {
     if let Some(which) = s.fixture.remove("menu") {
         s.picture_menu(which.as_str().unwrap_or_default(), tx);
     }
-    // And one taken with a conversation's list of files open (`filesOpen`).
+    // And one taken with a conversation's list of files open (`filesOpen`), or a file open big.
     if s.fixture.remove("filesOpen").is_some() {
         s.open_files();
     }
+    viewer::pictured(s);
     // And one taken with something of the strip open, or the reply box's model menu (`actions`).
     if let Some(which) = s.fixture.remove("actions") {
         match which.as_str().unwrap_or_default() {
@@ -1040,6 +1055,7 @@ fn setup(s: &mut State, wake: Waker) {
     s.outbox.wake_with(wake.clone());
     s.compose.staging.wake_with(wake.clone());
     s.pictures.set_waker(wake.clone());
+    s.files.set_waker(wake.clone());
     if let Source::Door(door) = s.source.clone() {
         front::tell_the_app(door.clone());
         source::follow_door(door, s.mailbox.clone(), move || wake());
@@ -1117,6 +1133,8 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
     }
     // A picture the engine has turned for the box a thread is started in.
     changed |= s.land_staged();
+    // The Files place's list, read again as the store changes, and a tile's file opening.
+    changed |= files_page::tend(s, clock(), stale);
     changed |= chrome::rail_moves(s, at, tx);
     changed |= feel::hint_due(s, at);
     if let Some((key, answer)) = s.asking.take() {
@@ -1139,6 +1157,7 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
     // go, and while any is on the page the disk is looked at again every two seconds.
     let open = match &s.view {
         View::Thread { id, product } => Some(format!("{product}/{id}")),
+        View::Files { .. } => Some("files".to_string()),
         _ => None,
     };
     let (landed, again) = s.pictures.tend(open.as_deref(), clock());
@@ -1167,6 +1186,7 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
         View::Home => home::view(s),
         View::Inbox => inbox::view(s),
         View::Thread { id, product } => thread::view(s, id, product),
+        View::Files { .. } => files_page::view(s),
     };
     let root = el().w_full()
         .h_full()
@@ -1209,6 +1229,9 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
         Some(picker) => root.child(picker),
         None => root,
     };
+    // A file open big covers all of that, the line about the last thing done included, as the
+    // web window's view covers its own notices.
+    let root = root.children(viewer::layer(s));
     // And the command bar, which never stands with it: opening one closes the other.
     let root = match palette::view(s) {
         Some(bar) => root.child(bar),

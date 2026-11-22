@@ -29,6 +29,8 @@ pub struct Line {
     pub ts: f64,
     /// `founder` for the person, `agent`, or `system` for the app itself.
     pub source: String,
+    /// Whose line it is, on a Mercury with a team: the person's id.
+    pub by: Option<String>,
     pub patch: Option<Map<String, Value>>,
     pub claim: Option<Value>,
     pub heartbeat: bool,

@@ -203,3 +203,78 @@ stroked!(MENU_LATER, "m-menu-later", "1.4", r#"<circle cx="12" cy="12" r="9"/><p
 stroked!(MENU_RENAME, "m-menu-rename", "1.4", r#"<path d="M4 20h4L19 9l-4-4L4 16z"/>"#);
 stroked!(MENU_MOVE, "m-menu-move", "1.4", r#"<path d="M3 12h13m-4-4 4 4-4 4"/><path d="M20 4v16"/>"#);
 stroked!(MENU_TICK, "m-menu-tick", "1.4", r#"<path d="m5 12.5 4.5 4.5L19 7.5"/>"#);
+
+// The Files place, on the rail with the places (`data-tab="files"` in `WorkspaceNavigation.tsx`).
+stroked!(FILES, "m-files", "1.25", r#"<path d="M7 4.5h6.5l4 4V19a.5.5 0 0 1-.5.5H7a.5.5 0 0 1-.5-.5V5a.5.5 0 0 1 .5-.5z"/><path d="M13.5 4.5v4h4"/>"#);
+
+/// A file opened big: the corner marks of its bar, on one optical scale (`ArtifactControlGlyph`):
+/// back, open outside and close, each 16 points in a box of 20.
+macro_rules! control {
+    ($name:ident, $id:literal, $body:literal) => {
+        pub static $name: Icon = Icon {
+            name: $id,
+            view: 20.0,
+            body: concat!(r#"<g fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">"#, $body, "</g>"),
+        };
+    };
+}
+control!(FILE_BACK, "m-file-back", r#"<path d="M16 10H4m5-5-5 5 5 5"/>"#);
+control!(FILE_OUTSIDE, "m-file-outside", r#"<path d="M11 3h6v6m0-6-8 8M7 4H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-3"/>"#);
+control!(FILE_CLOSE, "m-file-close", r#"<path d="m5 5 10 10M15 5 5 15"/>"#);
+
+/// The zoom's pill under a picture opened big (`ZoomGlyph` in `ArtifactStage.tsx`).
+pub static ZOOM_OUT: Icon = Icon {
+    name: "m-zoom-out",
+    view: 16.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3.5 8h9"/></g>"#,
+};
+pub static ZOOM_IN: Icon = Icon {
+    name: "m-zoom-in",
+    view: 16.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3.5 8h9M8 3.5v9"/></g>"#,
+};
+
+/// Where a file was sent, under it opened from Files: a thread, or a chat (`PlaceGlyph`).
+pub static SENT_THREAD: Icon = Icon {
+    name: "m-sent-thread",
+    view: 16.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M3 4h10M3 8h10M3 12h6"/></g>"#,
+};
+pub static SENT_CHAT: Icon = Icon {
+    name: "m-sent-chat",
+    view: 16.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></g>"#,
+};
+
+/// The Files place's own marks (`FilesPlace.tsx`): a folder, the disk the total is on, the grid
+/// and the list, the search's glass and a file's comments.
+pub static FOLDER: Icon = Icon {
+    name: "m-folder",
+    view: 16.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><path d="M2 4.6c0-.6.5-1.1 1.1-1.1h2.7c.3 0 .6.1.8.3l1 1h5.3c.6 0 1.1.5 1.1 1.1v6c0 .6-.5 1.1-1.1 1.1H3.1c-.6 0-1.1-.5-1.1-1.1z"/></g>"#,
+};
+pub static DISK: Icon = Icon {
+    name: "m-disk",
+    view: 16.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.2"><rect x="2" y="4" width="12" height="8" rx="1.5"/><path d="M4.5 9.5h3" stroke-linecap="round"/><circle cx="11.2" cy="9.5" r=".6" fill="currentColor" stroke="none"/></g>"#,
+};
+pub static GRID: Icon = Icon {
+    name: "m-grid",
+    view: 16.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.2"><rect x="2.5" y="2.5" width="4.4" height="4.4" rx="1.1"/><rect x="9.1" y="2.5" width="4.4" height="4.4" rx="1.1"/><rect x="2.5" y="9.1" width="4.4" height="4.4" rx="1.1"/><rect x="9.1" y="9.1" width="4.4" height="4.4" rx="1.1"/></g>"#,
+};
+pub static LIST: Icon = Icon {
+    name: "m-list",
+    view: 16.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M3 4h10M3 8h10M3 12h10"/></g>"#,
+};
+pub static COMMENT: Icon = Icon {
+    name: "m-comment",
+    view: 16.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></g>"#,
+};
+pub static PLAY: Icon = Icon {
+    name: "m-play",
+    view: 16.0,
+    body: r#"<path fill="currentColor" d="M5 3.2v9.6a.6.6 0 0 0 .9.5l7.6-4.8a.6.6 0 0 0 0-1L5.9 2.7a.6.6 0 0 0-.9.5Z"/>"#,
+};

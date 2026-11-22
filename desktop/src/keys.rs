@@ -100,7 +100,7 @@ fn later_under_the_keys(s: &mut State, tx: &mut Tx) {
                 s.open_later(&id, &product, tx);
             }
         }
-        View::Home => {}
+        View::Home | View::Files { .. } => {}
     }
 }
 
@@ -117,6 +117,10 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
             s.close_card(tx);
         }
         return true;
+    }
+    // A file open big over the window has every key but a chord, and the page under it none.
+    if let Some(taken) = crate::viewer::key(s, e, tx) {
+        return taken;
     }
     // Then the box a thread is started in: the card has every key, its open menu has the
     // keyboard, a letter with the keyboard on one of its chips is typed, and ⌘Return sends it.
@@ -181,6 +185,8 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
     let (j, k) = (letter == "j", letter == "k");
     let (down, up) = (j || e.key == Key::Down, k || e.key == Key::Up);
     match s.view.clone() {
+        // `/` and Escape (`files_page.rs`).
+        View::Files { .. } => crate::files_page::key(s, e, tx).unwrap_or(false),
         View::Home => {
             // Tab is the Inbox's, and Home has no tabs: the web window takes it and draws nothing
             // for it, its focus let go rather than walked into the box (`onTheTabs` in

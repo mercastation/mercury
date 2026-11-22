@@ -164,7 +164,7 @@ fn under_the_keys(s: &State) -> Option<(&Item, bool)> {
     match &s.view {
         View::Thread { .. } => s.open_item().map(|item| (item, true)),
         View::Inbox => s.lists.under(s.inbox_tab).get(s.picked).and_then(|r| s.item(&r.id, &r.product)).map(|item| (item, false)),
-        View::Home => None,
+        View::Home | View::Files { .. } => None,
     }
 }
 

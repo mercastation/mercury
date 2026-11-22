@@ -182,8 +182,9 @@ pub fn card(s: &State) -> El {
         View::Home => card
             .child(whole().fill(rgb(0x1b, 0x19, 0x17)).clip_rounded(6.0).child(el().absolute(card_w - s.sky_size.0, 0.0).size(s.sky_size.0, s.sky_size.1).pixels(&s.sky_home)))
             .child(whole().border(1.0, white(0.07))),
-        // The Inbox's sky stands behind its head alone, so under it the card shows its own glass and edge.
-        View::Inbox => card.box_shadow(shadow(0.0, 0.0, 0.0, 1.0, edge(), true)).child(crate::inbox::sky(s)),
+        // The Inbox's sky stands behind its head alone, so under it the card shows its own glass
+        // and edge. The Files place wears it too (`skyOnPlace` in `renderer/src/App.tsx`).
+        View::Inbox | View::Files { .. } => card.box_shadow(shadow(0.0, 0.0, 0.0, 1.0, edge(), true)).child(crate::inbox::sky(s)),
         // A conversation has no sky: the card is only its wash over the dotted page, inside a plain edge.
         View::Thread { .. } => card.child(whole().border(1.0, edge())),
     }
@@ -224,15 +225,15 @@ fn my_face(letters: &str) -> El {
         .child(text(letters).font(TextStyle::new(9.0, 500.0).mono().lh(20.0).tracking(0.18)).text_case(TextCase::Uppercase).color(page()))
 }
 
-/// The rail: the mark, search, Home and the Inbox, and a foot with Restart to update while a new
-/// version waits, Settings, what is left of the limit and the person's own face. Folded it is the
-/// marks alone; while the pointer rests on it, it opens to the whole sidebar, each mark with its
-/// word and Inbox with its count (`Rail`). `still`: the system asks for reduced motion.
+/// The rail: the mark, search, Home, the Inbox and Files, and a foot with Restart to update while
+/// a new version waits, Settings, what is left of the limit and the person's own face. Folded it
+/// is the marks alone; while the pointer rests on it, it opens to the whole sidebar, each mark
+/// with its word and Inbox with its count (`Rail`). `still`: the system asks for reduced motion.
 ///
-/// ONLY WHAT WORKS HERE. The web window's rail also has Demands, Chats, Connections, Files,
-/// Record meeting and Feedback. Drawn here they were buttons that went nowhere, which is worse
-/// than no button, so they are left out until this window has their pages. Settings, which it
-/// has no page for either, brings the app's own window forward on them.
+/// ONLY WHAT WORKS HERE. The web window's rail also has Demands, Chats, Connections, Record
+/// meeting and Feedback. Drawn here they were buttons that went nowhere, which is worse than no
+/// button, so they are left out until this window has their pages. Settings, which it has no
+/// page for either, brings the app's own window forward on them.
 pub fn rail(s: &State, still: bool) -> El {
     let now = s.at;
     let (wide, words, line, dot) = (s.rail.width(now), s.rail.words.at(now), s.rail.line.at(now), s.rail.dot.at(now));
@@ -258,11 +259,14 @@ pub fn rail(s: &State, still: bool) -> El {
     if waiting > 0 {
         inbox = inbox.child(el().absolute(25.0, 8.0).size(6.0, 6.0).radius(3.0).fill(accent()).opacity(dot));
     }
+    // Files, the place of every file the threads made, opens on All files (`openFiles(null)`).
+    let on_files = matches!(s.view, View::Files { .. });
     let places = col()
         .absolute(0.0, 98.0)
         .gap(3.0)
         .child(button(&icons::HOME, "Home", on_home).on_press(|s: &mut State| s.go(View::Home)))
-        .child(inbox);
+        .child(inbox)
+        .child(button(&icons::FILES, "Files", on_files).on_press(|s: &mut State| s.open_files_place(None)));
 
     // The foot stands on the rail's end and grows upward: the person's face under a hairline,
     // over it the usage row, over that the buttons (`.workspace-bottom`). Their titles stand
@@ -389,12 +393,17 @@ fn open_settings(s: &mut State, tx: &mut Tx) {
 /// window but the card's top strip on the Inbox and over a conversation: Home's strip is
 /// hidden (`.app.home-shown > .topbar { visibility: hidden }`), which takes it out.
 pub fn drag_band(s: &State) -> Option<El> {
-    (!s.palette.open).then(|| el().absolute(0.0, 0.0).size(s.size.0, CARD[1]).window_drag())
+    // A file open big has its own bar to move the window by (`.av-top`).
+    (!s.palette.open && s.viewer.open.is_none()).then(|| el().absolute(0.0, 0.0).size(s.size.0, CARD[1]).window_drag())
 }
 
 /// One quiet line at the card's foot when the engine cannot be read, so an empty inbox is never
 /// mistaken for a finished one; and when an agent asks for a yes this window cannot yet give.
 pub fn notice(s: &State) -> Option<El> {
+    // A file open big covers the window's notices, as the web window's view does.
+    if s.viewer.open.is_some() {
+        return None;
+    }
     // Something just sent that was not taken comes first: it is about what the person did.
     let said = match (&s.refused, &s.source, &s.error) {
         (Some(why), _, _) => why.as_str(),
@@ -560,6 +569,7 @@ pub fn back_title(s: &State) -> String {
     let name = match s.history.last() {
         Some(View::Home) => "Home".to_string(),
         Some(View::Thread { id, product }) => s.snap.items.iter().find(|i| &i.id == id && &i.product == product).map_or_else(|| "the thread".to_string(), crate::rules::title::row_title),
+        Some(View::Files { .. }) => "Files".to_string(),
         Some(View::Inbox) | None => s.inbox_tab.label().to_string(),
     };
     format!("Back to {name} (⌘[)")
@@ -583,9 +593,10 @@ pub fn back_forward(s: &State) -> El {
     let back = arrow(&icons::BACK, !s.history.is_empty()).on_press(|s: &mut State| s.back());
     let back = if s.history.is_empty() { back } else { back.help(back_title(s)) };
     let arrows = row().absolute(card_left(s) + 44.0, 58.5).gap(2.0).child(back).child(arrow(&icons::FORWARD, false));
-    // The Inbox's title and buttons stand in the same strip as the arrows.
-    if s.view == View::Inbox {
-        return el().absolute(0.0, 0.0).child(crate::inbox::strip(s)).child(arrows);
+    // The Inbox's title and buttons stand in the same strip as the arrows, and the Files place's name.
+    match s.view {
+        View::Inbox => el().absolute(0.0, 0.0).child(crate::inbox::strip(s)).child(arrows),
+        View::Files { .. } => el().absolute(0.0, 0.0).child(crate::files_page::strip(s)).child(arrows),
+        _ => arrows,
     }
-    arrows
 }
