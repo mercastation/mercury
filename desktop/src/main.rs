@@ -16,6 +16,7 @@ mod attach;
 mod chrome;
 mod compose;
 mod data;
+mod feel;
 mod files;
 mod home;
 mod icons;
@@ -762,7 +763,11 @@ fn pictures_for(never: bool) -> pictures::Pictures {
 }
 
 fn init() -> State {
-    let args = rune::tooling::extra_args();
+    init_from(rune::tooling::extra_args())
+}
+
+/// The state a window opens on, from its command line; a test opens one on a fixture this way.
+fn init_from(args: &[String]) -> State {
     let source = source::from_args(args);
     // What was last picked in the box a thread is started in, from beside the door's note. A
     // fixture's picks are its own, read below, and no file is touched for one.

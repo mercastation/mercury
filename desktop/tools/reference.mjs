@@ -6,7 +6,9 @@
 //
 // Writes, for the scene (home by default):
 //   <scene>-real.png      the picture
-//   <scene>-dump.json     each element's box, font, colours, borders, shadows and spacing, plus its SVG
+//   <scene>-dump.json     each element's box, font, colours, borders, shadows and spacing, plus its SVG,
+//                         how it answers the pointer (cursor, user-select, app region, transitions),
+//                         and the pointer's shape at the middle of each (`pointers`)
 //   <scene>-fixture.json  the snapshot and the clock the picture was taken with, for `mercury --fixture`,
 //                         and whatever else the scene's `go` returns
 //
@@ -86,7 +88,13 @@ const DUMP = `(() => {
     'marginTop','marginRight','marginBottom','marginLeft','columnGap','rowGap',
     'display','flexDirection','alignItems','justifyContent','flexGrow','flexShrink','flexBasis',
     'position','overflowX','overflowY','backdropFilter','filter','mixBlendMode','transform','outlineWidth','outlineColor',
-    'gridTemplateColumns','gridTemplateRows','zIndex','visibility'];
+    'gridTemplateColumns','gridTemplateRows','zIndex','visibility',
+    // How it answers the pointer and the hands: the pointer's shape over it, whether its words
+    // can be selected, whether a press there moves the window, whether it takes the pointer at
+    // all, and how a change of its look eases in.
+    'cursor','userSelect','webkitUserSelect','appRegion','webkitAppRegion','pointerEvents',
+    'transitionProperty','transitionDuration','transitionTimingFunction','transitionDelay','outlineStyle','outlineOffset',
+    'textDecorationLine','textDecorationColor','textUnderlineOffset'];
   const out = [];
   const walk = (el, depth, parent) => {
     const r = el.getBoundingClientRect();
@@ -139,6 +147,54 @@ const DUMP = `(() => {
   };
 })()`;
 
+// Runs in the page: the pointer's shape at the middle of every element on screen, as the person
+// would see it there. `cursor` is inherited, so what the topmost element under the point computes
+// is what shows, except for `auto`, which Chromium draws as the I-beam over words a hand can
+// select (`user-select` is not `none` on the nearest element that sets it, and the point is on
+// one of the words' line boxes) and as the arrow everywhere else, a <button> included.
+const POINTERS = (rest) => `(() => {
+  const out = [];
+  const seen = new Set();
+  const selectable = (el) => {
+    for (let e = el; e; e = e.parentElement) {
+      const v = getComputedStyle(e).userSelect;
+      if (v === 'none') return false;
+      if (v !== 'auto') return true;
+    }
+    return true;
+  };
+  const overWords = (x, y) => {
+    const at = document.caretRangeFromPoint ? document.caretRangeFromPoint(x, y) : null;
+    if (!at || at.startContainer.nodeType !== 3) return null;
+    const words = document.createRange();
+    words.selectNodeContents(at.startContainer);
+    for (const b of words.getClientRects()) if (x >= b.left && x <= b.right && y >= b.top && y <= b.bottom) return at.startContainer.parentElement;
+    return null;
+  };
+  const at = (x, y) => {
+    const hit = document.elementFromPoint(x, y);
+    if (!hit) return null;
+    let cursor = getComputedStyle(hit).cursor;
+    const words = overWords(x, y);
+    if (cursor === 'auto') cursor = hit.isContentEditable || (words && selectable(words)) ? 'text' : 'default';
+    return { x, y, cursor, tag: hit.tagName.toLowerCase(), cls: String(hit.className?.baseVal ?? hit.className).slice(0, 60), label: (hit.getAttribute('aria-label') || hit.textContent || '').trim().slice(0, 40) };
+  };
+  for (const el of document.querySelectorAll('body *')) {
+    const r = el.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) continue;
+    const x = Math.round((r.x + r.width / 2) * 2) / 2;
+    const y = Math.round((r.y + r.height / 2) * 2) / 2;
+    if (x < 1 || y < 1 || x > innerWidth - 1 || y > innerHeight - 1 || seen.has(x + ',' + y)) continue;
+    seen.add(x + ',' + y);
+    const shape = at(x, y);
+    if (shape) out.push(shape);
+  }
+  // And where a scene left the pointer resting, first.
+  const rest = ${JSON.stringify(rest ?? null)};
+  const resting = rest && at(rest[0], rest[1]);
+  return resting ? [{ ...resting, resting: true }, ...out] : out;
+})()`;
+
 // MERCURY_SNAPSHOT names a snapshot to feed as it is: the one `rows.mjs --door` leaves, say.
 const shown = process.env.MERCURY_SNAPSHOT ? JSON.parse(fs.readFileSync(process.env.MERCURY_SNAPSHOT, 'utf8'))
   : process.env.MERCURY_REAL === '1' ? herSnapshot()
@@ -168,12 +224,19 @@ try {
   // A scene may hand back what it fed the page besides the snapshot (a thread's words), or a
   // snapshot it changed; the fixture file carries it, so the native window is told the same.
   const fed = go ? (await go(h)) ?? {} : {};
-  if (go) await h.wait(800);
+  // A scene that leaves the pointer resting on something says how long the page waits after it
+  // before the shutter (`settle`, in milliseconds): a hint plate arrives 700 ms after the pointer
+  // stops (`HINT_WAIT` in renderer/src/hint-timing.ts), so a picture of what the pointer changes
+  // by itself is taken before then.
+  const settle = fed.settle ?? 800;
+  delete fed.settle;
+  if (go) await h.wait(settle);
   const png = path.join(outDir, `${scene}-real.png`);
   // The page's own clock at the shutter, so a native picture can tell the same ages.
   const at = await h.evaluate('Date.now()');
   await h.capture(png);
   const dump = await h.evaluate(DUMP);
+  dump.pointers = await h.evaluate(POINTERS(fed.pointer));
   fs.writeFileSync(path.join(outDir, `${scene}-dump.json`), JSON.stringify(dump));
   // What the page keeps for itself and decides its lists by, besides the snapshot.
   const local = await h.evaluate(`(() => {
