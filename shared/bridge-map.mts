@@ -287,6 +287,8 @@ export const PUSH_CHANNELS: Readonly<Record<string, string>> = {
   onSharedFile: 'zero:shared-file',
   onOpenItem: 'zero:open-item',
   onOpenSettings: 'zero:open-settings',
+  // The native window's cloud menu asks for the cloud's setup (main/local-door.mts OPEN_CLOUD_SETUP).
+  onOpenCloudSetup: 'zero:open-cloud-setup',
   onScreenDetail: 'zero:screen-detail',
   onEscapeBrowser: 'zero:escape-browser',
   onKeyInTheFile: 'zero:key-in-the-file',
