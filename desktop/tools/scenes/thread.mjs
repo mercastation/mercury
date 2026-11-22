@@ -8,6 +8,7 @@
 // conversation, and hands the same answers back for the fixture file, where the native window
 // reads them. `docs/thread-data.md` says what each channel is asked and answers.
 import { go as toInbox } from './inbox.mjs';
+import { tab } from './inbox-progress.mjs';
 import { plant, standIn } from '../pictures.mjs';
 
 const MIN = 60_000;
@@ -52,11 +53,139 @@ const SHIPPED = `**Shipped, and support knows.**
 
 The fix is on main as \`a41c9e2\` and every checkout test passes. The 37 refunds are queued behind a note to support, so nothing goes out before they have read it.`;
 
+const SEC = 1000;
+
+// The log one run leaves (`<product>/sessions/<thread id>/<startedAt>.log`), in the shape the
+// supervisor writes it (`traceStreamLine` in main/harnesses/claude-stream.mts): a header, then
+// each line `HH:MM:SS  <what happened>` on a UTC clock, a tool call with its id and what came
+// back under it, the result block and the exit. A line here is a string as it is written, or
+// `[ms after the start, words]` for one that is stamped.
+function runLog(item, startedAt, lines, { continuation = false } = {}) {
+  const stamp = (ms) => new Date(startedAt + ms).toISOString().slice(11, 19);
+  const head = [`# ${item.title}`, `# ${item.id} · spawned ${new Date(startedAt).toISOString()}${continuation ? ' · continuation (the founder answered)' : ''}`, ''];
+  return { startedAt, text: [...head, ...lines.map((l) => (typeof l === 'string' ? l : `${stamp(l[0])}  ${l[1]}`))].join('\n') };
+}
+const out = (id, lines, error = false) => [`#out ${id} ${lines.length}${error ? ' error' : ''}`, ...lines.map((l) => `#| ${l}`)];
+const ended = (startedAt, ms, code = 0) => ['', `# exited (${code}) ${new Date(startedAt + ms).toISOString()}`];
+const result = (startedAt, ms, words, error = false) => {
+  const stamp = new Date(startedAt + ms).toISOString().slice(11, 19);
+  return ['', `${stamp}  == RESULT (success${error ? ' ERROR' : ''} · ${error ? 1 : 14} turns) ==`, ...words.split('\n')];
+};
+
+// The first run: it reads the code and this morning's orders, a test fails the way the
+// customers' carts do, and it writes what it found to the thread as a checkpoint. A run's
+// last words repeat the answer it wrote, which the page draws once.
+function findingRun(item, start, wrote, found) {
+  const at = wrote - start;
+  return runLog(item, start, [
+    [3 * SEC, `[mcp__mercury__claim_work_item] ${item.id}`], '#id toolu_a1',
+    [9 * SEC, 'I\'ll start with this morning\'s failed orders and the checkout code they went through.'],
+    [12 * SEC, '[Bash] cd /Users/you/dev/storefront && git log --oneline -8'], '#id toolu_a2',
+    ...out('toolu_a2', ['b72f1d4 Update the tax service client to 4.2', '91c03ee Show the delivery date in the cart', '3e8a5b0 Retry a declined card once', '7d1f2a9 Move the cart total into its own module', 'c40e6b1 Log the tax service\'s answer', '5a9d3f2 Cache the shipping zones', 'e18b7c4 Round the shipping cost to the cent', '0f6c2d8 Start the checkout tests on node 22']),
+    [20 * SEC, '[Read] /Users/you/dev/storefront/src/checkout/tax.ts'], '#id toolu_a3',
+    ...out('toolu_a3', ['export function roundTax(amount: number): number {', '  return Number(amount.toFixed(2));', '}']),
+    [27 * SEC, '[Grep] roundTax'], '#id toolu_a4',
+    ...out('toolu_a4', ['src/checkout/tax.ts:12', 'src/checkout/total.ts:40']),
+    [4 * MIN, 'The tax service started returning four decimal places this morning, and `roundTax()` only handles two. Carts over $1,000 are where the difference shows.'],
+    [4 * MIN + 5 * SEC, '[Bash] node scripts/failed-orders.mjs --since 08:00'], '#id toolu_a5',
+    ...out('toolu_a5', ['37 failed orders since 08:10', 'all 37 over $1,000', '0 paid with store credit']),
+    [6 * MIN, '[Bash] npm test -- tax'], '#id toolu_a6',
+    ...out('toolu_a6', ['FAIL src/checkout/tax.test.ts', '  ✕ rounds a $1,240.5550 cart to the cent', '    Expected: 1240.56', '    Received: 1240.555'], true),
+    [7 * MIN, 'The same carts pass once the tax is rounded before the total is added up. Writing it up with three ways forward.'],
+    [at - 2 * SEC, `[mcp__mercury__update_work_item] ${item.id}`], '#id toolu_a7',
+    [at + 5 * SEC, found.split('\n')[0]],
+    '',
+    'The fix and the three ways forward are on the thread.',
+    ...result(start, at + 6 * SEC, found.split('\n')[0]),
+    ...ended(start, at + 8 * SEC),
+  ]);
+}
+
+// The run after the reply: it ships the fix and writes to support before the refunds. Cut off
+// at `upTo` it is a run still going, its last call still running. `flaky`: its first run of
+// the tests fails, and it changes the file again before they pass.
+function shippingRun(item, start, wrote, said, upTo = Infinity, { flaky = false } = {}) {
+  const at = wrote - start;
+  const lines = [
+    [3 * SEC, `[mcp__mercury__claim_work_item] ${item.id}`], '#id toolu_b1',
+    [8 * SEC, 'Shipping option 1: the rounding fix first, then the 37 refunds once support has the note.'],
+    [15 * SEC, '[Edit] /Users/you/dev/storefront/src/checkout/tax.ts'], '#id toolu_b2',
+    ...out('toolu_b2', ['The file src/checkout/tax.ts has been updated.']),
+    ...(flaky ? [
+      [25 * SEC, '[Bash] npm test -- checkout'], '#id toolu_b9',
+      ...out('toolu_b9', ['FAIL src/checkout/total.test.ts', '  ✕ adds the tax after rounding it', '    Expected: 1241.80', '    Received: 1241.79'], true),
+      [28 * SEC, '[Edit] /Users/you/dev/storefront/src/checkout/total.ts'], '#id toolu_b10',
+      ...out('toolu_b10', ['The file src/checkout/total.ts has been updated.']),
+    ] : []),
+    [30 * SEC, '[Bash] npm test -- checkout'], '#id toolu_b3',
+    ...out('toolu_b3', ['Test Files  12 passed (12)', '     Tests  214 passed (214)']),
+    [4 * MIN, '[Bash] git commit -am "Round tax before adding it to the total"'], '#id toolu_b4',
+    ...out('toolu_b4', ['[main a41c9e2] Round tax before adding it to the total', ' 2 files changed, 9 insertions(+), 2 deletions(-)']),
+    [4 * MIN + 10 * SEC, '[Bash] git push origin main'], '#id toolu_b5',
+    ...out('toolu_b5', ['To example.com:storefront.git', '   b72f1d4..a41c9e2  main -> main']),
+    [5 * MIN, 'Main is at `a41c9e2`. Writing to support before any refund goes out.'],
+    [6 * MIN, '[Write] /Users/you/dev/storefront/notes/refunds-for-support.md'], '#id toolu_b6',
+    [8 * MIN, '[Bash] node scripts/queue-refunds.mjs --after-note'], '#id toolu_b7',
+    ...out('toolu_b7', ['37 refunds queued', 'they go out once support marks the note read']),
+    [at - 2 * SEC, `[mcp__mercury__update_work_item] ${item.id}`], '#id toolu_b8',
+    [at + 3 * SEC, said.split('\n')[0]],
+    '',
+    said.split('\n').slice(2).join('\n'),
+    ...result(start, at + 4 * SEC, said),
+    ...ended(start, at + 6 * SEC),
+  ];
+  // A stamped line past the cut, and everything after it, has not been written yet.
+  const cut = lines.findIndex((l) => typeof l !== 'string' && l[0] > upTo);
+  return runLog(item, start, cut < 0 ? lines : lines.slice(0, cut), { continuation: true });
+}
+
+// A run turned away before it began: the tool types its own refusal into the run as if the
+// agent had said it, and repeats it as an error result (`errorResultText` in terminal.ts).
+function refusedRun(item, start) {
+  const refusal = 'API Error: Claude AI usage limit reached. Your limit resets at 4pm.';
+  return runLog(item, start, [[5 * SEC, refusal], ...result(start, 5 * SEC, refusal, true), ...ended(start, 6 * SEC, 1)], { continuation: true });
+}
+
 // The ledger a thread like this leaves behind, one line per write, and the row those lines
 // fold into (shared/work-items.mts): the newest value of each field, and who wrote it when.
-function conversation(item, found, waiting = false, said = SHIPPED) {
+// `runs` gives it the logs its runs left: `steps` (each run finished), `refused` (the run
+// after the reply was turned away and a later one shipped), `working` (the run after the reply
+// is going on right now, and the thread is In progress).
+function conversation(item, found, waiting = false, said = SHIPPED, runs = null) {
   const [asked, checked, replied, shipped] = [item.createdAt, item.createdAt + 38 * MIN, item.updatedAt - 17 * MIN, item.updatedAt];
   const { id, title } = item;
+  // A worker claims its thread as its first action, so the claim lands seconds after its run began.
+  const began = (claim) => claim - 10 * SEC;
+  if (runs === 'working') {
+    // Replied to a few minutes ago, and the run that took the reply is running its tests.
+    const replied = item.updatedAt - 2 * MIN;
+    const picked = replied + MIN;
+    const lines = [
+      { id, ts: asked, source: 'founder', patch: { title, body: ASK, status: 'open', kind: 'directive', priority: item.priority, labels: item.labels } },
+      { id, ts: asked + MIN, source: 'agent', epoch: 1, claim: { holder: 'mcp-40122', leaseUntil: asked + 31 * MIN }, patch: { status: 'claimed' } },
+      { id, ts: checked, source: 'agent', epoch: 1, patch: { status: 'blocked', note: found } },
+      { id, ts: replied, source: 'founder', patch: { answer: REPLY, status: 'open' } },
+      { id, ts: picked, source: 'agent', epoch: 2, claim: { holder: 'mcp-40131', leaseUntil: picked + 31 * MIN }, patch: { status: 'claimed' } },
+    ];
+    const { result: _result, ...rest } = item;
+    const row = {
+      ...rest, body: ASK, note: found, answer: REPLY, status: 'claimed', epoch: 2, updatedAt: picked,
+      claim: { holder: 'mcp-40131', leaseUntil: picked + 31 * MIN },
+      wrote: {
+        title: { ts: asked, source: 'founder' }, body: { ts: asked, source: 'founder' },
+        note: { ts: checked, source: 'agent' }, answer: { ts: replied, source: 'founder' },
+        status: { ts: picked, source: 'agent' },
+      },
+    };
+    // Up to the tests, which are running as the picture is taken.
+    const start = began(picked);
+    const sessions = [findingRun(item, began(asked + MIN), checked, found), shippingRun(item, start, shipped, said, 30 * SEC)];
+    const session = {
+      itemId: id, product: item.product, startedAt: start, engine: 'claude-code', tail: ['tool: Edit', 'tool: Bash'],
+      activity: [{ id: 'toolu_b3', label: 'Running the tests', detail: 'npm test -- checkout', startedAt: start + 30 * SEC }],
+    };
+    return { row, lines, sessions, session };
+  }
   // `waiting`: the thread as it stood when the agent's first answer came back, its options
   // still open and nothing said to them yet.
   if (waiting) {
@@ -75,13 +204,18 @@ function conversation(item, found, waiting = false, said = SHIPPED) {
     };
     return { row, lines };
   }
+  // `refused`: the first run after the reply was turned away at the usage limit, and the one
+  // that shipped picked the thread up once it reset.
+  const refused = runs === 'refused';
+  const shipping = refused ? replied + 6 * MIN : replied + MIN;
   const lines = [
     { id, ts: asked, source: 'founder', patch: { title, body: ASK, status: 'open', kind: 'directive', priority: item.priority, labels: item.labels } },
     { id, ts: asked + MIN, source: 'agent', epoch: 1, claim: { holder: 'mcp-40122', leaseUntil: asked + 31 * MIN }, patch: { status: 'claimed' } },
     { id, ts: checked, source: 'agent', epoch: 1, patch: { status: 'blocked', note: found } },
     { id, ts: replied, source: 'founder', patch: { answer: REPLY, status: 'open' } },
-    { id, ts: replied + MIN, source: 'agent', epoch: 2, claim: { holder: 'mcp-40131', leaseUntil: replied + 31 * MIN }, patch: { status: 'claimed' } },
-    { id, ts: shipped, source: 'agent', epoch: 2, patch: { status: 'done', result: said } },
+    ...(refused ? [{ id, ts: replied + MIN, source: 'agent', epoch: 2, claim: { holder: 'mcp-40127', leaseUntil: replied + 31 * MIN }, patch: { status: 'claimed' } }] : []),
+    { id, ts: shipping, source: 'agent', epoch: refused ? 3 : 2, claim: { holder: 'mcp-40131', leaseUntil: shipping + 31 * MIN }, patch: { status: 'claimed' } },
+    { id, ts: shipped, source: 'agent', epoch: refused ? 3 : 2, patch: { status: 'done', result: said } },
   ];
   const row = {
     ...item, body: ASK, note: found, answer: REPLY, result: said,
@@ -91,7 +225,12 @@ function conversation(item, found, waiting = false, said = SHIPPED) {
       result: { ts: shipped, source: 'agent' }, status: { ts: shipped, source: 'agent' },
     },
   };
-  return { row, lines };
+  const sessions = !runs ? [] : [
+    findingRun(item, began(asked + MIN), checked, found),
+    ...(refused ? [refusedRun(item, began(replied + MIN))] : []),
+    shippingRun(item, began(shipping), shipped, said, Infinity, { flaky: refused }),
+  ];
+  return { row, lines, sessions };
 }
 
 // `unfold` presses the line under the title, so the picture is of the whole conversation
@@ -105,7 +244,9 @@ function conversation(item, found, waiting = false, said = SHIPPED) {
 // what was planted (`{ dir, repo, thread }`), for words that hold a full path.
 // `files.arriving` leaves every picture on its way for ever, and `files.large` plants ten
 // screenshots besides, for a measurement.
-export async function open(h, { unfold, found = FOUND, shipped = SHIPPED, files = null, waiting = false, then = null }) {
+// `runs` gives the thread's runs their logs (see `conversation`); with `working` an agent is
+// on the thread as the picture is taken, so it is opened from In progress.
+export async function open(h, { unfold, found = FOUND, shipped = SHIPPED, files = null, waiting = false, then = null, runs = null }) {
   const snapshot = await h.evaluate('window.__SNAP__');
   // The Inbox opens on its first row; the snapshot's first thread is not always that one.
   await toInbox(h);
@@ -116,18 +257,20 @@ export async function open(h, { unfold, found = FOUND, shipped = SHIPPED, files 
   if (at < 0) throw new Error('thread scene: the Inbox\'s first row is not in the snapshot');
   const planted = files ? plant({ thread: snapshot.items[at].id, large: !!files.large }) : null;
   const words = (text) => (typeof text === 'function' ? text(planted) : text);
-  const { row, lines } = conversation(snapshot.items[at], words(found), waiting, words(shipped));
+  const { row, lines, sessions = [], session = null } = conversation(snapshot.items[at], words(found), waiting, words(shipped), runs);
   snapshot.items[at] = row;
+  if (session) snapshot.supervisor.running = [session];
   if (planted) {
     const project = snapshot.products.find((p) => p.slug === row.product);
     project.dir = planted.dir;
     project.repoPath = planted.repo;
   }
-  // Keyed as the page asks: product and id. Each answer is under its channel's name.
+  // Keyed as the page asks: product and id. Each answer is under its channel's name. The logs
+  // are answered whole, with no stamps, which the page takes as they come (`traceReader`).
   const threads = {
     [`${row.product}/${row.id}`]: {
       'zero:item-history': { ok: true, lines },
-      'zero:session-trace': { ok: true, sessions: [] },
+      'zero:session-trace': { ok: true, sessions },
       'zero:code-change': { ok: false, error: 'no change was recorded for this thread' },
       'zero:compaction-status': null,
     },
@@ -161,7 +304,9 @@ export async function open(h, { unfold, found = FOUND, shipped = SHIPPED, files 
   await h.goto(h.origin);
   await h.evaluate('(async () => { await document.fonts.ready; })()');
   await h.wait(2000);
-  await toInbox(h);
+  // A thread an agent is on is In progress, the only row there.
+  if (session) await tab(h, 'In progress');
+  else await toInbox(h);
   await h.call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
   await h.call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
   await h.wait(1500);
@@ -177,7 +322,16 @@ export async function open(h, { unfold, found = FOUND, shipped = SHIPPED, files 
   // `unfolded` tells the native window the same thing the click above told the page.
   // And whatever `then` did, for the native window to do the same.
   // `arriving` says that no picture had come when the photograph was taken.
-  return { snapshot, threads, unfolded: unfold ? Object.keys(threads) : [], ...(files?.arriving ? { arriving: true } : {}), ...did };
+  // `thread` is the one open, for a picture of a thread that is not the first in Needs you.
+  return { snapshot, threads, unfolded: unfold ? Object.keys(threads) : [], ...(files?.arriving ? { arriving: true } : {}), ...(session ? { thread: row.id } : {}), ...did };
+}
+
+// Presses the folded line of the run at `index` among those on the page (`.did-run-head`), and
+// says so for the native window, which opens the same one (`runsOpen`).
+export async function openRun(h, index) {
+  await h.evaluate(`document.querySelectorAll('.did-run-head')[${index}]?.click()`);
+  await h.wait(400);
+  return { runsOpen: [index] };
 }
 
 export const go = (h) => open(h, { unfold: true });
