@@ -1680,7 +1680,15 @@ pub fn flush(s: &mut State, w: Where, force: bool) {
     }
     let crate::source::Source::Door(door) = &s.source else {
         // A picture of the web window has no app to write to, and says so as the web's bridge
-        // does when there is none behind it.
+        // does when there is none behind it; `MERCURY_WROTE=<file>` keeps there what it would
+        // have sent, to be held to what the web window's page sent for the same steps.
+        if let Some(file) = std::env::var_os("MERCURY_WROTE") {
+            let mut all: Vec<Value> = std::fs::read_to_string(&file).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+            all.push(payload);
+            let _ = std::fs::write(&file, Value::Array(all).to_string());
+            landed.lock().unwrap().push((w, text, found, serde_json::json!({ "ok": true, "mtime": crate::clock() })));
+            return;
+        }
         landed.lock().unwrap().push((w, text, found, serde_json::json!({ "ok": false, "error": "quit and reopen Mercury to save this file" })));
         return;
     };

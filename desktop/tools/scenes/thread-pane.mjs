@@ -86,8 +86,19 @@ export const SHEET = `order,total,tax,failed,refund
 1007,1518.30,126.02,yes,12.15
 `;
 
+/** An invented list of leads, for the table's own scenes (`table.mjs`): a name, two kinds of
+ *  tags, a day, a site, an email, an amount and a long note. */
+export const LEADS = `Company,Status,Owner,Next call,Website,Email,ARR,Note
+Acme Robotics,Meeting,Dana,2026-11-24,acme-robotics.example,dana@acme-robotics.example,"$12,000",Asked for a demo of the export and wants pricing for a team of forty before the end of the month
+Globex,Replied,Sam,2026-11-26,globex.example,sam@globex.example,"$8,400",Replied to the second note
+Initech,New,Dana,,initech.example,,,
+Umbrella Labs,Contacted,Ari,2026-12-02,umbrella.example,ari@umbrella.example,"$3,150",Opened the email twice
+Hooli,Lost,Sam,,hooli.example,,$0,Went with another tool
+Vandelay,Meeting,Ari,2026-11-25,vandelay.example,ari@vandelay.example,"$22,500",Intro through a mutual friend
+`;
+
 /** The extra files these scenes name, written into the planted folder once it is planted. */
-const EXTRA = { 'designs/receipt-plan.md': PLAN, 'src/round-tax.ts': SCRIPT, 'exports/orders.csv': SHEET };
+const EXTRA = { 'designs/receipt-plan.md': PLAN, 'src/round-tax.ts': SCRIPT, 'exports/orders.csv': SHEET, 'exports/leads.csv': LEADS };
 
 /** A signed-in window with nothing shared yet, on a cloud that shares files. */
 export const FILE_LINK = { ok: true, site: 'https://files.example.com', signedIn: true, link: null };

@@ -938,7 +938,7 @@ fn new_row(sh: &Sheet, grid_w: f32) -> El {
 fn drop_line(sh: &Sheet, grid_w: f32) -> Option<El> {
     let d = sh.dropping?;
     let grid_h = HEAD_H + sh.order().len() as f32 * sh.row_h();
-    Some(if d.cols { el().absolute(d.at - 1.0, 0.0).size(2.0, grid_h).fill(at_ring()) } else { el().absolute(0.0, d.at - 1.0).size(grid_w, 2.0).fill(at_ring()) })
+    Some(if d.cols { el().absolute(d.at - 1.0 - EDGE, 0.0).size(2.0, grid_h).fill(at_ring()) } else { el().absolute(-EDGE, d.at - 1.0).size(grid_w, 2.0).fill(at_ring()) })
 }
 
 /* ------------------------------ a cell's box, its words whole ------------------------------ */
@@ -978,15 +978,15 @@ fn editor(s: &State, sh: &Sheet) -> Option<El> {
         let tall = if matches!(opened, Pop::Date(_)) { 340.0 } else { 300.0 };
         let p = placed(s, sh, at, 260.0, tall);
         let body = match opened {
-            Pop::Tag(t) => tag_list(sh, column, sh.value(at), t, PickFor::Cell, e.c),
+            Pop::Tag(t) => tag_list(sh, column, sh.value(at), t, PickFor::Cell, e.c, p.w - 10.0),
             Pop::Date(d) => calendar(s, sh, sh.value(at), d, PickFor::Cell, e.c),
         };
         let shell = col().w(p.w).padding(4.0).fill(pop()).border(1.0, rule()).border_layout().box_shadow(lifted()).child(body);
         let top = if p.up { None } else { Some(p.top + row_h - 1.0) };
         return Some(match top {
-            Some(top) => shell.absolute(p.left, top),
+            Some(top) => shell.absolute(p.left - EDGE, top),
             // Rising: its foot one point under the cell's top line.
-            None => shell.absolute(p.left, (p.top + 1.0 - pop_height(s, sh, opened)).max(0.0)),
+            None => shell.absolute(p.left - EDGE, (p.top + 1.0 - pop_height(s, sh, opened)).max(0.0)),
         });
     }
     let roomy = js::len(&e.draft.text) > 32 || e.draft.text.contains('\n');
@@ -1018,8 +1018,11 @@ fn editor(s: &State, sh: &Sheet) -> Option<El> {
     };
     let shell = col().key(w.key("edit-box")).w(p.w).min_h(46.0).max_h(320.0).fill(ground()).box_shadow(ring).box_shadow(lifted()).child(el().w_full().shrink().min_h(0.0).scroll(rune::ScrollSpec { stick_bottom: false }).child(el().w_full().px(16.0).py(13.0).child(body)));
     let shell = if sh.editable { shell } else { shell.focusable(true).key(w.key("edit")).on_key(move |s: &mut State, e: &KeyEvent, tx: &mut Tx| edit_key(s, w, e, tx)) };
-    Some(shell.absolute(p.left, p.top))
+    Some(shell.absolute(p.left - EDGE, p.top))
 }
+
+/// The grid's own line on its left, inside which what is placed over the grid is measured.
+const EDGE: f32 = 1.0;
 
 /// How tall a cell's list or calendar stands, to rise from the cell's top.
 fn pop_height(s: &State, sh: &Sheet, pop: &Pop) -> f32 {
@@ -1150,7 +1153,7 @@ fn peek_box(s: &State, sh: &Sheet) -> Option<El> {
         }
     });
     let top = if p.up { (p.top + row_h - p.most.min(peek_height(sh))).max(0.0) } else { p.top };
-    Some(b.absolute(p.left, top))
+    Some(b.absolute(p.left - EDGE, top))
 }
 
 /// The peek's own height as last laid out, for one that rises from its cell's foot.
@@ -1206,13 +1209,17 @@ pub(crate) fn tag_lit(items: &[Item], value: &str, hi: Option<usize>) -> usize {
     }
 }
 
+/// A row of a menu or a list (`.when-row`): six points round, as every menu row is, inside
+/// a square menu.
 fn menu_row(words: El, lit: bool) -> El {
-    let r = row().w_full().px(9.0).py(6.0).gap(9.0).items_center().cursor(Cursor::Pointer).child(words);
+    let r = row().w_full().px(9.0).py(6.0).gap(9.0).items_center().radius(6.0).cursor(Cursor::Pointer).child(words);
     if lit { r.fill(selected()) } else { r.hover(selected()) }
 }
 
+/// A box to type in at a menu's head (`.when-type`), its edge the faint ink while it has the
+/// keys, which it takes as it opens (`autoFocus`).
 fn type_row(field: El) -> El {
-    row().mt(6.0).mx(5.0).mb(3.0).h(30.0).px(9.0).items_center().fill(raised()).border(1.0, edge()).border_layout().cursor(Cursor::Text).child(field)
+    row().mt(6.0).mx(5.0).mb(3.0).h(30.0).px(9.0).items_center().radius(6.0).fill(raised()).border(1.0, muted()).border_layout().cursor(Cursor::Text).child(field)
 }
 
 fn head_line(words: &str) -> El {
@@ -1224,7 +1231,7 @@ fn separator() -> El {
 }
 
 /// A tag cell's list (`TagPicker`), or its tag's own page (`TagEditor`).
-fn tag_list(sh: &Sheet, column: &file::Column, value: &str, t: &TagPick, whose: PickFor, c: usize) -> El {
+fn tag_list(sh: &Sheet, column: &file::Column, value: &str, t: &TagPick, whose: PickFor, c: usize, wide: f32) -> El {
     let w = sh.at;
     let (find_box, name_box) = match whose {
         PickFor::Cell => (Box_::TagFind, Box_::TagName),
@@ -1293,29 +1300,33 @@ fn tag_list(sh: &Sheet, column: &file::Column, value: &str, t: &TagPick, whose: 
             Item::Clear => label("Clear", 13.0, 400.0, muted()),
         };
         let it_c = it.clone();
-        let mut r = menu_row(row().grow(1.0).pr(25.0).child(body), is_lit)
+        let r = menu_row(row().grow(1.0).pr(25.0).child(body), is_lit)
             .on_pointer_move(move |s: &mut State, _| {
                 if lit != n {
                     set_tag_hi(s, w, whose, Some(n));
                 }
             })
             .on_press_tx(move |s: &mut State, tx| take_tag(s, w, whose, c, &it_c, Then::Stay, tx));
+        // Each tag's own menu waits at the end of its row, shown on the lit one (`.tbl-pick-more`).
+        let mut line = el().w(wide).child(r);
         if let (Item::Tag(v), true) = (it, sh.editable) {
             let v = v.clone();
             let more = row()
-                .absolute(0.0, 0.0)
+                .absolute(wide - 4.0 - 24.0, 5.0)
                 .size(24.0, 24.0)
                 .center()
+                .radius(6.0)
                 .hover(hovered())
+                .hover_group()
                 .cursor(Cursor::Pointer)
                 .help("Rename, colour or delete")
                 .label(format!("Edit {v}"))
                 .opacity(if is_lit { 1.0 } else { 0.0 })
-                .child(icon(&MORE, 14.0).color(dim()))
+                .child(icon(&MORE, 14.0).color(dim()).group_color(ink()))
                 .on_press(move |s: &mut State| open_tag_page(s, w, whose, &v));
-            r = r.child(el().w(0.0).child(more.ml(-28.0)));
+            line = line.child(more);
         }
-        list = list.child(r);
+        list = list.child(line);
     }
     if items.is_empty() {
         list = list.child(row().px(9.0).pt(2.0).pb(6.0).child(text("No tags yet. Type one to add it.").font(sans(12.0, 400.0)).color(muted())));
@@ -1496,7 +1507,8 @@ fn calendar(s: &State, sh: &Sheet, value: &str, d: &DatePick, whose: PickFor, c:
     });
     let head = row().pt(4.0).pr(4.0).pb(2.0).pl(9.0).gap(2.0).items_center().child(row().grow(1.0).child(label(&format!("{} {y}", file::MONTHS_LONG[m as usize]), 13.0, 400.0, ink()))).child(arrow(&BACK, "Month before", -1)).child(arrow(&NEXT, "Month after", 1));
     let cell_w: f32 = 260.0 - 8.0 - 2.0 - 10.0;
-    let day_w = ((cell_w - 6.0) / 7.0).floor();
+    // Seven equal shares of the row, one point between (`repeat(7, 1fr)`, `gap: 1px`).
+    let day_w = (cell_w - 6.0) / 7.0;
     let mut grid = col().px(5.0).pb(4.0).gap(1.0);
     let mut letters = row().gap(1.0);
     for l in ["S", "M", "T", "W", "T", "F", "S"] {
@@ -1513,7 +1525,7 @@ fn calendar(s: &State, sh: &Sheet, value: &str, d: &DatePick, whose: PickFor, c:
             let on = picked == Some(day);
             let is_today = day == today;
             let tone = if on { rgb(255, 255, 255) } else if out || !is_today { if out { muted() } else { dim() } } else { ink() };
-            let mut b = row().w(day_w).h(30.0).center().radius(3.0).cursor(Cursor::Pointer).child(text(dd.to_string()).font(figures(12.5, 400.0)).color(tone));
+            let mut b = row().w(day_w).h(30.0).center().radius(6.0).cursor(Cursor::Pointer).child(text(dd.to_string()).font(figures(12.5, 400.0)).color(tone));
             if out {
                 b = b.opacity(0.55);
             }
@@ -1528,7 +1540,7 @@ fn calendar(s: &State, sh: &Sheet, value: &str, d: &DatePick, whose: PickFor, c:
         grid = grid.child(line);
     }
     let today_ms = Day::first_of(today.ymd().0, today.ymd().1).0 as f64 * DAY_MS + (today.ymd().2 - 1) as f64 * DAY_MS;
-    let foot_row = |words: El| row().px(9.0).py(6.0).items_center().hover(selected()).cursor(Cursor::Pointer).child(words);
+    let foot_row = |words: El| row().px(9.0).py(6.0).items_center().radius(6.0).hover(selected()).cursor(Cursor::Pointer).child(words);
     let mut foot = row().gap(2.0).pt(3.0).mt(2.0).border_sides([1.0, 0.0, 0.0, 0.0], edge()).border_layout().child(foot_row(label("Today", 13.0, 400.0, dim())).on_press_tx(move |s: &mut State, tx| pick_day(s, w, whose, c, Some(today_ms), tx)));
     if !js::trim(value).is_empty() {
         foot = foot.child(foot_row(label("Clear", 13.0, 400.0, muted())).on_press_tx(move |s: &mut State, tx| pick_day(s, w, whose, c, None, tx)));
@@ -1691,7 +1703,7 @@ fn field_el(s: &State, sh: &Sheet, c: usize, value: &str, editable: bool) -> El 
         }
         let mut f = col().child(button);
         if let Some(Field { pick: Some(Pop::Tag(t)), .. }) = open {
-            f = f.child(col().mt(4.0).w(260.0).padding(4.0).fill(pop()).border(1.0, rule()).border_layout().box_shadow(lifted()).child(tag_list(sh, column, value, t, PickFor::Field, c)));
+            f = f.child(col().mt(4.0).w(260.0).padding(4.0).fill(pop()).border(1.0, rule()).border_layout().box_shadow(lifted()).child(tag_list(sh, column, value, t, PickFor::Field, c, 250.0)));
         }
         return f;
     }
@@ -1735,7 +1747,8 @@ fn field_el(s: &State, sh: &Sheet, c: usize, value: &str, editable: bool) -> El 
     let focused = open.is_some_and(|f| f.pick.is_none() && f.draft.focused);
     // Its edge shows under the pointer, and stronger while it has the keys (`.tbl-field-box`).
     let frame = el().absolute(0.0, 0.0).w_full().h_full().border(1.0, line()).group_opacity(0.0, 1.0);
-    let b = row().w_full().ml(-9.0).mr(-9.0).px(8.0).py(6.0).max_h(360.0).hover_group().border(1.0, if focused { rule() } else { rgba(0, 0, 0, 0.0) }).border_layout().cursor(Cursor::Text).child(field);
+    // 32 points tall for a line, as the web's box sizes itself to its words (`GrowingText`).
+    let b = row().w_full().ml(-9.0).mr(-9.0).px(8.0).py(5.0).max_h(360.0).hover_group().border(1.0, if focused { rule() } else { rgba(0, 0, 0, 0.0) }).border_layout().cursor(Cursor::Text).child(field);
     if focused { b } else { b.child(frame) }
 }
 
@@ -2159,15 +2172,19 @@ fn filter_menu(sh: &Sheet) -> El {
         for r in table.rows.iter() {
             *counts.entry(js::trim(r.at(col)).to_lowercase()).or_default() += 1;
         }
-        out = out.child(head_line(&column.name));
+        // A column's heading and values are one group, the menu's gap only between groups.
+        let mut group = rune::col().w_full().child(head_line(&column.name));
         for v in values {
             let on = sh.picked.get(&col).is_some_and(|p| p.contains(v));
             let tick = if on { el().size(12.0, 12.0).fill(ink()).box_shadow(shadow(0.0, 0.0, 0.0, 2.0, pop(), true)) } else { el().size(12.0, 12.0).border(1.0, rule()).border_layout() };
             let face = if v.is_empty() { label("Empty", 13.0, 400.0, muted()) } else if column.kind == Kind::Tag { chip_in(column.tone(v), v) } else { label(v, 13.0, if on { 600.0 } else { 400.0 }, if on { ink() } else { dim() }) };
             let n = counts.get(&v.to_lowercase()).copied().unwrap_or(0);
             let value = v.clone();
-            out = out.child(menu_row(row().grow(1.0).gap(9.0).items_center().child(tick).child(face).child(el().grow(1.0)).child(text(thousands(n)).font(mono(11.0, 14.0)).color(muted())), false).on_press(move |s: &mut State| super::toggle_filter(s, w, col, &value)));
+            // The count stands at the row's right end (`.tbl-filter-n { margin-left: auto }`).
+            let line = row().w_full().px(9.0).py(6.0).gap(9.0).items_center().radius(6.0).hover(selected()).cursor(Cursor::Pointer).child(tick).child(face).child(el().grow(1.0)).child(text(thousands(n)).font(figures(11.0, 400.0).mono()).color(muted()));
+            group = group.child(line.on_press(move |s: &mut State| super::toggle_filter(s, w, col, &value)));
         }
+        out = out.child(group);
     }
     out
 }
@@ -2229,7 +2246,7 @@ fn float_menu(s: &State, sh: &Sheet, f: &Float) -> El {
         if let Some(h) = &line.hint {
             words = words.child(text(h.as_str()).font(mono(11.0, 14.0)).color(muted()));
         }
-        let mut r = row().w_full().px(9.0).py(6.0).items_center().child(words);
+        let mut r = row().w_full().px(9.0).py(6.0).items_center().radius(6.0).child(words);
         if line.off {
             r = r.opacity(0.4);
         } else {
