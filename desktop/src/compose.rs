@@ -1063,10 +1063,19 @@ impl State {
         let harness = rules::harness_fields(&pick, effort.as_deref(), Engines::of(&self.snap).rows().len(), self.models.codex_default.as_deref());
         let later = self.compose.later;
         let payload = rules::compose(&product, &message, rules::sent_priority(self.compose.level), harness, later);
+        // With files, they are saved into the project first and the thread's body links them
+        // where they landed (`persistAttachments`); a file on this Mac goes as its path, a
+        // pasted picture as its bytes. Either write refused puts the words and the files back.
+        let files = attach::pending(&self.compose.files);
+        let steps = if files.is_empty() {
+            vec![write::Step::Write((rules::COMPOSE, payload))]
+        } else {
+            vec![write::Step::Save { product: product.clone(), files }, write::Step::Linked((rules::COMPOSE, payload))]
+        };
         let draft = self.compose.draft();
         // What was done before this and still waits its three seconds is written first.
         self.write_what_waits();
-        let on_its_way = self.send(rules::COMPOSE, payload, write::Sent::Thread { product: product.clone(), draft });
+        let on_its_way = self.send_steps(steps, write::Sent::Thread { product: product.clone(), draft });
         if !on_its_way && self.refused.is_some() {
             // No door to send through: the words stay where they are, and the line says so.
             return;

@@ -209,11 +209,15 @@ impl State {
     }
     /// Several writes that are one thing done, sent in order.
     fn send_all(&mut self, writes: Vec<writes::Write>, sent: write::Sent) -> bool {
+        self.send_steps(writes.into_iter().map(write::Step::Write).collect(), sent)
+    }
+    /// The same, where a write may be made of what the engine answered the one before it.
+    fn send_steps(&mut self, steps: Vec<write::Step>, sent: write::Sent) -> bool {
         self.refused = None;
         let Source::Door(door) = &self.source else {
             return false;
         };
-        if self.outbox.send_in_order(door, writes, sent) {
+        if self.outbox.send_in_order(door, steps, sent) {
             return true;
         }
         self.refused = Some("Mercury is not running, so this was not sent.".to_string());

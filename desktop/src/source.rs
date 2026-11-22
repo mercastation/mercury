@@ -145,11 +145,16 @@ pub fn read_fixture(path: &str) -> Result<Fixture, String> {
 
 /// One call to a channel of the engine, as the web window's bridge makes it.
 pub fn call(url: &str, token: &str, channel: &str, payload: &Value) -> Result<Value, String> {
+    call_waiting(url, token, channel, payload, Duration::from_secs(20))
+}
+
+/// `call`, waiting `wait` for the answer.
+pub fn call_waiting(url: &str, token: &str, channel: &str, payload: &Value, wait: Duration) -> Result<Value, String> {
     let channel = channel.replace(':', "%3A");
     let asked = ureq::post(&format!("{url}/api/{channel}"))
         .set("x-agentbox-token", token)
         .set("content-type", "application/json")
-        .timeout(Duration::from_secs(20))
+        .timeout(wait)
         .send_string(&payload.to_string());
     let res = match asked {
         Ok(res) => res,
