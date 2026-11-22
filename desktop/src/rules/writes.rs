@@ -41,14 +41,11 @@ pub fn close(item: &Item, unshipped: bool) -> Value {
     payload
 }
 
-/// The channel Reopen goes to (`sendBack` in `renderer/src/App.tsx`): the engine opens the
-/// thread and hands its agent whatever comments were still waiting.
+/// The channel a blocked thread is sent back to its agent on (`sendBack` in
+/// `renderer/src/App.tsx`): the engine opens the thread and hands its agent whatever comments
+/// were still waiting. The Reopen button over a finished thread is not this: it writes
+/// `status: open` (`reopenDone`, `rules/palette.rs`).
 pub const REOPEN: &str = "zero:reopen";
-
-/// Opening a finished thread again with nothing said.
-pub fn reopen(item: &Item) -> Value {
-    json!({ "product": item.product, "id": item.id })
-}
 
 /// How long something done waits before it is written, so Z can take it back whole
 /// (`UNDO_GRACE_MS` in `renderer/src/App.tsx`), and how long the line that says so stays.
@@ -297,6 +294,5 @@ mod tests {
     fn a_close_says_so_when_the_work_is_left_off_main_on_purpose() {
         assert_eq!(close(&thread("blocked"), false), json!({ "product": "shop", "id": "w-1", "status": "done" }));
         assert_eq!(close(&thread("blocked"), true), json!({ "product": "shop", "id": "w-1", "status": "done", "closeUnshipped": true }));
-        assert_eq!(reopen(&thread("done")), json!({ "product": "shop", "id": "w-1" }));
     }
 }

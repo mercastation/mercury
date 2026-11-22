@@ -269,10 +269,9 @@ impl State {
         self.palette = Bar { index: std::mem::take(&mut self.palette.index), opens_when_listed: self.palette.opens_when_listed.take(), ..Bar::closed() };
     }
 
-    /// Reopen from the bar: the thread opened again with nothing said, written at once, and Z
-    /// marks it done again (`reopenDone`, which the bar's row runs, and not the Reopen button's
-    /// `zero:reopen`).
-    fn reopen_done(&mut self, item: &Item) {
+    /// Reopen, from the bar and from the Reopen button: the thread opened again with nothing
+    /// said, written at once, and Z marks it done again (`reopenDone`).
+    pub(crate) fn reopen_done(&mut self, item: &Item) {
         self.write_what_waits();
         let (said, again) = rules::reopened_said(item);
         let (channel, payload) = rules::reopen_done(item);

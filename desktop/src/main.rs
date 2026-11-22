@@ -852,15 +852,15 @@ impl State {
             self.close(&id, &product, unshipped, tx);
         }
     }
-    /// Opens a finished thread again (the Reopen button). Written at once: it starts work
-    /// nobody has to wait three seconds for.
+    /// Opens a finished thread again (the Reopen button), as the command bar's Reopen does: the
+    /// thread open again with nothing said, written at once, and Z marks it done again
+    /// (`onReopenDone` in `renderer/src/components/Focus.tsx`, `reopenDone` in `App.tsx`). It is
+    /// not `zero:reopen`, which sends a blocked thread back to its agent.
     pub fn reopen_thread(&mut self) {
         let Some(item) = self.open_item().cloned() else {
             return;
         };
-        self.write_what_waits();
-        let thread = format!("{}/{}", item.product, item.id);
-        self.send(writes::REOPEN, writes::reopen(&item), write::Sent::Reopen { thread });
+        self.reopen_done(&item);
     }
     /// What the engine said to something sent. A refusal is said in one line, and refused
     /// words go back where the person can send them again.

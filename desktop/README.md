@@ -699,7 +699,7 @@ The keys are the web window's (`src/keys.rs`, from the keydown handler in `rende
 
 Everything written is one call on a channel the web window calls too, with the web window's own
 words in it (`src/rules/writes.rs`): a reply, a picked option ("Option 2: …") and a close go to
-`zero:answer`, Reopen to `zero:reopen`, and a thread opened is told to the web window, which
+`zero:answer`, as Reopen does (`status: open`, which Z marks done again), and a thread opened is told to the web window, which
 alone keeps what has been read, the way a phone tells it (`zero:phone-seen`). An option that
 closes ("Close this task"), leaves the work on its branch or needs the person's own words
 ("Change something first") does that instead of being sent, by the web window's rules. A reply
@@ -2653,9 +2653,6 @@ release or a second login.
     `zero:resume-items`, spread after the count in `main/ipc.mts`), so both windows say "1
     resumed,  waiting for a slot" (with the queue's ids where there are any) and never "Nothing
     to resume". Fixed in the engine's answer, both windows would say it right.
-  - The Reopen button over a finished conversation still writes `zero:reopen`, which sends the
-    thread back to its agent's queue; the web window's button and both bars' Reopen write
-    `status: open` with Z to mark it done again (`reopenDone`).
   - Over the Files place the web's bar still acts on the Inbox's picked row when the Inbox was
     the list last on screen; this window's acts on no thread there.
   - A thread a day old or more says its date in English. The web window asks the system's
