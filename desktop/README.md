@@ -1254,9 +1254,10 @@ read when the page opens and again as the store changes, at most every two secon
 - **The keys**: `/` and Escape, which leaves the place for where it was opened from; N still
   starts a thread.
 
-The scenes: `files` (All files), `files-project` (a project's page) and `files-list` (the list),
-over an invented list built on the planted folder; `MERCURY_FILES=<a saved list>` photographs the
-web window on another list. At 1280 by 760, 2x, whole windows and each part:
+The scenes: `files` (All files), `files-project` (a project's page), `files-list` (the list) and
+`files-name` (ordered by name), over an invented list built on the planted folder;
+`MERCURY_FILES=<a saved list>` photographs the web window on another list. At 1280 by 760, 2x,
+whole windows and each part:
 
 | Scene | Whole | The strip | The bar | The tools | The cards | The tiles |
 |---|---|---|---|---|---|---|
@@ -1269,11 +1270,15 @@ which is the page's tile in view: the web window draws the page in it, white, an
 word. Every part stands where the browser puts it; what is left is glyphs, and the rail, whose
 other places this window does not draw.
 
+The rail's Files moved the screens at rest a little, as it stands where the web window draws
+Demands (the rail itself is 0.52 on each): Home from 0.844 to 0.867, the Inbox from 0.240 to
+0.262, a conversation from 0.409 to 0.429.
+
 On the person's own files, read through the running app's door and never written, the web
 window photographed on the same list (`MERCURY_FILES`) and this window drawn on the door
 (`--view files`): the same three project cards, the same kinds, and the first sixty tiles in the
 same order with the same name and the same line, the web window's harness having no team to tell
-"Your agent" from another's. On that list of 168 files a release build draws the page first in
+"Your agent" from another's; ordered by name, the same sixty in the same order. On that list of 168 files a release build draws the page first in
 83 ms, its pictures then landing from the worker (the ignored test `the_files_place_draws_in`,
 `MERCURY_FILES_PLACE=<a fixture with the list>`). A document's or a script's face is read once
 from the top of its file, and read again only when its versions or its size change.
