@@ -167,7 +167,7 @@ impl Opening {
 }
 
 /// Opens what the app asked for and brings the window forward, from the thread that follows the
-/// door. The thread opens on the window's own thread, before the window comes forward.
+/// door. The conversation opens in the same turn of the window's loop that brings it forward.
 pub fn come_forward(opening: Opening) {
     let Some(window) = WINDOW.get() else {
         return;
