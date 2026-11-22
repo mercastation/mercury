@@ -7,6 +7,7 @@ use std::cmp::Ordering;
 
 use rune::time::LocalTime;
 
+use super::display::Sort;
 use super::format::item_options;
 use super::js::re;
 use super::rank::{item_priority, place_score, placed_at, placed_score};
@@ -61,31 +62,38 @@ fn larger_first(a: f64, b: f64) -> Ordering {
 }
 
 /// The order a tab draws its rows in (`order`). Done is a history, newest finished first. In
-/// progress runs newest sent first, where the person finds what they just sent. Needs you runs
-/// by the project order, then the level each row shows, newest first inside a level. On a team
-/// a person's thread comes before an agent's at one level; that would sit before the time.
-fn order<'a>(tab: &'a str, project_order: &'a [String]) -> impl Fn(&&Item, &&Item) -> Ordering + 'a {
-    move |a, b| match tab {
-        "done" => larger_first(finished_at(a), finished_at(b)),
-        "progress" => pinned_open(b).cmp(&pinned_open(a)).then_with(|| larger_first(sent_at(a), sent_at(b))),
-        _ => pinned_open(b)
+/// progress runs newest sent first, where the person finds what they just sent. Needs you and
+/// Later run as the View and filters menu's Sort by says: by the project order, then the level
+/// each row shows, newest first inside a level; or newest sent first. A pinned thread comes
+/// first under either. On a team a person's thread comes before an agent's at one level; that
+/// would sit before the time.
+fn order<'a>(tab: &'a str, sort: Sort, project_order: &'a [String]) -> impl Fn(&&Item, &&Item) -> Ordering + 'a {
+    move |a, b| match (tab, sort) {
+        ("done", _) => larger_first(finished_at(a), finished_at(b)),
+        ("progress", _) | (_, Sort::Sent) => pinned_open(b).cmp(&pinned_open(a)).then_with(|| larger_first(sent_at(a), sent_at(b))),
+        (_, Sort::Priority) => pinned_open(b)
             .cmp(&pinned_open(a))
             .then_with(|| larger_first(rank_score(a, project_order), rank_score(b, project_order)))
             .then_with(|| larger_first(placed_at(a), placed_at(b))),
     }
 }
 
-/// The rows in the order the page draws them (`sorted`). The rows the app makes itself belong
-/// to no project and stay at the top; rows that tie keep the order they came in.
+/// The rows in the order the page opens on (`sorted`, under Sort by Priority).
 pub fn sorted<'a>(rows: &[&'a Item], tab: &str, project_order: &[String]) -> Vec<&'a Item> {
+    sorted_by(rows, tab, Sort::Priority, project_order)
+}
+
+/// The rows in the order the page draws them under `sort` (`sorted`). The rows the app makes
+/// itself belong to no project and stay at the top; rows that tie keep the order they came in.
+pub fn sorted_by<'a>(rows: &[&'a Item], tab: &str, sort: Sort, project_order: &[String]) -> Vec<&'a Item> {
     let (mut made, mut mine): (Vec<&Item>, Vec<&Item>) = rows.iter().partition(|r| r.product.is_empty());
-    mine.sort_by(order(tab, project_order));
+    mine.sort_by(order(tab, sort, project_order));
     made.append(&mut mine);
     made
 }
 
 /// Midnight before `now`, on this machine's clock.
-fn start_of_day(now: f64) -> f64 {
+pub fn start_of_day(now: f64) -> f64 {
     let clock = |ms: f64| LocalTime::at(ms as i64);
     let t = clock(now);
     let into_the_day = f64::from(t.hour * 3600 + t.minute * 60 + t.second) * 1000.0 + now.rem_euclid(1000.0);
@@ -167,9 +175,11 @@ pub fn later_tab_shown(count: usize, open: bool) -> bool {
 }
 
 /// The tabs the strip draws while `open` is the one on show: all four, less Later while
-/// nothing is in it (`StateTabsRow` in `renderer/src/threads/Pages.tsx`, for one person).
+/// nothing is in it (`StateTabsRow` in `renderer/src/threads/Pages.tsx`, for one person). What
+/// is in it is counted before the filters (`scheduledCount`): a filter that keeps none of Later
+/// leaves the tab on the strip, with no number.
 pub fn tabs(lists: &Lists, open: Tab) -> Vec<Tab> {
-    Tab::ALL.into_iter().filter(|t| *t != Tab::Later || later_tab_shown(lists.count(Tab::Later), open == Tab::Later)).collect()
+    Tab::ALL.into_iter().filter(|t| *t != Tab::Later || later_tab_shown(lists.whole(Tab::Later), open == Tab::Later)).collect()
 }
 
 /// The one line an empty tab carries (`emptyTabWords`). `waiting` is what Needs you holds,
@@ -299,6 +309,30 @@ mod tests {
         let rows: Vec<&Item> = items.iter().collect();
         assert_eq!(ids(sorted(&rows, "progress", &[])), ["c", "b", "a"]);
         assert_eq!(ids(sorted(&rows, "done", &[])), ["a", "c", "b"]);
+    }
+
+    #[test]
+    fn sort_by_sent_runs_needs_you_and_later_newest_sent_first_and_leaves_the_other_tabs_alone() {
+        let order = vec!["shop".to_string(), "desk".to_string()];
+        let items: Vec<Item> = [
+            json!({ "id": "shop-urgent-old", "product": "shop", "priority": 9, "status": "open", "createdAt": 10, "updatedAt": 10, "wrote": {} }),
+            json!({ "id": "desk-low-new", "product": "desk", "priority": 2, "status": "open", "createdAt": 50, "updatedAt": 50, "wrote": {} }),
+            json!({ "id": "shop-medium", "product": "shop", "priority": 5, "status": "open", "createdAt": 30, "updatedAt": 30, "wrote": {} }),
+            json!({ "id": "pinned-oldest", "product": "desk", "priority": 2, "status": "open", "createdAt": 1, "updatedAt": 1, "wrote": {}, "pinned": true }),
+            json!({ "id": "trouble", "product": "", "priority": 5, "updatedAt": 1 }),
+        ]
+        .into_iter()
+        .map(item)
+        .collect();
+        let rows: Vec<&Item> = items.iter().collect();
+        // A pinned thread and the app's own row still come first.
+        assert_eq!(ids(sorted_by(&rows, "inbox", Sort::Sent, &order)), ["trouble", "pinned-oldest", "desk-low-new", "shop-medium", "shop-urgent-old"]);
+        assert_eq!(ids(sorted_by(&rows, "snoozed", Sort::Sent, &order)), ids(sorted_by(&rows, "inbox", Sort::Sent, &order)));
+        assert_eq!(ids(sorted_by(&rows, "inbox", Sort::Priority, &order)), ["trouble", "pinned-oldest", "shop-urgent-old", "shop-medium", "desk-low-new"]);
+        // In progress and Done keep their own order under either.
+        for tab in ["progress", "done"] {
+            assert_eq!(ids(sorted_by(&rows, tab, Sort::Sent, &order)), ids(sorted_by(&rows, tab, Sort::Priority, &order)));
+        }
     }
 
     #[test]

@@ -19,6 +19,7 @@ mod data;
 mod feel;
 mod files;
 mod front;
+mod head;
 mod home;
 mod icons;
 mod inbox;
@@ -108,6 +109,8 @@ pub struct State {
     pub reply_menu: Option<compose::Menu>,
     /// The menu or the panel open in the strip over a conversation (`strip.rs`).
     pub strip: strip::Strip,
+    /// What the Inbox's strip has open: View and filters, the cloud's menu, ⌘C's question (`head.rs`).
+    pub head: head::Head,
     /// What the person has unfolded in the conversations they opened.
     pub reading: thread::Reading,
     /// What the engine answered about each conversation opened so far, by `product/id` and
@@ -160,6 +163,7 @@ pub struct State {
 impl State {
     pub fn go(&mut self, to: View) {
         if self.view != to {
+            self.close_head();
             self.put_the_reply_away();
             self.history.push(std::mem::replace(&mut self.view, to));
             self.take_the_reply_out();
@@ -167,6 +171,7 @@ impl State {
     }
     pub fn back(&mut self) {
         if let Some(prev) = self.history.pop() {
+            self.close_head();
             self.put_the_reply_away();
             self.view = prev;
             self.take_the_reply_out();
@@ -628,10 +633,12 @@ impl State {
     /// What the engine said to something sent. A refusal is said in one line, and refused
     /// words go back where the person can send them again.
     fn landed(&mut self, landed: write::Landed, tx: &mut Tx) {
-        // A new thread, and one taken back, are said of whether they stood or not.
+        // A new thread, and one taken back, are said of whether they stood or not; a write of
+        // the cloud's is about no thread (`head.rs`).
         match &landed.sent {
             write::Sent::Thread { .. } => return self.thread_landed(landed, tx),
             write::Sent::Withdraw { .. } => return self.withdraw_landed(landed, tx),
+            write::Sent::Cloud | write::Sent::Moved { .. } | write::Sent::SignIn => return self.cloud_landed(landed, tx),
             _ => {}
         }
         let Some(why) = landed.refusal() else {
@@ -667,8 +674,8 @@ impl State {
             write::Sent::TakenBack { .. } => format!("Could not undo that: {why}"),
             write::Sent::Priority { .. } => format!("Could not change its priority: {why}"),
             write::Sent::Place { .. } => format!("Could not change where it runs: {why}"),
-            // Both went their own way above.
-            write::Sent::Thread { .. } | write::Sent::Withdraw { .. } => return,
+            // These went their own way above.
+            write::Sent::Thread { .. } | write::Sent::Withdraw { .. } | write::Sent::Cloud | write::Sent::Moved { .. } | write::Sent::SignIn => return,
         });
     }
     /// Out of a conversation: to where the person came from, and one opened from nowhere came
@@ -742,7 +749,7 @@ impl State {
         ((self.size.0 - chrome::card_left(self) - chrome::CARD[2]).max(1.0), (self.size.1 - chrome::page_top(&self.view) - chrome::CARD[3]).max(1.0))
     }
     fn refresh(&mut self) {
-        self.lists = self.snap.lists(self.now, &self.local);
+        self.lists = rules::lists_sorted(&self.snap, self.now, &self.local, self.picks.get().display.sort);
         // A thread closed here stays out of the lists until the engine tells the close back:
         // done, and by the person's hand. An agent's own "done" is what Needs you shows them.
         let snap = &self.snap;
@@ -761,6 +768,9 @@ impl State {
             let taken_back = |id: &str| withdrawn.get(id).is_some_and(|at| snap.item(id).is_some_and(|i| i.status == "done" && i.wrote_at("status") <= *at));
             self.lists.done.retain(|r| !taken_back(&r.id));
         }
+        // Then the View and filters menu's filters, over what is left (`head.rs`).
+        rules::display::show(&mut self.lists, &self.picks.get().display, self.now);
+        self.tend_head();
     }
     /// Asks the engine which models its coding agents offer, off the main thread: the answer
     /// lands in `poll`. The web window reads them with its settings, at launch and again when
@@ -870,6 +880,7 @@ fn init_from(args: &[String]) -> State {
         reply_picks: HashMap::new(),
         reply_menu: None,
         strip: strip::Strip::default(),
+        head: head::Head::default(),
         reading: thread::Reading::default(),
         threads: HashMap::new(),
         asking: Latest::default(),
@@ -919,6 +930,10 @@ fn init_from(args: &[String]) -> State {
                 }
                 if let Some(kept) = s.fixture.get("picks").and_then(|kept| serde_json::from_value(kept.clone()).ok()) {
                     s.picks = picks::Kept::only_here(kept);
+                }
+                // And the Inbox's display it was drawn on (`display`), kept nowhere but here.
+                if let Some(shown) = s.fixture.get("display").cloned() {
+                    s.picks.change(|p| p.display = rules::display::Display::from(shown));
                 }
             }
             Err(e) => s.error = Some(e),
@@ -1030,12 +1045,15 @@ fn press_what_the_picture_pressed(s: &mut State, tx: &mut Tx) {
             which => s.picture_strip(which, tx),
         }
     }
+    // And one of the Inbox with a menu of its strip open, or ⌘C's question (`head.rs`).
+    s.picture_head();
 }
 
 fn setup(s: &mut State, wake: Waker) {
     s.painting.set_waker(wake.clone());
     s.asking.set_waker(wake.clone());
     s.reading_models.set_waker(wake.clone());
+    s.head.set_waker(wake.clone());
     s.read_the_models();
     s.outbox.wake_with(wake.clone());
     s.compose.staging.wake_with(wake.clone());
@@ -1079,6 +1097,8 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
         s.models = rules::compose::Models::from_settings(&settings);
         changed = true;
     }
+    // Agentbox Cloud's plan, for the cloud menu's month (`head.rs`).
+    changed |= s.plan_landed();
     let mut stale = false;
     let mut arrived = None;
     {
@@ -1195,8 +1215,8 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
                 .child(page),
         );
     // The list a conversation's Files button opens, over the page and under everything else, and
-    // what the rest of its strip opens.
-    let root = root.children(thread::files_list(s)).children(strip::layer(s));
+    // what the rest of its strip opens; over the Inbox, what its strip opens.
+    let root = root.children(thread::files_list(s)).children(strip::layer(s)).children(head::layer(s));
     // The box a thread is started in: its open menu over the page it hangs in, or the New
     // thread card over the whole page, under the line about the last thing done.
     let root = root.children(compose::layers(s));
@@ -1214,6 +1234,8 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
         Some(bar) => root.child(bar),
         None => root,
     };
+    // ⌘C's question before the cloud goes off, over everything as the command bar is.
+    let root = root.children(head::off_ask(s));
     let root = match chrome::notice(s) {
         Some(notice) => root.child(notice),
         None => root,

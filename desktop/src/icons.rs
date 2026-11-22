@@ -106,6 +106,31 @@ pub static SLIDERS: Icon = Icon {
 };
 // Where threads run: the cloud on the strip's button (`CloudIcon` in `threads/Pages.tsx`).
 stroked!(CLOUD, "m-cloud", "1.5", r#"<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>"#);
+// The View line of the View and filters menu (`ListIcon`, `BoardIcon` in `threads/Pages.tsx`),
+// with the square ends they are drawn with.
+pub static LIST: Icon = Icon {
+    name: "m-list",
+    view: 24.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6h16M4 12h16M4 18h16"/></g>"#,
+};
+pub static BOARD: Icon = Icon {
+    name: "m-board",
+    view: 24.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3.5" y="4" width="5" height="16" rx="1"/><rect x="10.5" y="4" width="5" height="11" rx="1"/><rect x="17.5" y="4" width="3" height="7" rx="1"/></g>"#,
+};
+// The small tick over a tab the filters emptied (`ClearMark`).
+pub static CLEAR_MARK: Icon = Icon {
+    name: "m-clear-mark",
+    view: 24.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="square"><path d="m4 12.5 5 5L20 6.5"/></g>"#,
+};
+// The mark of a wait on the cloud menu's line about an account being added (`.cs-busy`): a ring
+// with its top quarter in the accent. The web window turns it; it stands still here.
+pub static BUSY: Icon = Icon {
+    name: "m-busy",
+    view: 12.0,
+    body: r##"<g fill="none" stroke-width="1.5"><circle cx="6" cy="6" r="5.25" stroke="#52504f"/><path d="M2.29 2.29A5.25 5.25 0 0 1 9.71 2.29" stroke="#ee6018"/></g>"##,
+};
 // The same cloud before a Status word, while an agent is on the thread in the cloud
 // (`RunningMark`). The web app draws it 14 by 11 from the box "2 5 21 15", which fits it to the
 // width and leaves half a point over and under; here that is the top 11 of a 14 point square.

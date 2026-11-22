@@ -388,7 +388,7 @@ fn more_rows(s: &State, item: &Item, levels: bool, lit: usize) -> Vec<El> {
 /// A popover's shell (`.th-menu`, `.th-pop`): the pop's fill inside the strong hairline, rounded
 /// ten points, lifted by its shadow. No rounded clip on it: Rune's takes the element's own
 /// shadow with it, and nothing inside reaches its corners.
-fn shell(e: El) -> El {
+pub(crate) fn shell(e: El) -> El {
     e.radius(10.0).fill(rgb(54, 52, 49)).border(1.0, rule()).border_layout().box_shadow(shadow(0.0, 18.0, 50.0, 0.0, rgba(0, 0, 0, 0.5), false))
 }
 

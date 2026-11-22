@@ -113,16 +113,17 @@ fn crumb(title: &str) -> String {
 
 /// The tab that holds the thread now, not the one it was opened from, so a thread that finishes
 /// while it is read stops saying In progress; none for a thread in no tab (`crumbTab` in
-/// `renderer/src/threads/page-rules.ts`).
+/// `renderer/src/threads/page-rules.ts`). A tab holds it whether or not the Inbox's filters show
+/// it there.
 fn holding_tab(s: &State, id: &str, product: &str) -> Option<Tab> {
-    let holds = |list: &[crate::data::Row]| list.iter().any(|r| r.id == id && r.product == product);
-    if holds(&s.lists.progress) {
+    let holds = |tab: Tab| s.lists.holds(tab, id, product);
+    if holds(Tab::Progress) {
         Some(Tab::Progress)
-    } else if holds(&s.lists.later) {
+    } else if holds(Tab::Later) {
         Some(Tab::Later)
-    } else if holds(&s.lists.done) && !holds(&s.lists.needs) {
+    } else if holds(Tab::Done) && !holds(Tab::Needs) {
         Some(Tab::Done)
-    } else if holds(&s.lists.needs) {
+    } else if holds(Tab::Needs) {
         Some(Tab::Needs)
     } else {
         None

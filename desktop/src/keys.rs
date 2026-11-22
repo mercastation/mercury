@@ -109,6 +109,10 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
     // A key hint is for the hand on the pointer, and any key takes it away (`keydown` in
     // `renderer/src/App.tsx`'s hint guards).
     s.pointed.hint = None;
+    // ⌘C's question before the cloud goes off has every key while it is up (`head.rs`).
+    if s.head.asking_off {
+        return crate::head::key(s, e, tx).unwrap_or(true);
+    }
     // ⌘K from anywhere, and every key while the command bar is open, are the bar's. One thing
     // stands over the page at a time, as the web window's one `modal`: the bar opening closes
     // the New thread card, which keeps its words.
@@ -124,8 +128,13 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
         return taken;
     }
     // Then what stands open over a conversation: the strip's menu or panel, and the reply box's
-    // model menu. Each takes its own keys, Escape first, and lets the rest go on to the page.
-    if crate::strip::key(s, e, tx) == Some(true) || crate::reply::menu_key(s, e, tx) == Some(true) {
+    // model menu; and over the Inbox, a menu of its strip. Each takes its own keys, Escape
+    // first, and lets the rest go on to the page.
+    if crate::strip::key(s, e, tx) == Some(true) || crate::reply::menu_key(s, e, tx) == Some(true) || crate::head::key(s, e, tx) == Some(true) {
+        return true;
+    }
+    // ⌘C turns the cloud on or off, unless it is Copy (`cloudChord`).
+    if s.command_c(e, tx) {
         return true;
     }
     // ⌘[ is Back, as Back's title says (`Back to … (⌘[)` in `BackForward.tsx`): a conversation
@@ -225,6 +234,11 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
             if e.key == Key::Tab {
                 let tab = next_tab(s, e.mods.shift);
                 s.show_tab(tab);
+                return true;
+            }
+            // B turns the list into the board in the web window, which alone has one.
+            if letter == "b" {
+                s.tell(crate::rules::display::BOARD_NOT_HERE, tx);
                 return true;
             }
             let (len, on) = (s.lists.under(s.inbox_tab).len(), picked_row(s));

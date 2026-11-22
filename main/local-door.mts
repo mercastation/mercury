@@ -31,7 +31,7 @@
 // path is a plain 404.
 //
 // WHAT GOES THROUGH IT, EACH WAY. The native window calls the channels the web
-// window calls, and three that only this door answers:
+// window calls, and four that only this door answers:
 // - WINDOW_KEEPS (below): what the web window keeps for itself, so both windows
 //   show the same Inbox.
 // - NATIVE_WINDOW (main/native-window.mts): whether the native window is in
@@ -39,6 +39,8 @@
 //   comes up over the window the person is working in.
 // - OPEN_SETTINGS (below): its rail's Settings button, which brings this app's
 //   window forward on its Settings until the native window has its own.
+// - OPEN_CLOUD_SETUP (below): its cloud menu's Manage, Fix, Try again and Set
+//   up the cloud, which bring this app's window forward on the cloud's setup.
 // On its event stream the app tells it two things, and nothing else:
 // - TOLD_AT_THE_DOOR (below): the inbox changed, so it reads it again now.
 // - OPEN_IN_NATIVE (main/native-window.mts): the banner or the tray was
@@ -138,6 +140,8 @@ export interface LocalDoorOptions {
   native?: Pick<NativeWindow, 'hear' | 'hungUp'> | null;
   /** What answers `OPEN_SETTINGS` (see `openSettings`). Without it the channel is not there. */
   settings?: IpcHandler;
+  /** What answers `OPEN_CLOUD_SETUP` (see `openCloudSetup`). Without it the channel is not there. */
+  cloudSetup?: IpcHandler;
   token?: string;
 }
 
@@ -160,8 +164,28 @@ export function openSettings(forward: () => boolean, tell: (channel: string, pay
   };
 }
 
+// SO IS THE CLOUD'S SETUP. The native window draws the cloud menu, and four of
+// its buttons (Manage, Fix, Try again, Set up the cloud) open, in the web
+// window, its own screen for the cloud's accounts and sign-ins
+// (components/CloudSetup.tsx), which the native window does not have. So this
+// door has a channel that brings this app's window forward on that screen. It
+// takes nothing from the caller either, so it can open that screen and nothing else.
+export const OPEN_CLOUD_SETUP = 'zero:open-cloud-setup-here';
+
+/**
+ * Answers `OPEN_CLOUD_SETUP`. `forward` brings the app's window to the front and says whether
+ * there is one; `tell` sends that window the push that opens its cloud setup.
+ */
+export function openCloudSetup(forward: () => boolean, tell: (channel: string) => void): IpcHandler {
+  return () => {
+    if (!forward()) return { ok: false, error: 'the window is gone' };
+    tell('zero:open-cloud-setup');
+    return { ok: true };
+  };
+}
+
 /** Opens the door and leaves its note. Rejects if the port cannot be had or the note cannot be written. */
-export async function openLocalDoor({ channels, note, listeners = new Set(), keeps, native = null, settings, token = newToken() }: LocalDoorOptions): Promise<LocalDoor> {
+export async function openLocalDoor({ channels, note, listeners = new Set(), keeps, native = null, settings, cloudSetup, token = newToken() }: LocalDoorOptions): Promise<LocalDoor> {
   // A folder that is certain to hold no index.html: the note's own name with a suffix.
   const noScreen = `${note}.no-screen`;
   // The door's own channels are looked up before the app's, and the app's Map is left as it was:
@@ -170,6 +194,7 @@ export async function openLocalDoor({ channels, note, listeners = new Set(), kee
   if (keeps) own.push([WINDOW_KEEPS, keeps]);
   if (native) own.push([NATIVE_WINDOW, native.hear]);
   if (settings) own.push([OPEN_SETTINGS, settings]);
+  if (cloudSetup) own.push([OPEN_CLOUD_SETUP, cloudSetup]);
   const answered = own.length ? new Map<string, IpcHandler>([...channels, ...own]) : channels;
   const server = http.createServer(createHandler({ channels: answered, token, listeners, hungUp: () => native?.hungUp(), dist: noScreen }));
   await new Promise<void>((resolve, reject) => {

@@ -9,7 +9,7 @@ use rune::{Color, Cursor, El, Pixels, TextCase, TextStyle, col, el, icon, row, t
 use crate::data::{Mark, Priority, Row, Tab};
 use crate::rules::{cloud, page};
 use crate::theme::*;
-use crate::{State, chrome, icons};
+use crate::{State, chrome, head, icons};
 
 /// How far down the card the sky shows at all, and how far it shows whole (`.inbox-sky-head`'s
 /// mask: black to 46 points, clear by 90).
@@ -18,7 +18,7 @@ const SKY_WHOLE: f32 = 46.0;
 
 /// The sky's own dark (`--sky-under`, the ember art's ground): what the web app fills the strip's
 /// buttons with and shades its words in, so the streak never runs through either.
-fn under(a: f32) -> Color {
+pub(crate) fn under(a: f32) -> Color {
     rgba(0x1b, 0x19, 0x17, a)
 }
 
@@ -79,8 +79,9 @@ pub fn sky(s: &State) -> El {
 const SHADOWS: [f32; 5] = [8.0, 5.0, 3.0, 1.5, 0.5];
 
 /// Words over the sky sit in a soft patch of the sky's own dark. `draw(true)` is the words
-/// alone, in that dark; `draw(false)` is the thing itself, which lands on top.
-fn shaded(draw: impl Fn(bool) -> El) -> El {
+/// alone, in that dark; `draw(false)` is the thing itself, which lands on top. Every button of
+/// the strip wears it, those of the menus it opens included (`.topbar :is(h1, button)`).
+pub(crate) fn shaded(draw: impl Fn(bool) -> El) -> El {
     let shadows = SHADOWS.iter().map(|sigma| el().absolute(0.0, 0.0).blur(*sigma).child(draw(true)));
     // The shadows are gathered in one layer before they reach the screen, which an opacity just
     // short of whole asks Rune for: each is too faint by itself to move a pixel a whole level,
@@ -95,8 +96,10 @@ fn shaded(draw: impl Fn(bool) -> El) -> El {
 /// (`.app.sky-shown:not(.home-shown) :is(.th-new, .th-disp, …):not(:hover)` in
 /// `renderer/src/home/home.css`, and `.th-new:hover, .th-disp:hover` in `threads/pages.css`):
 /// a fill and a blur given up, which Rune's own hover cannot draw, so the window keeps which
-/// button the pointer is on (`feel::pointed`) and draws that one so. `key` names the button.
-fn strip_button(s: &State, key: &'static str) -> El {
+/// button the pointer is on (`feel::pointed`) and draws that one so. `key` names the button. A
+/// button whose menu is open keeps the dark and the blur (`:not([aria-expanded="true"])` does
+/// not take it off a button that says nothing of being open).
+pub(crate) fn strip_button(s: &State, key: &'static str) -> El {
     let button = row().h(32.0).items_center().radius(6.0);
     let button = if s.pointed.is(key) { button.fill(crate::feel::wash_strong()) } else { button.backdrop_blur(6.0).fill(under(0.82)) };
     crate::feel::pointed(button.border(1.0, rgb(82, 80, 79)).border_layout().cursor(Cursor::Pointer), key)
@@ -106,12 +109,14 @@ fn strip_button(s: &State, key: &'static str) -> El {
 /// orange while the cloud is on. It widens to carry how many threads run there, or a word:
 /// "Cloud" until an account is set up, "Sign in again" when one has stopped working. The dot
 /// in its corner is the display button's, for something about the setup that wants a look.
-/// Under the pointer its word is the text's own colour (`.th-cloud.named:hover .th-cloud-word`).
-/// Its menu is the web window's, so it opens nothing here.
+/// Under the pointer, or with its menu open, its word is the text's own colour
+/// (`.th-cloud.named:hover .th-cloud-word`, `.open`), and so is an unlit cloud while the menu is
+/// open (`.th-disp.open`). A press opens its menu (`head.rs`).
 fn cloud_button(s: &State, b: cloud::Button) -> El {
-    let cloud = icon(&icons::CLOUD, 16.0).color(if b.lit { accent() } else { dim() });
+    let open = s.head_open() == Some(head::Menu::Cloud);
+    let cloud = icon(&icons::CLOUD, 16.0).color(if b.lit { accent() } else if open { ink() } else { dim() });
     let said = |words: String, font: TextStyle, c: Color| shaded(move |shadow| pen(text(words.as_str()).font(font).color(if shadow { under(1.0) } else { c }), 13.0));
-    let lit = s.pointed.is(CLOUD);
+    let lit = s.pointed.is(CLOUD) || open;
     let e = match (b.word, b.count) {
         // A word reads as brightly as New thread when it asks for something, and leaves the
         // dot room on its right.
@@ -121,23 +126,23 @@ fn cloud_button(s: &State, b: cloud::Button) -> El {
     };
     // Its title says what it is, or what it asks (`CloudButton`'s `title`).
     let title = match b.word {
-        Some(cloud::Word::Again) => "A cloud account needs to sign in again.",
+        Some(cloud::Word::Again) => cloud::BROKEN,
         Some(cloud::Word::Cloud) => "Set up the cloud",
         None if b.lit => "Cloud on (⌘C)",
         None => "Cloud off (⌘C)",
     };
-    let e = crate::feel::answers(e).help(title);
+    let e = e.help(title).expanded(open).on_press(|s: &mut State| s.toggle_head(head::Menu::Cloud));
     if b.dot { e.child(el().pin(None, Some(5.0), Some(5.0), None).size(6.0, 6.0).radius(3.0).fill(accent())) } else { e }
 }
 
 /// The strip's buttons, by the names the pointer keeps them under.
-const NEW_THREAD: &str = "inbox-new-thread";
-const CLOUD: &str = "inbox-cloud";
-const DISPLAY: &str = "inbox-display";
+const NEW_THREAD: &str = head::NEW_THREAD;
+const CLOUD: &str = head::CLOUD_BUTTON;
+const DISPLAY: &str = head::DISPLAY_BUTTON;
 
 /// The card's top strip beside the arrows: the page's title, and at the right New thread, the
 /// cloud on a Mac that has one, and the display button. New thread opens the New thread card
-/// (`onCompose`); the other two are drawn only.
+/// (`onCompose`); the other two open their menus (`head.rs`).
 pub fn strip(s: &State) -> El {
     let (card_w, _) = s.card_size();
     let title = shaded(|shadow| pen(text("Inbox").font(sans(17.0, 400.0).tracking(-0.51)).color(if shadow { under(1.0) } else { ink() }), 17.0));
@@ -147,12 +152,26 @@ pub fn strip(s: &State) -> El {
         .child(icon(&icons::PEN, 15.0).color(dim()))
         .child(shaded(|shadow| pen(label("New thread", 13.5, 400.0, if shadow { under(1.0) } else { ink() }), 13.5)))
         .help("New thread (N)")
-        .on_press_tx(|s: &mut State, tx| s.open_card(tx));
-    // What the list shows and how is the web window's to choose, so this opens nothing here.
-    let display = crate::feel::answers(strip_button(s, DISPLAY).w(32.0).justify_center().child(icon(&icons::SLIDERS, 15.0).color(dim()))).help("View and filters");
+        .on_press_tx(|s: &mut State, tx| {
+            s.close_head();
+            s.open_card(tx);
+        });
+    // View and filters: its menu opens under it, the sliders brighter while it is open
+    // (`.th-disp.open`), and the accent dot while a filter is on (`isFiltered`).
+    let open = s.head_open() == Some(head::Menu::Display);
+    let display = strip_button(s, DISPLAY)
+        .key(DISPLAY)
+        .w(32.0)
+        .justify_center()
+        .child(icon(&icons::SLIDERS, 15.0).color(if open { ink() } else { dim() }))
+        .help("View and filters")
+        .label("View and filters")
+        .expanded(open)
+        .on_press(|s: &mut State| s.toggle_head(head::Menu::Display));
+    let display = if s.display().is_filtered() { display.child(el().pin(None, Some(5.0), Some(5.0), None).size(6.0, 6.0).radius(3.0).fill(accent())) } else { display };
     // New thread and the cloud carry their keys' hints (`data-hint="new-task"`, `"cloud"`).
-    let mut buttons = row().gap(10.0).child(crate::feel::hinted(new_thread, "new-task", NEW_THREAD, crate::feel::Align::Left, None));
-    if let Some(button) = cloud::button(s.snap.rest.get("cloud"), &s.local.cloud_broken_seen) {
+    let mut buttons = row().key(head::BUTTONS).gap(10.0).child(crate::feel::hinted(new_thread, "new-task", NEW_THREAD, crate::feel::Align::Left, None));
+    if let Some(button) = cloud::button(s.snap.rest.get("cloud"), &s.broken_seen()) {
         buttons = buttons.child(crate::feel::hinted(cloud_button(s, button), "cloud", CLOUD, crate::feel::Align::Center, None));
     }
     // `.topbar`: 64 points with a clear hairline under it, the arrows' 54 and their 12 before the
@@ -417,10 +436,15 @@ pub fn view(s: &State) -> El {
     let tab = s.inbox_tab;
     // The open tab's rows in its own order, and its words when it has none. The web app's
     // empty Inbox is a page of its own, a sky over the whole card and a box to write in, which
-    // this window does not draw while it only reads.
+    // this window does not draw while it only reads. A tab only the filters emptied says so
+    // first, so it is never read as clear (`FilteredEmpty`).
     let rows = s.lists.under(tab);
     let page = col().w(page_w).child(tabs(s));
     if rows.is_empty() {
+        let hidden = s.lists.whole(tab);
+        if hidden > 0 {
+            return page.child(head::filtered_empty(s, tab, hidden));
+        }
         return page.child(empty(&page::empty_tab_words(tab.view(), s.lists.needs.len()), s));
     }
     let cols = Columns::of(&rows, page_w);

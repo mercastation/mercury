@@ -290,6 +290,9 @@ fn home_card(title: &str, count: Option<usize>, link: &str, to: Option<Tab>, bod
 
 pub fn view(s: &State) -> El {
     let (needs, progress) = (&s.lists.needs, &s.lists.progress);
+    // In progress lists the whole tab under a number that counts what the Inbox's filters keep
+    // (`homeProgress`, `progressCount`); Needs you lists only what they keep.
+    let working_count = s.lists.count(Tab::Progress);
     // What the card leaves the column (`home.css`). The room above the greeting grows with the
     // window, `clamp(0px, 9vh - 24px, 80px)`, and the two cards are 300 points tall however
     // tall the window is: the column is never shorter than 660, so with the box one line tall
@@ -330,7 +333,7 @@ pub fn view(s: &State) -> El {
         .gap(8.0)
         // Only the Inbox's count is lit, and only above zero (`.hm-door.hot`).
         .child(door(&icons::DOOR_INBOX, "Inbox", Some(needs.len()), !needs.is_empty()).on_press(door_to(Some(Tab::Needs))))
-        .child(door(&icons::DOOR_PROGRESS, "In progress", Some(progress.len()), false).on_press(door_to(Some(Tab::Progress))));
+        .child(door(&icons::DOOR_PROGRESS, "In progress", Some(working_count), false).on_press(door_to(Some(Tab::Progress))));
     if team {
         doors = doors.child(feel::answers(door(&icons::DOOR_TEAM, "Team", None, false)));
     }
@@ -340,7 +343,7 @@ pub fn view(s: &State) -> El {
         let nobody = if window::team_has_others(&s.snap) { el() } else { el().py(14.0).px(18.0).child(label("Nobody else on your team yet.", 13.5, 400.0, dim())) };
         home_card("Team this week", None, "Open Team →", None, nobody, cards_h)
     } else {
-        home_card("In progress", count(progress.len()), "Open →", Some(Tab::Progress), working, cards_h)
+        home_card("In progress", count(working_count), "Open →", Some(Tab::Progress), working, cards_h)
     };
 
     let page = col()

@@ -1,8 +1,10 @@
 //! What the person last picked in the box a thread is started in: the project, and for each
-//! coding agent its model and how hard it thinks. The web window keeps these in its own
-//! storage (`zero.lastProduct`, `zero.lastModel`, `zero.lastEffort`), which this window cannot
-//! read, so it keeps its own: in memory, and in one small file beside the note about the app's
-//! door, written when a pick changes and read when the window opens.
+//! coding agent its model and how hard it thinks; how the Inbox is viewed and filtered; and the
+//! stopped cloud accounts the cloud menu has already been opened on. The web window keeps these
+//! in its own storage (`zero.lastProduct`, `zero.lastModel`, `zero.lastEffort`,
+//! `threads.display.inbox`, `zero.cloudBrokenSeen`), which this window cannot read, so it keeps
+//! its own: in memory, and in one small file beside the note about the app's door, written
+//! when a pick changes and read when the window opens.
 //!
 //! A picture drawn from a fixture never reads or writes that file: its picks are the fixture's
 //! own (`picks`), or none. Nor does a window pointed by hand at some engine (`--door`), which
@@ -27,6 +29,11 @@ pub struct Picks {
     pub model: BTreeMap<String, String>,
     /// And the level, the same way.
     pub effort: BTreeMap<String, String>,
+    /// The Inbox's View and filters, in the shape the web window keeps its own.
+    pub display: crate::rules::display::Display,
+    /// The cloud accounts that stopped working and that the cloud menu was opened on, as
+    /// `engine:key`: the cloud button stops asking for their sign-in.
+    pub cloud_broken_seen: Vec<String>,
 }
 
 /// The picks, and the file they are kept in when there is one.
@@ -107,6 +114,19 @@ mod tests {
         let next = Kept::at(Some(file.clone()));
         assert_eq!(next.get(), kept.get());
         assert_eq!(next.get().model.get("claude").map(String::as_str), Some("sonnet"));
+        // The Inbox's display and the stopped accounts looked at go in the same file.
+        let mut kept = next;
+        kept.change(|picks| {
+            picks.display = picks.display.toggled_project("shop");
+            picks.cloud_broken_seen = vec!["codex:a-2".to_string()];
+        });
+        let next = Kept::at(Some(file.clone()));
+        assert_eq!(next.get().display.projects, ["shop"]);
+        assert_eq!(next.get().cloud_broken_seen, ["codex:a-2"]);
+        // A file written before either was kept reads them as none.
+        std::fs::write(&file, r#"{"project":"shop","model":{},"effort":{}}"#).unwrap();
+        let older = Kept::at(Some(file.clone()));
+        assert_eq!((older.get().project.as_deref(), older.get().display.is_filtered(), older.get().cloud_broken_seen.len()), (Some("shop"), false, 0));
         let _ = std::fs::remove_dir_all(file.parent().unwrap());
     }
 

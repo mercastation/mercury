@@ -3859,6 +3859,16 @@ export default function App() {
     }) ?? (() => {});
     return off;
   }, []);
+  // And the native window's cloud menu, on its Manage or Set up, lands on the cloud's setup,
+  // as this window's own menu does (`onCloudSetUp`), over whatever page it is on.
+  useEffect(() => {
+    const off = window.zero?.onOpenCloudSetup?.(() => {
+      setTeamOpen(false);
+      setSettingsOpen(false);
+      setCloudSetupOpen(true);
+    }) ?? (() => {});
+    return off;
+  }, []);
 
   useEffect(() => { setOptionSel(null); }, [focused?.id]);
 
