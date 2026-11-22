@@ -35,8 +35,9 @@ beside it a key away ("A file opened big"), and the rail's Files is the place of
 threads made ("The Files place").
 
 ⌘K opens the command bar from anywhere: it finds threads by their words, as the web window's bar
-does, and runs what this window can do to the thread under the keys and the places it can go
-("The command bar", below).
+does, and offers every row of the web's whose doing this window has, under its words, in its
+order, writing what the web's row writes ("The command bar", below; `docs/parity-command-bar.md`
+lists each row of the web's with what this window does of it).
 
 The rail's Settings opens Settings here, over the whole window, as the web window draws it: its
 menu with the search, and the pages that are used, General, Phone, Alpha features, Claude Code,
@@ -315,17 +316,31 @@ carry an underline two points higher than the web window's (see what still diffe
 
 The command bar is photographed open over the Inbox: `palette` (its box empty), `palette-typed`
 ("check": a command, then the threads the word found) and `palette-none` (words nothing
-answers). The web window's bar offers far more commands than this one can do, so the two are
-only alike when this window draws the same commands. Each of these scenes reads the rows its
+answers); over a conversation, waiting (`palette-thread`, and `-model` with "model" typed) and
+finished (`palette-thread-done`); with words of each kind typed over the Inbox
+(`palette-words` "prio", `-move` "move to", `-settings`, `-agents`, `-keys` "keyboard", `-rank`);
+and on an inbox dressed for the rows that only show then: the cloud on with "cloud" typed
+(`palette-cloud`), an update waiting, a build to restart, the agents paused and a project made
+for the person (`palette-update`), a queued thread under In progress on a Mac with the cloud
+(`palette-progress`, drawn with `--tab progress`), an agent's question (`palette-approve`) and a
+stopped agent (`palette-stalled`). Each of these scenes reads the rows its
 page drew and hands them on in the fixture (`paletteRows`: a heading, a command with the name of
 its drawing, its name, hint and key, or only the place of a thread), with the words typed
 (`palette`). The page draws a row's drawing from its paths, so the scene names it by matching
 them against the web's own table (`ICONS` in `renderer/src/palette-glyphs.ts`, read from the
-checkout photographed). Given them, this window draws the web's commands as they were, pressing
-them does nothing, and where the web listed a thread it lists the next one its own search found
-for the same words, so the threads section measures the search as well as the drawing. Without
-`paletteRows` it draws its own rows, as it does live. Each scene names its parts
-(`tools/scenes/palette*.regions.json`).
+checkout photographed). Given them, this window draws the web's rows in the web's places: a
+command it has too, by its words and drawing, is its own row and does what it says, one it does
+not have is drawn as it was and does nothing, and where the web listed a thread it lists the
+next one its own search found for the same words, so the threads section measures the search as
+well as the drawing. Without `paletteRows` it draws its own rows, as it does live. Each scene
+names its parts (`tools/scenes/palette*.regions.json`).
+
+The rows themselves are held to the web's: `cargo test the_rows_are_the_webs -- --ignored
+--nocapture`, with `MERCURY_PALETTE="<fixture> --view inbox; <fixture> --thread; …"`, lines this
+window's own rows for each picture's inbox and words up against the rows the web drew, row by
+row. In all seventeen scenes every row this window draws is the web's, with its words, drawing
+and key or hint, in the web's order, and the only rows the web has beside them are the ones
+`docs/parity-command-bar.md` marks out or another task's.
 
 Measured against the web window's newer bar, whose rows lead with line drawings, whose lit row
 is a wash with no accent down its edge, whose Esc is a key's cap and which has no foot:
@@ -339,6 +354,20 @@ is a wash with no accent down its edge, whose Esc is a key's cap and which has n
 | The lit row | 0.18 | 0.27 | |
 | The rows under it, the threads found, the line saying nothing matches | 0.12 | 0.18 | 0.30 |
 | The backdrop around the box | 0.12 to 0.26 | 0.11 to 0.26 | 0.11 to 0.25 |
+
+With every row of the web's this window has drawn as its own, of 255 at 1280 by 760, 2x, the
+whole window, the box (read off the web window's dump), its search row and the rows under it:
+
+| Scene | Whole | The box | Search row | Rows |
+|---|---|---|---|---|
+| `palette`, `-typed`, `-none` | 0.15, 0.14, 0.14 | 0.21, 0.29, 0.47 | 0.69, 0.62, 0.69 | 0.13, 0.19, 0.23 |
+| `palette-thread`, `-model`, `-done` | 0.16, 0.18, 0.14 | 0.20, 0.28, 0.21 | 0.68, 0.45, 0.68 | 0.12, 0.21, 0.13 |
+| `palette-words` (prio), `-move`, `-settings` | 0.13, 0.14, 0.13 | 0.20, 0.51, 0.34 | 0.31, 0.51, 0.54 | 0.17, 0.52, 0.22 |
+| `palette-words-agents`, `-keys`, `-rank` | 0.16, 0.14, 0.14 | 0.36, 0.46, 0.27 | 0.53, 0.69, 0.39 | 0.31, 0.31, 0.23 |
+| `palette-cloud`, `-update`, `-progress` | 0.14, 0.19, 0.12 | 0.29, 0.21, 0.19 | 0.44, 0.69, 0.69 | 0.24, 0.13, 0.10 |
+| `palette-approve`, `-stalled` | 0.15, 0.15 | 0.21, 0.21 | 0.69, 0.69 | 0.13, 0.13 |
+
+What is left is glyphs' edges, the caret, and the box's height on a quarter point.
 
 The backdrop is the Inbox under the scrim, whose rows have changed in the web window too (their
 harness marks); the box itself is where it was. The empty bar is 0.20 at 900 by 760 and 0.14 at
@@ -1326,17 +1355,38 @@ ink on the lit row, which is a wash with no accent down its edge; Esc is a key's
 key is, and nothing stands under the list, where a foot once said what the arrows and Return do.
 The drawings are the web window's, path for path (`src/palette/marks.rs`, from `ICONS` in
 `renderer/src/palette-glyphs.ts`), and which row wears which is its rule, by the row's id and the
-start of it (`icon_for`, from `iconFor`). A row is there only when this window does what it says,
-through the code its own key or button already runs, under the web row's own name, drawing and
-key:
+start of it (`icon_for`, from `iconFor`). Every row of the web's whose doing this window has is
+here, under the web row's own name, drawing and key or hint, when the web offers it and where it
+puts it, doing what it does, through what this window's own key, button or page already runs or
+on the web row's own channel; `docs/parity-command-bar.md` lists every row of the web's, with
+what this window does of each and why a row is left out:
 
-- On the thread under the keys (the open conversation, else the Inbox's picked row; Home has
-  none), in the web's order: Mark done (E), or Reopen on a finished thread; Reply (R), which
-  opens the thread with the caret in its reply box; Back to Inbox (E) on a thread put off, "Let
-  it run now" when its agent set the moment; Later (L), which opens the picker; and Open (↵)
-  from the Inbox.
-- Then Go to Home, Go to Inbox and each of the Inbox's other tabs, and Go to Files with Files in
-  each project the place lists (`filePages`), the list read as the bar opens.
+- New thread (N), which opens the New thread card.
+- On the thread under the keys (the open conversation, else the Inbox's row under the pointer,
+  else its picked row, the one E acts on; Home has none), in the web's order: Approve recommended,
+  Approve as proposed or Approve and run, by what the agent asks, held three seconds as an answer
+  is; Run now on a thread waiting its turn, and what the engine says to it; Mark done (E), Done on
+  an outside agent's row, or Reopen on a finished thread, written at once and taken back by Z
+  ("Reopened: … · press Z to undo", `reopenDone`); Reply (R); Resume this agent, where Try again
+  would not stand for it; Mark read on an unread thread, told to the web window as a phone tells
+  it; Back to Inbox (E) or "Let it run now"; Later (L); Pin thread or Unpin thread; where it runs,
+  in the place button panel's words with the place said as its hint; three models, the other
+  agent's first where this Mac offers it ("Sonnet 5.5 picks this up next"); Move to each other
+  project, or Move to another project saying why it cannot, the move taken back by Z and the
+  copy opened when it was moved from inside; Send back to agent on a blocked thread; Restart the
+  agent on a stopped one; Open (↵) from the Inbox; and the four levels, "(current)" after the one
+  it shows, each written even when it is that one.
+- Then Projects… and Rank each project first, with where it stands; on a Mac set up for the cloud,
+  Turn the cloud on or off (⌘C), off asking first and offered only to words that name the cloud,
+  and each meaning of on with "On now"; Go to Home and the Inbox's tabs; Go to Files and Files in
+  each project the place lists, the list read as the bar opens; Restart to update while a version
+  waits, Move to Applications where the app cannot update itself, Check for updates while none
+  waits, and the restart a build's main process needs, which does nothing and leaves the bar
+  open; Pause or Unpause agents and Resume interrupted agents; Usage and limits (Claude Code's
+  page), Settings… (General) and Keyboard shortcuts (the web window's page, which comes forward
+  on it, as Settings here sends it); and the key hints switch.
+
+What is said once the engine answers is the web window's own sentence for that answer.
 
 Nothing stands for Z: the web window's bar has no Undo row either.
 
@@ -1354,6 +1404,15 @@ New thread is drawn first, with N beside it (the web has it after New project, w
 does not offer): it opens the New thread card, Home included, with the caret in its words
 (`starts_a_thread` in `src/palette.rs`). The bar and the card stand over the page one at a
 time: ⌘K over the card closes the card, keeping its words.
+
+Against a scratch engine, through a door that writes down each call, every row that writes was
+pressed and wrote the web row's own payload (the table in `docs/parity-command-bar.md`): the
+level, the model, the pin and its place, the move and its Z, Send back, Reopen and its Z, an
+approval after its three seconds, Resume this agent, Mark read, ranking a project first, pausing
+and letting the agents go, resuming the interrupted ones, the update check, keeping a thread on
+this Mac and letting the cloud have it, and the cloud's three rows, off through ⌘C's question.
+The ledger lines of the level, the model, the move and its Z, Send back and Reopen and its Z were
+the same as those the web's payloads left, sent by hand to a second thread.
 
 ## The files a message names
 
@@ -2343,8 +2402,6 @@ release or a second login.
     never photographed.
   - The panel was pressed only on pictures: the scratch engine has no cloud and draws no place
     button. What a pick writes was sent to it by hand (above).
-  - The command bar still offers none of these: its rows for a thread's model, its priority and
-    where it runs stay the web window's.
 - **Starting a thread, where it still differs:**
   - Out of reach here: To (the agent's face on a team's Home and Agent on the card, and it opens
     no menu), @-names in the words, recording, a demand, the branch a thread starts from, who sees
@@ -2453,20 +2510,36 @@ release or a second login.
     the cloud's keys for its threads, and a paid plan's summary of its month. The last opens the
     web window; the first two are left out until they are wanted (the web window, too, shows
     them only where there are some).
-- **The command bar offers only what this window can do.**
-  - Not listed, because nothing here does them yet: New project, Record meeting, Filter,
-    Projects and ranking a project first, the cloud's rows, Groups and each group, Connections,
-    teammates, the theme rows, updates and
-    restarts, Pause agents, Resume interrupted agents, General agent instructions, Usage and
-    limits, Settings, Keyboard shortcuts, Show as a board, Import chats and agents, the tutorial,
-    setting Mercury up again, a demo copy and keyboard shortcut hints. On a thread: Remote
-    control, Open terminal, Approve, Run now, Close task, Try again and Resume this agent, Mark
-    read and Mark unread, the thread's own menu (who sees it, pin, rename, where it runs and the
-    rest), its model, moving it to another project, Stop, Send back to agent, Restart the agent
-    and its priority. With rows ticked the web's bar acts on all of them; here none can be ticked.
+- **The command bar, where it still differs** (each row of the web's is in
+  `docs/parity-command-bar.md`, with what this window does of it):
+  - Left out, as each needs a screen this window does not have: New project, Record meeting and
+    Stop recording, Groups and each group, the team's lists, Go to Connections, teammates, General
+    agent instructions (the web's instructions card), Show as a board, Import chats and agents,
+    the tutorial and End the tutorial, Set Mercury up again and a demo copy; on a thread, Remote
+    control, Open terminal, Rename, Stop repeating and the team's rows (who sees it, handing it
+    over, asking, waits, shipped, decisions, Add people, Close task). The theme rows are left out
+    as this window draws the dark look only. Filter… is left out because in the web window it
+    only closes the bar, the menu it opened being gone, and Clear filter because its filter is
+    set only by the tutorial. Mark unread is left out because only the web window keeps what has
+    been read and the app has no channel to set a thread back to unread; Mark read is here.
+  - Try again, Stop and View code changes are their own controls' to bring; Resume this agent and
+    Restart the agent already stand aside where Try again would stand for them.
   - It finds threads only, the best five, with no "See all" row, since this window has no search
     page. The web's bar also finds people and groups, repeating tasks, teammates' threads, and
-    lines, files, comments and decisions inside things, which its main process searches.
+    lines, files, comments and decisions inside things, which its main process searches; the
+    lines, files and comments a search finds inside threads are not ported yet.
+  - Pause agents closes the bar as it is pressed; the web's closes it once the engine has
+    answered, a few milliseconds later.
+  - Resume this agent says what the web window says of the engine's answer, and that answer
+    carries the supervisor's whole queue under the name the count goes by (`queued` in
+    `zero:resume-items`, spread after the count in `main/ipc.mts`), so both windows say "1
+    resumed,  waiting for a slot" (with the queue's ids where there are any) and never "Nothing
+    to resume". Fixed in the engine's answer, both windows would say it right.
+  - The Reopen button over a finished conversation still writes `zero:reopen`, which sends the
+    thread back to its agent's queue; the web window's button and both bars' Reopen write
+    `status: open` with Z to mark it done again (`reopenDone`).
+  - Over the Files place the web's bar still acts on the Inbox's picked row when the Inbox was
+    the list last on screen; this window's acts on no thread there.
   - A thread a day old or more says its date in English. The web window asks the system's
     language.
   - With a team's tabs on, the web's bar goes to two pages, Later and Done being columns of In
@@ -2546,7 +2619,6 @@ release or a second login.
     turns.
   - ⌘C's question draws its keys' caps in Geist Mono, where the web window's are in the system's
     monospace.
-  - The command bar still offers none of the cloud's rows, which this window could now do.
 - **When a thread comes back is said in English**, on a twelve-hour clock ("Sun 5:24 PM"), as the
   other dates are. The web window asks the system's language.
 
@@ -2600,9 +2672,11 @@ release or a second login.
   box says of one that cannot, and how they are saved and linked. `src/rules/folded.rs`: what the
   folded reply box says it holds. `src/rules/typed.rs`: the lines the app wrote into a person's
   message for its files, which a conversation draws.
-- `src/palette.rs`: the command bar ⌘K opens, and `src/palette/marks.rs` the line drawings its
-  rows lead with. `src/rules/palette.rs` decides what it offers, in which order and which drawing
-  each row wears; `src/rules/search.rs` finds a thread by its words.
+- `src/palette.rs`: the command bar ⌘K opens, what each row does and what is said once the
+  engine answers, and `src/palette/marks.rs` the line drawings its rows lead with.
+  `src/rules/palette.rs` decides what it offers, in which order and which drawing each row wears,
+  what each writes and the words for each answer; `src/rules/search.rs` finds a thread by its
+  words. `docs/parity-command-bar.md` is every row of the web's bar beside this one's.
 - `src/head.rs`: what the Inbox's head strip opens, View and filters and the cloud's menu, ⌘C and
   its question, and what each pick does. `src/rules/display.rs`: what View and filters keeps and
   in which order, laid over the lists (`display::show`); `src/rules/cloud.rs`: the cloud button,
