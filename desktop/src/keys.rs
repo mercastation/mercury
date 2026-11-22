@@ -188,7 +188,8 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
         s.undo(tx);
         return true;
     }
-    // O goes into the thread the line in the corner is about, while that line is up.
+    // O goes into the thread the line in the corner is about, while that line is up, and for a
+    // while after it has gone (`opensTheLastToast`).
     if letter == "o" && s.open_what_the_line_names() {
         return true;
     }

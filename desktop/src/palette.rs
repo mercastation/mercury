@@ -356,7 +356,7 @@ fn glyph(name: &str, lit: bool) -> El {
 
 /// A key at a row's end (`.palette-key`), and Esc in the box, which wears the same cap.
 fn key_cap(cap: &str) -> El {
-    row().min_w(22.0).h(20.0).px(5.0).center().radius(6.0).fill(page()).border(1.0, edge()).border_layout().child(text(cap).font(mono(11.5, 15.0)).color(dim()))
+    row().min_w(22.0).h(20.0).px(5.0).center().radius(6.0).fill(page()).border(1.0, edge()).border_layout().child(pen(text(cap).font(mono(11.5, 15.0)).color(dim()), 11.5))
 }
 
 /// A heading over a section. The first thing in the list stands closer to its top.

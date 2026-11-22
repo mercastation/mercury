@@ -689,9 +689,20 @@ pub fn toast_parts(text: &str) -> (String, bool) {
     if UNDO_TAIL.test(text) { (UNDO_TAIL.strip(text), true) } else { (text.to_string(), false) }
 }
 
-/// How long a line that names a thread stays up, which is how long O opens that thread
-/// (`TOAST_GOES_MS` in `App.tsx`).
+/// How long a line that names a thread stays up (`TOAST_GOES_MS` in `App.tsx`).
 pub const TOAST_GOES_MS: f64 = 6000.0;
+
+/// How long after a line named a thread O still opens it, the line gone or not
+/// (`O_STILL_OPENS_MS` in `renderer/src/toast-parts.ts`): O is usually pressed within half a
+/// minute of a send and sometimes after a minute or more; much later, a stray O would land on a
+/// thread no longer in mind.
+pub const O_STILL_OPENS_MS: f64 = 120_000.0;
+
+/// Whether O still opens what a line that went up `at` named, at `now`, both in seconds on the
+/// window's clock (`opensTheLastToast`).
+pub fn o_still_opens(at: f64, now: f64) -> bool {
+    now - at < O_STILL_OPENS_MS / 1000.0
+}
 
 /// A send the app has not taken yet, and how long the wait runs before the window says so
 /// (`renderer/src/not-answering.ts`).
@@ -1185,6 +1196,14 @@ mod tests {
         let snapshot = json!({ "supervisor": { "atLimit": { "w-1": { "tool": "Codex", "until": 5 } } } });
         assert_eq!(limit_of(&snapshot, "w-1"), Some(Limit { tool: "Codex".to_string(), until: 5.0 }));
         assert_eq!(limit_of(&snapshot, "w-2"), None);
+    }
+
+    #[test]
+    fn o_opens_the_thread_a_line_named_for_two_minutes_after_the_line_went_up() {
+        // Long after the six seconds the line stays up, and not a moment past the two minutes.
+        assert!(o_still_opens(100.0, 100.0 + TOAST_GOES_MS / 1000.0 + 30.0));
+        assert!(o_still_opens(100.0, 219.9));
+        assert!(!o_still_opens(100.0, 220.0));
     }
 
     #[test]

@@ -438,15 +438,20 @@ pub fn inline(s: &State) -> El {
 /// wide every other point, three under its foot; the line brightens while the word's menu is
 /// open (`.tc-word.open`) and while the pointer is on it (`.tc-word:hover`), when the bright
 /// line is laid over the faint one. The line is as long as the word and stops on the last whole
-/// dot.
+/// dot. It lights with the button it is in (`head_value`).
 fn head_word(words: &str, open: bool) -> El {
     let dots = |tone| row().gap(1.0).children((0..160).map(move |_| el().size(1.0, 1.0).fill(tone)));
     let line = |tone| el().pin(Some(0.0), Some(18.5), Some(0.0), None).h(1.0).clip_corners([0.0; 4]).child(dots(tone));
-    el().hover_group()
-        .cursor(rune::Cursor::Pointer)
-        .child(pen(text(words).font(TextStyle::new(14.0, 400.0).lh(21.0)).color(ink()), 14.0))
+    el().child(pen(text(words).font(TextStyle::new(14.0, 400.0).lh(21.0)).color(ink()), 14.0))
         .child(line(if open { muted() } else { rule() }))
         .child(line(muted()).group_opacity(0.0, 1.0))
+}
+
+/// The button a head's value is (`.tc-word`): its mark, To's face or the model's agent, hanging
+/// `hang` points to the left of the word so the values of both fields start on one line, and the
+/// word. The mark is part of the button: it takes the pointer and the press and lights the line.
+fn head_value(mark: El, hang: f32, word: El) -> El {
+    row().ml(-hang).items_center().hover_group().cursor(rune::Cursor::Pointer).child(mark).child(word)
 }
 
 /// A field of the card's head (`.tc-field`): its name in the faint ink, in the card's own type
@@ -472,19 +477,17 @@ fn card_head(s: &State) -> El {
         // The face hangs to the left of the word, so the two values start on one line
         // (`.tc-word > .agent-face`, a point higher than the word's middle). Who else could get
         // the thread is the web window's to pick: To says Agent here, and opens nothing.
-        let face = agent_face().ml(-27.0).mr(9.0).mt(-1.0).mb(1.0);
-        head = head.child(head_field("To", row().items_center().child(face).child(crate::feel::answers(head_word("Agent", false))), true));
+        let face = agent_face().mr(9.0).mt(-1.0).mb(1.0);
+        head = head.child(head_field("To", crate::feel::answers(head_value(face, 27.0, head_word("Agent", false))), true));
     }
     let open = s.compose.menu.as_ref().is_some_and(|m| m.kind == MenuKind::Model);
     let pick = s.compose_pick();
-    let model = head_word(&rules::model_label(&pick, &s.models), open)
-        .key(MenuKind::Model.trigger())
-        .cursor(rune::Cursor::Pointer)
-        .on_background_press_tx(|s: &mut State, tx| s.toggle_menu(MenuKind::Model, tx));
     // The agent's mark hangs to the left of the model's word as To's face does, a point over
-    // the word's middle (`.tc-word > .engine-logo`).
-    let mark = engine_mark(&pick.engine, 14.0).ml(-25.0).mr(11.0).mt(-1.0).mb(1.0);
-    head.child(head_field("Model", row().items_center().child(mark).child(model), !to))
+    // the word's middle (`.tc-word > .engine-logo`). The menu hangs from the word itself.
+    let mark = engine_mark(&pick.engine, 14.0).mr(11.0).mt(-1.0).mb(1.0);
+    let model = head_value(mark, 25.0, head_word(&rules::model_label(&pick, &s.models), open).key(MenuKind::Model.trigger()))
+        .on_background_press_tx(|s: &mut State, tx| s.toggle_menu(MenuKind::Model, tx));
+    head.child(head_field("Model", model, !to))
 }
 
 /// The New thread card over the page (`.modal-backdrop.tc-veil` around `.tc-card`): the page
@@ -1392,20 +1395,30 @@ impl State {
     /// that is not already open (`opensTheToast`). With a thread still on its way, O waits
     /// for it. False when O is nobody's.
     pub fn open_what_the_line_names(&mut self) -> bool {
-        let goes = self.toast.as_ref().and_then(|t| t.goes.clone());
-        let Some((id, product)) = goes else {
-            if self.compose.not_taken_at.is_some() {
+        let here = |s: &State, id: &str, product: &str| matches!(&s.view, View::Thread { id: open, product: of } if open == id && of == product);
+        match self.toast.as_ref().and_then(|t| t.goes.clone()) {
+            Some((id, product)) if !here(self, &id, &product) => {
+                self.toast = None;
+                self.open_thread(&id, &product);
+                return true;
+            }
+            Some(_) => {}
+            None if self.compose.not_taken_at.is_some() => {
                 self.compose.o_waits = Some(self.view.clone());
                 return true;
             }
-            return false;
-        };
-        if matches!(&self.view, View::Thread { id: open, product: of } if open == &id && of == &product) {
-            return false;
+            None => {}
         }
-        self.toast = None;
-        self.open_thread(&id, &product);
-        true
+        // Once the line has gone, O still opens the thread the last line named, for a while
+        // (`opensTheLastToast`).
+        if let Some(((id, product), _)) = self.last_toast.clone().filter(|(_, at)| rules::o_still_opens(*at, self.at)) {
+            if !here(self, &id, &product) {
+                self.toast = None;
+                self.open_thread(&id, &product);
+                return true;
+            }
+        }
+        false
     }
 
     /// Z on a thread sent from the box: it is closed, which stops its agent, unless the agent
@@ -1440,8 +1453,9 @@ impl State {
             self.last = Some(taking_back(&id, &product, &title, draft));
             return;
         }
-        // Out of Done from now on: a send taken back is not finished work.
+        // Out of Done from now on: a send taken back is not finished work, and nowhere for O to go.
         self.withdrawn.insert(id, crate::clock());
+        self.last_toast = None;
         self.refresh();
         let back = self.compose.put_back(draft);
         self.say(rules::said_withdrawn(&title, back), false, tx);
