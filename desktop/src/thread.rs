@@ -92,8 +92,8 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
         let b = square(glyph, 14.0, 30.0, dim());
         match to {
             Some(r) => {
-                let to = View::Thread { id: r.id.clone(), product: r.product.clone() };
-                b.on_press(move |s: &mut State| s.go(to.clone()))
+                let (id, product) = (r.id.clone(), r.product.clone());
+                b.on_press(move |s: &mut State| s.step_to_thread(&id, &product))
             }
             None => b.opacity(0.35),
         }
@@ -128,7 +128,7 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
         .border_layout()
         .child(square(&icons::INBOX, 15.0, 26.0, ink()).mr(10.0).on_press(|s: &mut State| s.go(View::Inbox)))
         // Back is where the person came from, and a thread opened from nowhere came from the Inbox.
-        .child(square(&icons::BACK, 15.0, 26.0, ink()).ml(2.0).on_press(|s: &mut State| if s.history.is_empty() { s.go(View::Inbox) } else { s.back() }))
+        .child(square(&icons::BACK, 15.0, 26.0, ink()).ml(2.0).on_press(|s: &mut State| s.leave_thread()))
         .child(square(&icons::FORWARD, 15.0, 26.0, muted()).ml(2.0).opacity(0.45))
         .child(
             row().grow(1.0)

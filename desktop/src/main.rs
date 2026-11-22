@@ -17,6 +17,7 @@ mod data;
 mod home;
 mod icons;
 mod inbox;
+mod keys;
 mod markdown;
 mod rules;
 mod sky;
@@ -69,6 +70,13 @@ pub struct State {
     pub view: View,
     /// The Inbox's open tab.
     pub inbox_tab: Tab,
+    /// The row of the open tab the keys act on: J and K move it, Enter opens it.
+    pub picked: usize,
+    /// The row of Home's Needs you the keys or the pointer are on, when either is.
+    pub home_pick: Option<usize>,
+    /// The threads opened in this window and when, until the web window's own record of what
+    /// has been read says the same (`saw`).
+    opened: HashMap<String, f64>,
     /// What the person has unfolded in the conversations they opened.
     pub reading: thread::Reading,
     /// What the engine answered about each conversation opened so far, by `product/id` and
@@ -94,6 +102,66 @@ impl State {
         if let Some(prev) = self.history.pop() {
             self.view = prev;
         }
+    }
+    /// Out of a conversation: to where the person came from, and one opened from nowhere came
+    /// from the Inbox.
+    pub fn leave_thread(&mut self) {
+        if self.history.is_empty() { self.go(View::Inbox) } else { self.back() }
+    }
+    /// Another tab of the Inbox, with its first row picked (`setSelected(0)` in `App.tsx`).
+    pub fn show_tab(&mut self, tab: Tab) {
+        self.inbox_tab = tab;
+        self.picked = 0;
+    }
+    /// Opens a conversation, which reads it (`setFocused` and `markSeen` in `App.tsx`).
+    pub fn open_thread(&mut self, id: &str, product: &str) {
+        self.go(View::Thread { id: id.to_string(), product: product.to_string() });
+        self.saw(id, product);
+    }
+    /// From one conversation straight to another: Escape still goes back to where the first
+    /// was opened from, not through every thread walked on the way.
+    pub fn step_to_thread(&mut self, id: &str, product: &str) {
+        self.view = View::Thread { id: id.to_string(), product: product.to_string() };
+        self.saw(id, product);
+    }
+    /// Counts a thread as read from now. Only the web window keeps what has been read, in its
+    /// own storage, so it is told the way a phone tells it (`zero:phone-seen`, which the app
+    /// passes on to its window) and what it then keeps comes back with its other keeps. Until
+    /// it does, this window holds the moment itself, so the dot does not come back in between.
+    fn saw(&mut self, id: &str, product: &str) {
+        let at = clock();
+        self.opened.insert(id.to_string(), at);
+        self.local.seen_at.insert(id.to_string(), at);
+        if !self.local.seen.iter().any(|seen| seen == id) {
+            self.local.seen.push(id.to_string());
+        }
+        self.refresh();
+        if let Source::Door(door) = &self.source {
+            if let Some((url, token)) = door.now() {
+                let payload = serde_json::json!({ "product": product, "id": id, "at": at });
+                // Nothing waits on the answer: a refusal leaves the thread unread in the web
+                // window, and the next opening says it again.
+                std::thread::spawn(move || {
+                    let _ = source::call(&url, &token, "zero:phone-seen", &payload);
+                });
+            }
+        }
+    }
+    /// What the web window keeps, with the threads opened here since laid over it. Once its
+    /// own record of a thread is as new as this window's, this window's is let go.
+    fn keep(&mut self, mut local: Local) {
+        self.opened.retain(|id, at| local.seen_at.get(id).is_none_or(|theirs| theirs < at));
+        for (id, at) in &self.opened {
+            local.seen_at.insert(id.clone(), *at);
+            if !local.seen.iter().any(|seen| seen == id) {
+                local.seen.push(id.clone());
+            }
+        }
+        self.local = local;
+    }
+    /// The rows J and K walk and Enter opens: the open tab's on the Inbox page.
+    fn rows_under_the_keys(&self) -> usize {
+        self.lists.under(self.inbox_tab).len()
     }
     pub fn card_size(&self) -> (f32, f32) {
         ((self.size.0 - chrome::CARD[0] - chrome::CARD[2]).max(1.0), (self.size.1 - chrome::CARD[1] - chrome::CARD[3]).max(1.0))
@@ -174,6 +242,9 @@ fn init() -> State {
         },
         // `--tab later` opens the Inbox on that tab, for a picture of it.
         inbox_tab: Tab::from_args(args),
+        picked: 0,
+        home_pick: None,
+        opened: HashMap::new(),
         reading: thread::Reading::default(),
         threads: HashMap::new(),
         asking: Latest::default(),
@@ -249,6 +320,7 @@ fn poll(s: &mut State, _clock: f64, tx: &mut Tx) -> bool {
         changed = true;
     }
     let mut stale = false;
+    let mut arrived = None;
     {
         let mut m = s.mailbox.lock().unwrap();
         if let Some(snapshot) = m.snapshot.take() {
@@ -256,13 +328,16 @@ fn poll(s: &mut State, _clock: f64, tx: &mut Tx) -> bool {
             stale = true;
         }
         if let Some(local) = m.local.take() {
-            s.local = local;
+            arrived = Some(local);
             stale = true;
         }
         if m.error != s.error && matches!(s.source, Source::Door(_)) {
             s.error = m.error.clone();
             changed = true;
         }
+    }
+    if let Some(local) = arrived {
+        s.keep(local);
     }
     if !s.fixed_clock {
         // Ages are told to the minute, so the clock only has to turn that often.
@@ -273,6 +348,8 @@ fn poll(s: &mut State, _clock: f64, tx: &mut Tx) -> bool {
     }
     if stale {
         s.refresh();
+        // A list that lost rows keeps a row under the keys.
+        s.picked = s.picked.min(s.rows_under_the_keys().saturating_sub(1));
     }
     if let Some((key, answer)) = s.asking.take() {
         match answer {
@@ -391,6 +468,7 @@ fn main() {
         families: ("Geist", "Geist Mono, ui-monospace"),
         setup: Some(setup),
         poll: Some(poll),
+        on_key: Some(keys::pressed),
         min_size: Some((720.0, 520.0)),
         ..AppSpec::new("Mercury", DEFAULT_SIZE, init, view)
     };

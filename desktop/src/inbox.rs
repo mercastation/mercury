@@ -9,7 +9,7 @@ use rune::{Color, Cursor, El, Pixels, TextCase, TextStyle, col, el, icon, row, t
 use crate::data::{Mark, Priority, Row, Tab};
 use crate::rules::{cloud, page};
 use crate::theme::*;
-use crate::{State, View, chrome, icons};
+use crate::{State, chrome, icons};
 
 /// How far down the card the sky shows at all, and how far it shows whole (`.inbox-sky-head`'s
 /// mask: black to 46 points, clear by 90).
@@ -166,7 +166,7 @@ fn tab(at: Tab, count: usize, open: bool, shadow: bool) -> El {
         .border_sides([0.0, 0.0, 1.0, 0.0], if open { accent() } else { rgba(0, 0, 0, 0.0) })
         .hover_group()
         .cursor(Cursor::Pointer)
-        .on_press(move |s: &mut State| s.inbox_tab = at)
+        .on_press(move |s: &mut State| s.show_tab(at))
 }
 
 /// `.th-bar`: Needs you, In progress, Later while something is in it, and Done. A number only
@@ -315,8 +315,8 @@ fn title_cell(r: &Row, selected: bool, room: f32) -> El {
 
 /// One thread: 54 points, a hairline above every row but the first, and the title's underline,
 /// which is how a row answers: orange on the selected one, faint under the pointer.
-fn thread(r: &Row, at: usize, cols: &Columns) -> El {
-    let title = title_cell(r, at == 0, cols.title);
+fn thread(r: &Row, at: usize, picked: usize, cols: &Columns) -> El {
+    let title = title_cell(r, at == picked, cols.title);
     let small = |s: &str, c: Color| capitals(s, 11.5, 20.0, 0.575, c).truncate();
     let mut state = row().items_center();
     if let Some(mark) = status_mark(r.mark) {
@@ -344,7 +344,11 @@ fn thread(r: &Row, at: usize, cols: &Columns) -> El {
         .pl(44.0)
         .hover_group()
         .cursor(Cursor::Pointer)
-        .on_press(move |s: &mut State| s.go(View::Thread { id: id.clone(), product: product.clone() }))
+        // The row pressed is the row the keys are on when the person comes back.
+        .on_press(move |s: &mut State| {
+            s.picked = at;
+            s.open_thread(&id, &product);
+        })
         .child(cols.line(title, state, project, priority, when));
     if at > 0 {
         e = e.child(el().pin(Some(20.0), Some(0.0), Some(32.0), None).h(1.0).fill(rgba(70, 68, 67, 0.375)));
@@ -381,5 +385,6 @@ pub fn view(s: &State) -> El {
     let cols = Columns::of(&rows, page_w);
     // The time column is named for what it tells under this tab: Sent, Back on Later, Done.
     let head = row().h(38.0).pt(10.0).pr(32.0).pl(44.0).child(cols.line(heading("Thread"), heading("Status"), heading("Project"), heading("Priority"), heading(page::time_heading(tab.view()))));
-    page.child(head).children(rows.iter().enumerate().map(|(i, r)| thread(r, i, &cols)))
+    let picked = s.picked.min(rows.len() - 1);
+    page.child(head).children(rows.iter().enumerate().map(|(i, r)| thread(r, i, picked, &cols)))
 }

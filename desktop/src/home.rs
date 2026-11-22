@@ -128,7 +128,8 @@ enum Card {
     Progress,
 }
 
-fn task_row(r: &Row, first: bool, card: Card) -> El {
+/// `on` is the row the keys are on, which wears what the pointer's does (`.hm-row.on`).
+fn task_row(r: &Row, first: bool, on: bool, card: Card) -> El {
     // A thread not yet read has its title a step heavier (`.hm-row.unread .hm-text b`).
     let title = text(r.title.as_str()).font(TextStyle::new(14.5, if r.unread && card == Card::Needs { 500.0 } else { 400.0 }).lh(20.0)).color(ink()).truncate();
     let under = match card {
@@ -155,8 +156,11 @@ fn task_row(r: &Row, first: bool, card: Card) -> El {
         // The CSS says .065; the browser keeps alpha in 255ths, which lands it on 17.
         line = line.border_sides([1.0, 0.0, 0.0, 0.0], white(17.0 / 255.0)).border_layout();
     }
+    if on {
+        line = line.fill(white(0.045));
+    }
     let (id, product) = (r.id.clone(), r.product.clone());
-    line.on_press(move |s: &mut State| s.go(View::Thread { id: id.clone(), product: product.clone() }))
+    line.on_press(move |s: &mut State| s.open_thread(&id, &product))
         .child(face)
         .child(col().grow(1.0).min_w(0.0).child(title).child(under))
         // The age in the Inbox's own words, "6 min ago" (`updatedWords`).
@@ -215,7 +219,8 @@ pub fn view(s: &State) -> El {
         if rows.is_empty() {
             el().py(14.0).px(18.0).child(label(empty, 13.5, 400.0, dim()))
         } else {
-            col().children(rows.iter().enumerate().map(|(i, r)| task_row(r, i == 0, card)))
+            // Only Needs you is walked by the keys.
+            col().children(rows.iter().enumerate().map(|(i, r)| task_row(r, i == 0, card == Card::Needs && s.home_pick == Some(i), card)))
         }
     };
     // Home shows the first eighty that need the person and the first sixty in progress (`App.tsx`).
