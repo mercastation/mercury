@@ -1112,7 +1112,7 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
         .on_layout(resized)
         .child(chrome::backdrop(w, h))
         .child(chrome::card(s))
-        .child(chrome::rail(s))
+        .child(chrome::rail(s, cx.is_reduced_motion()))
         .child(chrome::back_forward(s))
         // The page scrolls inside the card, under its top strip.
         .child(

@@ -386,6 +386,20 @@ mod tests {
     }
 
     #[test]
+    fn under_reduce_motion_the_rail_opens_and_folds_whole() {
+        let mut rt = window("rail-still", &[]);
+        rt.set_system_reduced_motion(true);
+        rt.frame(1.0 / 60.0);
+        // Still after 140 ms of rest, and then open whole in the next frames, with no easing.
+        rt.pointer_move(41.0, 244.0);
+        run(&mut rt, 0.2);
+        assert_eq!(rt.state.rail.width(rt.state.at), 202.0);
+        rt.pointer_move(700.0, 400.0);
+        run(&mut rt, 1.0 / 30.0);
+        assert_eq!(rt.state.rail.width(rt.state.at), 38.0, "and folds whole as the pointer leaves");
+    }
+
+    #[test]
     fn a_key_hint_comes_700_ms_after_the_pointer_and_goes_with_it_or_with_a_key() {
         let mut rt = window("hint", &["--view", "inbox"]);
         // New thread, in the Inbox's strip.

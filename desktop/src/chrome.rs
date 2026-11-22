@@ -51,7 +51,7 @@ impl Fade {
     }
     fn at(&self, now: f64) -> f32 {
         let t = now - self.since - self.delay;
-        if t <= 0.0 {
+        if t < 0.0 {
             return self.from;
         }
         if self.dur <= 0.0 || t >= self.dur {
@@ -93,23 +93,25 @@ impl Rail {
     /// The pointer came to rest on the rail (140 ms after it moved onto it) or left it. The rules
     /// are `renderer/src/team/rooms/rooms.css`'s: the width eases open over 0.24 s and shut
     /// over 0.2 s; the words come in 0.08 s later over 0.14 s and go over 0.06 s; Search's line
-    /// crosses in 0.14 s and Inbox's dot in 0.1 s, its `ease` both ways.
-    fn point(&mut self, on: bool, now: f64) {
+    /// crosses in 0.14 s and Inbox's dot in 0.1 s, its `ease` both ways. Under the system's
+    /// Reduce motion (`still`) none of it moves: it opens and folds whole, as the same rules'
+    /// `prefers-reduced-motion` block takes every transition away.
+    fn point(&mut self, on: bool, now: f64, still: bool) {
         if on == self.open {
             return;
         }
         self.open = on;
-        let ease = Easing::EASE;
+        let (ease, k) = (Easing::EASE, if still { 0.0 } else { 1.0 });
         if on {
-            self.width = self.width.toward(OPEN, now, 0.0, 0.24, Easing::cubic(0.22, 0.61, 0.36, 1.0));
-            self.words = self.words.toward(1.0, now, 0.08, 0.14, ease);
-            self.line = self.line.toward(1.0, now, 0.0, 0.14, ease);
-            self.dot = self.dot.toward(0.0, now, 0.0, 0.1, ease);
+            self.width = self.width.toward(OPEN, now, 0.0, 0.24 * k, Easing::cubic(0.22, 0.61, 0.36, 1.0));
+            self.words = self.words.toward(1.0, now, 0.08 * k, 0.14 * k, ease);
+            self.line = self.line.toward(1.0, now, 0.0, 0.14 * k, ease);
+            self.dot = self.dot.toward(0.0, now, 0.0, 0.1 * k, ease);
         } else {
-            self.width = self.width.toward(FOLDED, now, 0.0, 0.2, Easing::cubic(0.4, 0.0, 0.2, 1.0));
-            self.words = self.words.toward(0.0, now, 0.0, 0.06, ease);
-            self.line = self.line.toward(0.0, now, 0.0, 0.14, ease);
-            self.dot = self.dot.toward(1.0, now, 0.0, 0.1, ease);
+            self.width = self.width.toward(FOLDED, now, 0.0, 0.2 * k, Easing::cubic(0.4, 0.0, 0.2, 1.0));
+            self.words = self.words.toward(0.0, now, 0.0, 0.06 * k, ease);
+            self.line = self.line.toward(0.0, now, 0.0, 0.14 * k, ease);
+            self.dot = self.dot.toward(1.0, now, 0.0, 0.1 * k, ease);
         }
     }
     /// How wide it is at `now`.
@@ -219,8 +221,9 @@ fn my_face(letters: &str) -> El {
 /// has: Record meeting, feedback, settings, what is left of the limit, their own face. Folded
 /// it is the marks alone; while the pointer rests on it, it opens to the whole sidebar, each
 /// mark with its word and Inbox with its count (`Rail`). A page this window does not have yet
-/// is a button that answers the pointer as the web window's does and goes nowhere.
-pub fn rail(s: &State) -> El {
+/// is a button that answers the pointer as the web window's does and goes nowhere. `still`: the
+/// system asks for reduced motion.
+pub fn rail(s: &State, still: bool) -> El {
     let now = s.at;
     let (wide, words, line, dot) = (s.rail.width(now), s.rail.words.at(now), s.rail.line.at(now), s.rail.dot.at(now));
     // Folded, a button's title names it; open, its word does (`title={collapsed ? … : undefined}`).
@@ -315,8 +318,8 @@ pub fn rail(s: &State) -> El {
         // (`hoverAt` in `WorkspaceNavigation.tsx`), a pointer passing over on its way somewhere
         // else opening nothing.
         .hover_delays(Duration::from_millis(140), Duration::ZERO)
-        .on_hover_change(|s: &mut State, inside, tx| {
-            s.rail.point(inside, tx.clock());
+        .on_hover_change(move |s: &mut State, inside, tx| {
+            s.rail.point(inside, tx.clock(), still);
             tx.wake_after(Duration::ZERO);
         })
         .child(team)
