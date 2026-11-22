@@ -83,11 +83,13 @@ pub struct Rail {
     line: Fade,
     /// The dot on Inbox while something waits, which the count stands for when open.
     dot: Fade,
+    /// The pointer is on it.
+    pointed: bool,
 }
 
 impl Default for Rail {
     fn default() -> Rail {
-        Rail { open: false, due: None, width: Fade::still(FOLDED), words: Fade::still(0.0), line: Fade::still(0.0), dot: Fade::still(1.0) }
+        Rail { open: false, due: None, width: Fade::still(FOLDED), words: Fade::still(0.0), line: Fade::still(0.0), dot: Fade::still(1.0), pointed: false }
     }
 }
 
@@ -132,6 +134,14 @@ pub fn rail_moves(s: &mut State, at: f64, tx: &mut Tx) -> bool {
     if let Some((due, still)) = s.rail.due.filter(|&(due, _)| at >= due) {
         s.rail.due = None;
         s.rail.point(true, due, still);
+    }
+    // With the sidebar's shrinking turned off in Settings the rail stands open, and folds again
+    // once it is turned back on (`useSidebarShrinks`).
+    let shrinks = s.picks.get().rail_shrinks.unwrap_or(true);
+    if !shrinks && !s.rail.open {
+        s.rail.point(true, at, true);
+    } else if shrinks && s.rail.open && s.rail.due.is_none() && !s.rail.pointed {
+        s.rail.point(false, at, true);
     }
     let moving = s.rail.moving(at);
     if moving {
@@ -331,7 +341,8 @@ pub fn rail(s: &State, still: bool) -> El {
             tx.wake_after(Duration::from_millis(140));
         })
         .on_hover_change(move |s: &mut State, inside, tx| {
-            if inside {
+            s.rail.pointed = inside;
+            if inside || !s.picks.get().rail_shrinks.unwrap_or(true) {
                 tx.live_only();
                 return;
             }
@@ -373,13 +384,10 @@ pub fn rail(s: &State, still: bool) -> El {
     rail
 }
 
-/// What the rail's Settings say when the app's own window is not there to show them.
-pub const SETTINGS_REFUSED: &str = "Settings live in Mercury's other window, and it is not open now.";
-
-/// The app's Settings, from the rail: its own window comes forward on them, since this one has
-/// no Settings page yet.
+/// Settings, from the rail: the screen over everything, on General, as the web window's cog
+/// opens it (`settings.rs`).
 fn open_settings(s: &mut State, tx: &mut Tx) {
-    s.ask_the_app(front::OPEN_SETTINGS, SETTINGS_REFUSED, tx);
+    crate::settings::open(s, crate::rules::settings::PageId::General, tx);
 }
 
 /// The band along the window's top that moves the window, as the title bar it stands in for
@@ -494,6 +502,11 @@ pub fn toast_card(s: &State) -> Option<El> {
     if matches!(s.view, View::Thread { .. }) {
         return None;
     }
+    toast_corner(s)
+}
+
+/// The same card in the window's corner, whatever page is under it: over Settings too.
+pub fn toast_corner(s: &State) -> Option<El> {
     let toast = s.toast.as_ref()?;
     if toast.goes.is_some() {
         return Some(toast_about(s, toast));

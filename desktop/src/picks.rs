@@ -34,6 +34,13 @@ pub struct Picks {
     /// The cloud accounts that stopped working and that the cloud menu was opened on, as
     /// `engine:key`: the cloud button stops asking for their sign-in.
     pub cloud_broken_seen: Vec<String>,
+    /// Two of Settings' switches that each window keeps for itself, as the web window keeps
+    /// its own (`zero.hints`, `agentbox.sidebarShrinks`): whether a key hint comes under a
+    /// pointer that waits, and whether the rail folds to its marks. Both are on until turned off.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key_hints: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rail_shrinks: Option<bool>,
 }
 
 /// The picks, and the file they are kept in when there is one.

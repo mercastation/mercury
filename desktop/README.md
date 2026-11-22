@@ -31,6 +31,12 @@ key away ("A file opened big"), and the rail's Files is the place of every file 
 does, and runs what this window can do to the thread under the keys and the places it can go
 ("The command bar", below).
 
+The rail's Settings opens Settings here, over the whole window, as the web window draws it: its
+menu with the search, and the pages that are used, General, Phone, Alpha features, Claude Code,
+Codex, Antigravity, Running, Projects and a project's own page, Files, and Plan and Billing. The
+other pages, and what goes on to a sign-in or to Stripe, bring the web window forward on that page
+("Settings", below).
+
 Under the pointer it answers as the web window does: the rail opens while the pointer rests on
 it, every control takes the web window's pointer and look under it, a key hint comes after the
 pointer has waited, the strips move the window, words can be selected where the web window's
@@ -132,9 +138,10 @@ a press on the island itself does, so it brings this window, whose foot says the
 in Mercury's own window. With no window beating at the door, a press does what it always did.
 
 The other way, this window asks the app for two things of its own (`ask_the_app` in
-`src/front.rs`). Its rail's Settings, and the person's own row under it, bring the web window
-forward on its Settings (`zero:open-settings-here`, a channel only the desktop app's door answers,
-which takes nothing from the caller and opens Settings and nothing else); and Restart to update,
+`src/front.rs`). A Settings page this window does not draw brings the web window forward on that
+page (`zero:open-settings-here`, a channel only the desktop app's door answers, which takes one
+word from the caller, `{ "page": <id> }`, opens Settings on it if it is one of Settings' own pages
+and on General if it is anything else, and does nothing more); and Restart to update,
 while a new version waits, is the web window's own button (`zero:update-install`): the app quits
 onto the new version and comes back, and this window finds its new door. When it works nothing
 here changes; a refusal (no app, or its window gone) is said in a line.
@@ -1633,6 +1640,106 @@ door, so the fleet, the cloud and the team are the real ones too.
 The real threads are read and never written, their words are printed as lengths only, and nothing
 of them is ever committed. `cargo test` runs the rules' own tests on invented threads.
 
+## Settings
+
+The rail's Settings, and the person's own row under it, open Settings over the whole window as the
+web window opens its own (`src/settings.rs`): the menu in the rail's place, with Back to app, the
+search and each page under its group (Personal, Agents, Workspace, Billing; Team and Rooms only
+where the web window shows them), and the open page on the card, in the web window's column of 640
+points. Escape closes an open menu first, then puts back a name being typed, then closes the
+screen; ⌘F, or / outside a box, goes to the search, where Escape empties it before it closes, the
+arrows walk what it found and Enter lands on the setting with its group scrolled into view.
+
+Each page is drawn from the engine's own reading of the settings (`zero:settings-read`), read when
+the screen opens and again after each write, and from the snapshot for what moves while it is open
+(the update, the accounts' usage, the projects' order). A write is the web window's own channel,
+sent off the drawing thread: `zero:settings-set-workspace` for a setting of the workspace,
+`zero:settings-set-project` for a project's, and the page's own for the rest
+(`zero:project-rename`, `zero:project-archive`, `zero:set-product-order`, `zero:team-sign-out`,
+the update's and the accounts' switch). A change shows at once and stays until the engine's answer
+agrees, or says otherwise.
+
+Drawn here (`src/settings/`):
+
+- **General**: key hints, and the sidebar shrinking to icons, which are this window's own and kept
+  with its picks (`native-picks.json`), as the web window keeps its own; the Agent Tray; counts
+  and crash reports; where Mercury keeps things; updates (Check for updates, Restart to update,
+  moving the app into Applications); and the account with Sign out.
+- **Phone**: the App Store's code, drawn from its modules; Open the App Store; and which projects'
+  threads go to the phone, from a menu that stays open while they are ticked.
+- **Alpha features**: its four switches.
+- **Claude Code** and **Codex**: whether the agent was found and where it runs from; each account
+  as a tile (In use or Switch, its plan, where it is signed in, its meters and when they reset, or
+  what is wrong with it); Use the cloud; and the permission modes, on this Mac and in the cloud.
+  **Antigravity**: its sign-in and its mode.
+- **Running**: what this Mac measured, how many agents run at once, holding heavy work when memory
+  runs short and how many heavy commands at once, stopping the programs agents leave behind,
+  Something felt slow, agents started outside Mercury, and importing new ones.
+- **Projects**: the running order, moved with the arrows and To top, and with ⌥↑ and ⌥↓ on the
+  row last moved (in the web window, the row the pressed button is in); its search; Select, to
+  archive several, with Undo; and the archived ones, folded away, each with Bring back. A
+  project's own page: its name, renamed in place (Enter or leaving the box keeps it, Escape puts
+  it back), how it runs (on its own, on which Claude account, its own permissions), its browser
+  (the sites its agents may open, and signing in to it), where it is kept, with its branch, and
+  Archive.
+- **Files**: keeping files in the cloud, and for how long, or the way to a plan.
+- **Plan and Billing**: the three plans and how the cloud counts, on a Mac on no paid plan.
+
+The rest bring the web window forward on its page (`zero:open-settings-here` with that page's id):
+Appearance, Shortcuts, Instructions, Team and Rooms, from the menu or a search; and from a button,
+a paid plan's own summary and choosing a plan (both go on to Stripe), signing an account in or
+adding one, Get link and choosing the agent's program by hand, the Android app, signing in to use
+the phone, a new project, a project's picture and its instructions. The window says in a line when
+the web window is not there to come forward.
+
+The scenes: `settings` (General), `settings-running`, `-claude`, `-antigravity`, `-codex`,
+`-projects`, `-project`, `-phone`, `-cloud`, `-files` and `-alpha`; a picker's menu open
+(`settings-running-menu`, `-phone-menu`, and `-claude-menu`, scrolled to its pick); the search
+typed into (`settings-search`); and the pointer resting on a control (`settings-hover-*`). Each
+answers the web window with invented settings in the engine's shape (`tools/scenes/settings.mjs`),
+which the picture's fixture carries to this window. Measured against the web window whose menu
+down the side is the app sidebar's (rows 36 points tall, marks of 18, a search with no box) and
+whose switches are the text's ink when on. Of 255, at 1280 by 760, 2x, the whole window and the
+open page's column:
+
+| Page | Whole | Page |
+|---|---|---|
+| General | 0.38 | 0.68 |
+| Running | 0.25 | 0.36 |
+| Claude Code | 0.26 | 0.38 |
+| Antigravity | 0.19 | 0.23 |
+| Codex | 0.25 | 0.36 |
+| Projects | 0.23 | 0.31 |
+| A project | 0.28 | 0.42 |
+| Phone | 0.33 | 0.57 |
+| Plan and Billing | 0.28 | 0.44 |
+| Files | 0.16 | 0.16 |
+| Alpha features | 0.27 | 0.40 |
+| A menu open: Running, Phone, Claude Code | 0.27, 0.34, 0.25 | 0.41, 0.59, 0.32 |
+| The search typed into | 0.39 | 0.68 |
+
+The menu down the side is 0.28 to 0.31 on every page. At 900 by 760, where the column narrows to
+488 points and the plans' prices break onto a second line, General, Running, Claude Code,
+Projects, a project, Phone and Plan and Billing are 0.28 to 0.46 whole; at 1600 by 1000, 0.18 to
+0.29. Most of what is left is a wrapped line drawn a device pixel lower than Chromium draws it
+(below), which comes more often in a narrower column.
+
+Under the pointer (`tools/hover.py`), the control and the same box at rest: Back to app 0.29 and
+0.34, a page's row in the menu 0.49 and 0.33, a ghost button 1.09 and 0.81, a picker's chip 1.61
+and 1.59, a project's row 0.56 and 0.53, Switch 1.18 and 1.27, Add account 0.96 and 0.89, the
+crumb back to Projects 0.58 and 0.39; and, measured on their own boxes, a row of an open menu 0.91
+and 0.49, a project's name 2.81 and 2.24. The pointer walk holds the shape to the web window's at
+every point of every page but one to six a page, past the end of the last line of a wrapped
+description, where the web window shows the arrow and this one the I-beam.
+
+Every write was tried on a scratch engine (`MERCURY_HOME` in a temporary folder, run from the main
+checkout), never on the app's: counts and crash reports off, four agents at once, a nudge of one,
+the memory check off, a project renamed with Enter and by leaving the box, a project set to run on
+its own, the order moved with the arrows and To top, a project archived with Select, and another
+archive taken back with Undo; each came back in the engine's next reading. Not tried there: the
+phone's menu, Check for updates, Sign out and switching an account, which need an account, a
+release or a second login.
+
 ## What still differs from the web app, and why
 
 - **Glass is less saturated.** The web app's glass is `blur(20px) saturate(1.5)`; Rune's
@@ -1856,9 +1963,29 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
   has Demands, Chats (with teammates), Connections, Record meeting and Feedback. Drawn here they
   were buttons that went nowhere, so they are left out until this window has their pages, and
   Files stands under the Inbox where the web window has Demands and Connections before it.
-  Settings and the person's row bring the web window
-  forward on its Settings, as there is no Settings page here; the usage row only reads, where the
-  web window's opens the limits under it.
+  Settings and the person's row open Settings here ("Settings", above); the usage row only
+  reads, where the web window's opens the limits under it.
+- **Settings has only the pages that are used**, and sends the rest to the web window
+  ("Settings", above). Within its pages:
+  - A line of a wrapped description can stand a device pixel lower than the web window's:
+    Chromium and Rune round a line that starts on a half pixel differently. It is most of what is
+    left on General (0.68 on the page). Moving the lines by half a pixel, or their pitch, put
+    the other lines out instead.
+  - Past the end of a wrapped description's last line the pointer is the I-beam, where the web
+    window's is the arrow: Rune gives the text's whole box the I-beam, not its lines.
+  - The App Store's code is drawn from its modules; its edges are up to a pixel softer.
+  - The Projects search's words stand half a point higher, as at 1280 by 760 they stood half a
+    point lower; which way they round follows where the box falls on a device pixel.
+  - A project's rank takes the grab, as the web window's does, but dragging a row does nothing:
+    it is moved with the arrows, To top and ⌥↑ ⌥↓.
+  - What eases in the web window lands at once: a switch's knob, a moved row's wash fading, a
+    meter's bar, and the flash on a setting a search lands on, which is not drawn.
+  - A press outside an open menu closes it, and opens another picker if it was on one; any other
+    control under it waits for a second press, where the web window's takes the first.
+  - Not drawn: General's public links (the files made public, with Copy link and Stop sharing),
+    the cloud's keys for its threads, and a paid plan's summary of its month. The last opens the
+    web window; the first two are left out until they are wanted (the web window, too, shows
+    them only where there are some).
 - **The command bar offers only what this window can do.**
   - Not listed, because nothing here does them yet: New project, Record meeting, Filter,
     Projects and ranking a project first, the cloud's rows, Groups and each group, Connections,
@@ -2017,6 +2144,14 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
   what it is called, and where it is looked for. `src/rules/thread_files.rs`: which files a
   thread made, each once at its newest version, for the Files button (`src/thread.rs` draws it
   and its list).
+- `src/settings.rs`: the Settings screen, its menu and search, its keys, and its reads and writes,
+  each on a worker. `src/settings/kit.rs`: the parts its pages are made of (a group, a row, a
+  switch, a ghost button, a picker and its menu); `marks.rs`, its icons. `pages.rs`: General,
+  Phone, Alpha features, Running, Files, Plan and Billing; `agents.rs`: Claude Code, Codex and
+  Antigravity; `projects.rs`: Projects, a project's own page and the phone's menu of projects.
+  `src/rules/settings.rs`: the pages and the search, and every rule behind what the pages say,
+  with the web window's own cases as tests. `tools/scenes/settings.mjs`: the invented settings
+  the scenes are photographed with.
 - `tools/pictures.mjs`: the invented project folder the scenes that name files are drawn from.
 - `tools/install-mac.sh`: builds the app and puts it in `~/Applications` as "Mercury Native".
 - `src/sky.rs`: the dithered sky, ported from `renderer/src/home/sky.ts` with the same seed.

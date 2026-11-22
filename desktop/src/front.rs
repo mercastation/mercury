@@ -35,9 +35,8 @@ pub const OPEN_HERE: &str = "zero:open-in-native";
 /// How often that is said again: `NATIVE_BEAT_MS` in `shared/notify-rules.mts`.
 const BEAT: Duration = Duration::from_secs(5);
 
-/// The app's Settings, which this window has no page for yet: the app's own window comes forward
-/// on them (`OPEN_SETTINGS` in `main/local-door.mts`). The rail's Settings button, and the
-/// person's own row under it, ask for them.
+/// A page of the app's Settings this window does not draw: the app's own window comes forward on
+/// it (`OPEN_SETTINGS` in `main/local-door.mts`), named by its id (`{ "page": "appearance" }`).
 pub const OPEN_SETTINGS: &str = "zero:open-settings-here";
 
 /// The restart onto the version the app has ready, as its own rail's Restart to update asks
@@ -135,12 +134,17 @@ pub fn tell_the_app(door: Door) {
 /// Asks the app behind `door` for one of its own things, off this window's thread. When it works
 /// nothing on this screen changes, the app's window does, so only a refusal is told here.
 pub fn ask_the_app(door: &Door, channel: &'static str, refused: &'static str) {
+    ask_the_app_with(door, channel, Value::Null, refused);
+}
+
+/// The same, saying which of its things (`payload`).
+pub fn ask_the_app_with(door: &Door, channel: &'static str, payload: Value, refused: &'static str) {
     let Some((url, token)) = door.now() else {
         tell_here(refused);
         return;
     };
     std::thread::spawn(move || {
-        if !went(source::call_waiting(&url, &token, channel, &Value::Null, Duration::from_secs(5))) {
+        if !went(source::call_waiting(&url, &token, channel, &payload, Duration::from_secs(5))) {
             tell_here(refused);
         }
     });

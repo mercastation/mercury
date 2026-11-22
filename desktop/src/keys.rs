@@ -120,6 +120,10 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
     if s.head.asking_off {
         return crate::head::key(s, e, tx).unwrap_or(true);
     }
+    // Settings owns the keyboard while it is up, as the web window's does.
+    if let Some(taken) = crate::settings::key(s, e, tx) {
+        return taken;
+    }
     // ⌘K from anywhere, and every key while the command bar is open, are the bar's. One thing
     // stands over the page at a time, as the web window's one `modal`: the bar opening closes
     // the New thread card, which keeps its words.
