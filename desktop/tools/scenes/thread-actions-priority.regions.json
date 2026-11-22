@@ -1,0 +1,8 @@
+[
+  ["rail", [0, 40, 82, 720]],
+  ["top strip", [82, 40, 1176, 56]],
+  ["the dots", [1200, 52.5, 30, 30]],
+  ["the four levels", [966, 88.5, 264, 151]],
+  ["the levels and their shadow", [916, 88.5, 364, 220]],
+  ["the options and the reply bar", [227, 572, 761, 142]]
+]
