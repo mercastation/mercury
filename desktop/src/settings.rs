@@ -469,6 +469,12 @@ pub fn tend(s: &mut State, tx: &mut Tx) -> bool {
     if s.settings.scroll.is_some() || s.settings.landing.is_some() {
         tx.wake_after(std::time::Duration::from_millis(16));
     }
+    // A project's name box that lost the keyboard to a press elsewhere keeps what was typed, as
+    // the web window's saves on blur. The field says so in its model.
+    if s.settings.editing.as_ref().is_some_and(|e| matches!(e.what, Edits::Name(_)) && !e.words.focused) {
+        projects::rename(s, tx);
+        scrolled = true;
+    }
     // The cloud's switch reads the snapshot, which learns of the change after the write: it
     // shows what was set until the snapshot says the same.
     if let Some(want) = s.settings.wanted.get("sw:cloud").and_then(Value::as_bool) {
@@ -863,4 +869,216 @@ fn pane(s: &State, w: f32) -> El {
         // A column: a plain box is a row, which would stretch the page to its own height and
         // leave nothing to scroll.
         .child(col().key(format!("settings-pane-{}", s.settings.visit)).w_full().h_full().scroll(ScrollSpec { stick_bottom: false }).child(page.children(body)))
+}
+
+#[cfg(test)]
+mod tests {
+    use rune::{Cursor, Key, KeyEvent, Mods, Runtime};
+    use serde_json::{Value, json};
+
+    use crate::State;
+    use crate::rules::settings::{PageId, Pane};
+
+    /// Settings as the engine answers them for an invented Mac: two Claude Code accounts,
+    /// Codex and Antigravity, nine agents on Automatic with the memory check and the sweep of
+    /// leftovers on, three projects and one archived.
+    fn model() -> Value {
+        let project = |slug: &str, name: &str| json!({ "slug": slug, "name": name, "dir": format!("/Users/sam/store/{slug}"), "repoPath": format!("/Users/sam/dev/{slug}"), "autonomous": false, "onPhone": true, "permission": "workspace", "codexMode": "workspace", "account": "default", "instructions": "", "browserSites": [], "running": 0 });
+        json!({
+            "ok": true,
+            "archivedProjects": [{ "slug": "zine", "name": "Zine", "dir": "/Users/sam/store/zine" }],
+            "workspace": {
+                "agentsAuto": true, "agentsTotal": 9, "agentsAutoTotal": 9, "sessionsAtOnce": 9, "slotsMax": 12, "capacity": 9, "running": 2, "agentsNudge": 0,
+                "memoryGate": { "on": true, "slots": null, "slotsAuto": 3, "slotsMax": 12, "reading": { "heavy": null, "waiting": null, "pressure": null, "usedPct": null, "asked": null, "waited": null, "refused": null, "holding": false } },
+                "leftovers": { "on": true, "now": "Nothing is left running now." },
+                "engineChoices": [{ "id": "claude" }, { "id": "codex" }],
+                "permission": "bypassPermissions", "codexMode": "auto", "diagnostics": true, "cornerTag": true, "outsideAgents": "off", "importNew": false,
+                "storePath": "/Users/sam/store", "homePath": "/Users/sam", "claudeFound": true, "claudeCertain": true, "phoneAll": true,
+                "accounts": [
+                    { "profile": "default", "email": "sam@example.com", "chosen": false, "label": "default", "plan": { "label": "Max" } },
+                    { "profile": "studio", "email": "sam@studio.example", "chosen": true, "label": "studio", "plan": { "label": "Max" } },
+                ],
+                "codex": { "found": true, "certain": true, "accounts": [] },
+                "antigravity": { "found": true, "certain": true, "signedIn": true, "email": "sam@example.com", "mode": "full-access" },
+                "files": { "on": true, "offAfterDays": 30 },
+                "alpha": { "rooms": false, "teammates": false, "multiplayer": false, "glass": false },
+            },
+            "projects": [project("storefront", "Storefront"), project("mobile", "Mobile"), project("docs", "Docs site")],
+        })
+    }
+
+    /// The window on Settings' `page`, as a picture of it opens, at 1280 by 760.
+    fn screen(name: &str, page: &str) -> Runtime<State> {
+        let products: Vec<Value> = [("storefront", "Storefront"), ("mobile", "Mobile"), ("docs", "Docs site")].iter().map(|(slug, name)| json!({ "slug": slug, "name": name })).collect();
+        let fixture = json!({
+            "now": 1_790_000_000_000.0,
+            "snapshot": {
+                "products": products, "items": [], "approvals": [],
+                "supervisor": { "paused": false, "running": [], "productOrder": ["storefront", "mobile", "docs"], "hiddenProducts": [] },
+                "restartNeeded": null, "config": {},
+            },
+            "local": {},
+            "settingsPage": page,
+            "settings": model(),
+            "answers": {},
+        });
+        let path = std::env::temp_dir().join(format!("mercury-settings-{name}-{}.json", std::process::id()));
+        std::fs::write(&path, fixture.to_string()).expect("the invented settings");
+        let s = crate::init_from(&["--fixture".to_string(), path.to_string_lossy().into_owned()]);
+        let _ = std::fs::remove_file(&path);
+        let text = rune::text::TextSystem::new(crate::FONTS, ("Geist", "Geist Mono, ui-monospace"));
+        let mut rt = Runtime::with_text(s, crate::view, (1280.0, 760.0), rune::Env::new(true, 2.0), text);
+        rt.poll = Some(crate::poll);
+        rt.on_key = Some(crate::keys::pressed);
+        rt.frame(0.0);
+        rt.frame(1.0 / 60.0);
+        rt
+    }
+
+    fn press(rt: &mut Runtime<State>, x: f32, y: f32) {
+        rt.pointer_move(x, y);
+        rt.pointer_down(x, y);
+        rt.pointer_up(x, y);
+        rt.frame(1.0 / 60.0);
+    }
+
+    fn key(rt: &mut Runtime<State>, key: Key) {
+        rt.key(KeyEvent { key, mods: Mods::default() });
+        rt.frame(1.0 / 60.0);
+    }
+
+    /// The middle of the menu's row for a page: the groups' rows 33 points apart under their
+    /// headings, as `.set-nav-item` stands.
+    fn row_of(page: PageId) -> (f32, f32) {
+        let y = match page {
+            PageId::General => 185.0,
+            PageId::Appearance => 218.0,
+            PageId::Phone => 284.0,
+            PageId::Claude => 390.0,
+            PageId::Running => 489.0,
+            PageId::Instructions => 522.0,
+            PageId::Projects => 595.0,
+            _ => unreachable!("not a row these tests press"),
+        };
+        (100.0, y)
+    }
+
+    #[test]
+    fn the_menu_goes_to_a_page_this_window_draws_and_leaves_the_rest_to_the_web_window() {
+        let mut rt = screen("menu", "general");
+        let (x, y) = row_of(PageId::Running);
+        rt.pointer_move(x, y);
+        rt.frame(1.0 / 60.0);
+        assert_eq!(rt.cursor(), Cursor::Pointer);
+        press(&mut rt, x, y);
+        assert_eq!(rt.state.settings.pane, Pane::Page(PageId::Running));
+        // Appearance is the web window's: the screen stays on Running, and with no app behind
+        // this window a line says so.
+        let (x, y) = row_of(PageId::Appearance);
+        press(&mut rt, x, y);
+        assert_eq!(rt.state.settings.pane, Pane::Page(PageId::Running));
+        assert!(rt.state.toast.as_ref().is_some_and(|t| t.line.contains("other window")), "{:?}", rt.state.toast.as_ref().map(|t| &t.line));
+        // Back to app closes it.
+        press(&mut rt, 60.0, 66.0);
+        assert!(!rt.state.settings.open);
+    }
+
+    #[test]
+    fn the_search_finds_a_setting_and_escape_empties_it_before_it_closes_the_screen() {
+        let mut rt = screen("search", "general");
+        rt.key(KeyEvent { key: Key::Command('f'), mods: Mods { cmd: true, ..Mods::default() } });
+        rt.frame(1.0 / 60.0);
+        assert!(rt.state.settings.search.focused, "⌘F puts the caret in the search");
+        rt.update(|s, _| {
+            s.settings.search = rune::TextEdit::new("memory");
+            s.settings.search.focused = true;
+        });
+        rt.frame(1.0 / 60.0);
+        let hits = super::hits(&rt.state);
+        assert_eq!(hits.iter().map(|h| h.label.as_str()).collect::<Vec<_>>(), ["Hold heavy work when memory is short", "Stop programs agents leave behind"]);
+        // Escape in the box empties it, and the menu is back; a second closes the screen.
+        let mut escape = KeyEvent { key: Key::Escape, mods: Mods::default() };
+        rt.update(|s, tx| {
+            super::search_keys(s, &escape, tx);
+        });
+        assert!(rt.state.settings.search.text.is_empty());
+        assert!(rt.state.settings.open);
+        escape.key = Key::Escape;
+        rt.update(|s, tx| {
+            super::search_keys(s, &escape, tx);
+        });
+        assert!(!rt.state.settings.open);
+        // Enter on a hit lands on its page.
+        let mut rt = screen("search-enter", "general");
+        rt.update(|s, _| s.settings.search = rune::TextEdit::new("leftovers"));
+        rt.frame(1.0 / 60.0);
+        let enter = KeyEvent { key: Key::Enter, mods: Mods::default() };
+        rt.update(|s, tx| {
+            super::search_keys(s, &enter, tx);
+        });
+        assert_eq!(rt.state.settings.pane, Pane::Page(PageId::Running));
+        assert!(rt.state.settings.search.text.is_empty());
+    }
+
+    #[test]
+    fn a_picker_opens_under_its_chip_picks_and_escape_or_a_press_elsewhere_closes_it() {
+        let mut rt = screen("picker", "running");
+        let (cx, cy) = rt.find("picker-at-once").expect("the chip of How many run at once");
+        press(&mut rt, cx, cy);
+        assert_eq!(rt.state.settings.menu.as_deref(), Some("at-once"));
+        // Escape closes the menu and not the screen.
+        key(&mut rt, Key::Escape);
+        assert!(rt.state.settings.menu.is_none() && rt.state.settings.open);
+        // Open again, and a press anywhere else closes it.
+        press(&mut rt, cx, cy);
+        press(&mut rt, 600.0, 160.0);
+        assert!(rt.state.settings.menu.is_none());
+        // Its fifth row, four agents: the menu closes and the chip says it at once.
+        press(&mut rt, cx, cy);
+        let row = cy + 14.0 + 6.0 + 1.0 + 4.0 + 4.0 * 30.0 + 14.5;
+        press(&mut rt, cx, row);
+        assert!(rt.state.settings.menu.is_none());
+        assert_eq!(rt.state.settings.wanted.get("pk:at-once"), Some(&Value::String("4".into())));
+    }
+
+    #[test]
+    fn a_switch_flips_on_the_press() {
+        let mut rt = screen("switch", "general");
+        // Counts and crash reports, on, at the right end of its row.
+        rt.pointer_move(1038.0, 709.75);
+        rt.frame(1.0 / 60.0);
+        assert_eq!(rt.cursor(), Cursor::Pointer);
+        press(&mut rt, 1038.0, 709.75);
+        assert_eq!(rt.state.settings.wanted.get("ws:diagnostics"), Some(&Value::Bool(false)));
+    }
+
+    #[test]
+    fn a_projects_arrow_moves_it_in_the_running_order_at_once() {
+        let mut rt = screen("order", "projects");
+        assert_eq!(super::projects::Ui::default().pending, None);
+        let (x, y) = rt.find("project-storefront").expect("Storefront's row");
+        // Its down arrow, 26 points square, beside the door at the row's end.
+        press(&mut rt, 1025.0, y);
+        let shown = rt.state.settings.projects.pending.as_ref().map(|(shown, _)| shown.clone());
+        assert_eq!(shown, Some(vec!["mobile".to_string(), "storefront".to_string(), "docs".to_string()]));
+        // It stands second now; a press on the row itself opens the project's page.
+        let (_, y) = rt.find("project-storefront").expect("Storefront's row, moved");
+        press(&mut rt, x - 200.0, y);
+        assert_eq!(rt.state.settings.pane, Pane::Project("storefront".into()));
+        assert!(rt.find("project-name").is_none(), "its name is a title until pressed");
+    }
+
+    #[test]
+    fn the_page_scrolls_under_the_wheel() {
+        let mut rt = screen("scroll", "general");
+        let before = rt.find("find-storage").expect("a group down the page").1;
+        // A negative delta moves the content up, as a browser's positive deltaY does.
+        rt.pointer_move(800.0, 400.0);
+        rt.wheel(800.0, 400.0, -300.0);
+        for _ in 0..30 {
+            rt.frame(1.0 / 60.0);
+        }
+        let after = rt.find("find-storage").expect("the same group").1;
+        assert!(after < before - 100.0, "the page moved up: {before} to {after}");
+    }
 }

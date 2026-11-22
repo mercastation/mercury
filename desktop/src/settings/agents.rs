@@ -276,7 +276,7 @@ fn use_the_cloud(s: &State, cloud: &Value, engine: Engine, logins: &[Value]) -> 
 fn place(s: &State, name: &str, action: Option<El>, line: Option<String>, tiles: &[Tile], engine: Option<Engine>, column: f32) -> El {
     let mut body = Vec::new();
     if let Some(line) = line {
-        body.push(col().mt(-4.0).mb(12.0).child(readable(pen(text(line).font(TextStyle::new(12.5, 400.0).lh(18.75)).color(dim()).wrap(), 12.5))));
+        body.push(col().mt(-4.0).mb(12.0).child(pen(text(line).font(TextStyle::new(12.5, 400.0).lh(18.75)).color(dim()).wrap(), 12.5)));
     }
     let tile_w = (column - 10.0) / 2.0;
     let head = rules::usage_checked_at(Some(tiles.iter().filter_map(|t| t.checked_at).fold(0.0, f64::max)).filter(|a| *a > 0.0), s.now);
@@ -351,7 +351,7 @@ fn account_tile(s: &State, tile: &Tile, width: f32, head: &str) -> El {
         }
         tile_el = tile_el.child(about);
     }
-    let quiet = |words: &str, gap: f32| col().mt(gap).child(readable(pen(text(words).font(TextStyle::new(12.0, 400.0).lh(18.0)).color(dim()).wrap(), 12.0)));
+    let quiet = |words: &str, gap: f32| col().mt(gap).child(pen(text(words).font(TextStyle::new(12.0, 400.0).lh(18.0)).color(dim()).wrap(), 12.0));
     if let Some(trouble) = &tile.trouble {
         tile_el = tile_el.child(quiet(trouble, 16.0));
     } else if tile.meters {

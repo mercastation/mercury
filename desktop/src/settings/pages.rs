@@ -141,9 +141,9 @@ pub fn running(s: &State, column: f32) -> Vec<El> {
                         super::write_workspace(s, "pk:at-once", "agentsAuto", Value::Bool(true));
                     } else {
                         let n: f64 = v.parse().unwrap_or(1.0);
+                        super::write_workspace(s, "pk:at-once", "sessionsAtOnce", json!(n));
+                        // The chip shows the option's own value until the answer lands.
                         s.settings.wanted.insert("pk:at-once".into(), Value::String(v));
-                        let payload = json!(n);
-                        super::write_workspace(s, "pk:at-once", "sessionsAtOnce", payload);
                     }
                 }),
             },
@@ -250,7 +250,7 @@ fn reading(f: &rules::Figures, column: f32) -> El {
         rows.push(el().py(13.0).child(el().w(inner).h(5.0).radius(2.0).fill(white(0.08)).clip_rounded(2.0).child(el().w(inner * (pct as f32 / 100.0).clamp(0.0, 1.0)).h(5.0).fill(if f.hot { accent() } else { muted() }))));
     }
     for line in [&f.holding, &f.tally].into_iter().flatten() {
-        rows.push(col().py(13.0).child(readable(pen(text(line.as_str()).font(TextStyle::new(12.5, 400.0).lh(18.75)).color(dim()).wrap(), 12.5))));
+        rows.push(col().py(13.0).child(pen(text(line.as_str()).font(TextStyle::new(12.5, 400.0).lh(18.75)).color(dim()).wrap(), 12.5)));
     }
     col().mt(40.0).child(kit::plate(None, rows))
 }
@@ -409,7 +409,7 @@ pub fn cloud(s: &State, column: f32) -> Vec<El> {
     let bullets = col().pt(4.0).gap(8.0).children(counts.iter().map(|line| {
         row()
             .child(el().w(18.0).h(kept(20.925)).child(el().absolute(5.5, 7.83).size(4.5, 4.5).radius(2.25).fill(dim())))
-            .child(col().grow(1.0).min_w(0.0).child(readable(pen(text(*line).font(TextStyle::new(13.5, 400.0).lh(kept(20.925))).color(dim()).wrap(), 13.5))))
+            .child(col().grow(1.0).min_w(0.0).child(kit::selectable(pen(text(*line).font(TextStyle::new(13.5, 400.0).lh(kept(20.925))).color(dim()).wrap(), 13.5))))
     }));
     let mut groups = vec![row().mt(40.0).gap(gap).items_stretch().children(cards)];
     if let Some(says) = plan.filter(|p| t(p, "billing") == Some("given") && rules::paid_plan(Some(p))).map(|_| "Choosing a plan starts paying for it.") {
@@ -448,8 +448,9 @@ pub fn files(s: &State) -> Vec<El> {
                         long: false,
                         help: None,
                         pick: Rc::new(|s: &mut State, v: String, _| {
-                            s.settings.wanted.insert("pk:files-off-after".into(), Value::String(v.clone()));
                             write_workspace(s, "pk:files-off-after", "filesOffAfterDays", json!(v.parse::<f64>().unwrap_or(30.0)));
+                            // The chip shows the option's own value until the answer lands.
+                            s.settings.wanted.insert("pk:files-off-after".into(), Value::String(v));
                         }),
                     },
                 )],

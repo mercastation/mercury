@@ -246,7 +246,10 @@ fn project_row(s: &State, p: &Line, i: usize, rank: usize, shown: &[String], all
             }
         }
         let grip = el().absolute(8.0, 5.0).size(6.0, 10.0).children(dots).group_opacity(0.0, 1.0);
-        row().w(22.0).h(20.0).center().cursor(Cursor::Grab).child(num).child(grip)
+        // The handle takes the grab, and a press on it opens the project as one on the row does
+        // (`.pp-row.can-move .pp-rank`): the drag it starts in the web window is not done here.
+        let slug = p.slug.clone();
+        row().w(22.0).h(20.0).center().cursor(Cursor::Grab).child(num).child(grip).on_press_tx(move |s: &mut State, tx| super::go(s, Pane::Project(slug.clone()), tx))
     };
     let where_ = p.repo.clone().filter(|r| !r.is_empty()).unwrap_or_else(|| p.dir.clone());
     let mut words = col().grow(1.0).min_w(0.0).gap(1.0).child(row().min_w(0.0).child(pen(text(p.name.as_str()).font(TextStyle::new(14.0, 400.0).lh(20.0)).color(ink()).truncate(), 14.0)).child(el().pin(Some(0.0), None, Some(0.0), Some(-4.0)).h(1.5).fill(rule()).group_opacity(0.0, 1.0)));
@@ -271,11 +274,18 @@ fn project_row(s: &State, p: &Line, i: usize, rank: usize, shown: &[String], all
     if !selecting {
         // Quiet at rest, so the page says it can be changed before anyone points at it; up to
         // the dim ink on the row in hand, and the text's own under the pointer.
+        // A disabled one keeps the arrow and takes the press, as a disabled button does.
         let act = |e: El, live: bool| {
-            if live { e.cursor(Cursor::Pointer).hover_group().child(crate::feel::edge_lit(6.0, rule(), true)) } else { e.opacity(0.25) }
+            if live { e.cursor(Cursor::Pointer).hover_group().child(crate::feel::edge_lit(6.0, rule(), true)) } else { crate::feel::answers(e.opacity(0.25).cursor(Cursor::Default)) }
         };
-        let to_top = row().h(26.0).px(8.0).items_center().radius(6.0).border(1.0, rgba(0, 0, 0, 0.0)).border_layout().child(capitals("To top", 10.5, 10.5, 0.84, muted()).group_color(ink()));
-        let to_top = if first { to_top.opacity(0.0) } else { act(to_top, true).group_opacity(0.0, 1.0) };
+        let to_top = |words: El| row().h(26.0).px(8.0).items_center().radius(6.0).border(1.0, rgba(0, 0, 0, 0.0)).border_layout().child(words);
+        // The first row's is there and unseen, and takes the pointer with the arrow (`.pp-row
+        // .pp-top:disabled`); Rune lets a wholly transparent element take none, so its words are.
+        let to_top = if first {
+            crate::feel::answers(to_top(capitals("To top", 10.5, 10.5, 0.84, rgba(0, 0, 0, 0.0))).cursor(Cursor::Default))
+        } else {
+            act(to_top(capitals("To top", 10.5, 10.5, 0.84, muted()).group_color(ink())), true).group_opacity(0.0, 1.0)
+        };
         let arrow = |mark: &'static rune::Icon, live: bool| act(row().size(26.0, 26.0).center().radius(6.0).border(1.0, rgba(0, 0, 0, 0.0)).border_layout().child(icon(mark, 15.0).color(muted()).group_color(ink())), live);
         let (slug_up, slug_down, slug_top) = (p.slug.clone(), p.slug.clone(), p.slug.clone());
         let (full_up, full_down, full_top) = (full.to_vec(), full.to_vec(), full.to_vec());
@@ -510,9 +520,11 @@ fn title_row(s: &State, slug: &str, name: &str) -> El {
                 .caret(ink(), rgba(110, 165, 255, 0.3))
                 .on_edit(|s: &mut State| &mut s.settings.editing.as_mut().expect("the box is open").words)
                 .on_submit(rename)
-                .on_input_key(|s: &mut State, e: &rune::KeyEvent, _| {
+                .on_input_key(|s: &mut State, e: &rune::KeyEvent, tx: &mut Tx| {
+                    // Escape puts the name back, and nothing else takes the keyboard.
                     if e.key == rune::edit::Key::Escape {
                         s.settings.editing = None;
+                        tx.blur();
                         return true;
                     }
                     false
@@ -521,6 +533,19 @@ fn title_row(s: &State, slug: &str, name: &str) -> El {
         }
         None => {
             let (slug, name) = (slug.to_string(), name.to_string());
+            let start = {
+                let (slug, name) = (slug.clone(), name.clone());
+                move |s: &mut State, tx: &mut Tx| {
+                    let mut words = TextEdit::new(name.clone());
+                    words.focused = true;
+                    // Selected, not merely focused: the common rename replaces the whole name.
+                    (words.anchor, words.focus) = (0, words.text.len());
+                    s.settings.editing = Some(Editing { what: Edits::Name(slug.clone()), words });
+                    tx.focus_when_shown("project-name", false);
+                }
+            };
+            // The pencil is no word, so the arrow stands over it; a press on it renames too.
+            let pencil = el().ml(8.4).cursor(Cursor::Default).on_press_tx(start.clone()).child(icon(&marks::PENCIL, 13.2).color(muted()).group_color(ink()).group_opacity(0.7, 1.0));
             row()
                 .ml(-7.0)
                 .py(2.0)
@@ -534,23 +559,18 @@ fn title_row(s: &State, slug: &str, name: &str) -> El {
                 .hover(kit::hover_ground())
                 .help("Click to rename this project")
                 .child(pen(text(name.as_str()).font(sans(24.0, 400.0).tracking(-0.84)).color(ink()), 24.0))
-                .child(el().ml(8.4).child(icon(&marks::PENCIL, 13.2).color(muted()).group_color(ink()).group_opacity(0.7, 1.0)))
-                .on_press_tx(move |s: &mut State, tx| {
-                    let mut words = TextEdit::new(name.clone());
-                    words.focused = true;
-                    // Selected, not merely focused: the common rename replaces the whole name.
-                    (words.anchor, words.focus) = (0, words.text.len());
-                    s.settings.editing = Some(Editing { what: Edits::Name(slug.clone()), words });
-                    tx.focus_when_shown("project-name", false);
-                })
+                .child(pencil)
+                .on_press_tx(start)
         }
     };
     row().gap(12.0).items_center().child(icon_pick).child(name_el)
 }
 
-/// Enter in the name's box: the new name is written unless it is empty or the same.
-fn rename(s: &mut State, _tx: &mut Tx) {
+/// Enter in the name's box, or a press anywhere else that takes its keyboard away (`onBlur`, as
+/// Finder saves a name): the new name is written unless it is empty or the same.
+pub fn rename(s: &mut State, tx: &mut Tx) {
     let Some(Editing { what: Edits::Name(slug), words }) = s.settings.editing.take() else { return };
+    tx.blur();
     let next = words.text.trim().to_string();
     let was = s.settings.current().and_then(|p| t(p, "name")).unwrap_or("").to_string();
     if !next.is_empty() && next != was {
@@ -575,9 +595,10 @@ fn browser_rows(s: &State, p: &Value, slug: &str) -> Vec<El> {
                 .caret(ink(), rgba(110, 165, 255, 0.3))
                 .on_edit(|s: &mut State| &mut s.settings.editing.as_mut().expect("the box is open").words)
                 .on_submit(save_sites)
-                .on_input_key(|s: &mut State, e: &rune::KeyEvent, _| {
+                .on_input_key(|s: &mut State, e: &rune::KeyEvent, tx: &mut Tx| {
                     if e.key == rune::edit::Key::Escape {
                         s.settings.editing = None;
+                        tx.blur();
                         return true;
                     }
                     false
@@ -618,8 +639,9 @@ fn browser_rows(s: &State, p: &Value, slug: &str) -> Vec<El> {
 }
 
 /// Saves the sites typed (`save`): the engine reads the list out of the words.
-fn save_sites(s: &mut State, _tx: &mut Tx) {
+fn save_sites(s: &mut State, tx: &mut Tx) {
     let Some(Editing { what: Edits::Sites(slug), words }) = s.settings.editing.take() else { return };
+    tx.blur();
     write_other(s, "sites", "zero:settings-set-project", json!({ "product": slug, "key": "browserSites", "value": words.text }));
 }
 

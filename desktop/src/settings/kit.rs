@@ -26,21 +26,28 @@ pub fn wide(words: &str, font: TextStyle) -> f32 {
     rune::text::measure(words, &[], font, None).0
 }
 
+/// Words a hand can select (`.set-inner :is(.set-title, .set-lede, .set-row-label, …)`), in a
+/// box no wider than they are, so the I-beam stands over them and the arrow past their end as
+/// it does over Chromium's line boxes; a sentence longer than its column still wraps in it.
+pub fn selectable(words: El) -> El {
+    row().min_w(0.0).child(readable(words).shrink())
+}
+
 /* --------------------------------- the page --------------------------------- */
 
 /// A page's title (`.set-title`): 24 points, its words the person can select.
 pub fn title(words: &str) -> El {
-    readable(pen(text(words).font(sans(24.0, 400.0).tracking(-0.84)).color(ink()), 24.0))
+    selectable(pen(text(words).font(sans(24.0, 400.0).tracking(-0.84)).color(ink()), 24.0))
 }
 
 /// The sentence under a title (`.set-lede`).
 pub fn lede(words: &str) -> El {
-    col().mt(6.0).child(readable(pen(text(words).font(TextStyle::new(13.5, 400.0).lh(kept(20.925))).color(muted()).wrap(), 13.5)))
+    col().mt(6.0).child(selectable(pen(text(words).font(TextStyle::new(13.5, 400.0).lh(kept(20.925))).color(muted()).wrap(), 13.5)))
 }
 
 /// A page with nothing on it yet but its one line (`Reading settings…`).
 pub fn lede_alone(words: &str) -> El {
-    readable(pen(text(words).font(TextStyle::new(13.5, 400.0).lh(kept(20.925))).color(muted()), 13.5))
+    selectable(pen(text(words).font(TextStyle::new(13.5, 400.0).lh(kept(20.925))).color(muted()), 13.5))
 }
 
 /// A refused read or write, over the page (`.set-error`).
@@ -52,7 +59,7 @@ pub fn error(words: &str) -> El {
         .fill(rgb(36, 34, 33))
         .border(1.0, rule())
         .border_layout()
-        .child(readable(pen(text(words).font(TextStyle::new(12.5, 400.0).lh(kept(18.75))).color(dim()).wrap(), 12.5)))
+        .child(pen(text(words).font(TextStyle::new(12.5, 400.0).lh(kept(18.75))).color(dim()).wrap(), 12.5))
 }
 
 /// A heading over one card of rows (`Group`): `find` is what the search lands on, `action`
@@ -116,7 +123,7 @@ pub fn heading(words: &str) -> El {
 pub fn plate(warn: Option<String>, rows: Vec<El>) -> El {
     let mut lines: Vec<El> = Vec::new();
     if let Some(warn) = warn {
-        lines.push(col().py(13.0).child(readable(pen(text(warn).font(TextStyle::new(12.5, 400.0).lh(18.75)).color(dim()).wrap(), 12.5))));
+        lines.push(col().py(13.0).child(pen(text(warn).font(TextStyle::new(12.5, 400.0).lh(18.75)).color(dim()).wrap(), 12.5)));
     }
     lines.extend(rows);
     let lines = lines.into_iter().enumerate().map(|(at, line)| if at > 0 { line.border_sides([1.0, 0.0, 0.0, 0.0], edge()).border_layout() } else { line });
@@ -143,7 +150,7 @@ impl From<String> for Desc {
 
 /// A row's label (`.set-row-label`).
 pub fn label_words(words: &str) -> El {
-    readable(pen(text(words).font(sans(13.5, 500.0).tracking(-0.0405)).color(ink()).wrap(), 13.5))
+    selectable(pen(text(words).font(sans(13.5, 500.0).tracking(-0.0405)).color(ink()).wrap(), 13.5))
 }
 
 /// A row's sentence (`.set-row-desc`).
@@ -153,7 +160,7 @@ pub fn desc_words(desc: Desc) -> El {
         Desc::Plain(words) => text(words).font(font),
         Desc::Bold(words, bold) => text(words).font(font).spans(bold.into_iter().map(|(a, b)| Span::new(a, b).weight(700.0)).collect::<Vec<Span>>()),
     };
-    readable(pen(words.color(muted()).wrap(), 12.5))
+    selectable(pen(words.color(muted()).wrap(), 12.5))
 }
 
 /// One row (`.set-row`): its label and sentence, and its controls at the right edge.
@@ -318,7 +325,7 @@ pub fn badge(words: &str, lit: bool) -> El {
 
 /// A line of the page's own words, quiet (`.cloud-plans-say`).
 pub fn say(words: &str) -> El {
-    col().mt(14.0).child(readable(pen(text(words).font(TextStyle::new(12.5, 400.0).lh(20.0)).color(muted()).wrap(), 12.5)))
+    col().mt(14.0).child(selectable(pen(text(words).font(TextStyle::new(12.5, 400.0).lh(20.0)).color(muted()).wrap(), 12.5)))
 }
 
 impl super::Screen {
