@@ -108,7 +108,7 @@ describe('what the app keeps of the native window', () => {
     r.say({ focused: false });
     expect(r.told).toEqual(['focus', 'blur']);
     expect(r.native.said()).toEqual({ focused: false, at: r.clock() });
-    // Quiet while it is elsewhere is not news: an unfocused window does not beat.
+    // A word that it is elsewhere, going stale, leaves nothing to stop believing.
     r.advance(10 * NATIVE_WORD_LASTS_MS);
     expect(r.told).toEqual(['focus', 'blur']);
   });

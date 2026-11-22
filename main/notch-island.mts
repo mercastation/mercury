@@ -374,9 +374,11 @@ export function createNotchIsland({
     return true;
   };
 
-  // Into the app: on a thread when a line was picked, or the app as it is.
+  // Into the app: on a thread when a line was picked, or the app as it is. The app is the native
+  // window when one is at the door (main/native-window.mts).
   function goTo(id: unknown) {
     setMode('shut');
+    if (nativeWindow?.open({ id: typeof id === 'string' && id ? id : null })) return;
     if (!bringAppForward()) return;
     if (typeof id === 'string' && id) mainWindow!.webContents.send('zero:open-item', { id });
   }

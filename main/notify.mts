@@ -145,6 +145,10 @@ export function createNotifier({ window, Notification, powerMonitor, icon = null
     // to go find it.
     n.on('click', () => {
       seen();
+      // Into the native window when one is at the door, as the window the person works in. An
+      // approval's banner names no thread to open and brings this window: only it draws the card.
+      const product = items.find((i) => i.id === say.open)?.product ?? null;
+      if (say.open && nativeWindow?.open({ id: say.open, product })) return;
       if (!window || window.isDestroyed()) return;
       if (window.isMinimized()) window.restore();
       window.show();

@@ -45,9 +45,9 @@ export function cornerTagRig({ config = {}, focused = false, at = 1_000_000_000,
   };
   const mainListeners = {};
   const main = {
-    focused, destroyed: false, sent: [],
+    focused, destroyed: false, sent: [], shown: 0,
     isDestroyed() { return this.destroyed; }, isFocused() { return this.focused; }, isMinimized: () => false,
-    restore() {}, show() {}, focus() { this.focused = true; },
+    restore() {}, show() { this.shown++; }, focus() { this.focused = true; },
     on(ev, fn) { mainListeners[ev] = fn; },
     webContents: { send: (ch, p) => main.sent.push([ch, p]) },
   };

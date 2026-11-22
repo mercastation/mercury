@@ -8,12 +8,21 @@
 // A word stops counting when it is not said again (shared/notify-rules.mts,
 // nativeInFront) or when the last event stream at the door hangs up: a window
 // that quit or crashed hangs up, and one that hung stops beating.
+//
+// AND A PRESS ON THE BANNER OR THE TRAY GOES TO IT (`open`), the window the
+// person works in, rather than bringing this app's own window forward.
 
 import { NATIVE_WORD_LASTS_MS, nativeInFront } from '../shared/notify-rules.mts';
 import type { NativeWord } from '../shared/notify-rules.mts';
 
 /** What the native window says of itself at the door: `{ focused }`. Only the local door answers it. */
 export const NATIVE_WINDOW = 'zero:native-window';
+
+/**
+ * What a press on the banner or the tray asks of the native window: `{ id, product }` of the
+ * thread to open, or nulls to come forward as it is. Pushed on the door's event stream alone.
+ */
+export const OPEN_IN_NATIVE = 'zero:open-in-native';
 
 type Heard = 'focus' | 'blur';
 // `PushListener` and `IpcHandler` of main/serve.mts, named here rather than imported: the
@@ -30,9 +39,15 @@ export interface NativeWindow {
   said(): NativeWord | null;
   /**
    * Whether a native window is at the door to be sent to: a stream is open and a window has
-   * spoken. A stream that never spoke is a check run from the command line (`--watch-door`).
+   * spoken within three beats. A stream that never spoke is a check run from the command line
+   * (`--watch-door`).
    */
   listening(): boolean;
+  /**
+   * Sends a press on the banner or the tray to the native window, with the thread it was about:
+   * true when one was listening, and this app's own window then stays where it is.
+   */
+  open(thread?: { id?: string | null; product?: string | null }): boolean;
   /** An event stream at the door closed. */
   hungUp(): void;
   on(event: Heard, fn: () => void): void;
@@ -72,6 +87,8 @@ export function createNativeWindow({ listeners, now = Date.now, setTimer = setTi
     settle();
   };
 
+  const listening = () => listeners.size > 0 && !!word && now() - word.at < NATIVE_WORD_LASTS_MS;
+
   return {
     hear: (_event, payload) => {
       const focused = (payload as { focused?: unknown } | null | undefined)?.focused;
@@ -79,7 +96,15 @@ export function createNativeWindow({ listeners, now = Date.now, setTimer = setTi
       return null;
     },
     said: () => word,
-    listening: () => listeners.size > 0 && word !== null,
+    listening,
+    open: ({ id = null, product = null } = {}) => {
+      if (!listening()) return false;
+      // Every stream at the door hears it: a check from the command line ignores it.
+      for (const tell of listeners) {
+        try { tell({ channel: OPEN_IN_NATIVE, args: [{ id, product }] }); } catch { /* a stream that hung up */ }
+      }
+      return true;
+    },
     hungUp: () => { if (!listeners.size && word) become(null); },
     on: (event, fn) => { heard[event].add(fn); },
     off: (event, fn) => { heard[event].delete(fn); },

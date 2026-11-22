@@ -558,9 +558,11 @@ export function createCornerTag({
   };
 
   // Into the app: on a thread when a line of the list was picked, or just the
-  // app as it is when it was the tag.
+  // app as it is when it was the tag. The app is the native window when one is
+  // at the door (main/native-window.mts).
   function goTo(id: unknown) {
     closeCard();
+    if (nativeWindow?.open({ id: typeof id === 'string' && id ? id : null })) return;
     if (!bringAppForward()) return;
     if (typeof id === 'string' && id) mainWindow!.webContents.send('zero:open-item', { id });
   }
