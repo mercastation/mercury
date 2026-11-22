@@ -11,7 +11,9 @@
 //! The chips under the words say what the thread will be sent with, and each opens a menu to
 //! change it: the model with its agent and how hard it thinks, the project, the level, and
 //! the caret beside Send, Later. One menu is open at a time; the pointer and the arrows walk
-//! its rows, Enter picks, and Escape closes the menu before anything else.
+//! its rows, Enter picks, and Escape closes the menu before anything else. Files dropped on the
+//! box, picked with the paper clip or pasted wait in a row under the words and go first when
+//! it is sent (`attach.rs`).
 //!
 //! There is one box and two places it is drawn, as in the web window, where one composer is
 //! drawn either in Home's slot or in the dialog and both read the same draft: open on Home's
