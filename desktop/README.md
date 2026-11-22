@@ -2244,14 +2244,15 @@ release or a second login.
   - The globe is drawn where the app says it shares files, and takes the pointer, but its panel
     (who can open the link, Copy link, Update link, Stop sharing, the people added, the link's
     comments) is not drawn: making a link anyone can open is a write to the cloud that could not
-    be tried against a real app from here.
+    be tried against a real app from here. A press says the link is made in Mercury's own window.
   - Two panes side by side open the file big, where the web window opens it big with its notes
     down the right, which the big view here does not draw. It counts no notes on its mark.
   - A page, a PDF or a film the thread sets beside itself is a card saying what it is, with Open
     outside, where the web window draws the page in a frame, the PDF's pages and the film's player:
     Rune draws no web page, PDF or film inside a window. A change a run made (`.change`) is the
     same card; the web window draws the change itself.
-  - A table's bar, Filter, Sort and column menus are drawn and do nothing yet, the first column
+  - A table's search, Filter and Sort say, when pressed, that they are the web window's; its
+    column menus are drawn and do nothing yet, the first column
     and the row numbers do not stay put while the rest scrolls sideways, a date column is told
     only by the ISO day, and a link, an email or a logo in a cell is its words.
   - A document's outline does not light the section being read.
