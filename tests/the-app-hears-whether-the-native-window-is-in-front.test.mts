@@ -80,6 +80,12 @@ describe('the rule: a native window is in front while its word is fresh', () => 
     expect(nativeInFront(null, 1_000)).toBe(false);
     expect(nativeInFront(undefined, 1_000)).toBe(false);
   });
+
+  it('beats as often as the native window says it again', () => {
+    const front = fs.readFileSync(path.join(root, 'desktop', 'src', 'front.rs'), 'utf8');
+    expect(front).toContain(`const BEAT: Duration = Duration::from_secs(${NATIVE_BEAT_MS / 1000});`);
+    expect(front).toContain(`pub const SAY_WHERE: &str = "${NATIVE_WINDOW}";`);
+  });
 });
 
 describe('what the app keeps of the native window', () => {

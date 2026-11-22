@@ -17,6 +17,7 @@ mod chrome;
 mod compose;
 mod data;
 mod files;
+mod front;
 mod home;
 mod icons;
 mod inbox;
@@ -960,6 +961,7 @@ fn setup(s: &mut State, wake: Waker) {
     s.compose.staging.wake_with(wake.clone());
     s.pictures.set_waker(wake.clone());
     if let Source::Door(door) = s.source.clone() {
+        front::tell_the_app(door.clone());
         source::follow_door(door, s.mailbox.clone(), move || wake());
     }
 }
@@ -1202,5 +1204,5 @@ fn main() {
         ..AppSpec::new("Mercury", DEFAULT_SIZE, init, view)
     };
     // The web app sets `-webkit-font-smoothing: antialiased`; `Off` is that rendering.
-    App::new(spec).font_smoothing(FontSmoothing::Off).run();
+    App::new(spec).font_smoothing(FontSmoothing::Off).on_focus(front::focus_changed).run();
 }
