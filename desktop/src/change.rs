@@ -198,6 +198,9 @@ pub struct Changes {
     typed: HashMap<String, Typed>,
     /// A save on its way, and what each file it saved came to.
     saves: Latest<(String, Vec<Result<(String, Vec<(usize, usize, String)>, String), String>>)>,
+    /// A gap's file on its way from the engine: the change, the file, the hunk under the gap, and
+    /// the file's words or why not.
+    gap_read: Latest<(String, String, usize, Result<String, String>)>,
     pub here: Option<Here>,
     /// The marks over a change given the whole workspace: when the pointer last moved, on the
     /// window's clock, and whether it is on them or the corner they live in.
@@ -210,6 +213,7 @@ impl Changes {
     pub fn set_waker(&self, wake: Waker) {
         self.summary_read.set_waker(wake.clone());
         self.whole_read.set_waker(wake.clone());
+        self.gap_read.set_waker(wake.clone());
         self.saves.set_waker(wake);
     }
     /// The editing line's words, for its field.
@@ -544,6 +548,10 @@ pub fn tend(s: &mut State, now: f64, pushed: bool, tx: &mut Tx) -> bool {
     }
     if let Some((key, done)) = s.changes.saves.take() {
         saved(s, &key, done, tx);
+        changed = true;
+    }
+    if let Some((key, path, hunk, read)) = s.changes.gap_read.take() {
+        gap_read(s, &key, &path, hunk, read, tx);
         changed = true;
     }
     changed
@@ -1253,13 +1261,40 @@ fn open_gap(s: &mut State, f: usize, hunk: usize, tx: &mut Tx) {
     let Some(shown) = s.shown() else { return };
     let Some(here) = s.changes.here.as_ref() else { return };
     let Some(file) = shown.files.get(f) else { return };
+    let (key, path) = (here.key.clone(), file.path.clone());
+    // Live, the engine reads it, as it reads it for the web window's pane (`zero:code-file`); a
+    // picture, which has no engine, reads the planted file the same way here.
+    if let Some((url, token)) = door(s) {
+        let (product, src) = (here.product.clone(), here.src.clone());
+        s.changes.gap_read.request((url, token, key, product, src, path, hunk), |(url, token, key, product, src, path, hunk)| {
+            let read = crate::source::call(&url, &token, "zero:code-file", &json!({ "product": product, "src": src, "path": path }));
+            let text = match read {
+                Ok(a) if a.get("ok") == Some(&Value::Bool(true)) => a.get("text").and_then(Value::as_str).map(str::to_string).ok_or_else(|| format!("{path} could not be read.")),
+                Ok(a) => Err(a.get("error").and_then(Value::as_str).map_or_else(|| format!("{path} could not be read."), str::to_string)),
+                Err(why) => Err(why),
+            };
+            (key, path, hunk, text)
+        });
+        return;
+    }
     let roots = product_roots(s, &here.product);
-    let read = rules::find_file(&shown.change, &roots, &file.path, |p| std::path::Path::new(p).is_file()).and_then(read_code_file);
-    let placed = read.map_err(str::to_string).and_then(|text| rules::hidden_lines(&text, &file.hunks[hunk - 1], &file.hunks[hunk]).map_err(str::to_string));
-    match placed {
+    let read = rules::find_file(&shown.change, &roots, &file.path, |p| std::path::Path::new(p).is_file()).and_then(read_code_file).map_err(str::to_string);
+    gap_read(s, &key, &path, hunk, read, tx);
+}
+
+/// A gap's file came: the lines between its two hunks are drawn in it, or why not is said
+/// (`openGap`). A change closed meanwhile takes nothing.
+fn gap_read(s: &mut State, key: &str, path: &str, hunk: usize, read: Result<String, String>, tx: &mut Tx) {
+    let Some(shown) = s.shown() else { return };
+    if s.changes.here.as_ref().is_none_or(|h| h.key != key) {
+        return;
+    }
+    let Some(file) = shown.files.iter().find(|f| f.path == path) else { return };
+    let (Some(above), Some(below)) = (file.hunks.get(hunk.wrapping_sub(1)), file.hunks.get(hunk)) else { return };
+    match read.and_then(|text| rules::hidden_lines(&text, above, below).map_err(str::to_string)) {
         Ok(lines) => {
             if let Some(here) = s.changes.here.as_mut() {
-                here.gaps.insert((file.path.clone(), hunk), lines);
+                here.gaps.insert((path.to_string(), hunk), lines);
                 here.tree_keys = false;
             }
             s.lay_out_the_change();
@@ -2192,6 +2227,52 @@ mod tests {
         assert!(matches!(&done[..], [Ok((_, _, said))] if said.is_empty()));
         assert_eq!(std::fs::read_to_string(&file).unwrap(), before);
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// The save against a running engine, never the app's: `MERCURY_SCRATCH_DOOR` and
+    /// `MERCURY_SCRATCH_TOKEN` name a scratch engine (README, "To try any of this"), and
+    /// `MERCURY_SCRATCH_DIR` an empty folder the change and its file are planted in.
+    #[test]
+    #[ignore]
+    fn a_save_goes_through_a_running_engine() {
+        let (Ok(url), Ok(token), Ok(dir)) = (std::env::var("MERCURY_SCRATCH_DOOR"), std::env::var("MERCURY_SCRATCH_TOKEN"), std::env::var("MERCURY_SCRATCH_DIR")) else {
+            panic!("MERCURY_SCRATCH_DOOR, MERCURY_SCRATCH_TOKEN and MERCURY_SCRATCH_DIR name a scratch engine");
+        };
+        let dir = std::path::PathBuf::from(dir);
+        let repo = dir.join("code");
+        std::fs::create_dir_all(repo.join("src")).unwrap();
+        let file = repo.join("src/a.ts");
+        std::fs::write(&file, A_TS).unwrap();
+        let change = the_change(&repo.to_string_lossy());
+        let src = dir.join("the-change-it-made.change");
+        std::fs::write(&src, change.to_string()).unwrap();
+        let shown = Shown::new(Change::from_value(&change).expect("a change"));
+        let engine = |channel: &str, ask: &Value| crate::source::call(&url, &token, channel, ask);
+        // Both hunks typed into: the engine writes the file with each line in its place.
+        let done = save_files("scratch", &src.to_string_lossy(), typed_into_a(&shown, &[(0, 2, "let b = 33;"), (1, 3, "export { c, d, e };")]), engine);
+        assert!(matches!(&done[..], [Ok((_, typed, _))] if typed.len() == 2), "{done:?}");
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), A_TS.replace("let b = 3;", "let b = 33;").replace("export { c, d };", "export { c, d, e };"));
+        // A change whose folders do not hold the file is refused in the engine's own words.
+        let mut astray = change.clone();
+        astray["roots"] = json!([dir.join("not-the-code").to_string_lossy()]);
+        let astray_src = dir.join("astray.change");
+        std::fs::write(&astray_src, astray.to_string()).unwrap();
+        std::fs::write(&file, A_TS).unwrap();
+        let before = std::fs::read_to_string(&file).unwrap();
+        let done = save_files("scratch", &astray_src.to_string_lossy(), typed_into_a(&shown, &[(0, 2, "let b = 34;")]), engine);
+        assert_eq!(done, vec![Err("That file is outside the folders this run worked in, so nothing was saved.".to_string())]);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), before);
+        // Something else moved the file between the read and the write: the engine says so.
+        let moved = |channel: &str, ask: &Value| {
+            if channel == "zero:save-code-file" {
+                let later = std::time::SystemTime::now() + std::time::Duration::from_secs(5);
+                std::fs::File::options().write(true).open(&file).and_then(|f| f.set_modified(later)).unwrap();
+            }
+            engine(channel, ask)
+        };
+        let done = save_files("scratch", &src.to_string_lossy(), typed_into_a(&shown, &[(0, 2, "let b = 35;")]), moved);
+        assert_eq!(done, vec![Err("Something else changed this file while you were typing, so nothing was saved.".to_string())]);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), before);
     }
 
     #[test]
