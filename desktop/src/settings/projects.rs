@@ -29,6 +29,9 @@ pub struct Ui {
     pub pending: Option<(Vec<String>, Vec<String>)>,
     /// The row that just moved, washed until then, so the eye can follow it.
     pub moved: Option<(String, f64)>,
+    /// The row under the pointer, whose buttons come up to the dim ink and To top into view
+    /// (`.pp-row:hover .pp-acts button`): a second level of hover, which Rune's groups lack.
+    pub hovered: Option<String>,
 }
 
 /// A project's mark (`ProductMark` with no picture): its own colour, a square inside the box a
@@ -252,7 +255,12 @@ fn project_row(s: &State, p: &Line, i: usize, rank: usize, shown: &[String], all
         row().w(22.0).h(20.0).center().cursor(Cursor::Grab).child(num).child(grip).on_press_tx(move |s: &mut State, tx| super::go(s, Pane::Project(slug.clone()), tx))
     };
     let where_ = p.repo.clone().filter(|r| !r.is_empty()).unwrap_or_else(|| p.dir.clone());
-    let mut words = col().grow(1.0).min_w(0.0).gap(1.0).child(row().min_w(0.0).child(pen(text(p.name.as_str()).font(TextStyle::new(14.0, 400.0).lh(20.0)).color(ink()).truncate(), 14.0)).child(el().pin(Some(0.0), None, Some(0.0), Some(-4.0)).h(1.5).fill(rule()).group_opacity(0.0, 1.0)));
+    // The name, underlined under the pointer (`text-decoration-color` turning from clear to
+    // `--line-strong`), the line under its words alone: four points under the baseline, and one
+    // point thick, as the web window draws its 1.5.
+    let underline = el().pin(Some(0.0), None, Some(0.0), Some(-0.16)).h(1.0).fill(rule()).group_opacity(0.0, 1.0);
+    let name = row().self_start().min_w(0.0).child(pen(text(p.name.as_str()).font(TextStyle::new(14.0, 400.0).lh(20.0)).color(ink()).truncate(), 14.0)).child(underline);
+    let mut words = col().grow(1.0).min_w(0.0).gap(1.0).child(name);
     if !where_.is_empty() {
         words = words.child(pen(text(rules::short_path(&where_, home)).font(TextStyle::new(11.5, 400.0).mono().lh(16.0)).color(muted()).truncate(), 11.5).opacity(if selecting && !picked { 0.7 } else { 1.0 }).help(where_.clone()));
     }
@@ -274,19 +282,24 @@ fn project_row(s: &State, p: &Line, i: usize, rank: usize, shown: &[String], all
     if !selecting {
         // Quiet at rest, so the page says it can be changed before anyone points at it; up to
         // the dim ink on the row in hand, and the text's own under the pointer.
-        // A disabled one keeps the arrow and takes the press, as a disabled button does.
+        // A disabled one keeps the arrow and takes the press, as a disabled button does. Two
+        // levels of hover, the row's and the button's, and Rune's groups answer one: the row in
+        // hand is the screen's own state (`hovered`), the button's is its group.
+        let in_hand = ui.hovered.as_deref() == Some(p.slug.as_str());
+        let quiet = if in_hand { dim() } else { muted() };
         let act = |e: El, live: bool| {
             if live { e.cursor(Cursor::Pointer).hover_group().child(crate::feel::edge_lit(6.0, rule(), true)) } else { crate::feel::answers(e.opacity(0.25).cursor(Cursor::Default)) }
         };
         let to_top = |words: El| row().h(26.0).px(8.0).items_center().radius(6.0).border(1.0, rgba(0, 0, 0, 0.0)).border_layout().child(words);
         // The first row's is there and unseen, and takes the pointer with the arrow (`.pp-row
         // .pp-top:disabled`); Rune lets a wholly transparent element take none, so its words are.
+        // Another row's comes into view with the row in hand.
         let to_top = if first {
             crate::feel::answers(to_top(capitals("To top", 10.5, 10.5, 0.84, rgba(0, 0, 0, 0.0))).cursor(Cursor::Default))
         } else {
-            act(to_top(capitals("To top", 10.5, 10.5, 0.84, muted()).group_color(ink())), true).group_opacity(0.0, 1.0)
+            act(to_top(capitals("To top", 10.5, 10.5, 0.84, if in_hand { quiet } else { rgba(0, 0, 0, 0.0) }).group_color(ink())), true)
         };
-        let arrow = |mark: &'static rune::Icon, live: bool| act(row().size(26.0, 26.0).center().radius(6.0).border(1.0, rgba(0, 0, 0, 0.0)).border_layout().child(icon(mark, 15.0).color(muted()).group_color(ink())), live);
+        let arrow = |mark: &'static rune::Icon, live: bool| act(row().size(26.0, 26.0).center().radius(6.0).border(1.0, rgba(0, 0, 0, 0.0)).border_layout().child(icon(mark, 15.0).color(if live { quiet } else { muted() }).group_color(ink())), live);
         let (slug_up, slug_down, slug_top) = (p.slug.clone(), p.slug.clone(), p.slug.clone());
         let (full_up, full_down, full_top) = (full.to_vec(), full.to_vec(), full.to_vec());
         let (shown_up, shown_down) = (shown.to_vec(), shown.to_vec());
@@ -299,7 +312,17 @@ fn project_row(s: &State, p: &Line, i: usize, rank: usize, shown: &[String], all
         line = line.child(row().w(132.0).gap(4.0).justify_end().items_center().child(to_top).child(up).child(down));
         line = line.child(icon(&marks::OPEN, 16.0).color(muted()).group_opacity(0.5, 1.0));
     }
-    let slug = p.slug.clone();
+    let (hovered, slug) = (p.slug.clone(), p.slug.clone());
+    line = line.on_hover_change(move |s: &mut State, inside, tx| {
+        let ui = &mut s.settings.projects;
+        if inside {
+            ui.hovered = Some(hovered.clone());
+        } else if ui.hovered.as_deref() == Some(hovered.as_str()) {
+            ui.hovered = None;
+        } else {
+            tx.live_only();
+        }
+    });
     line = line.on_press_tx(move |s: &mut State, tx| {
         if s.settings.projects.selecting {
             let picked = &mut s.settings.projects.picked;

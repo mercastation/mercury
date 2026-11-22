@@ -381,8 +381,6 @@ pub fn cloud(s: &State, column: f32) -> Vec<El> {
     let gap = 12.0;
     let card_w = (column - 2.0 * gap) / 3.0;
     let cards = rules::plan_cards(plan).into_iter().map(|c| {
-        // The price and " a month" after it on its line, the small words fifteen points down
-        // the price's line, where their baseline meets it (`.cloud-plan-price span`).
         let mut card = col()
             .w(card_w)
             .px(18.0)
@@ -392,11 +390,13 @@ pub fn cloud(s: &State, column: f32) -> Vec<El> {
             .border(1.0, if c.current { accent() } else { rule() })
             .border_layout()
             .child(row().justify_between().child(pen(text(c.name).font(TextStyle::new(11.0, 400.0).mono().lh(14.0).tracking(1.1)).text_case(rune::TextCase::Uppercase).color(muted()), 11.0)))
-            .child(row().mt(12.0).items_start().child(pen(text(c.price.as_str()).font(sans(28.0, 400.0).tracking(-0.56)).color(ink()), 28.0)).child(el().mt(15.0).child(pen(text(" a month").font(sans(13.0, 400.0)).color(muted()), 13.0))))
-            .child(el().mt(6.0).mb(22.0).child(pen(text(c.hours.as_str()).font(sans(13.0, 400.0)).color(dim()), 13.0)));
+            .child(price_line(&c.price, card_w - 38.0).mt(12.0))
+            .child(col().mt(6.0).mb(22.0).child(pen(text(c.hours.as_str()).font(sans(13.0, 400.0)).color(dim()).wrap(), 13.0)));
         if let Some(button) = &c.button {
-            // Choosing a plan opens Stripe from the web window, which follows the payment.
-            card = card.child(row().child(kit::ghost(button, true).on_press_tx(|s: &mut State, tx| super::bridge(s, PageId::Cloud, tx))));
+            // Choosing a plan opens Stripe from the web window, which follows the payment. The
+            // cards are as tall as the tallest, and each button sits at its card's foot
+            // (`.cloud-plan-go { margin-top: auto }`).
+            card = card.child(el().grow(1.0)).child(row().child(kit::ghost(button, true).on_press_tx(|s: &mut State, tx| super::bridge(s, PageId::Cloud, tx))));
         }
         card
     });
@@ -417,6 +417,23 @@ pub fn cloud(s: &State, column: f32) -> Vec<El> {
     }
     groups.push(Group::new("How the cloud counts", vec![bullets]).find("cloud-counts").bare().el());
     page("Plan and Billing", Some(&lede), groups)
+}
+
+/// A plan's price and " a month" after it (`.cloud-plan-price`), the small words fifteen points
+/// down the price's line, where their baseline meets the price's. The two flow as one line of
+/// words: where they do not fit the card, the small ones break at a space onto a second line as
+/// tall as the price's.
+fn price_line(price: &str, inner: f32) -> El {
+    let big = sans(28.0, 400.0).tracking(-0.56);
+    let small = sans(13.0, 400.0);
+    let small_words = |words: &str| el().mt(15.0).child(pen(text(words).font(small.clone()).color(muted()), 13.0));
+    let (price_w, line_h) = rune::text::measure(price, &[], big.clone(), None);
+    let first = row().items_start().child(pen(text(price).font(big).color(ink()), 28.0));
+    if price_w + kit::wide(" a month", small.clone()) <= inner {
+        return first.child(small_words(" a month"));
+    }
+    let (first, second) = if price_w + kit::wide(" a", small.clone()) <= inner { (first.child(small_words(" a")), "month") } else { (first, "a month") };
+    col().child(first).child(el().h(line_h).child(small_words(second)))
 }
 
 /* ------------------------------------ Files ------------------------------------ */

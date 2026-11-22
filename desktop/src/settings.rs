@@ -712,9 +712,11 @@ fn nav(s: &State, h: f32) -> El {
         .hover_group()
         .hover(rgb(46, 44, 43))
         .help("Back to app (esc)")
-        .child(icon(&marks::BACK, 15.0).color(dim()).group_color(ink()))
-        .child(row().grow(1.0).child(pen(text("Back to app").font(sans(13.0, 400.0)).color(dim()).group_color(ink()), 13.0)))
-        .child(pen(text("esc").font(sans(11.0, 400.0).tracking(0.52)).color(muted()).group_color(ink()), 11.0).opacity(0.8))
+        // Under the pointer only its ground darkens: the screen's own rule keeps its words dim
+        // (`.settings-screen[data-pane] .set-nav-back` over `.back-esc:hover`).
+        .child(icon(&marks::BACK, 15.0).color(dim()))
+        .child(row().grow(1.0).child(pen(text("Back to app").font(sans(13.0, 400.0)).color(dim()), 13.0)))
+        .child(pen(text("esc").font(sans(11.0, 400.0).tracking(0.52)).color(muted()), 11.0).opacity(0.8))
         .on_press(|s: &mut State| close(s));
     let field = text_input(&s.settings.search, sans(13.0, 400.0))
         .key("settings-search")
@@ -909,6 +911,11 @@ mod tests {
 
     /// The window on Settings' `page`, as a picture of it opens, at 1280 by 760.
     fn screen(name: &str, page: &str) -> Runtime<State> {
+        screen_at(name, page, (1280.0, 760.0))
+    }
+
+    /// The same at another size of window.
+    fn screen_at(name: &str, page: &str, size: (f32, f32)) -> Runtime<State> {
         let products: Vec<Value> = [("storefront", "Storefront"), ("mobile", "Mobile"), ("docs", "Docs site")].iter().map(|(slug, name)| json!({ "slug": slug, "name": name })).collect();
         let fixture = json!({
             "now": 1_790_000_000_000.0,
@@ -927,7 +934,7 @@ mod tests {
         let s = crate::init_from(&["--fixture".to_string(), path.to_string_lossy().into_owned()]);
         let _ = std::fs::remove_file(&path);
         let text = rune::text::TextSystem::new(crate::FONTS, ("Geist", "Geist Mono, ui-monospace"));
-        let mut rt = Runtime::with_text(s, crate::view, (1280.0, 760.0), rune::Env::new(true, 2.0), text);
+        let mut rt = Runtime::with_text(s, crate::view, size, rune::Env::new(true, 2.0), text);
         rt.poll = Some(crate::poll);
         rt.on_key = Some(crate::keys::pressed);
         rt.frame(0.0);
@@ -1066,6 +1073,40 @@ mod tests {
         press(&mut rt, x - 200.0, y);
         assert_eq!(rt.state.settings.pane, Pane::Project("storefront".into()));
         assert!(rt.find("project-name").is_none(), "its name is a title until pressed");
+    }
+
+    #[test]
+    fn the_row_in_hand_is_the_one_under_the_pointer_and_only_while_it_is() {
+        let mut rt = screen("in-hand", "projects");
+        let in_hand = |rt: &Runtime<State>| rt.state.settings.projects.hovered.clone();
+        assert_eq!(in_hand(&rt), None);
+        let (x, y) = rt.find("project-mobile").expect("Mobile's row");
+        rt.pointer_move(x - 200.0, y);
+        rt.frame(1.0 / 60.0);
+        assert_eq!(in_hand(&rt).as_deref(), Some("mobile"));
+        let (_, y) = rt.find("project-docs").expect("Docs site's row");
+        rt.pointer_move(x - 200.0, y);
+        rt.frame(1.0 / 60.0);
+        assert_eq!(in_hand(&rt).as_deref(), Some("docs"));
+        // Off every row, on the menu.
+        rt.pointer_move(100.0, 400.0);
+        rt.frame(1.0 / 60.0);
+        assert_eq!(in_hand(&rt), None);
+    }
+
+    #[test]
+    fn a_plans_price_keeps_its_line_where_the_card_is_wide_and_breaks_at_a_space_where_it_is_not() {
+        // Where "month" stands against the price, on the Max card.
+        let month_under_price = |size: (f32, f32)| {
+            let rt = screen_at("price", "cloud", size);
+            let shown = rt.elements();
+            let at = |words: &str| shown.iter().find(|e| e.text.as_deref().map(str::trim) == Some(words)).map(|e| e.rect).unwrap_or_else(|| panic!("{words} at {size:?}"));
+            // The last card's small words, which are the last to end in "month" but the hours.
+            let (price, month) = (at("$200"), shown.iter().rev().find(|e| e.text.as_deref().is_some_and(|t| t.ends_with("month") && !t.contains("hours"))).map(|e| e.rect).expect("the month"));
+            month[1] > price[1] + price[3]
+        };
+        assert!(!month_under_price((1280.0, 760.0)), "one line in a wide card");
+        assert!(month_under_price((900.0, 760.0)), "a second line in a narrow one");
     }
 
     #[test]

@@ -4,7 +4,7 @@
 
 use std::rc::Rc;
 
-use rune::{Cursor, El, TextStyle, col, el, icon, row, spacer, text};
+use rune::{Cursor, El, TextStyle, col, el, icon, row, text};
 use serde_json::{Value, json};
 
 use super::kit::{self, Desc, Group, Picker};
@@ -314,7 +314,8 @@ fn place(s: &State, name: &str, action: Option<El>, line: Option<String>, tiles:
 /// its plan and where it works, then its meters, or why it cannot run.
 fn account_tile(s: &State, tile: &Tile, width: f32, head: &str) -> El {
     let on_ = tile.in_use;
-    let mut top = row().h(20.0).gap(12.0).items_center().child(row().min_w(0.0).child(pen(text(tile.name.as_str()).font(sans(13.5, 500.0)).color(ink()).truncate(), 13.5)));
+    // The address gives way to what follows it, and its end goes under an ellipsis.
+    let mut top = row().h(20.0).gap(12.0).items_center().child(row().min_w(0.0).shrink().child(pen(text(tile.name.as_str()).font(sans(13.5, 500.0)).color(ink()).truncate(), 13.5)));
     if on_ {
         top = top.child(kit::badge("In use", true).ml(-2.0));
     } else if let Some((word, act)) = &tile.use_ {
@@ -329,7 +330,8 @@ fn account_tile(s: &State, tile: &Tile, width: f32, head: &str) -> El {
             .cursor(Cursor::Pointer)
             .child(pen(text(word.as_str()).font(TextStyle::new(12.5, 400.0).lh(12.5)).color(ink()), 12.5))
             .on_press_tx(move |s: &mut State, tx| tile_act(s, &act, tx));
-        top = top.child(spacer()).child(button);
+        // At the row's end, one gap from the address at the least (`margin-left: auto`).
+        top = top.child(row().grow(1.0).justify_end().child(button));
     }
     let mut tile_el = col().w(width).pt(16.0).px(18.0).pb(18.0).radius(10.0).fill(if on_ { white(0.07) } else { white(0.04) }).border(1.0, if on_ { rule() } else { edge() }).border_layout().child(top);
     let plan_line: Vec<String> = tile.plan.iter().cloned().chain(tile.about.iter().cloned()).collect();
