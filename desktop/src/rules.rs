@@ -10,6 +10,7 @@
 //! the rows the web window draws from the same snapshot.
 
 pub mod answers;
+pub mod attach;
 pub mod calendar;
 pub mod cloud;
 pub mod compose;
@@ -36,6 +37,7 @@ pub mod status;
 pub mod thread_files;
 pub mod title;
 pub mod trace;
+pub mod typed;
 pub mod waits;
 pub mod window;
 pub mod work;

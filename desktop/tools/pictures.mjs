@@ -88,6 +88,8 @@ const PICTURES = [
   ['designs/rounds/older/round-0.png', 800, 500, [120, 120, 120]],
   // The total line drawn again: its second version, which the Files button lists in its place.
   ['designs/<thread>/total-line-v2.png', 360, 64, [160, 132, 60]],
+  // A picture a person pasted into a message, saved where the app saves what is attached.
+  ['attachments/mwrd0001-ab12cd-pasted-41207.png', 560, 180, [176, 108, 52]],
 ];
 // Ten screenshots the size a Retina Mac takes them, for measuring what a conversation full of
 // pictures costs. Planted only when asked for (`large`): they take a few seconds to paint.
@@ -106,6 +108,8 @@ const OTHERS = [
   // The note rewritten, and a second sheet, for a thread whose files come in versions.
   ['notes/rounding-v2.md', '# Rounding\n\nRound each tax line, then add them up.\n'],
   ['exports/refunds.csv', 'order,refund\n1001,8.40\n1007,12.15\n'],
+  // And a file attached beside the pasted picture.
+  ['attachments/mwrd0002-ef34gh-week-32.pdf', '%PDF-1.4\n% an invented report with nothing in it\n'],
 ];
 
 /**

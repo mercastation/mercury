@@ -9,7 +9,8 @@ from the same snapshot the web window gets and are kept current while the engine
 conversation can be answered, by typing or by picking one of its agent's options, marked done and
 opened again, and the keys walk the lists (see "What the keys do, and what it writes"). A new
 thread is started from Home's box or from the New thread card N opens over any other page, on the
-project, model, effort and level picked in its menus ("Starting a thread", below).
+project, model, effort and level picked in its menus ("Starting a thread", below), with the files
+dropped on it, picked with its paper clip or pasted into it ("Files in a new thread").
 
 A file an agent names in a conversation is not left as its path: a picture is drawn in place, any
 other file is a mention that opens it, and a folder on a line of its own shows its newest pictures
@@ -106,9 +107,9 @@ when it is not the first in Needs you (`thread`).
 
 A conversation that names files needs files. `tools/pictures.mjs` plants an invented project
 folder in the system's temporary folder (flat pictures of several shapes, a folder of rounds, a
-page, a note, a sheet, and a second version of a picture and of the note), a scene moves its
-thread's project into it (`files` in `thread.mjs`'s `open`), and the page's pictures are
-answered from it. The native window reads the same files off the disk. Each planting starts the
+page, a note, a sheet, a second version of a picture and of the note, and a picture and a report
+in `attachments/`, where the app saves what a message carries), a scene moves its thread's
+project into it (`files` in `thread.mjs`'s `open`), and the page's pictures are answered from it. The native window reads the same files off the disk. Each planting starts the
 folder again, so these scenes are photographed one after another, never two at once; and a task
 that photographs scenes while another does on the same Mac plants its own folder
 (`MERCURY_PLANTED=<folder>`), or each starts the other's again under it. The scenes:
@@ -122,7 +123,8 @@ line of its own), `thread-links-media` (a film and a sound, which the web window
 one names), `thread-folder` and `thread-folder-quiet` (a folder on a line of its own),
 `thread-pictures-many` (ten screenshots, for the memory measurement), and `thread-files` and
 `thread-files-open` (a thread whose files come in versions, its Files button and the list it
-opens; "The files a thread made", below).
+opens; "The files a thread made", below), and `thread-reply-attached` (a reply that carries a
+pasted picture and a report, drawn as the person's own words).
 
 The invented inbox has almost nothing switched on: nothing in Later, no cloud, no team. So some
 scenes add to it. A scene of Home dresses the inbox before the page opens (`dress`): `home-team`
@@ -416,6 +418,108 @@ its title, body, level and model to the ledger; one sent to Later wrote `start: 
 then wrote its close and opened the card on its words; one sent from the card on the Inbox, at
 High, wrote level 7.
 
+### Files in a new thread
+
+Files go with a new thread as they go from the web window's composer (`ThreadComposer.tsx`,
+`renderer/src/attachments.ts`, `components/AttachRow.tsx`). The rules are `src/rules/attach.rs`,
+with the web's own test cases; the box's side of it is `src/attach.rs`.
+
+- **What attaches**: files dropped anywhere on Home's box or on the New thread card; the file
+  the paper clip's picker picks (the system's own, over the window: Rune's `native-file-dialog`,
+  which builds `rfd`); and ⌘V in the words, where files copied in Finder attach as themselves
+  and a picture on the clipboard, a screenshot, attaches as `pasted-<number>.png`, the number
+  the clock's, as the web window names it. A Finder copy also carries the file's icon as a
+  picture, which is not what was meant and is left. A folder goes as the files inside it, which
+  the engine reads.
+- **How they stand**: in a row between the words and the bar (`.attach-row`, twelve points under
+  the words on Home, ten over the bar on the card). A picture is 84 points tall, as wide as its
+  shape makes it up to 220 and cropped to fill, with a × in its corner; any other file is a chip
+  with its name, its size and a ×. A press on the ×, or anywhere on a chip, takes the file out
+  and lets go of the keyboard, as the web window's focus goes with the button it was on. A press
+  on a picture opens it with the system. The box reads a picture's shape off its header as it
+  comes in, so the row stands where it will from the first frame; the picture itself is read and
+  shrunk to its place in device pixels on a worker, a still picture on the spot.
+- **What cannot go**: a file over 1 GB, or one that cannot be read, lights its chip with no size
+  in it, a line under the row says why in the web window's words ("launch-film.mov is 1.2 GB,
+  over the 1 GB a message can send."), and Send stays off. A TIFF or a HEIC, a photo from a
+  phone, is handed to the engine to be turned into a PNG or a JPEG as it comes in
+  (`zero:stage-attachment`, which uses the Mac's `sips`), as in the web window, and goes as that
+  picture; until the engine answers it is a chip with its name, and Send waits for it. With no
+  engine to ask, or one that cannot turn it, it goes as the file it is.
+- **What Send writes**: first `zero:save-attachments`, with the project and each file: a file on
+  this Mac by its path (`srcPath`), which the engine copies into the project's `attachments/`
+  folder (a clone on APFS, so no second copy of the disk), a pasted picture by its bytes in
+  base64, read and encoded on the worker. Then `zero:compose` as before, its body the words with
+  the engine's links under them after a blank line, one to a line: `![name](attachments/…)` for
+  a picture, `[name](attachments/…)` for anything else (`attachmentLinks`). With files and no
+  words the thread is called after the first of them, "Attached: shot.png" (`threadMessage`).
+  Either write refused puts the words and the files back and opens the card on them, with the
+  engine's own reason; Z takes the thread back as before, and hands back its files with its words.
+- **Home makes room**: Home's column is at least 660 points and gives way when the box grows, as
+  `home.css` lays it out: the room above the greeting first, a thousand times more readily than
+  the cards, which give down to 240 points (CSS flexbox's shrinking, ported in `home.rs`). So the
+  greeting rises and the cards shorten as in the web window. The box's own share, a sliver of a
+  point, is taken from its slot and not from the box.
+- **A conversation draws them**: a person's message is drawn as typed, but the lines the app wrote
+  into it for its files are lifted out and drawn as the picture or the link they are, in the
+  person's own type, heavier and on shorter lines than an agent's (`renderer/src/typed-message.ts`,
+  ported as `src/rules/typed.rs` with its tests). So a thread sent with files shows them when it
+  is opened, and so does a reply that carried them.
+
+The scenes: `home-attached` (words, and a PDF picked through the paper clip: the scene sets it on
+the page's own file input, `DOM.setFileInputFiles`), `home-attached-picture` (a picture pasted
+with no words, a clipboard event carrying `image.png`), `home-attached-too-big` (a film of 1.2 GB,
+invented and empty, of which the disk keeps nothing), `compose-card-attached` (the card on the
+Inbox with a picture and a note) and `thread-reply-attached` (a whole conversation whose reply
+carries a picture and a file). A fixture says what the box held: `attached` (files by their
+path, attached as a drop attaches them) and `pasted` (each picture's PNG and the name the page
+gave it). Each scene plants the invented folder, so photograph one, draw it, then the next: one
+planted later than the film's scene has no film in it, and the box then says the file was not
+found.
+
+At 1280 by 760, 2x: the whole window; the box on Home or the card; the attachment row
+(`.attach-row`, which on Home is mostly the box's glass, two of 255 apart everywhere, see the
+glass below); and the files alone.
+
+| Scene | Whole window | Box or card | Attachment row | The files |
+|---|---|---|---|---|
+| `home-attached` | 0.88 | 2.42 | 1.84 | 0.30 |
+| `home-attached-picture` | 0.84 | 1.99 | 1.57 | 0.44 |
+| `home-attached-too-big` | 0.93 | 2.62 | 1.88 | 1.25, and 2.35 the line saying why |
+| `compose-card-attached` | 0.23 | 0.25 | 0.12 | 0.38 |
+
+At 900 by 760 the three on Home are 0.93 to 1.05 whole (Home with words and no file is 1.08
+there), their rows 1.25 to 1.44 and their files 0.29 to 0.44, the lit chip 1.23; at 1600 by
+1000, 0.72 to 0.76 whole (0.71 with no file), rows 1.66 to 1.73, files 0.30 to 0.45, the lit
+chip 1.25. The card is 0.26 and 0.17 whole, its row 0.12 and its files 0.38 at both. The web window's caret was between blinks when
+`home-attached-picture` was photographed, and this window draws its caret.
+
+`thread-reply-attached` is 0.83 whole. Its reply's parts stand where the web window's do to a
+hundredth of a point, measured from the reply's head; the whole conversation sits half a point
+lower, because it lands at its foot and Chromium's scroll height is a whole number of points
+where Rune's is not. With that half point taken back, the reply is 0.42, its picture and name
+0.43, and the file's link 6.3, which is a mention's underline (see what still differs).
+
+Filmed at 60 frames a second, a file dropped, a picture pasted and a file taken out (on the
+release of the press) each land whole on the next frame, the column and the box's row with
+them, and every frame after is the same; Rune counts no frame as animating. A large picture's
+copy can land after its place: a full screenshot takes about two seconds to read in a debug
+build, and its place stands empty in its edge until then, as an image not yet decoded does in
+the web window.
+
+Against a scratch engine: a thread typed on Home, with a PDF dropped and a picture pasted, put in
+Later and sent, wrote "Check the receipt layout against these" with the body
+`[week-32.pdf](attachments/…-week-32.pdf)` and `![pasted-89459.png](attachments/…-pasted-89459.png)`
+under it, and both files were in the project's `attachments/` folder, the same bytes as dropped
+and pasted. Opened, it drew the PDF as a mention and the picture. A file dropped and taken off
+the disk before Send was refused in the engine's words (`Not sent: ENOENT: no such file or
+directory, stat '…'`), and the card opened on the words and the file. A picture sent alone, to
+Later, as "Attached: pasted-1708.png", was taken back with Z: the ledger has its close, and the
+card opened on the picture. A TIFF dropped on the box came in as a PNG and went as
+`![receipt-scan.png](attachments/…)`. A script that types words lets each letter land 35 ms
+after the last (`"every"`), so a press scripted while it is still typing opens a menu that then
+takes the letters after it, as a menu should.
+
 ## The command bar
 
 ⌘K opens it over whatever is on screen, and ⌘K again closes it; Control K does the same, as in
@@ -707,9 +811,9 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
 - **The reply box's chips are drawn, not chosen.** In a conversation's reply box the priority,
   the mode and the model cannot be changed, nothing can be attached and nothing can be sent later.
 - **Starting a thread, where it still differs:**
-  - Out of reach here, and drawn where the web window draws them: attaching files (the paper
-    clip opens nothing), To (it says Agent and opens no menu), @-names in the words, recording,
-    a demand, the branch a thread starts from, who sees it, and the tutorial's suggestions.
+  - Out of reach here, and drawn where the web window draws them: To (it says Agent and opens no
+    menu), @-names in the words, recording, a demand, the branch a thread starts from, who sees
+    it, and the tutorial's suggestions.
   - The caret's menu offers Add it to Later and nothing with a clock in it: no Tomorrow morning,
     no Monday morning, no time typed in words, no repeating task, which the web window's menu
     lists under it.
@@ -733,6 +837,32 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
     thread; the web window reads the engine afresh first.
   - The caret is half a point wider and a fifth shorter, as Rune draws every caret, and the large
     words on Home sit up to half a point from the browser's, glyph by glyph.
+- **Files in a new thread, where they still differ:**
+  - The paper clip's picker picks one file at a time: Rune's file dialog (`Tx::open_file`) has
+    no choosing of several, where the web window's file input takes several at once. A drop and
+    a paste take any number.
+  - A drop is taken anywhere on the box or the card. The web window takes it on its words, which
+    are most of the box; a drop on the rest of it does nothing there.
+  - A picture in the box opens with the system. The web window opens it large in a viewer of its
+    own that steps through the box's pictures. A pasted picture is no file yet and opens nothing.
+  - A chip and a × do not brighten under the pointer, as the box's other chips do not.
+  - Nothing is read in pieces: a file on this Mac goes as its path, and a pasted picture is held
+    as its bytes until Send. So nothing is ever on its way in but a photo being turned, and the
+    bar the web window runs along a chip's foot as the pieces of a big file land is never drawn.
+    A pasted picture goes across the door in one request, and the door takes 32 MB of it, about
+    a 24 MB picture; Rune's clipboard hands over 32 MB of PNG at most. Between the two a send is
+    refused with the door's reason and the words and files come back. The web window sends such
+    a picture in pieces (`stageAttachmentPart`).
+  - The web window writes a pasted picture to disk as it is pasted, so its draft survives a
+    restart. Here the files last as long as the window, as the words do.
+  - A picture whose header does not read is a chip, where the web window draws a broken picture.
+    It still goes, as the file it is.
+  - A file that cannot be read when it is attached says so at once, in the web window's words for
+    a file that is not there or else the system's own. The web window finds out at Send, and
+    says the engine's reason then.
+  - The lit chip's own tooltip (`overTheLimit`) is not drawn; the line under the row says it.
+  - A link the app wrote into a person's message is a mention whose underline sits a point or two
+    above the web window's, as every mention's does here.
 - **A reply shows in the conversation once it is written.** The web window draws it at once,
   marked as sending. Here the box folds, the line says Sent, and the words appear three seconds
   later with the engine's next answer.
@@ -840,6 +970,10 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
 - `src/compose.rs`: the box a thread is started in, on Home and as the New thread card, its
   menus and what a send does. `src/rules/compose.rs`: what a new thread is made of and the
   menus' rules. `src/picks.rs`: the picks kept from one window to the next.
+- `src/attach.rs`: the files in that box, how they come in and how they are drawn.
+  `src/rules/attach.rs`: which can go, what the box says of one that cannot, and how they are
+  saved and linked. `src/rules/typed.rs`: the lines the app wrote into a person's message for
+  its files, which a conversation draws.
 - `src/palette.rs`: the command bar ⌘K opens. `src/rules/palette.rs` decides what it offers and
   in which order; `src/rules/search.rs` finds a thread by its words.
 - `src/files.rs`: the files those words name, drawn, and the one function that opens one.

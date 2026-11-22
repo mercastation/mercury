@@ -8,9 +8,40 @@ use rune::Waker;
 use serde_json::Value;
 
 use crate::data::Item;
+use crate::rules::attach::{self, Pending};
 use crate::rules::compose::{Level, Pick};
 use crate::rules::writes::Write;
 use crate::source::{self, Door};
+
+/// One write of something sent. Most are known whole before anything is sent. A new thread's
+/// files go first and its words after them (`persistAttachments`, then `api.compose`): the
+/// files' bytes are read on the way, off the main thread, and the thread's body links them
+/// where the engine says it saved them.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Step {
+    Write(Write),
+    /// The files of a new thread for the project `product`, saved into its folder.
+    Save { product: String, files: Vec<Pending> },
+    /// The new thread itself, its body linking what the step before saved.
+    Linked(Write),
+}
+
+impl Step {
+    /// What this step writes, given what the engine answered the step before it.
+    fn written(self, before: &Value) -> Write {
+        match self {
+            Step::Write(write) => write,
+            Step::Save { product, files } => (attach::SAVE_ATTACHMENTS, attach::save_payload(&product, &files)),
+            Step::Linked((channel, payload)) => (channel, attach::linked(payload, before)),
+        }
+    }
+
+    /// How long the engine may take over it: copying a film off a slow disk is the one write
+    /// that can take longer than a reply.
+    fn wait(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(if matches!(self, Step::Save { .. }) { 120 } else { 20 })
+    }
+}
 
 /// What was sent, kept until the engine answers, so a refusal can be put right on screen.
 #[derive(Clone, Debug, PartialEq)]
@@ -54,15 +85,16 @@ impl Sent {
     }
 }
 
-/// What the box to start a thread in held when Send was pressed: the words, and the level, the
-/// model and Later picked on it, which are as much a part of the message (`ComposeDraft` in
-/// `renderer/src/drafts.ts`).
+/// What the box to start a thread in held when Send was pressed: the words, the files, and the
+/// level, the model and Later picked on it, which are as much a part of the message
+/// (`ComposeDraft` in `renderer/src/drafts.ts`).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Draft {
     pub words: String,
     pub level: Option<Level>,
     pub pick: Option<Pick>,
     pub later: bool,
+    pub files: Vec<crate::attach::Attached>,
 }
 
 /// Something done and not yet written (`deferCommit` in `renderer/src/App.tsx`). It shows at
@@ -160,15 +192,17 @@ impl Outbox {
     /// Sends the writes that are one thing done, each after the one before it was taken, and
     /// says whether there was a door to send through. The first the engine refuses stops the
     /// rest, and its refusal is the answer; otherwise the answer is the last one's.
-    pub fn send_in_order(&self, door: &Door, writes: Vec<Write>, sent: Sent) -> bool {
+    pub fn send_in_order(&self, door: &Door, steps: Vec<Step>, sent: Sent) -> bool {
         let Some((url, token)) = door.now() else {
             return false;
         };
         let (tx, waker, door) = (self.tx.clone(), self.waker.clone(), door.clone());
         std::thread::spawn(move || {
             let mut answer = Ok(Value::Null);
-            for (channel, payload) in &writes {
-                answer = source::call(&url, &token, channel, payload);
+            for step in steps {
+                let wait = step.wait();
+                let (channel, payload) = step.written(answer.as_ref().unwrap_or(&Value::Null));
+                answer = source::call_waiting(&url, &token, channel, &payload, wait);
                 if refusal_in(&answer).is_some() {
                     break;
                 }
@@ -198,6 +232,20 @@ mod tests {
 
     fn landed(answer: Result<Value, String>) -> Landed {
         Landed { sent: Sent::Close { thread: "shop/w-1".to_string() }, answer, snapshot: None }
+    }
+
+    #[test]
+    fn a_new_threads_files_go_first_and_its_body_links_them_where_they_were_saved() {
+        let files = vec![Pending { name: "week-32.pdf".to_string(), source: attach::Source::Disk("/Users/you/Desktop/week-32.pdf".to_string()), image: false, size: Some(1024), failed: None }];
+        let (channel, payload) = Step::Save { product: "storefront".to_string(), files }.written(&Value::Null);
+        assert_eq!((channel, payload), (attach::SAVE_ATTACHMENTS, json!({ "product": "storefront", "files": [{ "name": "week-32.pdf", "srcPath": "/Users/you/Desktop/week-32.pdf" }] })));
+        let saved = json!([{ "rel": "attachments/mt0-x1-week-32.pdf", "name": "week-32.pdf", "image": false }]);
+        let compose = json!({ "product": "storefront", "title": "Attached: week-32.pdf", "kind": "directive", "priority": 0.0, "model": "opus" });
+        let (channel, payload) = Step::Linked(("zero:compose", compose)).written(&saved);
+        assert_eq!((channel, payload["body"].clone()), ("zero:compose", json!("[week-32.pdf](attachments/mt0-x1-week-32.pdf)")));
+        // A write known before anything is sent goes as it is, and the files have longer to land.
+        assert_eq!(Step::Write(("zero:answer", json!({ "id": "w-1" }))).written(&saved), ("zero:answer", json!({ "id": "w-1" })));
+        assert!(Step::Save { product: String::new(), files: Vec::new() }.wait() > Step::Write(("zero:answer", Value::Null)).wait());
     }
 
     #[test]

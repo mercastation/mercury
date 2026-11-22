@@ -12,6 +12,7 @@
 
 #![forbid(unsafe_code)]
 
+mod attach;
 mod chrome;
 mod compose;
 mod data;
@@ -209,11 +210,15 @@ impl State {
     }
     /// Several writes that are one thing done, sent in order.
     fn send_all(&mut self, writes: Vec<writes::Write>, sent: write::Sent) -> bool {
+        self.send_steps(writes.into_iter().map(write::Step::Write).collect(), sent)
+    }
+    /// The same, where a write may be made of what the engine answered the one before it.
+    fn send_steps(&mut self, steps: Vec<write::Step>, sent: write::Sent) -> bool {
         self.refused = None;
         let Source::Door(door) = &self.source else {
             return false;
         };
-        if self.outbox.send_in_order(door, writes, sent) {
+        if self.outbox.send_in_order(door, steps, sent) {
             return true;
         }
         self.refused = Some("Mercury is not running, so this was not sent.".to_string());
@@ -915,6 +920,8 @@ fn init() -> State {
         s.compose.words.focused = !s.fixture.contains_key("menu");
         s.compose.card = s.fixture.get("card") == Some(&Value::Bool(true));
     }
+    // And one taken with files in that box says which (`attached`, `pasted`).
+    s.picture_attached();
     s
 }
 
@@ -950,6 +957,7 @@ fn setup(s: &mut State, wake: Waker) {
     s.reading_models.set_waker(wake.clone());
     s.read_the_models();
     s.outbox.wake_with(wake.clone());
+    s.compose.staging.wake_with(wake.clone());
     s.pictures.set_waker(wake.clone());
     if let Source::Door(door) = s.source.clone() {
         source::follow_door(door, s.mailbox.clone(), move || wake());
@@ -1023,6 +1031,8 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
         s.landed(landed, tx);
         changed = true;
     }
+    // A picture the engine has turned for the box a thread is started in.
+    changed |= s.land_staged();
     if let Some((key, answer)) = s.asking.take() {
         match answer {
             Ok(answer) => {
