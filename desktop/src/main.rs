@@ -1333,8 +1333,11 @@ fn init_from(args: &[String]) -> State {
 /// here once the window has its clock, on the open thread or on the Inbox's picked row. One
 /// taken just after a thread was sent hands over what the page was answered (`sent`).
 fn press_what_the_picture_pressed(s: &mut State, tx: &mut Tx) {
-    if s.fixture.remove("closed").is_some() {
-        keys::close_under_the_keys(s, tx);
+    // E, as many times as the picture's page had it pressed (`true` is once).
+    if let Some(closed) = s.fixture.remove("closed") {
+        for _ in 0..closed.as_u64().unwrap_or(1) {
+            keys::close_under_the_keys(s, tx);
+        }
     }
     if let Some(sent) = s.fixture.remove("sent") {
         s.picture_sent(&sent, tx);
