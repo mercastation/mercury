@@ -132,6 +132,8 @@ pub struct State {
     pub palette: palette::Bar,
     /// The box a thread is started in, and what it holds.
     pub compose: compose::Composer,
+    /// The rail, folded or opened by the pointer resting on it (`chrome.rs`).
+    pub rail: chrome::Rail,
     /// The models this Mac's coding agents offer, as the engine's settings say; the ones the
     /// app was built with until it has.
     pub models: rules::compose::Models,
@@ -670,12 +672,13 @@ impl State {
     fn rows_under_the_keys(&self) -> usize {
         self.lists.under(self.inbox_tab).len()
     }
+    /// The card's box, beside the rail as wide as it is now.
     pub fn card_size(&self) -> (f32, f32) {
-        ((self.size.0 - chrome::CARD[0] - chrome::CARD[2]).max(1.0), (self.size.1 - chrome::CARD[1] - chrome::CARD[3]).max(1.0))
+        ((self.size.0 - chrome::card_left(self) - chrome::CARD[2]).max(1.0), (self.size.1 - chrome::CARD[1] - chrome::CARD[3]).max(1.0))
     }
     /// The page's box inside the window: under the card's top strip.
     pub fn page_size(&self) -> (f32, f32) {
-        ((self.size.0 - chrome::CARD[0] - chrome::CARD[2]).max(1.0), (self.size.1 - chrome::page_top(&self.view) - chrome::CARD[3]).max(1.0))
+        ((self.size.0 - chrome::card_left(self) - chrome::CARD[2]).max(1.0), (self.size.1 - chrome::page_top(&self.view) - chrome::CARD[3]).max(1.0))
     }
     fn refresh(&mut self) {
         self.lists = self.snap.lists(self.now, &self.local);
@@ -821,6 +824,7 @@ fn init_from(args: &[String]) -> State {
         later: later::Picker::closed(),
         palette: palette::Bar::closed(),
         compose: compose::Composer::default(),
+        rail: chrome::Rail::default(),
         models: rules::compose::Models::built(),
         reading_models: Latest::default(),
         picks,
@@ -1038,6 +1042,7 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
     }
     // A picture the engine has turned for the box a thread is started in.
     changed |= s.land_staged();
+    changed |= chrome::rail_moves(s, at, tx);
     if let Some((key, answer)) = s.asking.take() {
         match answer {
             Ok(answer) => {
@@ -1072,7 +1077,7 @@ fn resized(s: &mut State, [_, _, w, h]: [f32; 4]) {
         return;
     }
     s.size = (w, h);
-    let points = s.card_size();
+    let points = chrome::folded_card_size(s);
     s.painting.request(points, paint_skies);
 }
 
@@ -1102,7 +1107,7 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
         .child(chrome::back_forward(s))
         // The page scrolls inside the card, under its top strip.
         .child(
-            el().pin(Some(chrome::CARD[0]), Some(chrome::page_top(&s.view)), Some(chrome::CARD[2]), Some(chrome::CARD[3]))
+            el().pin(Some(chrome::card_left(s)), Some(chrome::page_top(&s.view)), Some(chrome::CARD[2]), Some(chrome::CARD[3]))
                 .clip_corners([0.0, 0.0, 6.0, 6.0])
                 .scroll(ScrollSpec { stick_bottom: false })
                 .child(page),

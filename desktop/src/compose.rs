@@ -625,7 +625,8 @@ fn menu_layer(s: &State) -> Option<El> {
     };
     // A menu on the page is seen only inside the page, which clips it (`.hm-page`); over the
     // card, anywhere in the window.
-    let sides = if card { (0.0, w) } else { (chrome::CARD[0], w - chrome::CARD[2]) };
+    let left = chrome::card_left(s);
+    let sides = if card { (0.0, w) } else { (left, w - chrome::CARD[2]) };
     let fit = rules::fit_menu(anchor, hang, (wide, tall), h, sides);
     let rows = col().key(MENU).min_w(least - 2.0).items_stretch().gap(1.0).px(5.0).py(5.0).children(parts);
     // No clip on the shell itself: Rune's rounded clip takes the element's own shadow with it,
@@ -659,9 +660,9 @@ fn menu_layer(s: &State) -> Option<El> {
         );
     }
     let page = el()
-        .pin(Some(chrome::CARD[0]), Some(chrome::PAGE_TOP), Some(chrome::CARD[2]), Some(chrome::CARD[3]))
+        .pin(Some(left), Some(chrome::PAGE_TOP), Some(chrome::CARD[2]), Some(chrome::CARD[3]))
         .clip_corners([0.0, 0.0, 6.0, 6.0])
-        .child(shell.absolute(fit.left - chrome::CARD[0], fit.top - chrome::PAGE_TOP));
+        .child(shell.absolute(fit.left - left, fit.top - chrome::PAGE_TOP));
     Some(el().absolute(0.0, 0.0).size(w, h).child(away).child(page))
 }
 

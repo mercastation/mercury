@@ -182,7 +182,7 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
         actions = actions.child(place.ml(10.0));
     }
     let actions = actions.child(close.ml(10.0)).child(square(&icons::MORE, 16.0, 30.0, dim()).ml(10.0).border(1.0, edge()));
-    row().absolute(chrome::CARD[0], chrome::CARD[1])
+    row().absolute(chrome::card_left(s), chrome::CARD[1])
         .size(card_w, 56.0)
         .items_center()
         .pl(20.0)

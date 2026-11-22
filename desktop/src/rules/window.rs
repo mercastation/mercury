@@ -54,6 +54,12 @@ fn first_name(person: &Map<String, Value>) -> &str {
     text(person, "name").or_else(|| text(person, "email")).unwrap_or("Someone").split_whitespace().next().unwrap_or("Someone")
 }
 
+/// The name at the head of the open rail (`teamName` in `WorkspaceNavigation.tsx`): the team's,
+/// else the app's own.
+pub fn team_name(snap: &Snapshot) -> &str {
+    part(snap, "team").and_then(|t| t.get("team")).and_then(Value::as_object).and_then(|t| text(t, "name")).unwrap_or("Mercury")
+}
+
 /// The two letters on the person's own face (`Face` in `renderer/src/team/people.tsx`).
 pub fn my_letters(snap: &Snapshot) -> Option<String> {
     me(snap).map(|m| first_name(m).chars().take(2).collect())

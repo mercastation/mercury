@@ -1,16 +1,135 @@
 //! What every screen stands on: the dotted page, the main card with the sky painted on it, the
-//! folded rail, and back and forward. Sizes follow the window; the insets are the web app's.
+//! rail, which opens while the pointer rests on it, and back and forward. Sizes follow the
+//! window; the insets are the web app's.
 
-use rune::{El, Icon, TextCase, TextStyle, col, el, icon, row, text};
+use std::time::Duration;
+
+use rune::{Cursor, Easing, El, Icon, TextCase, TextStyle, Tx, col, el, icon, row, spacer, text};
 
 use crate::rules::window;
 use crate::theme::*;
-use crate::{State, View, icons};
+use crate::{State, View, feel, icons};
 
-/// The main card's insets from the window: left of it the rail, above it the title strip.
+/// The main card's insets from the window with the rail folded: left of it the rail, above it
+/// the title strip. While the rail is open the card starts further right (`card_left`).
 pub const CARD: [f32; 4] = [82.0, 40.0, 22.0, 22.0];
 /// Where the page begins inside the window: under the card's top strip.
 pub const PAGE_TOP: f32 = 104.0;
+
+/// The rail's width folded and open (`--workspace-width`); the card starts 44 points past it
+/// (`--workspace-left` in `renderer/src/workspace-navigation.css`).
+const FOLDED: f32 = 38.0;
+const OPEN: f32 = 202.0;
+
+/// Where the card starts now, beside the rail as wide as it is at this frame.
+pub fn card_left(s: &State) -> f32 {
+    22.0 + s.rail.width(s.at) + 22.0
+}
+
+/// The card's size with the rail folded, which the skies are painted for: the rail opening
+/// covers their left edge rather than painting them again (`sky-follows-the-card.ts`).
+pub fn folded_card_size(s: &State) -> (f32, f32) {
+    ((s.size.0 - CARD[0] - CARD[2]).max(1.0), (s.size.1 - CARD[1] - CARD[3]).max(1.0))
+}
+
+/// A value carried from where it was to where it goes as a CSS transition carries it: it holds
+/// for `delay` seconds, then moves for `dur` along `curve`. A change before it lands starts the
+/// next from wherever it had got to.
+#[derive(Clone, Copy)]
+struct Fade {
+    from: f32,
+    to: f32,
+    since: f64,
+    delay: f64,
+    dur: f64,
+    curve: Easing,
+}
+
+impl Fade {
+    const fn still(at: f32) -> Fade {
+        Fade { from: at, to: at, since: 0.0, delay: 0.0, dur: 0.0, curve: Easing::LINEAR }
+    }
+    fn at(&self, now: f64) -> f32 {
+        let t = now - self.since - self.delay;
+        if t <= 0.0 {
+            return self.from;
+        }
+        if self.dur <= 0.0 || t >= self.dur {
+            return self.to;
+        }
+        self.from + (self.to - self.from) * self.curve.eval((t / self.dur) as f32)
+    }
+    fn toward(&self, to: f32, now: f64, delay: f64, dur: f64, curve: Easing) -> Fade {
+        Fade { from: self.at(now), to, since: now, delay, dur, curve }
+    }
+    /// Still moving at `now`, or landed less than a few frames ago, so the frame that draws it
+    /// where it lands is drawn.
+    fn moving(&self, now: f64) -> bool {
+        now < self.since + self.delay + self.dur + 0.05
+    }
+}
+
+/// The rail, folded to its marks, or open to the whole sidebar with its words while the pointer
+/// rests on it (`railOpen` in `renderer/src/App.tsx`, `onHover` in `WorkspaceNavigation.tsx`).
+/// Open, it moves the card over rather than covering it.
+pub struct Rail {
+    open: bool,
+    width: Fade,
+    /// The words, the team's name, Inbox's count and the keys beside Search.
+    words: Fade,
+    /// The line under Search.
+    line: Fade,
+    /// The dot on Inbox while something waits, which the count stands for when open.
+    dot: Fade,
+}
+
+impl Default for Rail {
+    fn default() -> Rail {
+        Rail { open: false, width: Fade::still(FOLDED), words: Fade::still(0.0), line: Fade::still(0.0), dot: Fade::still(1.0) }
+    }
+}
+
+impl Rail {
+    /// The pointer came to rest on the rail (140 ms after it moved onto it) or left it. The rules
+    /// are `renderer/src/team/rooms/rooms.css`'s: the width eases open over 0.24 s and shut
+    /// over 0.2 s; the words come in 0.08 s later over 0.14 s and go over 0.06 s; Search's line
+    /// crosses in 0.14 s and Inbox's dot in 0.1 s, its `ease` both ways.
+    fn point(&mut self, on: bool, now: f64) {
+        if on == self.open {
+            return;
+        }
+        self.open = on;
+        let ease = Easing::EASE;
+        if on {
+            self.width = self.width.toward(OPEN, now, 0.0, 0.24, Easing::cubic(0.22, 0.61, 0.36, 1.0));
+            self.words = self.words.toward(1.0, now, 0.08, 0.14, ease);
+            self.line = self.line.toward(1.0, now, 0.0, 0.14, ease);
+            self.dot = self.dot.toward(0.0, now, 0.0, 0.1, ease);
+        } else {
+            self.width = self.width.toward(FOLDED, now, 0.0, 0.2, Easing::cubic(0.4, 0.0, 0.2, 1.0));
+            self.words = self.words.toward(0.0, now, 0.0, 0.06, ease);
+            self.line = self.line.toward(0.0, now, 0.0, 0.14, ease);
+            self.dot = self.dot.toward(1.0, now, 0.0, 0.1, ease);
+        }
+    }
+    /// How wide it is at `now`.
+    pub fn width(&self, now: f64) -> f32 {
+        self.width.at(now)
+    }
+    /// Whether it is opening or folding at `now`, when every frame has to be drawn.
+    pub fn moving(&self, now: f64) -> bool {
+        [self.width, self.words, self.line, self.dot].iter().any(|f| f.moving(now))
+    }
+}
+
+/// The poll's part: while the rail opens or folds, each frame is drawn and asks for the next.
+pub fn rail_moves(s: &State, at: f64, tx: &mut Tx) -> bool {
+    let moving = s.rail.moving(at);
+    if moving {
+        tx.wake_after(Duration::ZERO);
+    }
+    moving
+}
 
 /// The same for the screen on show: the strip over a conversation is 56 points tall, not 64.
 pub fn page_top(view: &View) -> f32 {
@@ -40,17 +159,19 @@ pub fn backdrop(w: f32, h: f32) -> El {
 
 /// The main card. The sky is drawn at the size it was painted for and cut to the card, so a
 /// window being resized shows the old sky still, never a stretched one, until the new one lands.
+/// It stands on the card's right edge, so the rail opening covers its left edge.
 pub fn card(s: &State) -> El {
     let card = el()
-        .pin(Some(CARD[0]), Some(CARD[1]), Some(CARD[2]), Some(CARD[3]))
+        .pin(Some(card_left(s)), Some(CARD[1]), Some(CARD[2]), Some(CARD[3]))
         .radius(6.0)
         .fill(rgba(36, 34, 33, 0.55))
         .box_shadow(shadow(0.0, 40.0, 120.0, 0.0, rgba(0, 0, 0, 0.7), false));
     let whole = || el().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).radius(6.0);
+    let (card_w, _) = s.card_size();
     match s.view {
         // Home's sky covers the whole card, on a ground of its own, under a faint edge.
         View::Home => card
-            .child(whole().fill(rgb(0x1b, 0x19, 0x17)).clip_rounded(6.0).child(el().absolute(0.0, 0.0).size(s.sky_size.0, s.sky_size.1).pixels(&s.sky_home)))
+            .child(whole().fill(rgb(0x1b, 0x19, 0x17)).clip_rounded(6.0).child(el().absolute(card_w - s.sky_size.0, 0.0).size(s.sky_size.0, s.sky_size.1).pixels(&s.sky_home)))
             .child(whole().border(1.0, white(0.07))),
         // The Inbox's sky stands behind its head alone, so under it the card shows its own glass and edge.
         View::Inbox => card.box_shadow(shadow(0.0, 0.0, 0.0, 1.0, edge(), true)).child(crate::inbox::sky(s)),
@@ -73,12 +194,15 @@ fn app_mark() -> El {
     el().size(12.0, 12.0).children(dots)
 }
 
-fn rail_button(glyph: &'static Icon, active: bool) -> El {
-    let mut b = row().size(38.0, 36.0).radius(6.0).items_center().pl(10.0);
-    if active {
-        b = b.fill(rgba(40, 38, 37, 0.7)).box_shadow(shadow(0.0, 0.0, 0.0, 1.0, white(0.07), true));
-    }
-    b.child(icon(glyph, 18.0).color(if active { ink() } else { muted() }))
+/// One of the rail's buttons (`.workspace-navigation button`): its mark, and the word beside it
+/// that shows while the rail is open, cut off by the button's edge as it widens. The page on
+/// screen is lit; any other washes under the pointer, its mark and word in the text's colour
+/// (`button:hover`), and every one takes the pointing hand.
+fn rail_button(glyph: &'static Icon, word: &str, active: bool, wide: f32, words: f32) -> El {
+    let tone = if active { ink() } else { muted() };
+    let b = row().size(wide, 36.0).radius(6.0).items_center().pl(10.0).pr(10.0).gap(11.0).clip_rounded(6.0).cursor(Cursor::Pointer);
+    let b = if active { b.fill(rgba(40, 38, 37, 0.7)).box_shadow(shadow(0.0, 0.0, 0.0, 1.0, white(0.07), true)) } else { b.hover_group().hover(feel::wash()) };
+    b.child(icon(glyph, 18.0).color(tone).group_color(ink())).child(pen(label(word, 13.0, 400.0, tone).group_color(ink()), 13.0).opacity(words))
 }
 
 /// The person's own face at the rail's end: two letters on a light disc (`.tm-av.you`).
@@ -91,56 +215,116 @@ fn my_face(letters: &str) -> El {
         .child(text(letters).font(TextStyle::new(9.0, 500.0).mono().lh(20.0).tracking(0.18)).text_case(TextCase::Uppercase).color(page()))
 }
 
-/// The folded rail: the mark, search, the places, and a foot that holds what this person's
-/// Mercury has: Record meeting, feedback, settings, what is left of the limit, their own face.
+/// The rail: the mark, search, the places, and a foot that holds what this person's Mercury
+/// has: Record meeting, feedback, settings, what is left of the limit, their own face. Folded
+/// it is the marks alone; while the pointer rests on it, it opens to the whole sidebar, each
+/// mark with its word and Inbox with its count (`Rail`). A page this window does not have yet
+/// is a button that answers the pointer as the web window's does and goes nowhere.
 pub fn rail(s: &State) -> El {
+    let now = s.at;
+    let (wide, words, line, dot) = (s.rail.width(now), s.rail.words.at(now), s.rail.line.at(now), s.rail.dot.at(now));
+    // Folded, a button's title names it; open, its word does (`title={collapsed ? … : undefined}`).
+    let folded = !s.rail.open;
+    let button = |glyph: &'static Icon, word: &str, active: bool| {
+        let b = rail_button(glyph, word, active, wide, words);
+        if folded { b.help(word) } else { b }
+    };
     let on_home = s.view == View::Home;
     let on_inbox = matches!(s.view, View::Inbox | View::Thread { .. });
-    let waiting = !s.lists.needs.is_empty();
-    let mut inbox = el().child(rail_button(&icons::INBOX, on_inbox).on_press(|s: &mut State| s.go(View::Inbox)));
-    if waiting {
-        // Something in the Inbox is waiting.
-        inbox = inbox.child(el().absolute(25.0, 8.0).size(6.0, 6.0).radius(3.0).fill(accent()));
+    let waiting = s.lists.needs.len();
+    // Inbox: the number that waits, open (`.workspace-running`, in the accent's figures), and
+    // folded a dot in its corner standing for it (`.has-count::after`).
+    let mut inbox = rail_button(&icons::INBOX, "Inbox", on_inbox, wide, words);
+    if waiting > 0 {
+        let count = text(waiting.to_string()).font(mono(13.0, 18.0).features("'tnum' 1")).color(accent());
+        inbox = inbox.child(spacer()).child(row().min_w(20.0).justify_end().opacity(words).child(count)).help(format!("Inbox · {waiting} {} waiting", if waiting == 1 { "thread" } else { "threads" }));
+    } else if folded {
+        inbox = inbox.help("Inbox");
+    }
+    let mut inbox = el().child(inbox.on_press(|s: &mut State| s.go(View::Inbox)));
+    if waiting > 0 {
+        inbox = inbox.child(el().absolute(25.0, 8.0).size(6.0, 6.0).radius(3.0).fill(accent()).opacity(dot));
     }
     let mut places = col()
         .absolute(0.0, 98.0)
         .gap(3.0)
-        .child(rail_button(&icons::HOME, on_home).on_press(|s: &mut State| s.go(View::Home)))
+        .child(button(&icons::HOME, "Home", on_home).on_press(|s: &mut State| s.go(View::Home)))
         .child(inbox)
-        .child(rail_button(&icons::DEMANDS, false));
+        .child(feel::answers(button(&icons::DEMANDS, "Demands", false)));
     // With teammates the one row under the threads is Chats (`teammatesUi.rail`).
     if window::teammates_live(&s.snap) {
-        places = places.child(rail_button(&icons::CHATS, false));
+        places = places.child(feel::answers(button(&icons::CHATS, "Chats", false)));
     }
-    places = places.child(rail_button(&icons::CONNECTIONS, false)).child(rail_button(&icons::FILES, false));
+    places = places.child(feel::answers(button(&icons::CONNECTIONS, "Connections", false))).child(feel::answers(button(&icons::FILES, "Files", false)));
 
     // The foot stands on the rail's end and grows upward: the person's face under a hairline,
-    // over it the usage button, over that the buttons everyone has (`.workspace-bottom`).
+    // over it the usage button, over that the buttons everyone has (`.workspace-bottom`). Their
+    // titles stand whether the rail is open or not.
     let me = window::my_letters(&s.snap);
     let usage = window::usage_shown(&s.snap, s.now);
     let face_room = if me.is_some() { 54.0 } else { 0.0 };
+    let foot = |glyph: &'static Icon, word: &str| feel::answers(rail_button(glyph, word, false, wide, words).help(word));
     let mut buttons = col().pin(Some(0.0), None, None, Some(face_room + if usage { 50.0 } else { 12.0 })).gap(2.0);
     if window::update_waits(&s.snap) {
         // Restart to update stands first, with the room its card rises from (`.sb-update-slot`).
-        buttons = buttons.child(el().pb(9.0).child(rail_button(&icons::RESTART, false)));
+        buttons = buttons.child(el().pb(9.0).child(foot(&icons::RESTART, "Restart to update")));
     }
     if window::can_record(&s.snap) {
-        buttons = buttons.child(rail_button(&icons::RECORD, false));
+        buttons = buttons.child(foot(&icons::RECORD, "Record meeting"));
     }
     if window::takes_feedback(&s.snap) {
-        buttons = buttons.child(rail_button(&icons::FEEDBACK, false));
+        buttons = buttons.child(foot(&icons::FEEDBACK, "Feedback"));
     }
-    buttons = buttons.child(rail_button(&icons::SETTINGS, false));
+    buttons = buttons.child(foot(&icons::SETTINGS, "Settings"));
+
+    // The team's mark, and its name beside it while the rail is open (`.th-team`), which the
+    // rail's edge cuts as it widens.
+    let team = row()
+        .absolute(0.0, 0.0)
+        .size(wide, 34.0)
+        .clip_rounded(0.0)
+        .child(el().absolute(13.0, 11.0).child(app_mark()))
+        .child(el().absolute(39.0, 8.0).opacity(words).child(pen(text(window::team_name(&s.snap)).font(sans(14.0, 400.0)).color(ink()), 14.0)));
+    let team = if folded { team } else { team.help(window::team_name(&s.snap)) };
+    // Search, over the places (`.workspace-find`): the glass, its word and its keys, and a line
+    // under them that shows only open, fainter than any divider until the pointer is on it. It
+    // opens the command bar, as ⌘K does.
+    let under = el().pin(Some(10.0), None, Some(10.0), Some(0.0)).h(1.0).fill(edge()).opacity(line).group_opacity(0.55, 1.0);
+    let search = row()
+        .absolute(0.0, 52.0)
+        .size(wide, 32.0)
+        .items_center()
+        .pl(10.0)
+        .pr(10.0)
+        .gap(11.0)
+        .clip_rounded(0.0)
+        .hover_group()
+        .cursor(Cursor::Pointer)
+        .child(icon(&icons::SEARCH, 18.0).color(muted()).group_color(ink()))
+        .child(pen(label("Search", 13.0, 400.0, muted()).group_color(ink()), 13.0).opacity(words))
+        .child(spacer())
+        .child(pen(text("⌘K").font(sans(12.0, 400.0).tracking(0.24)).color(muted()), 12.0).opacity(0.7 * words))
+        .child(under)
+        .help("Search · ⌘K")
+        .on_press_tx(|s: &mut State, tx| s.open_palette(tx));
 
     let mut rail = el()
         .pin(Some(22.0), Some(50.0), None, Some(22.0))
-        .w(38.0)
-        .child(el().absolute(13.0, 11.0).child(app_mark()))
-        .child(row().absolute(0.0, 52.0).size(38.0, 32.0).items_center().pl(10.0).child(icon(&icons::SEARCH, 18.0).color(muted())))
+        .w(wide)
+        // It opens 140 ms after the pointer moves onto it and folds the moment it leaves
+        // (`hoverAt` in `WorkspaceNavigation.tsx`), a pointer passing over on its way somewhere
+        // else opening nothing.
+        .hover_delays(Duration::from_millis(140), Duration::ZERO)
+        .on_hover_change(|s: &mut State, inside, tx| {
+            s.rail.point(inside, tx.clock());
+            tx.wake_after(Duration::ZERO);
+        })
+        .child(team)
+        .child(search)
         .child(places)
         .child(buttons);
     if usage {
-        rail = rail.child(el().pin(Some(0.0), None, None, Some(face_room + 12.0)).child(rail_button(&icons::USAGE, false)));
+        rail = rail.child(el().pin(Some(0.0), None, None, Some(face_room + 12.0)).child(feel::answers(rail_button(&icons::USAGE, "Usage", false, wide, words))));
     }
     if let Some(letters) = me {
         rail = rail
@@ -166,7 +350,7 @@ pub fn notice(s: &State) -> Option<El> {
         },
     };
     Some(
-        row().pin(Some(CARD[0]), None, Some(CARD[2]), Some(CARD[3] + 14.0))
+        row().pin(Some(card_left(s)), None, Some(CARD[2]), Some(CARD[3] + 14.0))
             .justify_center()
             .child(row().h(28.0).px(12.0).items_center().radius(6.0).fill(rgba(17, 16, 15, 0.7)).border(1.0, edge()).child(label(said, 12.5, 400.0, dim()))),
     )
@@ -320,7 +504,8 @@ pub fn back_forward(s: &State) -> El {
     let arrow = |glyph: &'static Icon, live: bool| {
         row().size(26.0, 26.0).radius(6.0).center().opacity(if live { 1.0 } else { 0.45 }).child(icon(glyph, 15.0).color(if live { ink() } else { muted() }))
     };
-    let arrows = row().absolute(126.0, 58.5).gap(2.0).child(arrow(&icons::BACK, !s.history.is_empty()).on_press(|s: &mut State| s.back())).child(arrow(&icons::FORWARD, false));
+    // 44 points into the card (`.gt-inset .topbar`), wherever the rail has put the card.
+    let arrows = row().absolute(card_left(s) + 44.0, 58.5).gap(2.0).child(arrow(&icons::BACK, !s.history.is_empty()).on_press(|s: &mut State| s.back())).child(arrow(&icons::FORWARD, false));
     // The Inbox's title and buttons stand in the same strip as the arrows.
     if s.view == View::Inbox {
         return el().absolute(0.0, 0.0).child(crate::inbox::strip(s)).child(arrows);

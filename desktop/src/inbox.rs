@@ -59,7 +59,8 @@ fn turned(s: &State) -> (Pixels, f32) {
 
 /// The Inbox's sky, as the card draws it under this page: at full strength behind the head and
 /// gone before the tabs, with the card's own glass showing below it. The ring is the sky's own
-/// edge (`.home-sky::after`), which fades with it.
+/// edge (`.home-sky::after`), which fades with it. It stands on the card's right edge, so the
+/// rail opening covers its left edge, as Home's does.
 pub fn sky(s: &State) -> El {
     let (card_w, card_h) = s.card_size();
     let (band, band_h) = turned(s);
@@ -67,7 +68,7 @@ pub fn sky(s: &State) -> El {
         el().pin(Some(0.0), Some(0.0), Some(0.0), None)
             .h(SKY_REACH)
             .clip_fade_linear(0.0, 0.0, 0.0, SKY_REACH - SKY_WHOLE)
-            .child(el().absolute(0.0, 0.0).size(s.sky_size.0, band_h).pixels(&band))
+            .child(el().absolute(card_w - s.sky_size.0, 0.0).size(s.sky_size.0, band_h).pixels(&band))
             .child(el().absolute(0.0, 0.0).size(card_w, card_h).radius(6.0).border(1.0, white(0.07))),
     )
 }
@@ -130,7 +131,7 @@ pub fn strip(s: &State) -> El {
         buttons = buttons.child(cloud_button(button));
     }
     // `.topbar`: 64 points with a clear hairline under it, the arrows' 54 and their 12 before the title.
-    row().absolute(chrome::CARD[0], chrome::CARD[1])
+    row().absolute(chrome::card_left(s), chrome::CARD[1])
         .size(card_w, 64.0)
         .pl(110.0)
         .pr(28.0)

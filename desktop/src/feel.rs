@@ -7,6 +7,24 @@
 //! lands every hover at once both ways (`hover_motion_within` in `main.rs`): Rune's own hover
 //! overlay would otherwise fade out over a tenth of a second.
 
+use rune::{Color, El};
+
+use crate::State;
+use crate::theme::*;
+
+/// A control the web window does something with that this window draws and does not do yet:
+/// it still answers the pointer as the web window's does, its look and its pointer, by taking
+/// the pointer itself, which in Rune an element with nothing to press does not. A press on it
+/// does nothing and goes nowhere else, as one on a button goes to the button.
+pub fn answers(e: El) -> El {
+    e.on_hover(|_: &mut State| {})
+}
+
+/// `--wash`: what a quiet control's ground turns under the pointer.
+pub fn wash() -> Color {
+    white(0.04)
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
