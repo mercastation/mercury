@@ -56,6 +56,10 @@ impl Place {
         self.reading.set_waker(wake.clone());
         self.opening.set_waker(wake);
     }
+    /// The projects the place has listed, once it has been read: the command bar's Files rows.
+    pub fn projects(&self) -> Vec<String> {
+        self.list.as_ref().map(|l| l.projects.clone()).unwrap_or_default()
+    }
 }
 
 /// The list the page draws: the fixture's for a picture, else the app's as last read.
@@ -72,8 +76,10 @@ fn list_of(s: &State) -> Option<Rc<List>> {
 /// a pressed tile opens once its lines have come. Says whether to draw again.
 pub fn tend(s: &mut State, now: f64, stale: bool) -> bool {
     let on_files = matches!(s.view, View::Files { .. });
-    s.files.stale |= stale && on_files;
-    if on_files && (s.files.list.is_none() || s.files.stale) && !s.files.reading.is_pending() && now - s.files.asked_at >= 2000.0 {
+    // The command bar lists each project's page too, so it reads the list as well.
+    let wanted = on_files || s.palette.open;
+    s.files.stale |= stale && wanted;
+    if wanted && (s.files.list.is_none() || s.files.stale) && !s.files.reading.is_pending() && now - s.files.asked_at >= 2000.0 {
         if let Source::Door(door) = &s.source
             && let Some((url, token)) = door.now()
         {

@@ -941,7 +941,8 @@ already runs, under the web row's own name, mark and key:
   opens the thread with the caret in its reply box; Back to Inbox (E) on a thread put off, "Let
   it run now" when its agent set the moment; Later (L), which opens the picker; and Open (↵)
   from the Inbox.
-- Then Go to Home, Go to Inbox and each of the Inbox's other tabs.
+- Then Go to Home, Go to Inbox and each of the Inbox's other tabs, and Go to Files with Files in
+  each project the place lists (`filePages`), the list read as the bar opens.
 
 Nothing stands for Z: the web window's bar has no Undo row either.
 
@@ -1545,7 +1546,7 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
 - **The command bar offers only what this window can do.**
   - Not listed, because nothing here does them yet: New project, Record meeting, Filter,
     Projects and ranking a project first, the cloud's
-    rows, Groups and each group, Files, Connections, teammates, the theme rows, updates and
+    rows, Groups and each group, Connections, teammates, the theme rows, updates and
     restarts, Pause agents, Resume interrupted agents, General agent instructions, Usage and
     limits, Settings, Keyboard shortcuts, Show as a board, Import chats and agents, the tutorial,
     setting Mercury up again, a demo copy and keyboard shortcut hints. On a thread: Remote
