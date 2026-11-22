@@ -5,14 +5,24 @@
 //! A web page stacks blocks by their margins, and where two margins meet only the larger one
 //! counts, also through a box with no edge of its own (a list around its items). Rune stacks
 //! with no margins at all, so every block here carries its own and the stacking is done by hand.
+//!
+//! A file the words name is not left as words. The web window reads a message in three steps
+//! and so does this: markdown's own pieces (`inlines`); then every path typed into a sentence
+//! becomes a link or a picture (`name_files`, after `remarkArtifactPaths`); then what draws
+//! moves under the sentence that names it, which keeps its name (`sentence`, after
+//! `remarkMediaUnderSentences`). `files.rs` draws the pictures; a link is drawn here, as the
+//! quiet mention the web window's `Mention.tsx` draws: an icon for its kind, then its name.
 
 use std::iter::Peekable;
 
 use pulldown_cmark::{Event, Options, Parser, Tag};
 use regex::Regex;
-use rune::{El, InlineIcon, Span, TextCase, TextStyle, col, el, rich, row, text};
+use rune::{El, InlineIcon, Link, Span, TextCase, TextStyle, col, el, rich, row, text};
 
+use crate::files::{self, Files, Shown};
 use crate::icons;
+use crate::rules::mentions::{self, Kind};
+use crate::rules::paths::{self, Piece};
 use crate::theme::*;
 
 /// Inline code is 13 points whatever the text around it, and its box reaches 5 points past it.
@@ -21,13 +31,31 @@ const CODE_PAD: f32 = 5.0;
 /// Geist Mono's advance, in ems: what one padding space is sized by.
 const MONO_ADVANCE: f32 = 0.6;
 
+/// One piece of a line of words, as markdown hands it over.
+#[derive(Clone, Debug, PartialEq)]
+enum Inline {
+    /// A line end the writer did not mean stays in the words as `\n`, which is how the rule
+    /// for a folder on a line of its own tells where a line starts.
+    Text(String),
+    Code(String),
+    Break,
+    Strong(Vec<Inline>),
+    Emphasis(Vec<Inline>),
+    Strike(Vec<Inline>),
+    /// `name_only`: what it points at is drawn under the sentence, which keeps its name.
+    Link { url: String, kids: Vec<Inline>, name_only: bool },
+    Image { url: String, alt: String },
+}
+
 /// A run of words with its styles: what one paragraph, heading or list line holds.
 #[derive(Default)]
 struct Run {
     text: String,
     spans: Vec<Span>,
-    /// Where each link begins: its icon sits there.
-    links: Vec<usize>,
+    /// Where each mention begins, and its kind: its icon sits there.
+    marks: Vec<(usize, Kind)>,
+    /// What can be pressed, and what pressing it opens.
+    presses: Vec<(usize, usize, String)>,
     strikes: Vec<(usize, usize)>,
     /// The spaces that stand for inline code's padding: drawn, never copied.
     pads: Vec<(usize, usize)>,
@@ -35,14 +63,17 @@ struct Run {
 
 enum Node {
     /// Words with no paragraph around them: a list item written on one line.
-    Line(Run),
-    Paragraph(Run),
-    Heading(u8, Run),
+    Line(Vec<Inline>),
+    Paragraph(Vec<Inline>),
+    Heading(u8, Vec<Inline>),
     Quote(Vec<Node>),
     Code(String),
     List(Option<u64>, Vec<Vec<Node>>),
     Table(Vec<String>, Vec<Vec<String>>),
     Rule,
+    /// What a sentence names that is drawn under it: one picture large, or, `true`, several
+    /// in a row. The last says whether a paragraph's own margins stand around it.
+    Media(Vec<Shown>, bool, bool),
 }
 
 type Events<'a> = Peekable<Parser<'a>>;
@@ -51,59 +82,268 @@ fn is_block(tag: &Tag) -> bool {
     !matches!(tag, Tag::Emphasis | Tag::Strong | Tag::Strikethrough | Tag::Link { .. } | Tag::Image { .. })
 }
 
-/// The words up to the end of the block they are in, or to a block that starts inside it.
-fn run(it: &mut Events) -> Run {
-    let mut r = Run::default();
-    // Each open style, and where in the text it began.
-    let mut open: Vec<(Tag, usize)> = Vec::new();
+/// The pieces up to the end of what holds them, or to a block that starts inside it. Words
+/// markdown hands over in several parts are joined, as the web window's reader has them.
+fn inlines(it: &mut Events) -> Vec<Inline> {
+    fn say(out: &mut Vec<Inline>, words: &str) {
+        match out.last_mut() {
+            Some(Inline::Text(said)) => said.push_str(words),
+            _ => out.push(Inline::Text(words.to_string())),
+        }
+    }
+    let mut out = Vec::new();
     loop {
         match it.peek() {
-            None => break,
-            Some(Event::End(_)) if open.is_empty() => break,
+            None | Some(Event::End(_)) => break,
             Some(Event::Start(tag)) if is_block(tag) => break,
             _ => {}
         }
         match it.next() {
             Some(Event::Start(tag)) => {
-                if matches!(tag, Tag::Link { .. }) {
-                    r.links.push(r.text.len());
+                let kids = inlines(it);
+                // What the style holds has been read, so what comes next is its own end.
+                if matches!(it.peek(), Some(Event::End(_))) {
+                    it.next();
                 }
-                open.push((tag, r.text.len()));
-            }
-            Some(Event::End(_)) => {
-                let Some((tag, from)) = open.pop() else { break };
-                let to = r.text.len();
                 match tag {
-                    Tag::Strong => r.spans.push(Span::new(from, to).weight(650.0)),
-                    Tag::Emphasis => r.spans.push(Span::new(from, to).italic()),
-                    Tag::Strikethrough => r.strikes.push((from, to)),
-                    Tag::Link { .. } => r.spans.push(Span::new(from, to).underline(rule())),
-                    _ => {}
+                    Tag::Strong => out.push(Inline::Strong(kids)),
+                    Tag::Emphasis => out.push(Inline::Emphasis(kids)),
+                    Tag::Strikethrough => out.push(Inline::Strike(kids)),
+                    Tag::Link { dest_url, .. } => out.push(Inline::Link { url: dest_url.to_string(), kids, name_only: false }),
+                    Tag::Image { dest_url, .. } => out.push(Inline::Image { url: dest_url.to_string(), alt: plain(&kids) }),
+                    _ => out.extend(kids),
                 }
             }
-            Some(Event::Code(code)) => {
-                // The box's padding is part of the line in a browser. Here it is a space before
-                // and after, sized to that padding and never a place to break the line.
-                let pad = Span::new(0, 0).mono().size(CODE_PAD / MONO_ADVANCE).bg(white(0.07), 0.0);
-                let a = r.text.len();
-                r.text.push('\u{a0}');
-                let b = r.text.len();
-                r.text.push_str(&code);
-                let c = r.text.len();
-                r.text.push('\u{a0}');
-                r.spans.push(Span { start: a as u32, end: b as u32, ..pad.clone() });
-                r.spans.push(Span::new(b, c).mono().size(CODE).bg(white(0.07), 0.0));
-                r.spans.push(Span { start: c as u32, end: r.text.len() as u32, ..pad });
-                r.pads.extend([(a, b), (c, r.text.len())]);
-            }
-            Some(Event::Text(t) | Event::Html(t) | Event::InlineHtml(t) | Event::InlineMath(t) | Event::DisplayMath(t)) => r.text.push_str(&t),
-            Some(Event::SoftBreak) => r.text.push(' '),
-            Some(Event::HardBreak) => r.text.push('\n'),
-            Some(Event::TaskListMarker(done)) => r.text.push_str(if done { "[x] " } else { "[ ] " }),
-            Some(Event::FootnoteReference(_) | Event::Rule) | None => {}
+            Some(Event::Code(code)) => out.push(Inline::Code(code.to_string())),
+            Some(Event::Text(t) | Event::Html(t) | Event::InlineHtml(t) | Event::InlineMath(t) | Event::DisplayMath(t)) => say(&mut out, &t),
+            Some(Event::SoftBreak) => say(&mut out, "\n"),
+            Some(Event::HardBreak) => out.push(Inline::Break),
+            Some(Event::TaskListMarker(done)) => say(&mut out, if done { "[x] " } else { "[ ] " }),
+            Some(Event::End(_) | Event::FootnoteReference(_) | Event::Rule) | None => {}
         }
     }
-    r
+    out
+}
+
+/// The words alone, with nothing of how they are drawn.
+fn plain(kids: &[Inline]) -> String {
+    let mut out = String::new();
+    for kid in kids {
+        match kid {
+            Inline::Text(words) => out.push_str(&words.replace('\n', " ")),
+            Inline::Code(code) => out.push_str(code),
+            Inline::Break => out.push('\n'),
+            Inline::Strong(kids) | Inline::Emphasis(kids) | Inline::Strike(kids) | Inline::Link { kids, .. } => out.push_str(&plain(kids)),
+            Inline::Image { alt, .. } => out.push_str(alt),
+        }
+    }
+    out
+}
+
+/// A path typed into a sentence becomes the file: a link to a document, a picture for a
+/// picture (`linkArtifactPaths`). A link somebody wrote keeps its words unless they only spell
+/// out its own path, and nothing inside a link or a code span is looked at.
+fn name_files(kids: Vec<Inline>, f: &Files) -> Vec<Inline> {
+    let mut out = Vec::new();
+    for kid in kids {
+        match kid {
+            Inline::Text(words) => {
+                let found = paths::pieces(&words, &f.dir, false, f.folder.as_deref());
+                if found.is_empty() {
+                    out.push(Inline::Text(words));
+                    continue;
+                }
+                out.extend(found.into_iter().map(|piece| match piece {
+                    Piece::Text(words) => Inline::Text(words),
+                    Piece::Picture { url, alt } => Inline::Image { url, alt },
+                    Piece::Link { url, words } => Inline::Link { url, kids: vec![Inline::Text(words)], name_only: false },
+                }));
+            }
+            Inline::Link { url, mut kids, name_only } => {
+                if let [Inline::Text(said)] = kids.as_mut_slice() {
+                    *said = paths::link_words(&url, said).to_string();
+                }
+                out.push(Inline::Link { url, kids, name_only });
+            }
+            Inline::Strong(kids) => out.push(Inline::Strong(name_files(kids, f))),
+            Inline::Emphasis(kids) => out.push(Inline::Emphasis(name_files(kids, f))),
+            Inline::Strike(kids) => out.push(Inline::Strike(name_files(kids, f))),
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+/// Where a piece points, when it is something that draws or plays (`drawnAt`).
+fn drawn_at(kid: &Inline) -> Option<&str> {
+    match kid {
+        Inline::Image { url, .. } | Inline::Link { url, .. } => paths::is_drawn_file(url).then_some(url.as_str()),
+        Inline::Code(code) => (paths::is_drawn_file(code) && !code.contains(char::is_whitespace)).then_some(code.as_str()),
+        _ => None,
+    }
+}
+
+/// What a piece that draws is in the row under its sentence: the picture each of the web
+/// window's three components (`img`, `a`, `code`) would draw there. A film is played there
+/// by the web window and only named by this one, so it is nothing here.
+fn shown(kid: &Inline, f: &Files) -> Option<Shown> {
+    match kid {
+        Inline::Image { url, .. } | Inline::Link { url, .. } => paths::is_picture(url.split(['?', '#']).next().unwrap_or(url)).then(|| Shown::Picture(paths::normalize_uri(url))),
+        Inline::Code(code) => {
+            let written = code.trim();
+            let path = paths::short_path(written, Some(&f.dir), f.folder.as_deref()).unwrap_or_else(|| written.to_string());
+            (paths::is_code_path(&path) && crate::rules::roots::is_image_path(&path)).then(|| Shown::Picture(paths::normalize_uri(&path)))
+        }
+        _ => None,
+    }
+}
+
+/// A sentence that names pictures stays whole: each stays in it as its name, and what draws
+/// sits under it, one picture large or several in a row (`mediaUnderSentences`). `tight`: the
+/// words are a list item's own line, with no paragraph around them.
+fn sentence(kids: Vec<Inline>, f: &Files, tight: bool, out: &mut Vec<Node>) {
+    let wrap = |kids| if tight { Node::Line(kids) } else { Node::Paragraph(kids) };
+    let media: Vec<&Inline> = kids.iter().filter(|k| drawn_at(k).is_some()).collect();
+    if media.is_empty() {
+        return out.push(wrap(kids));
+    }
+    let pictures: Vec<Shown> = media.iter().filter_map(|k| shown(k, f)).collect();
+    let films = media.iter().any(|k| drawn_at(k).is_some_and(paths::is_film));
+    let says = |k: &Inline| match k {
+        Inline::Text(words) => paths::says_something(words),
+        Inline::Break => false,
+        _ => true,
+    };
+    let has_words = kids.iter().any(|k| drawn_at(k).is_none() && says(k));
+    let row = media.len() > 1 || films;
+    if !has_words && !films && !pictures.is_empty() {
+        // Several on a line of their own are a row with no sentence left over, and one alone
+        // is left to draw large.
+        return out.push(Node::Media(pictures, media.len() > 1, !tight));
+    }
+    if !has_words && pictures.is_empty() {
+        // Nothing here draws in this window (a film, which the web window plays): its name.
+        return out.push(wrap(kids));
+    }
+    let named = kids
+        .into_iter()
+        .map(|kid| {
+            let Some(at) = drawn_at(&kid).map(str::to_string) else { return kid };
+            let words = match kid {
+                Inline::Link { kids, .. } => kids,
+                Inline::Image { alt, .. } if !alt.is_empty() => vec![Inline::Text(alt)],
+                _ => vec![Inline::Text(paths::base_name(&at).to_string())],
+            };
+            Inline::Link { url: at, kids: words, name_only: true }
+        })
+        .collect();
+    out.push(wrap(named));
+    if !pictures.is_empty() {
+        out.push(Node::Media(pictures, row, !tight));
+    }
+}
+
+/// The three steps after markdown's own, down through quotes and lists.
+fn settle(nodes: Vec<Node>, f: &Files) -> Vec<Node> {
+    let mut out = Vec::new();
+    for node in nodes {
+        match node {
+            Node::Paragraph(kids) => sentence(name_files(kids, f), f, false, &mut out),
+            Node::Line(kids) => sentence(name_files(kids, f), f, true, &mut out),
+            Node::Heading(level, kids) => out.push(Node::Heading(level, name_files(kids, f))),
+            Node::Quote(inside) => out.push(Node::Quote(settle(inside, f))),
+            Node::List(start, items) => out.push(Node::List(start, items.into_iter().map(|item| settle(item, f)).collect())),
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+/// One mention: the icon of its kind, then its words, softly underlined and pressable.
+fn mention(r: &mut Run, href: &str, words: impl FnOnce(&mut Run)) {
+    r.marks.push((r.text.len(), mentions::mention_kind(href)));
+    let from = r.text.len();
+    words(r);
+    r.spans.push(Span::new(from, r.text.len()).underline(rule()));
+    r.presses.push((from, r.text.len(), href.to_string()));
+}
+
+/// A line's pieces as one run of words with its styles.
+fn flow(kids: &[Inline], f: &Files, r: &mut Run) {
+    for kid in kids {
+        let from = r.text.len();
+        match kid {
+            // A line end the writer did not mean is a space to the reader.
+            Inline::Text(words) => r.text.push_str(&words.replace('\n', " ")),
+            Inline::Break => r.text.push('\n'),
+            Inline::Strong(kids) => {
+                flow(kids, f, r);
+                r.spans.push(Span::new(from, r.text.len()).weight(650.0));
+            }
+            Inline::Emphasis(kids) => {
+                flow(kids, f, r);
+                r.spans.push(Span::new(from, r.text.len()).italic());
+            }
+            Inline::Strike(kids) => {
+                flow(kids, f, r);
+                r.strikes.push((from, r.text.len()));
+            }
+            Inline::Code(code) => code_span(code, f, r),
+            // What a link's own words become (`linkLabel`): a path or an address written out
+            // is shortened to the name it goes by, and words the worker chose stay theirs.
+            Inline::Link { url, kids, .. } => {
+                let href = paths::normalize_uri(url);
+                let label = match kids.as_slice() {
+                    [] => Some(mentions::mention_name(&href)),
+                    kids if kids.iter().all(|k| matches!(k, Inline::Text(_))) => mentions::mention_label(&href, Some(&plain(kids))),
+                    _ => None,
+                };
+                mention(r, &href, |r| match label {
+                    Some(name) => r.text.push_str(&name),
+                    None => flow(kids, f, r),
+                });
+            }
+            // A picture that stayed in its line (in a heading, inside bold) is its name there.
+            Inline::Image { url, alt } => {
+                let href = paths::normalize_uri(url);
+                let name = if alt.is_empty() { mentions::mention_name(&href) } else { mentions::mention_label(&href, Some(alt)).unwrap_or_else(|| alt.clone()) };
+                mention(r, &href, |r| r.text.push_str(&name));
+            }
+        }
+    }
+}
+
+/// What a code span draws (`code` in `Focus.tsx`): a source file or a path to something the
+/// window opens is a mention of that file, and anything else is code in its box.
+fn code_span(code: &str, f: &Files, r: &mut Run) {
+    if let Some(source) = mentions::source_reference(code) {
+        r.marks.push((r.text.len(), Kind::Code));
+        let from = r.text.len();
+        r.text.push_str(&mentions::mention_name(code));
+        r.spans.push(Span::new(from, r.text.len()).underline(rule()));
+        r.presses.push((from, r.text.len(), source));
+        return;
+    }
+    // Written out in full into the project's folder, or the thread's own, counts as the
+    // short path it names, as a full path in a sentence does.
+    let written = code.trim();
+    let path = paths::short_path(written, Some(&f.dir), f.folder.as_deref()).unwrap_or_else(|| written.to_string());
+    if paths::is_code_path(&path) {
+        return mention(r, &path, |r| r.text.push_str(&mentions::mention_name(&path)));
+    }
+    // The box's padding is part of the line in a browser. Here it is a space before and
+    // after, sized to that padding and never a place to break the line.
+    let pad = Span::new(0, 0).mono().size(CODE_PAD / MONO_ADVANCE).bg(white(0.07), 0.0);
+    let a = r.text.len();
+    r.text.push('\u{a0}');
+    let b = r.text.len();
+    r.text.push_str(code);
+    let c = r.text.len();
+    r.text.push('\u{a0}');
+    r.spans.push(Span { start: a as u32, end: b as u32, ..pad.clone() });
+    r.spans.push(Span::new(b, c).mono().size(CODE).bg(white(0.07), 0.0));
+    r.spans.push(Span { start: c as u32, end: r.text.len() as u32, ..pad });
+    r.pads.extend([(a, b), (c, r.text.len())]);
 }
 
 fn nodes(it: &mut Events) -> Vec<Node> {
@@ -120,13 +360,13 @@ fn nodes(it: &mut Events) -> Vec<Node> {
             Some(_) => false,
         };
         if !block {
-            out.push(Node::Line(run(it)));
+            out.push(Node::Line(inlines(it)));
             continue;
         }
         let Some(Event::Start(tag)) = it.next() else { return out };
         match tag {
-            Tag::Paragraph => out.push(Node::Paragraph(run(it))),
-            Tag::Heading { level, .. } => out.push(Node::Heading(level as u8, run(it))),
+            Tag::Paragraph => out.push(Node::Paragraph(inlines(it))),
+            Tag::Heading { level, .. } => out.push(Node::Heading(level as u8, inlines(it))),
             Tag::BlockQuote(_) => out.push(Node::Quote(nodes(it))),
             Tag::CodeBlock(_) => {
                 let mut code = String::new();
@@ -150,7 +390,7 @@ fn nodes(it: &mut Events) -> Vec<Node> {
                     let mut row = Vec::new();
                     while let Some(Event::Start(Tag::TableCell)) = it.peek() {
                         it.next();
-                        row.push(run(it).text.replace('\u{a0}', "").trim().to_string());
+                        row.push(plain(&inlines(it)).trim().to_string());
                         it.next();
                     }
                     row
@@ -222,17 +462,18 @@ pub fn stack(mut blocks: Vec<Block>, trim: bool) -> (El, f32, f32) {
 }
 
 /// The sizes one piece of markdown is drawn at: the page's reading size, the width it has,
-/// and the colour of its words.
+/// and the colour of its words. And what the files it names are read against.
 #[derive(Clone, Copy)]
-struct Page {
+struct Page<'a> {
     size: f32,
     width: f32,
     ink: rune::Color,
     /// How deep in lists, for the bullet's shape.
     depth: usize,
+    files: &'a Files<'a>,
 }
 
-impl Page {
+impl Page<'_> {
     fn body(&self) -> TextStyle {
         TextStyle::new(self.size, 400.0).lh(self.line())
     }
@@ -242,16 +483,39 @@ impl Page {
     }
 }
 
-fn words(r: Run, font: TextStyle, ink: rune::Color) -> El {
-    let Run { text, spans, links, strikes, pads } = r;
-    let mut e = readable(rich(text, spans).font(font).color(ink).wrap()).span_radius(6.0).strikes(strikes.into_iter().map(|(a, b)| (a, b, None)));
+/// The icon a mention of each kind wears (`PATHS` in `Mention.tsx`).
+fn icon_of(kind: Kind) -> &'static rune::Icon {
+    match kind {
+        Kind::Folder => &icons::MENTION_FOLDER,
+        Kind::Page => &icons::MENTION_PAGE,
+        Kind::Doc => &icons::MENTION_DOC,
+        Kind::Image => &icons::MENTION_IMAGE,
+        Kind::Code => &icons::MENTION_CODE,
+        Kind::Media => &icons::MENTION_MEDIA,
+        Kind::Link => &icons::LINK,
+        Kind::File => &icons::MENTION_FILE,
+    }
+}
+
+fn words(kids: &[Inline], font: TextStyle, p: Page) -> El {
+    let mut r = Run::default();
+    flow(kids, p.files, &mut r);
+    let Run { text, spans, marks, presses, strikes, pads } = r;
+    let mut e = readable(rich(text, spans).font(font).color(p.ink).wrap()).span_radius(6.0).strikes(strikes.into_iter().map(|(a, b)| (a, b, None)));
     for (a, b) in pads {
         e = e.uncopied(a..b);
     }
-    for at in links {
-        e = e.inline_icon(at, InlineIcon::glyph(&icons::LINK).size(13.0).gap(4.0).color(muted()));
+    for (at, kind) in marks {
+        e = e.inline_icon(at, InlineIcon::glyph(icon_of(kind)).size(13.0).gap(4.0).color(muted()));
     }
-    e
+    if presses.is_empty() {
+        return e;
+    }
+    // Each mention is pressed like a link, and says where it points when the pointer rests on it.
+    for (a, b, href) in presses {
+        e = e.link(Link::new(a..b, href.clone()).help(paths::decode_uri(&href)));
+    }
+    e.on_link(|s: &mut crate::State, href: &str, _: &mut rune::Tx| files::open(s, href))
 }
 
 /// A list's marker hangs in the 22 points left of its item: a bullet, or the item's number.
@@ -384,13 +648,21 @@ fn lay(nodes: Vec<Node>, p: Page) -> Vec<Block> {
     nodes
         .into_iter()
         .map(|n| match n {
-            Node::Line(r) => Block::leaf(0.0, 0.0, words(r, p.body(), p.ink)),
-            Node::Paragraph(r) => Block::leaf(8.0, 8.0, words(r, p.body(), p.ink)),
+            Node::Line(r) => Block::leaf(0.0, 0.0, words(&r, p.body(), p)),
+            Node::Paragraph(r) => Block::leaf(8.0, 8.0, words(&r, p.body(), p)),
+            // One picture under its sentence is a paragraph of its own (`.inline-image`), and
+            // several are a row with its own room around it (`.media-row`).
+            Node::Media(shown, false, margins) => {
+                let Some(Shown::Picture(src)) = shown.first() else { return Block::leaf(0.0, 0.0, el()) };
+                let around = if margins { 8.0 } else { 0.0 };
+                Block::leaf(around, around, files::picture(p.files, src, p.width, p.size))
+            }
+            Node::Media(shown, true, _) => Block::leaf(2.0, 18.0, files::media_row(p.files, &shown, p.width)),
             // A first-level heading is the browser's own: twice the size and bold. The second
             // and third are the app's small labels. Deeper ones are bold at the reading size.
-            Node::Heading(1, r) => Block::leaf(0.0, 0.0, words(r, TextStyle::new(2.0 * p.size, 700.0).lh(kept(3.2 * p.size)), p.ink)),
-            Node::Heading(2 | 3, r) => Block::leaf(24.0, 7.0, words(r, TextStyle::new(12.0, 600.0).lh(kept(19.2)).tracking(0.84), muted()).text_case(TextCase::Uppercase)),
-            Node::Heading(_, r) => Block::leaf(0.0, 0.0, words(r, TextStyle::new(p.size, 700.0).lh(p.line()), p.ink)),
+            Node::Heading(1, r) => Block::leaf(0.0, 0.0, words(&r, TextStyle::new(2.0 * p.size, 700.0).lh(kept(3.2 * p.size)), p)),
+            Node::Heading(2 | 3, r) => Block::leaf(24.0, 7.0, words(&r, TextStyle::new(12.0, 600.0).lh(kept(19.2)).tracking(0.84), Page { ink: muted(), ..p }).text_case(TextCase::Uppercase)),
+            Node::Heading(_, r) => Block::leaf(0.0, 0.0, words(&r, TextStyle::new(p.size, 700.0).lh(p.line()), p)),
             Node::Quote(inside) => {
                 let (content, top, bottom) = stack(lay(inside, Page { width: p.width - 15.0, ink: dim(), ..p }), false);
                 Block { own: [8.0, 8.0], through: [top, bottom], el: content.pl(12.0).border_sides([0.0, 0.0, 0.0, 3.0], edge()).border_layout() }
@@ -405,10 +677,10 @@ fn lay(nodes: Vec<Node>, p: Page) -> Vec<Block> {
 }
 
 /// A piece of markdown as blocks, `size` being the page's reading size and `width` the room
-/// it has. Stack them with [`stack`].
-pub fn blocks(source: &str, size: f32, width: f32) -> Vec<Block> {
+/// it has, and `files` what the files it names are read against. Stack them with [`stack`].
+pub fn blocks(source: &str, size: f32, width: f32, files: &Files) -> Vec<Block> {
     let mut events = Parser::new_ext(source, Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH).peekable();
-    lay(nodes(&mut events), Page { size, width, ink: ink(), depth: 0 })
+    lay(settle(nodes(&mut events), files), Page { size, width, ink: ink(), depth: 0, files })
 }
 
 /// One block that is not markdown, to stack among those that are.

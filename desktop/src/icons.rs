@@ -164,3 +164,11 @@ stroked!(DONE, "m-done", "1.4", r#"<path d="m3 13 3.6 3.6L13.4 9"/><path d="m10.
 
 // Before a link in an agent's words.
 stroked!(LINK, "m-link", "1.6", r#"<path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/>"#);
+// And before a file it names, one for each kind of thing a file is (`PATHS` in `Mention.tsx`).
+stroked!(MENTION_FOLDER, "m-mention-folder", "1.6", r#"<path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H9l2 2.2h7.5A2.5 2.5 0 0 1 21 9.7v7.8a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/>"#);
+stroked!(MENTION_PAGE, "m-mention-page", "1.6", r#"<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 9h18M6.5 6.6h.01M9.3 6.6h.01"/>"#);
+stroked!(MENTION_DOC, "m-mention-doc", "1.6", r#"<path d="M14 3H7.5A2.5 2.5 0 0 0 5 5.5v13A2.5 2.5 0 0 0 7.5 21h9a2.5 2.5 0 0 0 2.5-2.5V8z"/><path d="M14 3v5h5M9 13h6M9 16.5h4"/>"#);
+stroked!(MENTION_IMAGE, "m-mention-image", "1.6", r#"<rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="9" cy="10" r="1.7"/><path d="m21 15.5-4.5-4.5L7 20.5"/>"#);
+stroked!(MENTION_CODE, "m-mention-code", "1.6", r#"<path d="m8 8-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14"/>"#);
+stroked!(MENTION_MEDIA, "m-mention-media", "1.6", r#"<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m10 9.5 4.5 2.5-4.5 2.5z"/>"#);
+stroked!(MENTION_FILE, "m-mention-file", "1.6", r#"<path d="M14 3H7.5A2.5 2.5 0 0 0 5 5.5v13A2.5 2.5 0 0 0 7.5 21h9a2.5 2.5 0 0 0 2.5-2.5V8z"/><path d="M14 3v5h5"/>"#);

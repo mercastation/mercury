@@ -14,11 +14,13 @@
 
 mod chrome;
 mod data;
+mod files;
 mod home;
 mod icons;
 mod inbox;
 mod keys;
 mod markdown;
+mod pictures;
 mod rules;
 mod sky;
 mod source;
@@ -85,6 +87,8 @@ pub struct State {
     /// A conversation being asked for, and what each was last asked at: its row's last change.
     asking: Latest<(String, Result<Value, String>)>,
     asked: HashMap<String, f64>,
+    /// The pictures the open conversation names, read off the disk (`pictures.rs`).
+    pub pictures: pictures::Pictures,
     pub history: Vec<View>,
     pub source: Source,
     mailbox: Mailbox,
@@ -219,6 +223,13 @@ fn paint_skies(points: (f32, f32)) -> Painted {
 
 const DEFAULT_SIZE: (f32, f32) = (1280.0, 760.0);
 
+/// The store of pictures for this run. A still picture reads each file where it is asked
+/// for, since it cannot wait; a window, or a run of frames, reads them off the main thread.
+fn pictures_for(never: bool) -> pictures::Pictures {
+    let run = rune::tooling::headless_run();
+    pictures::Pictures::new(run.map_or(2.0, |r| r.scale()), run.is_some_and(|r| r.frames() == 0), never)
+}
+
 fn init() -> State {
     let args = rune::tooling::extra_args();
     let source = source::from_args(args);
@@ -249,6 +260,7 @@ fn init() -> State {
         threads: HashMap::new(),
         asking: Latest::default(),
         asked: HashMap::new(),
+        pictures: pictures_for(false),
         history: Vec::new(),
         source,
         mailbox: Mailbox::default(),
@@ -263,6 +275,10 @@ fn init() -> State {
                 s.snap = fixture.snapshot;
                 s.local = fixture.local;
                 s.fixture = fixture.rest;
+                // A page photographed before its pictures came draws none of them either.
+                if s.fixture.get("arriving").and_then(Value::as_bool) == Some(true) {
+                    s.pictures = pictures_for(true);
+                }
                 if let Some(now) = fixture.now {
                     s.now = now;
                     s.fixed_clock = true;
@@ -308,6 +324,7 @@ fn init() -> State {
 fn setup(s: &mut State, wake: Waker) {
     s.painting.set_waker(wake.clone());
     s.asking.set_waker(wake.clone());
+    s.pictures.set_waker(wake.clone());
     if let Source::Door(door) = s.source.clone() {
         source::follow_door(door, s.mailbox.clone(), move || wake());
     }
@@ -364,7 +381,17 @@ fn poll(s: &mut State, _clock: f64, tx: &mut Tx) -> bool {
         changed = true;
     }
     s.ask_for_the_open_thread();
-    changed || stale
+    // The open conversation's pictures: what was read lands, another conversation's are let
+    // go, and while any is on the page the disk is looked at again every two seconds.
+    let open = match &s.view {
+        View::Thread { id, product } => Some(format!("{product}/{id}")),
+        _ => None,
+    };
+    let (landed, again) = s.pictures.tend(open.as_deref(), clock());
+    if again {
+        tx.wake_after(std::time::Duration::from_millis(pictures::AGAIN_MS as u64));
+    }
+    changed || stale || landed
 }
 
 fn resized(s: &mut State, [_, _, w, h]: [f32; 4]) {
@@ -376,8 +403,10 @@ fn resized(s: &mut State, [_, _, w, h]: [f32; 4]) {
     s.painting.request(points, paint_skies);
 }
 
-fn view(s: &State, _: &mut Cx<State>) -> El {
+fn view(s: &State, cx: &mut Cx<State>) -> El {
     let (w, h) = s.size;
+    // A picture's copy is made for this screen's pixels.
+    s.pictures.set_scale(cx.env().scale);
     let page = match &s.view {
         View::Home => home::view(s),
         View::Inbox => inbox::view(s),
