@@ -121,6 +121,10 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
     // A key hint is for the hand on the pointer, and any key takes it away (`keydown` in
     // `renderer/src/App.tsx`'s hint guards).
     s.pointed.hint = None;
+    // Z's question past half a minute is answered no by any key but another Z (`undoAskRef`).
+    if s.answering.asked.is_some() && !matches!(&e.key, Key::Text(t) if t.eq_ignore_ascii_case("z")) {
+        s.answering.asked = None;
+    }
     // ⌘C's question before the cloud goes off has every key while it is up (`head.rs`).
     if s.head.asking_off {
         return crate::head::key(s, e, tx).unwrap_or(true);
@@ -286,9 +290,15 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
             false
         }
         View::Thread { id, product } => {
+            // The question before throwing the change away has its keys first while it is up:
+            // the numbers, the arrows, Enter and Escape (`closeAskOwnsKey`).
+            if s.discard_key(e, tx) {
+                return true;
+            }
             // Escape is one step back: the steps the working line unfolded onto, the open reply
             // box, then the conversation, onto the tab the strip names (`putAwayTheNewest`,
-            // `closeThreadOntoItsTab`).
+            // `closeThreadOntoItsTab`); a thread the person stopped or stayed on after a reply
+            // goes back to Needs you, where it now waits (`wayOut`).
             if e.key == Key::Escape {
                 if s.fold_live_steps() {
                     return true;
@@ -296,7 +306,7 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
                 // Then a file beside the conversation the person opened (`escapeClosesDoc`).
                 if s.replying {
                     s.fold_reply()
-                } else if !crate::pane::key(s, e) {
+                } else if !crate::pane::key(s, e) && !s.leave_followed() {
                     s.close_onto_its_tab()
                 }
                 return true;
@@ -321,7 +331,13 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
                 s.pick_option(at, tx);
                 return true;
             }
-            if let Some(n) = letter.parse::<f64>().ok().filter(|n| *n >= 1.0) {
+            if let Some(n) = letter.parse::<f64>().ok().filter(|n| *n >= 1.0 && *n <= 9.0) {
+                // Not for a thread the app put in front of the person a moment ago: that number
+                // was meant for the one before, and it says so (`pickLandsHere`).
+                if s.answering.arrived.as_ref().is_some_and(|(on, at)| *on == format!("{product}/{id}") && (s.at - at) * 1000.0 < crate::rules::answering::PICK_SETTLES_MS) {
+                    s.tell(crate::rules::answering::AIMED_AT_THE_THREAD_YOU_LEFT, tx);
+                    return true;
+                }
                 if let Some(at) = choices.iter().position(|c| c.n == n) {
                     s.pick_option(at, tx);
                 }

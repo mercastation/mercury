@@ -604,8 +604,18 @@ fn when(at: f64, now: f64) -> String {
 fn said_by(m: &Message, now: f64) -> El {
     let line = kept(22.4);
     let who = if m.mine { text("You").font(TextStyle::new(14.0, 600.0).lh(line)).color(ink()) } else { text("The agent").font(TextStyle::new(14.0, 400.0).lh(line)).color(dim()) };
-    // The three sit on one baseline: the smaller the type, the lower its box starts.
-    let mut head = row().h(line).items_start().gap(10.0).child(readable(who)).child(readable(text(when(m.at, now)).font(TextStyle::new(12.5, 400.0).lh(20.0).features("'tnum' 1")).color(muted())).mt(1.5));
+    // The three sit on one baseline: the smaller the type, the lower its box starts. What the
+    // person just sent says where it is in the time's place, in the dim ink, with Send now after
+    // it while it waits on the step its agent is in (`.msg-sending`, `.msg-now`).
+    let when = match m.sending {
+        Some(sending) => {
+            let (said, now_button) = crate::answer::head_words(sending);
+            let words = readable(text(said).font(TextStyle::new(12.5, 400.0).lh(20.0)).color(dim())).mt(1.5);
+            if now_button { row().gap(10.0).child(words).child(crate::answer::send_now().mt(1.5)) } else { words }
+        }
+        None => readable(text(when(m.at, now)).font(TextStyle::new(12.5, 400.0).lh(20.0).features("'tnum' 1")).color(muted())).mt(1.5),
+    };
+    let mut head = row().h(line).items_start().gap(10.0).child(readable(who)).child(when);
     if !m.mine && m.field == Field::Note {
         let tag = mono(11.0, 14.0);
         head = head.child(
@@ -651,7 +661,9 @@ fn typed_with_files(words: &str, m: &Measure, files: &Files) -> El {
 /// One message, and how much of what it holds reaches under it.
 fn message(msg: &Message, turn: (bool, bool), now: f64, m: &Measure, files: &Files) -> El {
     let (body, leak) = if msg.mine {
-        (typed_with_files(&msg.text, m, files), 0.0)
+        // Still on its way, its words a little fainter (`.msg.sending .msg-body`).
+        let body = typed_with_files(&msg.text, m, files);
+        (if msg.sending.is_some() { body.opacity(0.82) } else { body }, 0.0)
     } else {
         let (body, _, bottom) = markdown::stack(markdown::blocks(&msg.text, m.size, m.column, files), true);
         (body, bottom)
@@ -1161,12 +1173,16 @@ fn read(s: &State, item: &Item, whole: bool, working: bool, saying: Option<&Sayi
     let thread = key(&item.product, &item.id);
     let answered = s.threads.get(&thread).or_else(|| s.fixture.get("threads").and_then(|t| t.get(&thread)));
     let from = answered.map_or_else(|| format!("the row at {:?}", item.updated_at), fingerprint);
-    let print = format!("{thread}|{from}|{whole}|{working}|{saying:?}");
+    // What the person has just sent and the Zs pressed here are placed among the lines too
+    // (`answer.rs`).
+    let sent = s.answering.sent_on(&thread, s.waits_on_the_step(item));
+    let undone = s.answering.undone_on(&thread);
+    let print = format!("{thread}|{from}|{whole}|{working}|{saying:?}|{sent:?}|{undone:?}");
     if let Some(talk) = READ.with(|last| last.borrow().as_ref().filter(|(p, _)| *p == print).map(|(_, t)| t.clone())) {
         return talk;
     }
     let (lines, sessions) = ledger(s, item);
-    let mut talk = Talk::read(&lines, &sessions, saying, whole);
+    let mut talk = Talk::read_with(&lines, &sessions, saying, whole, &sent, &undone);
     if working {
         talk.without_trailing_work();
     }
@@ -1276,6 +1292,13 @@ fn composer(s: &State, item: &Item, m: &Measure) -> El {
     // picker (`.dock-clip`). Send and its caret are two controls, as there (`.dock-send`,
     // `.dock-send-later`); the caret answers the pointer and opens nothing yet.
     let send = if compact { crate::chips::send_arrow(ready) } else if saving { home::send_sending() } else { home::send_main(ready) };
+    // While the thread is under way and the box holds nothing, Stop stands in Send's place,
+    // its caret with it; the first thing typed makes it Send again (`stop && !hasDraft`).
+    let send_pair = if s.stop_in_the_box(item) {
+        row().key(crate::chips::SEND_PAIR).child(crate::answer::stop_button(s, item, compact))
+    } else {
+        row().key(crate::chips::SEND_PAIR).child(send.key(reply::SEND).help("Send · ⌘↵").on_press_tx(|s: &mut State, tx| s.send_reply(tx))).child(home::send_caret().help("Send later").on_press_tx(|s: &mut State, tx| s.tell(SEND_LATER_NOT_HERE, tx)))
+    };
     let mode = crate::chips::offers_a_mode(item).then(|| crate::chips::mode_chip(s, item, compact, crate::chips::mode_folded()));
     let bar = row()
         .key(crate::chips::BAR)
@@ -1292,10 +1315,13 @@ fn composer(s: &State, item: &Item, m: &Measure) -> El {
         // The paper clip's square is 28 points, the chips' height (`.tc-icon`).
         .child(home::attach().size(28.0, 28.0).help("Attach files").on_background_press_tx(|s: &mut State, tx| s.pick_files(Holder::Reply, tx)))
         // Send carries the key a press away from the model menu lands on (`reply.rs`).
-        .child(row().key(crate::chips::SEND_PAIR).child(send.key(reply::SEND).help("Send · ⌘↵").on_press_tx(|s: &mut State, tx| s.send_reply(tx))).child(home::send_caret().help("Send later").on_press_tx(|s: &mut State, tx| s.tell(SEND_LATER_NOT_HERE, tx))));
+        .child(send_pair);
     // The thread moves to another agent with the next reply, and its session cannot follow it:
     // a note says so while that is true (`freshNote`, `.dock-card .compose-note`).
     let note = s.reply_fresh_note(item).map(|note| el().px(16.0).pb(10.0).child(label(&note, 12.0, 400.0, muted())));
+    // Pasted pictures past what a draft keeps still go, and the box says a close loses them
+    // (`tooBig`), before the note about a move.
+    let too_big = crate::drafts::too_big_note(s.kept_drafts.too_big).map(|note| el().px(16.0).pb(10.0).child(label(&note, 12.0, 400.0, muted())));
     // The files it carries, between the words and the notes (`.attach-row` in `.dock-card`):
     // eight points under the words, flush on the bar, and the line saying why one cannot go.
     let files = crate::attach::rows(s, Holder::Reply, |r| r.pt(8.0).px(18.0), |n| n.px(16.0).pb(10.0));
@@ -1316,6 +1342,7 @@ fn composer(s: &State, item: &Item, m: &Measure) -> El {
         .on_drop_files(|s: &mut State, files, _| s.attach_paths(Holder::Reply, files))
         .child(area.child(field.w_full()))
         .children(files)
+        .children(too_big)
         .children(note)
         .child(bar)
 }
@@ -1365,8 +1392,13 @@ fn dock(s: &State, item: &Item, m: &Measure) -> El {
     // An answer on its way has spent the offer, though the engine has not heard it yet. Folded
     // away, the choices show only while one is picked out with the keys
     // (`.one-choices-folded:not(:has(.opt-row.selected))`).
-    if !choices.is_empty() && !s.answer_waits(item) && (s.option.is_some() || !crate::chips::choices_folded(s, item)) {
+    // While the question before a discard is up, it stands where the options stood and they go.
+    if !choices.is_empty() && !s.answer_waits(item) && s.discard_asked().is_none() && (s.option.is_some() || !crate::chips::choices_folded(s, item)) {
         inner = inner.child(options_strip(&choices, s.option, m).mb(10.0));
+    }
+    // The line about a send that moved the person here, over the box (`SentLine`).
+    if let Some(line) = crate::answer::sent_line(s) {
+        inner = inner.child(line);
     }
     inner = inner.child(if s.replying { composer(s, item, m) } else { reply_box(s, item, m).cursor(rune::Cursor::Text).on_press_tx(|s: &mut State, tx| s.open_reply(tx)) });
     el().pl(m.indent).pr(m.right).pb(m.foot).child(inner)
@@ -1469,6 +1501,10 @@ pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
         // the block with none.
         let under = if s.reading.live_open.as_deref() == Some(run.as_str()) { 0.0 } else { 2.0 };
         blocks.push(markdown::block(14.0, under, live_line(s, &thread, run, &line, &steps, &m, still)));
+    }
+    // The question before throwing the change away, at the conversation's foot (`closeAskStrip`).
+    if let Some(strip) = crate::answer::discard_strip(s, m.column) {
+        blocks.push(markdown::block(22.0, 0.0, strip));
     }
     let (body, _, under) = markdown::stack(blocks, false);
     // A browser scrolls a page only as far as a whole device pixel, whatever its lines add up

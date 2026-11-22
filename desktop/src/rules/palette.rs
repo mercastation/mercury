@@ -41,6 +41,8 @@ pub enum Does {
     Back(Thread),
     /// The Files place: All files, or one project's page.
     Files(Option<String>),
+    /// Stops its agent, which moves it to Needs you.
+    Stop(Thread),
 }
 
 /// One row of the bar (`Command` in `Palette.tsx`).
@@ -161,6 +163,16 @@ pub fn thread_commands(item: &Item, open: bool, now: f64) -> Vec<Row> {
         rows.push(Row::command("open", "Open", Does::Open(thread())).on_key("↵"));
     }
     rows
+}
+
+/// Stopping the thread under the keys while it is under way (`stop` in `itemCommands`): "Stop
+/// Agent" while a run is up, else "Stop Task" with what is true of it as its hint. It stands
+/// after the rows above and before Open, where the web's stands after its Move rows.
+pub fn stop_row(running: bool, thread: Thread) -> Row {
+    let (label, hint) = super::answering::stop_row_words(running);
+    let mut row = Row::command("stop", label, Does::Stop(thread));
+    row.hint = hint.map(str::to_string);
+    row
 }
 
 /// Every row the bar has before anything is typed, in the web's order: starting a thread,

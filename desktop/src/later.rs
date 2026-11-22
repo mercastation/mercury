@@ -4,7 +4,7 @@
 
 use rune::edit::Key;
 use rune::text::Span;
-use rune::{El, KeyEvent, TextEdit, Tx, col, el, row, text, text_input};
+use rune::{El, KeyEvent, TextEdit, TextStyle, Tx, col, el, row, text, text_input};
 
 use crate::data::Item;
 use crate::rules::{later as rules, list, page};
@@ -20,17 +20,20 @@ pub struct Picker {
     pub selected: usize,
     /// Enter was pressed on words that are not a time, and nothing was typed since.
     pub refused: bool,
+    /// The once-ever warning about an agent waiting on the person, said inside the box
+    /// (`.modal-note`, `snoozeNote`).
+    pub warning: Option<String>,
 }
 
 impl Picker {
     pub fn closed() -> Picker {
-        Picker { on: None, words: TextEdit::new(""), selected: 0, refused: false }
+        Picker { on: None, words: TextEdit::new(""), selected: 0, refused: false, warning: None }
     }
     /// Open on a thread, or closed again: empty, with its first row lit.
     pub fn open_on(thread: Option<(String, String)>, words: &str) -> Picker {
         let mut words = TextEdit::new(words);
         words.focused = thread.is_some();
-        Picker { on: thread, words, selected: 0, refused: false }
+        Picker { on: thread, words, selected: 0, refused: false, warning: None }
     }
 }
 
@@ -169,6 +172,8 @@ pub fn view(s: &State) -> Option<El> {
         .child(el().pt(14.0).px(18.0).pb(2.0).child(pen(label("Later", 15.5, 600.0, ink()), 15.5)))
         // A long name takes the lines it needs, as a block of text does in the web window.
         .child(el().px(18.0).pb(10.0).child(pen(label(&crate::rules::title::row_title(item), 13.0, 400.0, dim()).wrap().max_w(width - 38.0), 13.0)))
+        // The warning about a waiting agent, in the faint ink under the name (`.modal-note`).
+        .children(s.later.warning.as_ref().map(|note| el().px(18.0).pb(12.0).child(pen(text(note.as_str()).font(TextStyle::new(13.0, 400.0).lh(kept(18.85))).color(muted()).wrap().max_w(width - 36.0), 13.0))))
         .child(ask)
         .child(list);
     // `--scrim` over the whole window, as this look has it.

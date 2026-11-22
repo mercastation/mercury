@@ -185,6 +185,11 @@ fn lines(s: &State) -> Vec<Line> {
     }
     let under = under_the_keys(s);
     let mut commands = rules::commands(under.map(|(item, _)| item), under.is_some_and(|(_, open)| open), s.now, starts_a_thread().is_some());
+    // Stop, on a thread under way: after the thread's rows, before Open and the places.
+    if let Some((item, _)) = under.filter(|(item, _)| s.stoppable_now(item)) {
+        let at = commands.iter().position(|r| r.id == "open" || r.id == "view-home").unwrap_or(commands.len());
+        commands.insert(at, rules::stop_row(s.run_on(item), (item.id.clone(), item.product.clone())));
+    }
     // Then the Files place, and each project's page once the place has been read.
     commands.extend(rules::file_rows(&s.files.projects()));
     let listed = rules::listed(commands, threads, query);
@@ -275,6 +280,7 @@ fn run(s: &mut State, does: Does, tx: &mut Tx) {
         Does::Later((id, product)) => s.open_later(&id, &product, tx),
         Does::Back((id, product)) => s.bring_back(&id, &product),
         Does::Files(project) => s.open_files_place(project),
+        Does::Stop((id, product)) => s.stop_agent(&id, &product),
     }
 }
 

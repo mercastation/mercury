@@ -9,6 +9,7 @@
 //! `App.tsx`, off unless the setting turns it on). `tools/rows.mjs` holds these lists against
 //! the rows the web window draws from the same snapshot.
 
+pub mod answering;
 pub mod answers;
 pub mod attach;
 pub mod calendar;

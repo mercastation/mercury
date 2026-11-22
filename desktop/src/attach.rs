@@ -87,6 +87,23 @@ impl ReplyFiles {
         }
     }
 
+    /// Whether a box left on `thread` holds files.
+    pub fn holds(&self, thread: &str) -> bool {
+        self.kept.get(thread).is_some_and(|files| !files.is_empty())
+    }
+
+    /// Files a refused reply carried, after whatever `thread`'s box holds now
+    /// (`restoreFailedDraft`).
+    pub fn append(&mut self, thread: &str, open: bool, files: Vec<Attached>) {
+        let into = if open { &mut self.open } else { self.kept.entry(thread.to_string()).or_default() };
+        into.extend(files);
+    }
+
+    /// The files kept in the boxes of threads not open, by thread (`drafts.rs` writes them down).
+    pub fn kept(&self) -> &std::collections::HashMap<String, Vec<Attached>> {
+        &self.kept
+    }
+
     fn all_mut(&mut self) -> impl Iterator<Item = &mut Attached> {
         self.open.iter_mut().chain(self.kept.values_mut().flatten())
     }
@@ -249,7 +266,7 @@ fn copy_size(natural: (u32, u32), scale: f32) -> (u32, u32) {
 
 /// Reads a picture of the box and puts the copy the row draws in its place: on a worker, or on
 /// the spot for a still picture, which cannot wait. `Pixels` wakes the window when it lands.
-fn read_thumb(a: &Attached, scale: f32, still: bool) {
+pub(crate) fn read_thumb(a: &Attached, scale: f32, still: bool) {
     let Some(thumb) = &a.thumb else { return };
     let (source, pixels, size) = (a.file.source.clone(), thumb.pixels.clone(), copy_size(thumb.natural, scale));
     let read = move || {
@@ -364,7 +381,7 @@ pub fn rows_tall(files: &[Attached]) -> f32 {
 }
 
 /// Whether a still picture is being taken, which reads every picture on the spot.
-fn still() -> bool {
+pub(crate) fn still() -> bool {
     rune::tooling::headless_run().is_some_and(|run| run.frames() == 0)
 }
 
@@ -703,10 +720,11 @@ mod tests {
         key(&mut rt, Key::Text("k".into()));
         assert_eq!(rt.state.open_item().map(|i| i.id.clone()), Some(first));
         assert_eq!(reply_names(&rt), vec!["week-32.pdf".to_string()]);
+        // A box holding a draft opens on it as its thread opens (`hasDraft`).
+        assert!(rt.state.replying && rt.state.reply.focused, "the box opened on its file");
         // Its × takes it out, and an empty box folds on Escape.
         rt.update(|s, tx| s.remove_attached(Holder::Reply, 0, tx));
         rt.frame(1.0 / 60.0);
-        key(&mut rt, Key::Text("r".into()));
         key(&mut rt, Key::Escape);
         assert!(!rt.state.replying, "an empty box folds");
         std::fs::remove_dir_all(&folder).unwrap();

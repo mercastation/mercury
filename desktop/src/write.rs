@@ -53,14 +53,20 @@ pub enum Sent {
     /// words (`pickOnItsWay`, `wordsBackInTheBox` in `renderer/src/App.tsx`). `files` are the
     /// files the box held, saved already and linked under the words: what goes back in the box
     /// with them is the files themselves, not the links (`SentDraft`).
-    Reply { thread: String, words: String, pick: Option<ReplyPick>, files: Vec<crate::attach::Attached> },
+    /// `answer` is what it carries for once it is written (Z's writes, its drawn copy).
+    Reply { thread: String, words: String, pick: Option<ReplyPick>, files: Vec<crate::attach::Attached>, answer: Answer },
     /// The files of a reply from the box of the thread `product/id`, saved into its project
     /// before the reply goes (`persistAttachments` in `DockComposer`'s `send`): once saved, the
     /// reply is held as any other is, its words with the links to them under; refused, the box
     /// keeps everything. `said` is the priority and mode the box's chips held at Send.
     Carry { thread: String, words: String, pick: Option<ReplyPick>, said: crate::rules::reply_chips::Said, files: Vec<crate::attach::Attached> },
     /// A picked option of that thread.
-    Pick { thread: String },
+    Pick { thread: String, answer: Answer },
+    /// That thread's agent stopped (`stopAgent`): `running` says a run was on it at the press,
+    /// which decides what is said once the engine has it.
+    Stop { thread: String, running: bool },
+    /// A message waiting on the step its agent is in, sent now (`zero:send-now`).
+    SendNow { thread: String },
     Close { thread: String },
     Reopen { thread: String },
     /// That thread put off until later. Once the engine has it, the line `said` goes up and
@@ -98,7 +104,9 @@ impl Sent {
         match self {
             Sent::Reply { thread, .. }
             | Sent::Carry { thread, .. }
-            | Sent::Pick { thread }
+            | Sent::Pick { thread, .. }
+            | Sent::Stop { thread, .. }
+            | Sent::SendNow { thread }
             | Sent::Close { thread }
             | Sent::Reopen { thread }
             | Sent::Later { thread, .. }
@@ -110,6 +118,40 @@ impl Sent {
             Sent::Thread { .. } | Sent::Cloud | Sent::Moved { .. } | Sent::SignIn => "",
         }
     }
+}
+
+/// The line a Z leaves in the thread it took something back on, as the person's own action:
+/// "Undid your reply", "Undid picking" and the option, "Undid closing it" (`UndidSpec` in
+/// `renderer/src/undo-marks.ts`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Mark {
+    pub words: String,
+    pub choice: Option<String>,
+}
+
+impl Mark {
+    pub fn of(words: &str, choice: Option<String>) -> Mark {
+        Mark { words: words.to_string(), choice }
+    }
+}
+
+/// What a reply or a picked option carries for once it is written (`answerWith`, `pickOption`):
+/// its copy drawn in the conversation from the press on (`answer.rs`), whether it went to a run
+/// already up (which nothing takes back once handed over), and what Z then writes and says.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Answer {
+    /// The drawn copy, by its number.
+    pub drawn: u64,
+    pub running: bool,
+    /// Z's writes once it is written, in order.
+    pub undo: Vec<Write>,
+    /// What Z says after, and what it asks once the answer is half a minute old.
+    pub undo_said: String,
+    pub undoes: String,
+    pub mark: Mark,
+    /// Whether the line about it named a thread the person was moved on from, so a grace Z
+    /// opens that thread again.
+    pub moved_on: bool,
 }
 
 /// What the box to start a thread in held when Send was pressed: the words, the files, and the
@@ -141,6 +183,10 @@ pub struct Held {
     pub from_inside: bool,
     /// The row as it was, when this closes it: what undoing the close needs once it is written.
     pub closes: Option<Item>,
+    /// Written after it, in order, once it is (a reminder a reply lifts).
+    pub then: Vec<Write>,
+    /// What the thread says if Z takes it back inside the three seconds.
+    pub mark: Option<Mark>,
 }
 
 /// What Z still takes back after it was written: a close, by opening the thread as it was
@@ -155,6 +201,34 @@ pub struct Undo {
     /// Whether Z then opens that thread: it does when the thread comes back in front of the
     /// person, so the key is seen to have done something.
     pub opens: bool,
+    /// When it went on the pile, on the wall clock: past half a minute Z asks before it does it
+    /// (`undoAsk`), in the words of `undoes`.
+    pub at: f64,
+    pub undoes: String,
+    /// What the thread says once Z has run.
+    pub mark: Option<Mark>,
+    /// What a reply gives back to its box once Z has run, when the box holds nothing newer.
+    pub back: Option<GivenBack>,
+}
+
+/// A reply's words, model and files, handed back to its box (`SentDraft`).
+#[derive(Clone, Debug, Default)]
+pub struct GivenBack {
+    pub words: String,
+    pub pick: Option<ReplyPick>,
+    pub files: Vec<crate::attach::Attached>,
+}
+
+impl Undo {
+    /// An entry with nothing but its own writes and lines, stamped now.
+    pub fn plain(said: String, undoes: String, writes: Vec<Write>, sent: Sent, thread: (String, String), opens: bool) -> Undo {
+        Undo { said, writes, sent, thread, opens, at: wall_clock(), undoes, mark: None, back: None }
+    }
+}
+
+/// Milliseconds on the wall clock, what an entry on Z's pile is aged by.
+pub fn wall_clock() -> f64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64)
 }
 
 /// One line about what was just done, with Z beside it while Z can take it back.
@@ -168,6 +242,10 @@ pub struct Toast {
     /// opens it, and a bar along its foot runs out with the time left to (`ToastGoes` in
     /// `renderer/src/toast-parts.ts`).
     pub goes: Option<(String, String)>,
+    /// A reply or a pick sent to that thread, with the first words of the line said over the
+    /// reply box of the thread it moved the person to ("Sent to"), where it then stands instead
+    /// (`saysWhereItWent`).
+    pub sent: Option<String>,
 }
 
 /// One answer from the engine: its own, or why it could not be reached.
