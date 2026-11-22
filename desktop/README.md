@@ -422,7 +422,10 @@ The pointer's shape, points that match the web window's of all the points in eac
 
 What is left: the I-beam over the end of a line past its last word, every mention's mark, the
 sorting headers of a table in a message, the Inbox's box that ticks every row (not drawn), and the
-page under the open list of files, which shows the arrow. Each is in what still differs.
+page under the open list of files, which shows the arrow. Each is in what still differs. Where the
+46 `*-hover-*` and `*-hint-*` scenes rest the pointer, its shape is the web window's at every one:
+the pointing hand, the I-beam over a conversation's name and the folded reply box, the magnifier
+over a picture and a folder's, and the arrow over Send with nothing to send.
 
 The screens at rest did not move: home, inbox, the Inbox's other tabs and `inbox-later-kinds`,
 thread, `thread-folded`, `thread-later`, `thread-options`, `thread-steps`, `thread-reply`,
