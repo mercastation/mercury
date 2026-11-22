@@ -223,6 +223,13 @@ pub fn repeats_of(s: &State, item: &Item) -> Option<String> {
 /// What Try again's presses came back with since the last look, each said in a line, and the
 /// repeating tasks' rules, read when a run of one is open.
 pub fn tend(s: &mut State, tx: &mut Tx) -> bool {
+    // A picture taken just after Try again was pressed on the line says so (`pressed`).
+    if s.fixture.get("pressed").and_then(Value::as_str) == Some(".live-retry")
+        && let Some((id, product)) = s.open_item().map(|i| (i.id.clone(), i.product.clone()))
+    {
+        s.fixture.remove("pressed");
+        s.try_again(&id, &product, tx);
+    }
     let landed: Vec<Result<Value, String>> = s.retries.rx.try_iter().collect();
     for answer in &landed {
         s.tell(&live::try_again_words(Some(answer)), tx);
