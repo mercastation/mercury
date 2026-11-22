@@ -105,8 +105,9 @@ other two things more, on the desktop app's own door alone (`src/front.rs`, and
   island itself), or a thread this window does not have, brings the window forward as it is.
 
 An approval's banner still brings the web window, which alone draws the card that answers it, and
-so does Settings in the tray's menu. With no window beating at the door, a press does what it
-always did.
+so does Settings in the tray's menu. An approval's line in the tray asks for the app as it is, as
+a press on the island itself does, so it brings this window, whose foot says the yes is answered
+in Mercury's own window. With no window beating at the door, a press does what it always did.
 
 Checked headless on 2026-11-22 against a small door on loopback that answers the snapshot with an
 invented inbox, records what this window says and pushes `zero:open-in-native` at set times; a
@@ -120,9 +121,9 @@ cargo run -- --door http://127.0.0.1:<port> --token <key> --script focus.json --
 Each change of focus reached the door within 10 ms, a window never focused said where it was at
 its first beat and every five seconds after, and a push opened its thread within 10 ms (the
 `zero:phone-seen` that opening writes, and the picture after). A push naming no thread, a thread
-that has gone, or another project's left the page as it was. A headless run drops the request to
-come forward, so this window coming to the front over another app has not been seen; on a Mac it
-is winit's `focus_window` (`activateIgnoringOtherApps`, then `makeKeyAndOrderFront`).
+that has gone, or one under another project left the page as it was. A headless run drops the
+request to come forward, so this window coming to the front over another app has not been seen;
+on a Mac it is winit's `focus_window` (`activateIgnoringOtherApps`, then `makeKeyAndOrderFront`).
 
 ## Compare a screen with the real one
 
