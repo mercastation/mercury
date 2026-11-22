@@ -844,7 +844,9 @@ fn entry_view(s: &State, shown: &Rc<Shown>, f: usize, i: usize, w: f32, cols: us
     let first_in_block = i == 0 || !matches!((entries[i - 1], entry), (Entry::Gap { .. } | Entry::Opened { .. }, _) | (Entry::Row { .. }, Entry::Row { .. }));
     let first_in_block = first_in_block && !matches!((i.checked_sub(1).map(|p| entries[p]), entry), (Some(Entry::Opened { hunk: a, .. }), Entry::Opened { hunk: b, .. }) if a == b);
     match entry {
-        Entry::Gap { hunk, lines } => gap_line(f, hunk, lines, w).mt(8.0),
+        // The block's eight over it and the line's own two either side, as padding: a virtual
+        // row's own margins are not laid out.
+        Entry::Gap { hunk, lines } => col().w(w).pt(10.0).pb(2.0).child(gap_line(f, hunk, lines, w)),
         Entry::Opened { hunk, at } => {
             let (from, lines) = here.gaps.get(&(file.path.clone(), hunk)).cloned().unwrap_or_default();
             let line = lines.get(at).cloned().unwrap_or_default();
@@ -1138,7 +1140,6 @@ fn gap_line(f: usize, hunk: usize, lines: u32, w: f32) -> El {
     };
     row()
         .w(w)
-        .my(2.0)
         .pt(3.0)
         .pb(3.0)
         .pr(14.0)
@@ -1493,7 +1494,12 @@ pub fn chip(s: &State, item: &crate::data::Item, raw: &str, shown: &str, font: T
 /// corner they live in (`chromeIsUp`, `CHROME_HOLD`, `CHROME_REACH`), coming and going over 0.16
 /// seconds. The frame's corners turned inward put the change back beside the conversation, or
 /// put it down where there is no room beside; close does the same.
-pub fn focus_marks(s: &State) -> El {
+///
+/// Over a change they lie under the change's own sticky file head, as the web window paints
+/// them (the head's `z-index: 2` against the bar's 1): woken, only the last eight points of their
+/// frame show, past the column's edge, and a press on them lands on the head, which folds its
+/// file. The window draws them under the page for that; Escape is the way back, as there.
+fn focus_marks(s: &State) -> El {
     let (ww, _) = s.size;
     let up = s.changes.reaching || s.at - s.changes.chrome_at < 1.8;
     let room = crate::rules::pane::artifact_placement(s.page_size().0) == crate::rules::pane::Placement::Beside;
@@ -1507,7 +1513,7 @@ pub fn focus_marks(s: &State) -> El {
         .fill(rgba(40, 38, 37, 0.86))
         .border(1.0, edge())
         .border_layout()
-        .box_shadow(shadow(0.0, 8.0, 24.0, 0.0, rgba(0, 0, 0, 0.35), false))
+        .box_shadow(shadow(0.0, 10.0, 32.0, 0.0, rgba(0, 0, 0, 0.38), false))
         .child(mark(&crate::icons::PANE_BESIDE, "Move it to the side · Esc closes it", "pane-full").label("Exit Focus").on_press(move |s: &mut State| {
             if room {
                 s.pane.full = false;

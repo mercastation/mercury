@@ -1334,8 +1334,11 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
     };
     // A file that takes the whole card takes the strip's place too (`pane.rs`).
     let (strip, top) = if pane::takes_the_card(s) { (pane::strip(s), chrome::CARD[1]) } else { (chrome::back_forward(s), chrome::page_top(&s.view)) };
+    let root = root.child(chrome::card(s));
+    // The marks over a change that takes the workspace, woken by the pointer moving, lie under
+    // the page, as the web window's lie under the change's own sticky heads (`change.rs`).
+    let root = change::over_the_workspace(s, root);
     let root = root
-        .child(chrome::card(s))
         .child(chrome::rail(s, cx.is_reduced_motion()))
         .child(strip)
         // The page scrolls inside the card, under its top strip.
@@ -1355,8 +1358,6 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
     let root = root.children(compose::layers(s));
     // The menu of the reply box's priority or mode chip, over the page.
     let root = root.children(chips::layer(s));
-    // The marks over a change that takes the workspace, woken by the pointer moving.
-    let root = change::over_the_workspace(s, root);
     let root = match chrome::toast_card(s) {
         Some(toast) => root.child(toast),
         None => root,
