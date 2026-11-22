@@ -133,6 +133,37 @@ pub fn usage_shown(snap: &Snapshot, now: f64) -> bool {
     running && has_headline(limits(last).iter().filter(|l| still_running(l, now) || l.get("span").and_then(Value::as_str) == Some("session")))
 }
 
+/// What the usage button says while the rail is open (`UsagePill` in the sidebar, and
+/// `agentsInUse`): the agent read last by its name, and the figure of its headline window
+/// (`headlineLimit` in `shared/usage.mts`: the five hour window, else the fullest), none when that
+/// window has started over since. The agent the person last used is the web window's to know,
+/// so here it is the one the snapshot's own reading is of.
+pub fn usage_row(snap: &Snapshot, now: f64) -> Option<(&'static str, Option<f64>)> {
+    let sent = snap.rest.get("usage").filter(|u| u.is_object());
+    let all: Vec<&Value> = match snap.rest.get("usageByEngine").and_then(Value::as_array) {
+        Some(every) => every.iter().collect(),
+        None => sent.into_iter().collect(),
+    };
+    let fresh: Vec<&Value> = all.into_iter().filter(|u| now - u.get("at").and_then(Value::as_f64).unwrap_or(0.0) < WEEK_MS && has_headline(limits(u).iter().filter(|l| still_running(l, now)))).collect();
+    let engine = |u: &Value| u.get("engine").and_then(Value::as_str).map(str::to_string);
+    let last = fresh.iter().find(|u| sent.is_some_and(|s| engine(s) == engine(u))).or(fresh.first()).copied().or(sent)?;
+    let shown = limits(last);
+    let headline = shown.iter().find(|l| l.get("span").and_then(Value::as_str) == Some("session")).or_else(|| {
+        shown.iter().filter(|l| l.get("percent").and_then(Value::as_f64).is_some_and(f64::is_finite)).max_by(|a, b| a["percent"].as_f64().unwrap_or(0.0).total_cmp(&b["percent"].as_f64().unwrap_or(0.0)))
+    })?;
+    let reset = truthy(headline.get("reset"));
+    let used = headline.get("percent").and_then(Value::as_f64).filter(|p| p.is_finite() && !reset).map(|p| p.clamp(0.0, 100.0));
+    Some((crate::rules::engine::engine_label(engine(last).as_deref().unwrap_or("claude")), used))
+}
+
+/// The name and email the person's own row shows beside their face while the rail is open
+/// (`.th-me`: `me.name || me.email`, over `me.email`).
+pub fn my_names(snap: &Snapshot) -> Option<(String, String)> {
+    let me = me(snap)?;
+    let email = text(me, "email").unwrap_or_default().to_string();
+    Some((text(me, "name").map_or_else(|| email.clone(), str::to_string), email))
+}
+
 /// The composer's To chip stands only when someone besides the agent could get the thread
 /// (`toOffered` in `renderer/src/threads/composer-rules.ts`): teammates that are agents, or
 /// people of a team. Read-only, nobody is picked, so it always says Agent.

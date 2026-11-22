@@ -324,11 +324,28 @@ pub fn rail(s: &State) -> El {
         .child(places)
         .child(buttons);
     if usage {
-        rail = rail.child(el().pin(Some(0.0), None, None, Some(face_room + 12.0)).child(feel::answers(rail_button(&icons::USAGE, "Usage", false, wide, words))));
+        // Open, it names the agent read last and, where the Inbox has its count, the figure of
+        // its headline window (`.usage-row-label`, `.usage-row-num`).
+        let (word, used) = window::usage_row(&s.snap, s.now).unwrap_or(("Usage", None));
+        let mut row = rail_button(&icons::USAGE, word, false, wide, words);
+        if let Some(used) = used {
+            row = row.child(spacer()).child(pen(label(&format!("{used}%"), 13.0, 400.0, muted()).group_color(ink()), 13.0).opacity(words));
+        }
+        rail = rail.child(el().pin(Some(0.0), None, None, Some(face_room + 12.0)).child(feel::answers(row)));
     }
     if let Some(letters) = me {
+        // Open, the person's own row has their name over their email beside their face; it opens
+        // their account menu in the web window, and nothing here (`.th-me-btn`).
+        let (name, email) = window::my_names(&s.snap).unwrap_or_default();
+        let names = col()
+            .absolute(39.0, 2.25)
+            .opacity(words)
+            .child(pen(label(&name, 13.5, 400.0, ink()), 13.5))
+            .child(pen(text(email).font(TextStyle::new(11.5, 400.0).lh(16.0)).color(muted()), 11.5));
+        let row = el().pin(Some(0.0), None, None, Some(0.0)).size(wide, 38.0).radius(6.0).clip_rounded(6.0).hover(feel::wash()).cursor(Cursor::Pointer).child(names);
         rail = rail
             .child(el().pin(Some(0.0), None, Some(0.0), Some(45.0)).h(1.0).fill(edge()))
+            .child(feel::answers(row))
             .child(el().pin(Some(8.0), None, None, Some(7.5)).child(my_face(&letters)));
     }
     rail
