@@ -256,9 +256,13 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
             false
         }
         View::Thread { id, product } => {
-            // Escape is one step back: the open reply box first, then the conversation, onto
-            // the tab the strip names (`closeThreadOntoItsTab`).
+            // Escape is one step back: the steps the working line unfolded onto, the open reply
+            // box, then the conversation, onto the tab the strip names (`putAwayTheNewest`,
+            // `closeThreadOntoItsTab`).
             if e.key == Key::Escape {
+                if s.fold_live_steps() {
+                    return true;
+                }
                 if s.replying { s.fold_reply() } else { s.close_onto_its_tab() }
                 return true;
             }

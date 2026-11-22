@@ -185,7 +185,7 @@ impl State {
     /// its list of files and whatever its strip had open. Words written in the box, and the
     /// model picked in it, wait for the next visit.
     fn put_the_reply_away(&mut self) {
-        self.close_files();
+        self.leave_the_reading();
         self.leave_the_strip();
         if let View::Thread { id, product } = &self.view {
             let key = format!("{product}/{id}");
@@ -1051,10 +1051,12 @@ fn press_what_the_picture_pressed(s: &mut State, tx: &mut Tx) {
     if let Some(which) = s.fixture.remove("menu") {
         s.picture_menu(which.as_str().unwrap_or_default(), tx);
     }
-    // And one taken with a conversation's list of files open (`filesOpen`).
+    // And one taken with a conversation's list of files open (`filesOpen`), or its working
+    // line open onto its steps (`liveOpen`).
     if s.fixture.remove("filesOpen").is_some() {
         s.open_files();
     }
+    s.picture_live();
     // And one taken with something of the strip open, or the reply box's model menu (`actions`).
     if let Some(which) = s.fixture.remove("actions") {
         match which.as_str().unwrap_or_default() {

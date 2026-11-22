@@ -53,6 +53,10 @@ pub struct Reading {
     /// clock: the web window's mark and band start their loops as the line mounts, and so do
     /// these, from then on, the line scrolled away and back or not.
     live_from: Option<(String, f64)>,
+    /// The run whose line is pressed open onto its steps, and the steps opened onto their
+    /// commands, by the run and their place and words. A new run starts folded (`expandedAt`).
+    live_open: Option<String>,
+    live_rows_open: HashSet<String>,
 }
 
 impl Reading {
@@ -455,6 +459,52 @@ impl State {
         self.reading.files = None;
         self.reading.file_lit = None;
     }
+    /// A press on the working line: it opens onto the steps the run took since it last said
+    /// anything, and closes again.
+    fn toggle_live_steps(&mut self, run: &str) {
+        self.reading.live_open = if self.reading.live_open.as_deref() == Some(run) { None } else { Some(run.to_string()) };
+    }
+    /// Escape, while the open conversation's working line is open onto its steps: it folds them,
+    /// and that is all the key does (`useEscapePutsAway`). True when there were steps to fold.
+    pub fn fold_live_steps(&mut self) -> bool {
+        let here = self.thread_on_screen().is_some_and(|thread| self.reading.live_open.as_deref().is_some_and(|run| run.starts_with(&format!("{thread}|"))));
+        if here {
+            self.reading.live_open = None;
+            self.reading.live_rows_open.clear();
+        }
+        here
+    }
+    /// What a picture taken with the working line open says of it (`liveOpen`), and of which of
+    /// its steps were open onto their commands, by their place (`liveRowsOpen`).
+    pub(crate) fn picture_live(&mut self) {
+        if self.fixture.remove("liveOpen").is_none() {
+            return;
+        }
+        let View::Thread { id, product } = &self.view else { return };
+        let Some(session) = running(self, id, product) else { return };
+        let run = format!("{}|{}", key(product, id), session.started_at);
+        let opened: Vec<usize> = self.fixture.remove("liveRowsOpen").and_then(|rows| serde_json::from_value(rows).ok()).unwrap_or_default();
+        // The rows are named by their words, which the page draws from the conversation read.
+        let item = self.snap.items.iter().find(|i| &i.id == id && &i.product == product).cloned();
+        if let Some(item) = item {
+            let talk = read(self, &item, false, true, None);
+            let took: Vec<live::Took> = talk.trailing.iter().filter(|w| w.at >= session.started_at).map(|w| live::Took { at: w.at, verb: w.verb.clone(), subject: w.subject.clone(), full: w.full.clone() }).collect();
+            let steps = live::steps(&took, &session.activity);
+            for at in opened {
+                if let Some(step) = steps.rows.get(at) {
+                    self.reading.live_rows_open.insert(format!("{run}|{at}|{}", step.label));
+                }
+            }
+        }
+        self.reading.live_open = Some(run);
+    }
+    /// Leaving a conversation closes what was opened in it: its list of files, and its working
+    /// line's steps, which the web window folds for another thread (`setExpandedAt(null)`).
+    pub fn leave_the_reading(&mut self) {
+        self.close_files();
+        self.reading.live_open = None;
+        self.reading.live_rows_open.clear();
+    }
     /// Out of the conversation, as Escape and the strip's tab word take the person: back where
     /// they came from, and when that is the Inbox and the thread has moved tabs while it was
     /// read, onto the tab the strip named, with the keys on the thread's row
@@ -829,9 +879,10 @@ fn word_room(line: &live::Working, word: TextStyle, beside: TextStyle, column: f
 /// window's do, and both stand still under Reduce motion (`still`), as the web's then do. They
 /// move only while the line is on screen: the window reports it (`on_visible`), and until it
 /// has, for the frame a conversation opens on, the mark stands as it does under Reduce motion.
-fn live_line(s: &State, thread: &str, run: String, line: &live::Working, m: &Measure, still: bool) -> El {
+fn live_line(s: &State, thread: &str, run: String, line: &live::Working, steps: &live::Steps, m: &Measure, still: bool) -> El {
     let moving = !still && s.reading.live_seen.as_deref() == Some(thread);
     let from = s.reading.live_from.as_ref().filter(|(seen, _)| *seen == run).map_or(0.0, |(_, at)| *at);
+    let open = s.reading.live_open.as_deref() == Some(run.as_str());
     let font = TextStyle::new(13.5, 400.0).lh(20.0);
     let word_font = TextStyle::new(13.5, 500.0).lh(20.0);
     let wide = word_room(line, word_font, font.features("'tnum' 1"), m.column);
@@ -841,20 +892,71 @@ fn live_line(s: &State, thread: &str, run: String, line: &live::Working, m: &Mea
     for span in [line.more.as_deref(), Some(line.span.as_str()), line.place.as_deref()].into_iter().flatten() {
         words = words.child(text(span).font(font.features("'tnum' 1")).color(muted()));
     }
+    // The words are a press that opens the line onto its steps (`.live-disclosure`), with a
+    // chevron after them that shows only under the pointer and turns down while it is open.
+    let chevron = icon(if open { &icons::LIVE_CHEVRON_OPEN } else { &icons::LIVE_CHEVRON }, 10.0).color(dim());
+    let chevron = if open { chevron } else { chevron.group_opacity(0.0, 1.0) };
+    let pressed = run.clone();
+    let words = words.child(chevron).hover_group().cursor(rune::Cursor::Pointer).role("button").expanded(open).on_press(move |s: &mut State| s.toggle_live_steps(&pressed));
     let thread = thread.to_string();
+    let seen = run.clone();
     // No wider than the column: a step is often a whole command line, and it is cut short with
     // dots, as `.live-disclosure .live-word` cuts it, rather than run past the page. The stack
     // it stands in takes its width from what is in it, so the column is said here.
-    row().max_w(m.column).items_center().gap(7.0).child(lattice(moving, from)).child(words).on_visible(move |s: &mut State, on, tx| {
+    let brief = row().max_w(m.column).items_center().gap(7.0).child(lattice(moving, from)).child(words).on_visible(move |s: &mut State, on, tx| {
         if on {
             s.reading.live_seen = Some(thread.clone());
-            if s.reading.live_from.as_ref().is_none_or(|(seen, _)| *seen != run) {
-                s.reading.live_from = Some((run.clone(), tx.clock()));
+            if s.reading.live_from.as_ref().is_none_or(|(seen_run, _)| *seen_run != seen) {
+                s.reading.live_from = Some((seen.clone(), tx.clock()));
             }
         } else if s.reading.live_seen.as_deref() == Some(thread.as_str()) {
             s.reading.live_seen = None;
         }
-    })
+    });
+    if !open {
+        return brief;
+    }
+    col().w(m.column).child(brief).child(live_steps(s, &run, steps))
+}
+
+/// What the working line opens onto (`.live-details`), eight points under it in dim ink: a
+/// line counting the finished steps it does not list, then a row for each step it does and
+/// for each call running now, its mark and its words, which a press opens onto the command
+/// behind it, set in a block as code is (`ActivityRow`, `details.live-command`).
+fn live_steps(s: &State, run: &str, steps: &live::Steps) -> El {
+    let words = TextStyle::new(13.0, 400.0).lh(20.8);
+    let mut out = col().pt(8.0);
+    if steps.earlier > 0 {
+        out = out.child(row().h(28.0).pl(21.0).items_center().child(text(live::earlier_steps(steps.earlier)).font(words).color(muted())));
+    }
+    if steps.rows.is_empty() {
+        return out.child(row().h(28.0).items_center().child(text("No commands yet.").font(words).color(dim())));
+    }
+    for (at, step) in steps.rows.iter().enumerate() {
+        let key = format!("{run}|{at}|{}", step.label);
+        let open = s.reading.live_rows_open.contains(&key);
+        let head = row()
+            .h(28.0)
+            .items_center()
+            .gap(7.0)
+            .cursor(rune::Cursor::Pointer)
+            .role("button")
+            .expanded(open)
+            .child(icon(&icons::LIVE_COMMAND, 14.0).color(dim()))
+            .child(row().min_w(0.0).shrink().child(text(step.label.as_str()).font(words).color(dim()).truncate()))
+            .on_press(move |s: &mut State| {
+                if !s.reading.live_rows_open.remove(&key) {
+                    s.reading.live_rows_open.insert(key.clone());
+                }
+            });
+        let mut item = col().child(head);
+        if open {
+            let command = readable(text(step.detail.as_str()).font(mono(12.0, 19.2)).color(dim()).wrap_anywhere());
+            item = item.child(el().ml(21.0).mt(4.0).mb(10.0).px(14.0).py(12.0).radius(6.0).fill(rgba(40, 38, 37, 0.9)).border(1.0, edge()).border_layout().child(command));
+        }
+        out = out.child(item);
+    }
+    out
 }
 
 /// The line under the title (`.one-cols`): the summary a thread carries, or while an agent
@@ -1252,7 +1354,15 @@ pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
     let why_not_cloud = s.snap.supervisor.rest.get("whyNotCloud").and_then(|w| w.get(id)).and_then(|w| w.get("at")).and_then(Value::as_str);
     if let Some(line) = live::working(session.as_ref(), &item.status, &item.labels, asking, why_not_cloud, s.now) {
         let run = format!("{thread}|{}", session.as_ref().map_or(0.0, |r| r.started_at));
-        blocks.push(markdown::block(14.0, 2.0, live_line(s, &thread, run, &line, &m, still)));
+        // What it opens onto: the steps the run that is up took since it last said anything,
+        // and the calls running now (`stepsSinceLastSaid` of the newest run, `previousActivity`).
+        let started = session.as_ref().map_or(0.0, |r| r.started_at);
+        let took: Vec<live::Took> = talk.trailing.iter().filter(|w| w.at >= started).map(|w| live::Took { at: w.at, verb: w.verb.clone(), subject: w.subject.clone(), full: w.full.clone() }).collect();
+        let steps = live::steps(&took, session.as_ref().map_or(&[][..], |r| r.activity.as_slice()));
+        // The line's two points under it are its own (`.live-brief`), and its steps, open, end
+        // the block with none.
+        let under = if s.reading.live_open.as_deref() == Some(run.as_str()) { 0.0 } else { 2.0 };
+        blocks.push(markdown::block(14.0, under, live_line(s, &thread, run, &line, &steps, &m, still)));
     }
     let (body, _, under) = markdown::stack(blocks, false);
     // A browser scrolls a page only as far as a whole device pixel, whatever its lines add up
@@ -1272,4 +1382,63 @@ pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
         .scroll(ScrollSpec { stick_bottom: unfolded || (working && page.alone.is_none()) })
         .child(el().pt(28.0).pl(m.indent).pr(32.0).pb(40.0 + under + whole).child(body.key("thread-said").w(m.column).selection_group(true)));
     col().w(page_w).h(page_h).child(reading).child(dock(s, item, &m))
+}
+
+#[cfg(test)]
+mod tests {
+    use rune::{Key, Runtime};
+    use serde_json::json;
+
+    use crate::State;
+    use crate::feel::tests::{key, press, run, window_dressed};
+
+    /// The invented inbox's first thread with an agent on it, five minutes into a run that is
+    /// running the tests, opened.
+    fn working(name: &str) -> Runtime<State> {
+        window_dressed(name, &["--thread", "w-feel0"], "/fixtures/storefront", "Done, and tested. Merge it?", |fixture| {
+            let now = fixture["now"].as_f64().unwrap();
+            fixture["snapshot"]["items"][0]["status"] = json!("claimed");
+            fixture["snapshot"]["supervisor"]["running"] = json!([{
+                "itemId": "w-feel0", "product": "storefront", "startedAt": now - 300_000.0, "tail": [],
+                "activity": [{ "id": "toolu_1", "label": "Running the tests", "detail": "npm test", "startedAt": now - 20_000.0 }],
+            }]);
+        })
+    }
+
+    /// How many elements on screen run a loop.
+    fn looping(rt: &Runtime<State>) -> usize {
+        rt.elements().iter().filter(|e| e.loop_phase.is_some()).count()
+    }
+
+    #[test]
+    fn the_working_lines_mark_turns_and_its_word_shimmers_once_it_is_on_screen_and_not_under_reduce_motion() {
+        let mut rt = working("live-loops");
+        run(&mut rt, 0.1);
+        assert_eq!(rt.state.reading.live_seen.as_deref(), Some("storefront/w-feel0"), "the line reported itself on screen");
+        // Eight cells of the lattice, and the veil's strips over the word.
+        let loops = looping(&rt);
+        assert!(loops > 8 + 20, "{loops} loops");
+        // Under Reduce motion everything of it stands still, as the web window's does.
+        rt.set_system_reduced_motion(true);
+        run(&mut rt, 0.1);
+        assert_eq!(looping(&rt), 0);
+    }
+
+    #[test]
+    fn a_press_opens_the_working_line_onto_its_steps_and_escape_folds_them_before_leaving() {
+        let mut rt = working("live-steps");
+        run(&mut rt, 0.1);
+        let (x, y) = rt.find("live-word").expect("the line's word");
+        press(&mut rt, x, y);
+        assert!(rt.state.reading.live_open.is_some(), "open onto its steps");
+        assert!(rt.find("live-word").is_some());
+        // The running call is a row of it.
+        assert!(rt.elements().iter().any(|e| e.text.as_deref() == Some("Running the tests") && e.rect[1] > y + 10.0), "the call running now is listed under the line");
+        // Escape folds the steps and stays in the conversation; the next one leaves it.
+        key(&mut rt, Key::Escape);
+        assert!(rt.state.reading.live_open.is_none());
+        assert!(matches!(rt.state.view, crate::View::Thread { .. }));
+        key(&mut rt, Key::Escape);
+        assert!(!matches!(rt.state.view, crate::View::Thread { .. }));
+    }
 }

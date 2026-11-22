@@ -98,6 +98,78 @@ pub fn working(session: Option<&Session>, status: &str, labels: &[String], askin
     Some(Working { word, more, span: short_span(now - running_since(session)), place })
 }
 
+/// How many of the steps a run finished since it last said anything the unfolded line lists;
+/// the rest are counted (`LIVE_STEPS_SHOWN` in `renderer/src/activity-summary.ts`).
+pub const STEPS_SHOWN: usize = 5;
+
+/// One step a run took since it last said anything, as its log has it: when, its verb, what it
+/// acted on, and the whole command or path behind that when the words shortened it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Took {
+    pub at: f64,
+    pub verb: String,
+    pub subject: String,
+    pub full: String,
+}
+
+/// A row of what the line unfolds onto (`ActivityRow`): its words, and the command it opens onto.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StepRow {
+    pub label: String,
+    pub detail: String,
+}
+
+/// What the working line unfolds onto (`Live.tsx`, expanded): how many finished steps came
+/// before the newest it lists, and the rows, the finished ones oldest first and then each call
+/// running now.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Steps {
+    pub earlier: usize,
+    pub rows: Vec<StepRow>,
+}
+
+/// The steps of `history` not still running: each call in `running` takes the newest step
+/// with its command out of the list, unless that step is older than the call by more than a
+/// second (`previousActivity`).
+pub fn previous_activity(history: &[Took], running: &[Activity]) -> Vec<Took> {
+    let normal = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut previous = history.to_vec();
+    for action in running {
+        let found = (0..previous.len()).rev().find(|&at| {
+            let row = &previous[at];
+            let too_old = action.started_at.is_some_and(|started| row.at < started - 1000.0);
+            let said = if row.full.is_empty() { &row.subject } else { &row.full };
+            !too_old && normal(said) == normal(&action.detail)
+        });
+        if let Some(at) = found {
+            previous.remove(at);
+        }
+    }
+    previous
+}
+
+/// What the line unfolds onto, from the steps the run took since it last said anything and the
+/// calls running now: the newest five finished, oldest at the top, then what runs now.
+pub fn steps(history: &[Took], running: &[Activity]) -> Steps {
+    let finished = previous_activity(history, running);
+    let recent = &finished[finished.len().saturating_sub(STEPS_SHOWN)..];
+    let mut rows: Vec<StepRow> = recent
+        .iter()
+        .map(|took| {
+            let mut verb = took.verb.chars();
+            let capital = verb.next().map(|c| c.to_uppercase().collect::<String>() + verb.as_str()).unwrap_or_default();
+            StepRow { label: format!("{capital} {}", took.subject).trim().to_string(), detail: if took.full.is_empty() { took.subject.clone() } else { took.full.clone() } }
+        })
+        .collect();
+    rows.extend(running.iter().map(|a| StepRow { label: a.label.clone(), detail: a.detail.clone() }));
+    Steps { earlier: finished.len() - recent.len(), rows }
+}
+
+/// The line over the rows for the finished steps not listed.
+pub fn earlier_steps(earlier: usize) -> String {
+    format!("{earlier} earlier {} since it last said something", if earlier == 1 { "step" } else { "steps" })
+}
+
 /// The words every run of a repeating task is briefed with, as the person wrote them
 /// (`instructionOf` in `shared/repeats.mts`).
 fn instruction_of(body: &str) -> &str {
@@ -194,6 +266,47 @@ mod tests {
         let repeating = "THIS IS ONE RUN OF A REPEATING TASK.\nbrief\nHER INSTRUCTION FOLLOWS.\nSend the weekly news";
         assert_eq!(ask_line(repeating, "Weekly news").as_deref(), Some("You asked: Send the weekly news."));
         assert_eq!(ask_line("", "x"), None);
+    }
+
+    fn took(at: f64, verb: &str, subject: &str, full: &str) -> Took {
+        Took { at, verb: verb.into(), subject: subject.into(), full: full.into() }
+    }
+
+    fn call(label: &str, detail: &str, started: Option<f64>) -> Activity {
+        Activity { id: label.into(), label: label.into(), detail: detail.into(), started_at: started }
+    }
+
+    /// `previousActivity`, with `tests/thinking-expands-to-clean-gray-commands.test.mts`'s case.
+    #[test]
+    fn a_call_still_running_takes_its_own_step_out_of_the_finished_ones() {
+        let rows = [took(0.0, "", "npm test", ""), took(0.0, "", "git status", ""), took(0.0, "", "npm test", "")];
+        assert_eq!(previous_activity(&rows, &[call("", "npm test", None)]), rows[..2].to_vec(), "the current command is not called completed, nor an earlier repeat erased");
+        assert_eq!(previous_activity(&rows, &[]), rows.to_vec());
+        assert_eq!(previous_activity(&rows, &[call("", "npm build", None)]), rows.to_vec());
+        let history = [took(1_000.0, "edited", "src/tax.ts", ""), took(2_000.0, "ran", "npm test", "npm  test\n")];
+        // The running call has the same command, whitespace aside: it is that step, still going.
+        let left = previous_activity(&history, &[call("Running the tests", "npm test", Some(2_500.0))]);
+        assert_eq!(left, vec![history[0].clone()]);
+        // A step more than a second older than the call is another run of it, and stays.
+        let left = previous_activity(&history, &[call("Running the tests", "npm test", Some(9_000.0))]);
+        assert_eq!(left.len(), 2);
+        // A call with no start still takes its newest match.
+        assert_eq!(previous_activity(&history, &[call("Running the tests", "npm test", None)]).len(), 1);
+    }
+
+    #[test]
+    fn the_unfolded_line_lists_the_newest_five_finished_and_then_what_runs_now() {
+        let history: Vec<Took> = (0..8).map(|k| took(f64::from(k) * 1000.0, "read", &format!("file-{k}.md"), &format!("/repo/file-{k}.md"))).collect();
+        let shown = steps(&history, &[call("Running the tests", "npm test -- checkout", Some(10_000.0))]);
+        assert_eq!(shown.earlier, 3);
+        assert_eq!(shown.rows.len(), 6);
+        assert_eq!(shown.rows[0], StepRow { label: "Read file-3.md".into(), detail: "/repo/file-3.md".into() });
+        assert_eq!(shown.rows[5], StepRow { label: "Running the tests".into(), detail: "npm test -- checkout".into() });
+        assert_eq!(earlier_steps(3), "3 earlier steps since it last said something");
+        assert_eq!(earlier_steps(1), "1 earlier step since it last said something");
+        // A step whose words are its whole command opens onto them.
+        assert_eq!(steps(&[took(0.0, "ran", "git status", "")], &[]).rows[0].detail, "git status");
+        assert_eq!(steps(&[], &[]), Steps { earlier: 0, rows: vec![] });
     }
 
     #[test]

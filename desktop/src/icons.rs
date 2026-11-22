@@ -165,6 +165,23 @@ pub static WORK_MARK: Icon = Icon {
     view: 8.0,
     body: r#"<g fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2.6 1.2 L5.6 4 L2.6 6.8"/></g>"#,
 };
+// The working line's chevron, which shows under the pointer and turns down while its steps are
+// open (`.live-chevron`), and the mark of each step (`ActivityRow`).
+pub static LIVE_CHEVRON: Icon = Icon {
+    name: "m-live-chevron",
+    view: 12.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"><path d="m4 2 4 4-4 4"/></g>"#,
+};
+pub static LIVE_CHEVRON_OPEN: Icon = Icon {
+    name: "m-live-chevron-open",
+    view: 12.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"><path d="m10 4-4 4-4-4"/></g>"#,
+};
+pub static LIVE_COMMAND: Icon = Icon {
+    name: "m-live-command",
+    view: 16.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.3"><rect x="1.5" y="1.5" width="13" height="13" rx="3"/><path d="m4 5 3 3-3 3m5 0h3"/></g>"#,
+};
 pub static WORK_MARK_OPEN: Icon = Icon {
     name: "m-work-mark-open",
     view: 8.0,
