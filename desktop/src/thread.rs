@@ -8,11 +8,15 @@
 //! each run did is in the conversation (`Thread.tsx`): what it said, at reading size, and what
 //! it ran folded to one quiet line under that, which a press opens to each thing it ran. While
 //! an agent is on the thread, a line at the foot says what it is doing now (`Live.tsx`).
+//!
+//! A thread that made or named files carries a Files button in its head strip, with how many,
+//! which opens the list of them (`ThreadFiles.tsx`).
 
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 use rune::time::LocalTime;
-use rune::{El, Icon, ScrollSpec, TextCase, TextStyle, col, el, icon, row, spacer, text, text_input};
+use rune::{Drag, El, Icon, Phase, ScrollSpec, TextCase, TextStyle, col, el, icon, row, spacer, text, text_input};
 use serde_json::{Map, Value, json};
 
 use crate::data::{Item, Priority};
@@ -21,18 +25,25 @@ use crate::home;
 use crate::markdown::{self, Block};
 use crate::rules::format::{self, Choice};
 use crate::rules::notes::TraceSession;
+use crate::rules::thread_files::{self, ThreadFile};
 use crate::rules::{live, place, work};
 use crate::talk::{self, Answers, Field, Line, Message, Page, Said, Saying, Step, Talk, Work};
 use crate::theme::*;
 use crate::{State, View, chrome, icons};
 
 /// What the person has unfolded while reading: the threads whose earlier messages are shown,
-/// those whose whole middle was asked for, and the folds of what a run did that are open.
+/// those whose whole middle was asked for, the folds of what a run did that are open, and the
+/// conversation whose list of files is open.
 #[derive(Default)]
 pub struct Reading {
     unfolded: HashSet<String>,
     whole: HashSet<String>,
     runs_open: HashSet<String>,
+    /// By `product/id`, one at most, and only while that conversation is on screen: the web
+    /// window's list is the button's own state, which leaving the thread lets go of.
+    files: Option<String>,
+    /// The file of the open list under the pointer.
+    file_lit: Option<usize>,
 }
 
 impl Reading {
@@ -162,6 +173,11 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
             .child(step(&icons::DOWN, at.and_then(|a| s.lists.needs.get(a + 1))));
     }
     let mut actions = actions;
+    // The files the thread made, first of what can be done to it, for one that made any.
+    let files = item(s, id, product).map(|i| files_made_here(s, i)).unwrap_or_default();
+    if !files.is_empty() {
+        actions = actions.child(files_button(files.len(), s.files_open()).ml(10.0));
+    }
     if let Some(place) = place {
         actions = actions.child(place.ml(10.0));
     }
@@ -185,9 +201,187 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
                 .items_center()
                 .child(text(crumb_from(s, id, product)).font(crumbs).text_case(TextCase::Uppercase).color(muted()).mr(8.0).on_press(|s: &mut State| s.go(View::Inbox)))
                 .child(text("/").font(crumbs).color(muted()).ml(5.0).mr(7.0))
-                .child(row().min_w(0.0).px(6.0).child(text(crumb(&title)).font(crumbs).text_case(TextCase::Uppercase).color(dim()).truncate())),
+                // The name gives way to what can be done to the thread, cut short with dots
+                // (`.thread-crumb-name`): Rune's flex never shrinks a child below what it holds
+                // unless told to, and a strip with a Files button in it can leave the name less.
+                .child(row().min_w(0.0).shrink().px(6.0).child(text(crumb(&title)).font(crumbs).text_case(TextCase::Uppercase).color(dim()).truncate())),
         )
         .child(actions)
+}
+
+/* ------------------------------ the files it made ------------------------------ */
+
+/// The key the Files button is laid out under: its list hangs from where it is.
+const FILES_BUTTON: &str = "thread-files";
+
+thread_local! {
+    /// The files last read off a thread's ledger and what they were read from. The strip is drawn
+    /// every frame, and they are read again only when the ledger or the notes change, as the web
+    /// window's `useMemo` reads them.
+    static FILES: std::cell::RefCell<Option<(String, Rc<Vec<ThreadFile>>)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The files a thread made or named, each once at its newest version, newest first
+/// (`filesMadeHere` in `Focus.tsx`). Read off its ledger as the engine answered it, the lines
+/// `zero:item-history` hands over, and nothing until it has: the web window's list starts empty
+/// and fills when that answer comes.
+pub fn files_made_here(s: &State, item: &Item) -> Rc<Vec<ThreadFile>> {
+    let thread = key(&item.product, &item.id);
+    let Some(answered) = s.threads.get(&thread).or_else(|| s.fixture.get("threads").and_then(|t| t.get(&thread))) else {
+        return Rc::default();
+    };
+    // The notes on the thread's files, by the version each is on (`item.artifacts.notes`).
+    let notes: Vec<&str> = item.rest.get("artifacts").and_then(|a| a.get("notes")).and_then(Value::as_array).map(|all| all.iter().filter_map(|n| n.get("file").and_then(Value::as_str)).collect()).unwrap_or_default();
+    let print = format!("{thread}|{}|{notes:?}", fingerprint(answered));
+    if let Some(files) = FILES.with(|last| last.borrow().as_ref().filter(|(p, _)| *p == print).map(|(_, f)| f.clone())) {
+        return files;
+    }
+    let lines: Vec<Line> = answered.get("zero:item-history").and_then(|h| h.get("lines")).and_then(|l| serde_json::from_value(l.clone()).ok()).unwrap_or_default();
+    let files = Rc::new(thread_files::files_made_here(&lines, &notes, s.now));
+    FILES.with(|last| *last.borrow_mut() = Some((print, files.clone())));
+    files
+}
+
+/// The button (`.ts-done.ts-files`): Done's frame around the files mark and how many there are.
+fn files_button(count: usize, open: bool) -> El {
+    row().key(FILES_BUTTON)
+        .h(30.0)
+        .min_w(30.0)
+        .px(9.0)
+        .gap(6.0)
+        .justify_center()
+        .items_center()
+        .radius(6.0)
+        .border(1.0, edge())
+        .border_layout()
+        .child(icon(&icons::THREAD_FILES, 16.0).color(dim()))
+        .child(text(count.to_string()).font(figures(12.5, 400.0)).color(dim()))
+        .label(format!("Files in this thread ({count})"))
+        .expanded(open)
+        .on_press(|s: &mut State| s.toggle_files())
+}
+
+/// One file of the list: its kind, four letters at most in a small tile, its name, cut short
+/// with dots, and the notes on it. A press closes the list and opens the file, with the system,
+/// as a mention opens it (`files::open`): the web window opens it big or beside the
+/// conversation, which this window does not have. `lit`: the pointer is on it.
+fn file_row(at: usize, file: &ThreadFile, lit: bool) -> El {
+    let kind = row()
+        .w(34.0)
+        .py(5.0)
+        .radius(5.0)
+        .fill(white(0.04))
+        .justify_center()
+        .child(text(thread_files::kind_tag(&file.name)).font(mono(9.5, 12.5).tracking(0.38)).text_case(TextCase::Uppercase).color(dim()));
+    // Washed under the pointer (`--wash`), and the wash comes and goes at once: the web's
+    // `:hover` has no transition, where Rune's own hover overlay fades out.
+    let mut line = row()
+        .min_h(36.0)
+        .px(10.0)
+        .py(6.0)
+        .gap(10.0)
+        .items_center()
+        .radius(6.0)
+        .fill(if lit { white(0.04) } else { rgba(0, 0, 0, 0.0) })
+        .on_hover_change(move |s: &mut State, inside, _| {
+            if inside {
+                s.reading.file_lit = Some(at);
+            } else if s.reading.file_lit == Some(at) {
+                s.reading.file_lit = None;
+            }
+        })
+        .child(kind)
+        .child(row().grow(1.0).min_w(0.0).child(text(file.name.as_str()).font(sans(13.5, 400.0)).color(ink()).truncate()));
+    if file.notes > 0 {
+        line = line.child(text(thread_files::notes_words(file.notes)).font(sans(12.0, 400.0)).color(muted()));
+    }
+    let src = file.src.clone();
+    line.cursor(rune::Cursor::Pointer).help(format!("Open {}", file.name)).on_press(move |s: &mut State| {
+        s.close_files();
+        crate::files::open(s, &src);
+    })
+}
+
+/// The list the Files button opens, over the page (`.th-pop.ts-files-pop`): 360 points wide,
+/// its right edge on the button's and its top 40 points under the button's, every file at
+/// once up to 440 points tall or seven tenths of the window, past which they scroll. Under it
+/// lies a layer over the rest of the window, and a press there closes it on the way down, as
+/// the web window's `pointerdown` does; Escape closes it too (`keys.rs`). The layer takes the
+/// press, which in the web window goes on to what it was aimed at.
+pub fn files_list(s: &State) -> Option<El> {
+    let View::Thread { id, product } = &s.view else {
+        return None;
+    };
+    if !s.files_open() {
+        return None;
+    }
+    let files = files_made_here(s, item(s, id, product)?);
+    if files.is_empty() {
+        return None;
+    }
+    // Where the button is in the window now. One not laid out yet has nothing hung from it.
+    let [x, y, w, button_tall] = rune::memo::window_layout(FILES_BUTTON)?;
+    const WIDE: f32 = 360.0;
+    // Its edge and the six points inside it, twice, each file 36 points and two between them.
+    let tall = 14.0 + files.len() as f32 * 38.0 - 2.0;
+    let most = 440.0_f32.min(0.7 * s.size.1);
+    // A scroller lays its content out at the content's own width, so the rows are told theirs.
+    let rows = col().w(WIDE - 2.0).padding(6.0).gap(2.0).children(files.iter().enumerate().map(|(at, file)| file_row(at, file, s.reading.file_lit == Some(at))));
+    // No rounded clip on the list itself: Rune's takes the element's own shadow with it, and
+    // nothing inside reaches its corners.
+    let list = col()
+        .absolute(x + w - WIDE, y + 40.0)
+        .w(WIDE)
+        .radius(10.0)
+        .fill(rgb(54, 52, 49))
+        .border(1.0, rule())
+        .border_layout()
+        .box_shadow(shadow(0.0, 18.0, 50.0, 0.0, rgba(0, 0, 0, 0.5), false))
+        .role("dialog")
+        .label("Files in this thread");
+    let list = if tall > most { list.h(most).child(col().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(rows)) } else { list.child(rows) };
+    // Everywhere but the button, which the web window's `pointerdown` leaves to the button's own
+    // click: a press there closes the list on its way up, as the press that opened it did.
+    let (ww, wh) = s.size;
+    let (bottom, right) = (y + button_tall, x + w);
+    let away = [[0.0, 0.0, ww, y], [0.0, bottom, ww, wh - bottom], [0.0, y, x, button_tall], [right, y, ww - right, button_tall]].map(|[ax, ay, aw, ah]| {
+        el().absolute(ax, ay).size(aw.max(0.0), ah.max(0.0)).on_drag(|s: &mut State, d: &mut Drag, _| {
+            if d.phase == Phase::Down {
+                s.close_files();
+            }
+        })
+    });
+    Some(el().absolute(0.0, 0.0).size(ww, wh).children(away).child(list))
+}
+
+impl State {
+    /// The open conversation, as `product/id`.
+    fn thread_on_screen(&self) -> Option<String> {
+        match &self.view {
+            View::Thread { id, product } => Some(key(product, id)),
+            _ => None,
+        }
+    }
+    /// Whether the open conversation's list of files is open.
+    pub fn files_open(&self) -> bool {
+        self.reading.files.is_some() && self.reading.files == self.thread_on_screen()
+    }
+    /// The Files button: the list opens, or closes when it is open. It opens with no row
+    /// washed, wherever the pointer last left one.
+    pub fn toggle_files(&mut self) {
+        self.reading.files = if self.files_open() { None } else { self.thread_on_screen() };
+        self.reading.file_lit = None;
+    }
+    /// The list opens on the open conversation, for a picture taken with it open.
+    pub fn open_files(&mut self) {
+        self.reading.files = self.thread_on_screen();
+        self.reading.file_lit = None;
+    }
+    /// Escape, a press outside it, a file pressed, the conversation left: the list closes.
+    pub fn close_files(&mut self) {
+        self.reading.files = None;
+        self.reading.file_lit = None;
+    }
 }
 
 /// "Today 12:16pm": the day, then the clock (`when` in `Thread.tsx`).

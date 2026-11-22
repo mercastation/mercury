@@ -125,6 +125,12 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
         crate::later::pressed(s, e, tx);
         return true;
     }
+    // A conversation's open list of files takes Escape and no other key, which goes on to the
+    // page under it as in the web window (`ThreadFilesButton`): the arrows still walk the options.
+    if e.key == Key::Escape && s.files_open() {
+        s.close_files();
+        return true;
+    }
     let letter = match &e.key {
         Key::Text(t) => t.to_lowercase(),
         _ => String::new(),

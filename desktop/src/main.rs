@@ -164,9 +164,10 @@ impl State {
         };
         self.snap.items.iter().find(|i| &i.id == id && &i.product == product)
     }
-    /// Leaving a conversation folds its reply box and drops the arrow off its options. Words
-    /// written in the box wait for the next visit.
+    /// Leaving a conversation folds its reply box, drops the arrow off its options and closes
+    /// its list of files. Words written in the box wait for the next visit.
     fn put_the_reply_away(&mut self) {
+        self.close_files();
         if let View::Thread { id, product } = &self.view {
             let key = format!("{product}/{id}");
             if self.reply.text.trim().is_empty() {
@@ -937,6 +938,10 @@ fn press_what_the_picture_pressed(s: &mut State, tx: &mut Tx) {
     if let Some(which) = s.fixture.remove("menu") {
         s.picture_menu(which.as_str().unwrap_or_default(), tx);
     }
+    // And one taken with a conversation's list of files open (`filesOpen`).
+    if s.fixture.remove("filesOpen").is_some() {
+        s.open_files();
+    }
 }
 
 fn setup(s: &mut State, wake: Waker) {
@@ -1087,6 +1092,8 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
                 .scroll(ScrollSpec { stick_bottom: false })
                 .child(page),
         );
+    // The list a conversation's Files button opens, over the page and under everything else.
+    let root = root.children(thread::files_list(s));
     // The box a thread is started in: its open menu over the page it hangs in, or the New
     // thread card over the whole page, under the line about the last thing done.
     let root = root.children(compose::layers(s));

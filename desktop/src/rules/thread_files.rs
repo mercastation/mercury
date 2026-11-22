@@ -266,10 +266,10 @@ pub fn files_in_lines(lines: &[Line]) -> Vec<Named> {
     for line in lines {
         let Some(patch) = &line.patch else { continue };
         let edit = patch.get("artifact").filter(|a| a.get("do").and_then(Value::as_str) == Some("edit"));
-        if let Some(path) = edit.and_then(|a| a.get("path")).and_then(Value::as_str).filter(|p| !p.is_empty()) {
-            if seen.insert(path.to_string()) {
-                out.push(Named { path: path.to_string(), at: line.ts });
-            }
+        if let Some(path) = edit.and_then(|a| a.get("path")).and_then(Value::as_str).filter(|p| !p.is_empty())
+            && seen.insert(path.to_string())
+        {
+            out.push(Named { path: path.to_string(), at: line.ts });
         }
         for path in paths_said_on(line) {
             if seen.insert(path.clone()) {

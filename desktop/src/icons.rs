@@ -209,3 +209,12 @@ pub static CLEAR: Icon = Icon {
     view: 24.0,
     body: r#"<g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7 7l10 10M17 7 7 17"/></g>"#,
 };
+
+// The Files button over a conversation (`FILES` in `renderer/src/threads/ThreadFiles.tsx`): a
+// page with its corner turned, and the edge of another behind it.
+stroked!(
+    THREAD_FILES,
+    "m-thread-files",
+    "1.4",
+    r#"<path d="M8 3.5h6l4 4V17a.5.5 0 0 1-.5.5H8a.5.5 0 0 1-.5-.5V4a.5.5 0 0 1 .5-.5z"/><path d="M14 3.5v4h4"/><path d="M5 7v12.5a1 1 0 0 0 1 1h9"/>"#
+);
