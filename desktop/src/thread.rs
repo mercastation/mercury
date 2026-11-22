@@ -447,17 +447,22 @@ fn conversation(s: &State, thread: &str, page: &Page, now: f64, m: &Measure, fil
 /// step it is on in its own words, how many more run beside it, how long it has been at it,
 /// and where it runs when that is news. The web window's mark turns and its word shimmers;
 /// here both stand still, the mark at the web's own opacity for no motion.
-fn live_line(line: &live::Working) -> El {
+fn live_line(line: &live::Working, m: &Measure) -> El {
     let font = TextStyle::new(13.5, 400.0).lh(20.0);
     let cell = |lit: bool| el().size(14.0 / 3.0 - 1.0, 14.0 / 3.0 - 1.0).radius(1.85).fill(ink()).opacity(if lit { 0.65 } else { 0.1 });
     let mark = col().size(14.0, 14.0).gap(1.5).children((0..3).map(|r| row().gap(1.5).children((0..3).map(move |c| cell(!(r == 1 && c == 1))))));
     // The step is said aloud each time it changes (`live-announcement`, `role="status"`).
     let word = text(line.word.as_str()).font(TextStyle::new(13.5, 500.0).lh(20.0)).color(ink()).truncate().live_region(rune::LiveRegion::Polite);
-    let mut words = row().items_center().gap(6.0).min_w(0.0).child(row().min_w(0.0).child(word));
+    // Rune's flex never shrinks a child below what it holds unless told to (`shrink`), and
+    // the step is the one part that gives way.
+    let mut words = row().items_center().gap(6.0).shrink().child(row().shrink().child(word));
     for span in [line.more.as_deref(), Some(line.span.as_str()), line.place.as_deref()].into_iter().flatten() {
         words = words.child(text(span).font(font.features("'tnum' 1")).color(muted()));
     }
-    row().items_center().gap(7.0).child(mark).child(words)
+    // No wider than the column: a step is often a whole command line, and it is cut short with
+    // dots, as `.live-disclosure .live-word` cuts it, rather than run past the page. The stack
+    // it stands in takes its width from what is in it, so the column is said here.
+    row().max_w(m.column).items_center().gap(7.0).child(mark).child(words)
 }
 
 /// The line under the title (`.one-cols`): the summary a thread carries, or while an agent
@@ -787,7 +792,7 @@ pub fn view(s: &State, id: &str, product: &str) -> El {
     let asking = s.snap.rest.get("approvals").and_then(Value::as_array).is_some_and(|a| a.iter().any(|a| a.get("item").and_then(Value::as_str) == Some(id)));
     let why_not_cloud = s.snap.supervisor.rest.get("whyNotCloud").and_then(|w| w.get(id)).and_then(|w| w.get("at")).and_then(Value::as_str);
     if let Some(line) = live::working(session.as_ref(), &item.status, &item.labels, asking, why_not_cloud, s.now) {
-        blocks.push(markdown::block(14.0, 2.0, live_line(&line)));
+        blocks.push(markdown::block(14.0, 2.0, live_line(&line, &m)));
     }
     let (body, _, under) = markdown::stack(blocks, false);
     // A browser scrolls a page only as far as a whole device pixel, whatever its lines add up
