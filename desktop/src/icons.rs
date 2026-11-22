@@ -173,6 +173,14 @@ stroked!(MENTION_CODE, "m-mention-code", "1.6", r#"<path d="m8 8-4 4 4 4M16 8l4 
 stroked!(MENTION_MEDIA, "m-mention-media", "1.6", r#"<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m10 9.5 4.5 2.5-4.5 2.5z"/>"#);
 stroked!(MENTION_FILE, "m-mention-file", "1.6", r#"<path d="M14 3H7.5A2.5 2.5 0 0 0 5 5.5v13A2.5 2.5 0 0 0 7.5 21h9a2.5 2.5 0 0 0 2.5-2.5V8z"/><path d="M14 3v5h5"/>"#);
 
+// The command bar's own magnifier, before its box (`PaletteBox` in `components/Palette.tsx`):
+// square ends and no round joins, unlike the rail's.
+pub static BAR_SEARCH: Icon = Icon {
+    name: "m-bar-search",
+    view: 16.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.6"/><path d="M10.4 10.4L14 14"/></g>"#,
+};
+
 // The last row of the project menu, where a project's swatch would be: New project.
 stroked!(PLUS, "m-plus", "1.8", r#"<path d="M12 5v14M5 12h14"/>"#);
 

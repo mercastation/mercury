@@ -103,8 +103,17 @@ fn later_under_the_keys(s: &mut State, tx: &mut Tx) {
 
 /// True when the key was this window's. A chord is the system's, never one of these.
 pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
-    // The box a thread is started in reads the key first: its open menu has the keyboard, a
-    // letter with the keyboard on one of its chips is typed, and ⌘Return sends it.
+    // ⌘K from anywhere, and every key while the command bar is open, are the bar's. One thing
+    // stands over the page at a time, as the web window's one `modal`: the bar opening closes
+    // the New thread card, which keeps its words.
+    if crate::palette::took(s, e, tx) {
+        if s.palette.open && s.compose.card {
+            s.close_card(tx);
+        }
+        return true;
+    }
+    // Then the box a thread is started in: the card has every key, its open menu has the
+    // keyboard, a letter with the keyboard on one of its chips is typed, and ⌘Return sends it.
     if let Some(taken) = crate::compose::key(s, e, tx) {
         return taken;
     }

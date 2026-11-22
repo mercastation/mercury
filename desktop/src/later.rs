@@ -140,11 +140,12 @@ pub fn view(s: &State) -> Option<El> {
     let rows = choices(item, s.now);
     let list = col().py(6.0).children(rows.iter().enumerate().map(|(at, choice)| choice_row(at, choice, typed.is_empty() && at == s.later.selected)));
 
+    // Not clipped to its corners: Rune's clip takes the card's own shadow with it, and nothing
+    // inside reaches the corners (the list stands 6 points in from the foot) to need one.
     let card = col()
         .absolute((w - width) / 2.0, 0.12 * h)
         .w(width)
         .radius(10.0)
-        .clip_rounded(10.0)
         .fill(rgb(47, 45, 44))
         .border(1.0, rule())
         .border_layout()
