@@ -13,7 +13,8 @@ project, model, effort and level picked in its menus ("Starting a thread", below
 
 A file an agent names in a conversation is not left as its path: a picture is drawn in place, any
 other file is a mention that opens it, and a folder on a line of its own shows its newest pictures
-("The files a message names", below).
+("The files a message names", below). A thread that made or named files carries the Files button
+in its head strip, with how many, which opens the list of them ("The files a thread made").
 
 ⌘K opens the command bar from anywhere: it finds threads by their words, as the web window's bar
 does, and runs what this window can do to the thread under the keys and the places it can go
@@ -105,18 +106,23 @@ when it is not the first in Needs you (`thread`).
 
 A conversation that names files needs files. `tools/pictures.mjs` plants an invented project
 folder in the system's temporary folder (flat pictures of several shapes, a folder of rounds, a
-page, a note, a sheet), a scene moves its thread's project into it (`files` in `thread.mjs`'s
-`open`), and the page's pictures are answered from it. The native window reads the same files
-off the disk. Each planting starts the folder again, so these scenes are photographed one after
-another, never two at once: `thread-pictures` (a picture named bare in a sentence, as a markdown
-image, as a link), `thread-pictures-ways` (in a code span, by its full path, found beside the
-code), `thread-pictures-row` (three in one sentence), `thread-pictures-large` (wider than the
-column, taller than the window), `thread-pictures-missing`, `thread-pictures-arriving` (the place
-held before one comes), `thread-pictures-said` (inside an unfolded conversation), `thread-links`
-(one file of each kind that is not a picture), `thread-links-beside` (a design page and a note
-on a line of its own), `thread-links-media` (a film and a sound, which the web window plays and
-this one names), `thread-folder` and `thread-folder-quiet` (a folder on a line of its own), and
-`thread-pictures-many` (ten screenshots, for the memory measurement).
+page, a note, a sheet, and a second version of a picture and of the note), a scene moves its
+thread's project into it (`files` in `thread.mjs`'s `open`), and the page's pictures are
+answered from it. The native window reads the same files off the disk. Each planting starts the
+folder again, so these scenes are photographed one after another, never two at once; and a task
+that photographs scenes while another does on the same Mac plants its own folder
+(`MERCURY_PLANTED=<folder>`), or each starts the other's again under it. The scenes:
+`thread-pictures` (a picture named bare in a sentence, as a markdown image, as a link),
+`thread-pictures-ways` (in a code span, by its full path, found beside the code),
+`thread-pictures-row` (three in one sentence), `thread-pictures-large` (wider than the column,
+taller than the window), `thread-pictures-missing`, `thread-pictures-arriving` (the place held
+before one comes), `thread-pictures-said` (inside an unfolded conversation), `thread-links` (one
+file of each kind that is not a picture), `thread-links-beside` (a design page and a note on a
+line of its own), `thread-links-media` (a film and a sound, which the web window plays and this
+one names), `thread-folder` and `thread-folder-quiet` (a folder on a line of its own),
+`thread-pictures-many` (ten screenshots, for the memory measurement), and `thread-files` and
+`thread-files-open` (a thread whose files come in versions, its Files button and the list it
+opens; "The files a thread made", below).
 
 The invented inbox has almost nothing switched on: nothing in Later, no cloud, no team. So some
 scenes add to it. A scene of Home dresses the inbox before the page opens (`dress`): `home-team`
@@ -166,22 +172,25 @@ of 915 points, Project at 785). The first tab and `inbox-later-kinds`:
 And on one person's real inbox, read through the door, with teammates, a cloud, a recorder and a
 sign-in all on: Home 0.86, the Inbox's four tabs 0.14 to 0.25, a conversation 0.47.
 
-A conversation that names files, whole window, at the three sizes. The web window's head strip
-grows a files button with a count when a thread names files, which this window does not draw
-yet: the strip alone is 0.86 with it against 0.54 without.
+A conversation that names files, whole window, at the three sizes. Its head strip carries the
+Files button with its count, as the web window's does (all but `thread-folder`, which names only
+a folder): the strip alone is 0.55 at 1280 by 760, as a strip with no files is (`thread`), where it
+was 0.86 while this window drew no button. At 900 by 760 the thread's name in the strip used to
+run on over the arrows instead of being cut short: the strips with the button are 0.68 there,
+where they were 1.79, and `thread-folder`'s 0.71, where it was 0.98.
 
 | Scene | 1280 by 760 | 1600 by 1000 | 900 by 760 |
 |---|---|---|---|
-| `thread-pictures` | 0.35 | 0.32 | 0.49 |
-| `thread-pictures-ways` | 0.38 | 0.33 | 0.54 |
-| `thread-pictures-row` | 0.35 | 0.29 | 0.50 |
-| `thread-pictures-large` | 0.25 | 0.18 | 0.36 |
-| `thread-pictures-missing` | 0.46 | 0.36 | 0.66 |
-| `thread-pictures-arriving` | 0.41 | 0.40 | 0.58 |
-| `thread-pictures-said` | 0.25 | 0.38 | 0.36 |
-| `thread-links` | 0.68 | 0.62 | 0.96 |
-| `thread-folder` | 0.36 | 0.36 | 0.49 |
-| `thread-folder-quiet` | 0.34 | 0.28 | 0.48 |
+| `thread-pictures` | 0.32 | 0.30 | 0.42 |
+| `thread-pictures-ways` | 0.35 | 0.32 | 0.46 |
+| `thread-pictures-row` | 0.33 | 0.27 | 0.43 |
+| `thread-pictures-large` | 0.23 | 0.17 | 0.29 |
+| `thread-pictures-missing` | 0.44 | 0.34 | 0.59 |
+| `thread-pictures-arriving` | 0.39 | 0.39 | 0.51 |
+| `thread-pictures-said` | 0.23 | 0.37 | 0.29 |
+| `thread-links` | 0.66 | 0.61 | 0.89 |
+| `thread-folder` | 0.36 | 0.36 | 0.47 |
+| `thread-folder-quiet` | 0.32 | 0.27 | 0.41 |
 
 Inside the answer alone, at 1280 by 760: 0.07 where it is only pictures (`thread-pictures-large`),
 0.29 to 0.67 where sentences name them, and 1.23 for `thread-links`, whose ten mentions each
@@ -246,7 +255,8 @@ The frame after the press should be the new page whole, and every frame after it
 The command bar was checked so at 60 frames a second: opening it, moving its lit row and closing
 it each land in the next frame, and Rune counts no frame as animating.
 Pressing the fold of what a run ran in `thread-steps`, filmed at 60 frames a second, draws the
-closed fold until the tap lets go and the opened one whole from the next frame on.
+closed fold until the tap lets go and the opened one whole from the next frame on. So does the
+Files button's list (`thread-files`), opened and closed every way it closes.
 
 ## What the keys do, and what it writes
 
@@ -266,6 +276,7 @@ The keys are the web window's (`src/keys.rs`, from the keydown handler in `rende
 | A conversation | 1 to 9 | Sends that option |
 | A conversation | R | Opens the reply box; ⌘Return sends what is in it |
 | A conversation | E | Marks it done and goes on to the next thread |
+| A conversation's list of files | Esc | Closes it; every other key goes on to the page under it |
 | Home | N, or a letter none of the list's keys | Puts the caret in the box on the page (the letter typed into it) |
 | The Inbox, a conversation | N | Opens the New thread card over the page |
 | The box, the card | ⌘Return | Sends the thread; Return is a new line |
@@ -522,6 +533,74 @@ Reading one such screenshot takes 49 ms in the release build and 2.2 s in the de
 fills in a page of screenshots slowly. `MERCURY_PICTURES=1` prints what is held each time it
 changes.
 
+### The files a thread made
+
+A thread whose agent made or named files carries the Files button in its head strip, first of
+what can be done to it: Done's frame around a mark of two pages and how many files there are
+(`ThreadFilesButton` in `renderer/src/threads/ThreadFiles.tsx`, `src/thread.rs` here). Which
+files is the web window's rule (`filesMadeHere`), ported with the web's test cases in
+`src/rules/thread_files.rs`, read off the thread's ledger as the engine hands it over
+(`zero:item-history`):
+
+- Every file a line names that the big view reviews (a picture, a film, a PDF, a note, a deck),
+  as a link, in a code span or bare in a sentence; and every sheet (`.csv`, `.tsv`) named as a
+  link or in a code span, or by an agent with a folder in its path or alone on a line. A
+  person's own words count only what they attached, a link; a fenced block of code names
+  nothing; a page or a script named in passing is not something the thread made.
+- Each file once, at its newest version: `plan.md` and `plan-v2.md` are one file, a bare name
+  and the whole path to it are one, the same name in another folder is its next version, and an
+  edit saved in the app is the version it saved. Names that number themselves say the order.
+- Newest first: when a version of it was last named.
+
+Until the engine has answered with the ledger the strip has no button, as the web window's has
+none until its answer comes; the ledger is read again only when it or the notes change.
+
+A press on the button opens the list under it, 360 points wide, its right edge on the button's:
+each file its kind in a small tile (four letters of its extension at most), its name cut short
+with dots, and how many notes are on any of its versions (`item.artifacts.notes`). Past 440
+points, or seven tenths of the window, the files scroll inside it. The row under the pointer is
+washed, at once both ways, as the web window's has no transition. A press on a file closes the
+list and opens the file with the system, looked for where a mention's file is and opened as a
+mention opens it (`files::open`, then `open_with_system` with its guard); one found nowhere opens
+nothing. Escape closes the list, and so does a press anywhere outside it, on its way down; a
+press on the button closes it on its way up, as the web window's click does. Every other key goes
+on to the page, as in the web window, whose list takes only Escape: J and K go on to another
+thread, which closes the list as leaving the thread does, and coming back finds it closed.
+
+The thread's name in the strip gives way to what stands beside it, cut short with dots, as the
+web window cuts it. It used to run on over the arrows wherever it did not fit, which the button
+made happen in more windows: a conversation without files at 900 by 760 is 0.54 now (`thread`;
+0.56 before), `thread-folded` 0.51 (0.53) and `thread-later` 0.28 (0.28).
+
+The scenes: `thread-files` (the strip: a picture and a note each named in two versions, two
+sheets and a report, five files), `thread-files-open` (its list open) and `thread-files-many`
+(fourteen files, two of them with notes and one with a long name, the list open and full).
+Every box of the button and the list lands where the browser puts it, to a hundredth of a point
+(`--tree` against the dump). What is left is glyphs: the strip puts the button on a fraction of
+a point, and Rune lands a glyph's pen on half a device pixel rounded down where Chromium rounds to
+the nearest quarter, so the count and the names sit a quarter of a pixel to the left.
+
+At 2x, dark; the strip is the card's head, the button and the list the page's own boxes:
+
+| Scene | Window | Whole window | The strip | The button | The list |
+|---|---|---|---|---|---|
+| `thread-files` | 1280 by 760 | 0.44 | 0.55 | 0.54 | |
+| | 900 by 760 | 0.76 | 0.68 | 0.41 | |
+| | 1600 by 1000 | 0.40 | 0.47 | 0.47 | |
+| `thread-files-open` | 1280 by 760 | 0.44 | 0.61 | 0.67 | 0.49 |
+| | 900 by 760 | 0.72 | 0.75 | 0.60 | 0.49 |
+| | 1600 by 1000 | 0.42 | 0.51 | 0.59 | 0.49 |
+| `thread-files-many` | 1280 by 760 | 0.75 | 0.57 | 0.76 | 0.61 |
+
+A strip with no files is 0.55 at 1280 by 760 (`thread`). Most of what `thread-files-many` differs
+by is its answer's fourteen mentions, whose underlines sit two points higher (see what still
+differs).
+
+Filmed at 60 frames a second, the list opens on the frame the press lets go, closes on the frame
+of Escape or of a press outside it (on the press's way up for the button itself), and every
+frame after is the same to the pixel; Rune counts no frame as animating. A press on a file in a
+script says what a window would have opened (`a press opens …/notes/rounding-v2.md`).
+
 ## What a run did
 
 Each run that picks a thread up leaves a log (`zero:session-trace`; `docs/thread-data.md` says
@@ -595,7 +674,17 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
     the conversation, and its rules open a design page or a note on a line of its own there by
     themselves (`message-artifacts.ts`). The reference page has no engine to find a file
     with, so that pane was never photographed (`thread-links-beside` draws the same in both).
-  - The head strip has no files button. The web window's counts the files a thread names.
+  - A file pressed in the Files button's list opens with the system too. The web window opens
+    one its big view reviews big, and any other beside the conversation.
+  - A press outside that list only closes it, where the web window's also lands on what it was
+    aimed at (another button of the strip, a mention). And the wheel over the page moves nothing
+    while the list is open, where the web window's page scrolls under it: the layer that catches
+    the press stands over the page.
+  - Escape closes whatever stands over the list first (the command bar, the Later picker, the
+    New thread card), where the web window's list takes the Escape before them, its listener
+    running before every other. Escape in the reply box, opened with R while the list is open,
+    folds the box before it closes the list.
+  - The Files button does not brighten under the pointer, as Done and Reopen beside it do not.
   - A mention's underline sits where the font puts it, two points higher than the web window's
     (`text-underline-offset: 4px`), and runs under the space before a line break. Rune's span
     has an underline and no offset. The same was already true of a link.
@@ -756,7 +845,9 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
 - `src/files.rs`: the files those words name, drawn, and the one function that opens one.
   `src/pictures.rs`: the pictures, read off the disk on a worker and kept small.
   `src/rules/paths.rs`, `mentions.rs`, `roots.rs`: which words name a file, what kind it is and
-  what it is called, and where it is looked for.
+  what it is called, and where it is looked for. `src/rules/thread_files.rs`: which files a
+  thread made, each once at its newest version, for the Files button (`src/thread.rs` draws it
+  and its list).
 - `tools/pictures.mjs`: the invented project folder the scenes that name files are drawn from.
 - `tools/install-mac.sh`: builds the app and puts it in `~/Applications` as "Mercury Native".
 - `src/sky.rs`: the dithered sky, ported from `renderer/src/home/sky.ts` with the same seed.
