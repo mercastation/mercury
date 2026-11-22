@@ -250,7 +250,9 @@ function conversation(item, found, waiting = false, said = SHIPPED, runs = null,
 // person answered, a function of what was planted as `found` may be.
 // `marks` is what the store folds a thread's marks on its files into (`item.artifacts`): the
 // notes on them, which the list of the thread's files counts.
-export async function open(h, { unfold, found = FOUND, shipped = SHIPPED, files = null, waiting = false, then = null, runs = null, reply = REPLY, marks = null }) {
+// `dress` changes the thread's row before the page opens (a label, a status), and `fromTab`
+// names the Inbox's tab the thread is then opened from.
+export async function open(h, { unfold, found = FOUND, shipped = SHIPPED, files = null, waiting = false, then = null, runs = null, reply = REPLY, marks = null, dress = null, fromTab = null }) {
   const snapshot = await h.evaluate('window.__SNAP__');
   // The Inbox opens on its first row; the snapshot's first thread is not always that one.
   await toInbox(h);
@@ -263,6 +265,7 @@ export async function open(h, { unfold, found = FOUND, shipped = SHIPPED, files 
   const words = (text) => (typeof text === 'function' ? text(planted) : text);
   const { row, lines, sessions = [], session = null } = conversation(snapshot.items[at], words(found), waiting, words(shipped), runs, words(reply));
   if (marks) row.artifacts = marks;
+  if (dress) dress(row);
   snapshot.items[at] = row;
   if (session) snapshot.supervisor.running = [session];
   if (planted) {
@@ -311,6 +314,7 @@ export async function open(h, { unfold, found = FOUND, shipped = SHIPPED, files 
   await h.wait(2000);
   // A thread an agent is on is In progress, the only row there.
   if (session) await tab(h, 'In progress');
+  else if (fromTab) await tab(h, fromTab);
   else await toInbox(h);
   await h.call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
   await h.call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
@@ -328,7 +332,7 @@ export async function open(h, { unfold, found = FOUND, shipped = SHIPPED, files 
   // And whatever `then` did, for the native window to do the same.
   // `arriving` says that no picture had come when the photograph was taken.
   // `thread` is the one open, for a picture of a thread that is not the first in Needs you.
-  return { snapshot, threads, unfolded: unfold ? Object.keys(threads) : [], ...(files?.arriving ? { arriving: true } : {}), ...(session ? { thread: row.id } : {}), ...did };
+  return { snapshot, threads, unfolded: unfold ? Object.keys(threads) : [], ...(files?.arriving ? { arriving: true } : {}), ...(session || fromTab ? { thread: row.id } : {}), ...did };
 }
 
 // Presses the folded line of the run at `index` among those on the page (`.did-run-head`), and

@@ -29,14 +29,21 @@ fn next_tab(s: &State, back: bool) -> crate::data::Tab {
     shown[(at + if back { shown.len() - 1 } else { 1 }) % shown.len()]
 }
 
-/// The keys the reply box does not keep for typing: ⌘Return sends, Escape folds the box.
+/// The keys the reply box does not keep for typing: ⌘Return sends, Escape folds the box, or
+/// only lets go of it while it holds words or files, which hold it open (`held` in
+/// `DockComposer`'s keys): the next Escape is the page's, which folds it.
 pub fn in_the_reply(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
     if e.key == Key::Enter && e.mods.cmd {
         s.send_reply(tx);
         return true;
     }
     if e.key == Key::Escape {
-        s.fold_reply();
+        if s.reply.text.trim().is_empty() && s.reply_files.open.is_empty() {
+            s.fold_reply();
+        } else {
+            s.reply.focused = false;
+            tx.blur();
+        }
         return true;
     }
     false
@@ -263,9 +270,13 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
             false
         }
         View::Thread { id, product } => {
-            // Escape is one step back: the open reply box first, then the conversation, onto
-            // the tab the strip names (`closeThreadOntoItsTab`).
+            // Escape is one step back: the steps the working line unfolded onto, the open reply
+            // box, then the conversation, onto the tab the strip names (`putAwayTheNewest`,
+            // `closeThreadOntoItsTab`).
             if e.key == Key::Escape {
+                if s.fold_live_steps() {
+                    return true;
+                }
                 if s.replying { s.fold_reply() } else { s.close_onto_its_tab() }
                 return true;
             }

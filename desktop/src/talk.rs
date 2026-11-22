@@ -179,6 +179,9 @@ pub struct Talk {
     pub after: Vec<Step>,
     /// How many messages of a long conversation's middle are left out until asked for.
     pub omitted: usize,
+    /// While an agent works, what it ran since anybody last said anything, oldest first: taken
+    /// out of the conversation for the line at its foot, which unfolds onto it.
+    pub trailing: Vec<Work>,
 }
 
 /// The sentence a running agent is typing this second, off the snapshot (`LiveSaying`).
@@ -830,7 +833,7 @@ impl Talk {
         }
         let said = thread_window(said, whole);
         let shown = said_count(&said) + usize::from(outcome.is_some());
-        Talk { said, outcome, after, omitted: spoken.saturating_sub(shown) }
+        Talk { said, outcome, after, omitted: spoken.saturating_sub(shown), trailing: Vec::new() }
     }
 
     /// The newest answer: the one lifted to the foot, or else the last thing said that was not
@@ -845,10 +848,13 @@ impl Talk {
 
     /// While an agent is on the thread, the work since anybody last said anything is what the
     /// line at the foot stands for, so it leaves the conversation until the run ends
-    /// (`withoutTrailingWork`). What the person did stays.
+    /// (`withoutTrailingWork`), and is kept for that line to unfold onto. What the person did
+    /// stays.
     pub fn without_trailing_work(&mut self) {
         while self.said.last().is_some_and(|e| matches!(e, Said::Work(_)) || matches!(e, Said::Step(s) if !s.mine)) {
-            self.said.pop();
+            if let Some(Said::Work(work)) = self.said.pop() {
+                self.trailing.insert(0, work);
+            }
         }
     }
 }

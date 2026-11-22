@@ -50,8 +50,15 @@ pub enum Sent {
     /// Words from the reply box of the thread `product/id`: they go back in the box if the
     /// engine does not take them. `pick` is the model and level they carry, when the person
     /// picked one in the box: the box shows it until the row does, and Z puts it back with the
-    /// words (`pickOnItsWay`, `wordsBackInTheBox` in `renderer/src/App.tsx`).
-    Reply { thread: String, words: String, pick: Option<ReplyPick> },
+    /// words (`pickOnItsWay`, `wordsBackInTheBox` in `renderer/src/App.tsx`). `files` are the
+    /// files the box held, saved already and linked under the words: what goes back in the box
+    /// with them is the files themselves, not the links (`SentDraft`).
+    Reply { thread: String, words: String, pick: Option<ReplyPick>, files: Vec<crate::attach::Attached> },
+    /// The files of a reply from the box of the thread `product/id`, saved into its project
+    /// before the reply goes (`persistAttachments` in `DockComposer`'s `send`): once saved, the
+    /// reply is held as any other is, its words with the links to them under; refused, the box
+    /// keeps everything.
+    Carry { thread: String, words: String, pick: Option<ReplyPick>, files: Vec<crate::attach::Attached> },
     /// A picked option of that thread.
     Pick { thread: String },
     Close { thread: String },
@@ -90,6 +97,7 @@ impl Sent {
     pub fn thread(&self) -> &str {
         match self {
             Sent::Reply { thread, .. }
+            | Sent::Carry { thread, .. }
             | Sent::Pick { thread }
             | Sent::Close { thread }
             | Sent::Reopen { thread }

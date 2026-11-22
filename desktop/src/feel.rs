@@ -316,7 +316,7 @@ pub fn wash_strong() -> Color {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::collections::BTreeMap;
 
     use rune::{Cursor, Key, KeyEvent, Mods, Runtime, TitlebarAction};
@@ -326,12 +326,18 @@ mod tests {
 
     /// A window on an invented inbox of four threads an agent finished, all four needing the
     /// person, at 1280 by 760, opened with `args` as the command line would open it.
-    fn window(name: &str, args: &[&str]) -> Runtime<State> {
+    pub(crate) fn window(name: &str, args: &[&str]) -> Runtime<State> {
         window_on(name, args, "/fixtures/storefront", "Done, and tested. Merge it?")
     }
 
     /// The same, its project's folder at `dir` and every agent's answer `result`.
     fn window_on(name: &str, args: &[&str], dir: &str, result: &str) -> Runtime<State> {
+        window_dressed(name, args, dir, result, |_| {})
+    }
+
+    /// The same, the invented fixture handed to `dress` first: an agent at work on a thread, a
+    /// thread's ledger.
+    pub(crate) fn window_dressed(name: &str, args: &[&str], dir: &str, result: &str, dress: impl FnOnce(&mut Value)) -> Runtime<State> {
         let now = 1_790_000_000_000.0_f64;
         let min = 60_000.0;
         let items: Vec<Value> = (0..4)
@@ -349,7 +355,7 @@ mod tests {
                 })
             })
             .collect();
-        let fixture = json!({
+        let mut fixture = json!({
             "now": now,
             "snapshot": {
                 "products": [{ "slug": "storefront", "name": "Storefront", "dir": dir }],
@@ -359,6 +365,7 @@ mod tests {
             },
             "local": {},
         });
+        dress(&mut fixture);
         let path = std::env::temp_dir().join(format!("mercury-feel-{name}-{}.json", std::process::id()));
         std::fs::write(&path, fixture.to_string()).expect("the invented inbox");
         let mut all = vec!["--fixture".to_string(), path.to_string_lossy().into_owned()];
@@ -375,13 +382,13 @@ mod tests {
     }
 
     /// `seconds` of frames at 60 a second.
-    fn run(rt: &mut Runtime<State>, seconds: f64) {
+    pub(crate) fn run(rt: &mut Runtime<State>, seconds: f64) {
         for _ in 0..(seconds * 60.0).round() as usize {
             rt.frame(1.0 / 60.0);
         }
     }
 
-    fn press(rt: &mut Runtime<State>, x: f32, y: f32) -> Option<TitlebarAction> {
+    pub(crate) fn press(rt: &mut Runtime<State>, x: f32, y: f32) -> Option<TitlebarAction> {
         rt.pointer_move(x, y);
         rt.pointer_down(x, y);
         let action = rt.take_titlebar_action();
@@ -390,7 +397,7 @@ mod tests {
         action
     }
 
-    fn key(rt: &mut Runtime<State>, key: Key) {
+    pub(crate) fn key(rt: &mut Runtime<State>, key: Key) {
         rt.key(KeyEvent { key, mods: Mods::default() });
         rt.frame(1.0 / 60.0);
     }

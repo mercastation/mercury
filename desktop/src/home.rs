@@ -157,6 +157,21 @@ pub fn send_main(ready: bool) -> El {
     if ready { brightened(send).cursor(Cursor::Pointer) } else { send.cursor(Cursor::Default) }
 }
 
+/// Send while the files a reply carries are being saved: off, and saying so in place of its
+/// word and keys (`saving ? 'Sending…'` on `.dock-send`).
+pub fn send_sending() -> El {
+    row()
+        .key("send")
+        .h(32.0)
+        .items_center()
+        .px(14.0)
+        .corners([6.0, 0.0, 0.0, 6.0])
+        .fill(send_fill())
+        .opacity(0.45)
+        .child(label("Sending…", 13.5, 500.0, ink()))
+        .cursor(Cursor::Default)
+}
+
 /// The caret beside Send, for sending later.
 pub fn send_caret() -> El {
     let caret = row()

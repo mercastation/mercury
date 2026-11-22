@@ -10,7 +10,8 @@ conversation can be answered, by typing or by picking one of its agent's options
 opened again, and the keys walk the lists (see "What the keys do, and what it writes"). A new
 thread is started from Home's box or from the New thread card N opens over any other page, on the
 project, model, effort and level picked in its menus ("Starting a thread", below), with the files
-dropped on it, picked with its paper clip or pasted into it ("Files in a new thread").
+dropped on it, picked with its paper clip or pasted into it ("Files in a new thread"). A reply
+carries pictures and files the same three ways ("Files in a reply").
 
 What can be chosen in a conversation is chosen as in the web window ("Choosing in a
 conversation", below): the model and level its next reply runs on, from the reply box's chip or
@@ -36,7 +37,9 @@ the pointer and the hands", below).
 A conversation shows what each of its agent's runs did: what the run said, between the messages,
 and what it ran folded to one line under that, which a press opens. A thread an agent is on says
 at its foot which step it is on and for how long, and is read again as the run goes on ("What a
-run did", below).
+run did", below). That line moves as the web window's does, its mark lighting in orbit and its
+word shimmering, and a press opens it onto the steps since the agent last said anything ("What
+moves on its own", below).
 
 The Inbox is its head strip (the title, New thread, the cloud button on a Mac set up for the cloud
 or offered it, the display button), its tabs (Needs you, In progress, Later while something is in
@@ -191,7 +194,10 @@ one names), `thread-folder` and `thread-folder-quiet` (a folder on a line of its
 `thread-pictures-many` (ten screenshots, for the memory measurement), and `thread-files` and
 `thread-files-open` (a thread whose files come in versions, its Files button and the list it
 opens; "The files a thread made", below), and `thread-reply-attached` (a reply that carries a
-pasted picture and a report, drawn as the person's own words).
+pasted picture and a report, drawn as the person's own words). The reply box holding files has
+scenes of its own (`thread-reply-files*`, "Files in a reply"), and so do the working line opened
+onto its steps (`thread-working-steps*`), a chat being got ready (`thread-getting-ready`) and the
+model menu coming in, for a film (`thread-reply-model-opening`).
 
 The invented inbox has almost nothing switched on: nothing in Later, no cloud, no team. So some
 scenes add to it. A scene of Home dresses the inbox before the page opens (`dress`): `home-team`
@@ -327,7 +333,9 @@ Pressing the fold of what a run ran in `thread-steps`, filmed at 60 frames a sec
 closed fold until the tap lets go and the opened one whole from the next frame on. So does the
 Files button's list (`thread-files`), opened and closed every way it closes. So do a tab and a row
 of the Inbox pressed with the pointer resting on them, and a place pressed on the rail while it
-is open. The one thing that eases is the rail opening and folding under the pointer, below.
+is open. What eases is what eases in the web window: the rail opening and folding under the
+pointer, below, and a box's menu coming in; and what moves on its own moves as the web window's
+does ("What moves on its own").
 
 ## How it answers the pointer and the hands
 
@@ -551,7 +559,8 @@ The keys are the web window's (`src/keys.rs`, from the keydown handler in `rende
 | The Inbox | E | Marks the row done (under Needs you and In progress); under Later, brings it back |
 | The Inbox, a conversation | L | Opens the Later picker on the thread |
 | The Later picker | ↓, ↑, Enter, Esc | Walks its moments and picks the one lit, or what is typed; Esc closes it |
-| A conversation | Esc | Folds the reply box, then goes back, onto the tab that holds the thread now |
+| A conversation | Esc | Folds the working line's steps, then the reply box, then goes back, onto the tab that holds the thread now |
+| The reply box | Esc | Folds it when it is empty; holding words or files, lets go of it, and the next Esc folds it |
 | A conversation | J, K | Goes to the next thread that needs the person, or the one before |
 | A conversation | ↓, ↑, Enter | Walks the agent's options and sends the one lit |
 | A conversation | 1 to 9 | Sends that option |
@@ -717,12 +726,13 @@ the card 0.221, the command bar 0.146, the waiting thread 0.679. The reply box o
 (`thread-reply`) went from 0.435 to 0.432, its three chips' words now landing where Chromium lands
 them.
 
-Filmed at 60 frames a second, the menu, the four levels, the panel and the reply box's menu each
-land whole on the frame after the press lets go or the key, close the same way, and every frame
-after is the same to the pixel. Rune counts no frame of the menu's film as animating, and one each
-where the reply box's menu opens and a place is picked: a colour landing at once (the chip's edge,
-the picked place's fill), with no source named and nothing in motion. A press on the dots or the
-place button acts on its way up, as the web window's click does.
+Filmed at 60 frames a second, the menu, the four levels and the panel each land whole on the frame
+after the press lets go or the key, close the same way, and every frame after is the same to the
+pixel, as the web window's do. Rune counts no frame of the menu's film as animating, and one where
+a place is picked: a colour landing at once (the picked place's fill), with no source named and
+nothing in motion. The reply box's model menu comes in as the web window's does, over six frames
+("What moves on its own"), and closes at once. A press on the dots or the place button acts on its
+way up, as the web window's click does.
 
 Against a scratch engine (above), each pick written by this window beside the web window's own
 payload for the same pick, sent by hand to a second thread, wrote the same lines, in order:
@@ -939,8 +949,9 @@ At 900 by 760 the menus are 0.23 to 0.29 and the card 0.27 (whole windows 0.84 t
 with a menu, 0.23 to 0.25 for the card); at 1600 by 1000 the menus are 0.23 to 0.29 and the card
 0.29 (whole windows 0.56 to 0.61, and 0.15 to 0.16).
 
-Filmed at 60 frames a second, a menu, the card and a send each land whole on the frame after the
-press and stay still. Against a scratch engine (above), a thread typed on Home and sent wrote
+Filmed at 60 frames a second, the card and a send each land whole on the frame after the press and
+stay still, and a menu comes in over six frames as the web window's does (`tc-in`, "What moves on
+its own"). Against a scratch engine (above), a thread typed on Home and sent wrote
 its title, body, level and model to the ledger; one sent to Later wrote `start: later`, and Z
 then wrote its close and opened the card on its words; one sent from the card on the Inbox, at
 High, wrote level 7.
@@ -1046,6 +1057,60 @@ card opened on the picture. A TIFF dropped on the box came in as a PNG and went 
 `![receipt-scan.png](attachments/…)`. A script that types words lets each letter land 35 ms
 after the last (`"every"`), so a press scripted while it is still typing opens a menu that then
 takes the letters after it, as a menu should.
+
+### Files in a reply
+
+A conversation's reply box takes files as the web window's does (`DockComposer` in
+`renderer/src/components/Focus.tsx`), with the same code as the box a thread is started in:
+`src/attach.rs` holds the files of either box (`Holder`), and the reply box's are kept with its
+words (`ReplyFiles`).
+
+- **What attaches**: ⌘V in the words, a picture on the clipboard as `pasted-<number>.png` and
+  files copied in Finder as themselves, while words on the clipboard paste as words; files
+  dropped anywhere on the open box; and the paper clip, the system's picker. A TIFF or a HEIC
+  is turned by the engine as it comes in, and is a chip with its name until it has been.
+- **Where they stand**: in the same row, between the words and the bar, eight points under the
+  words and flush on the bar's hairline, eighteen in from the box's edge (`.attach-row` in
+  `.dock-card`); the line saying why one cannot go under it. Leaving the conversation keeps them
+  in its box, with its words, for the next visit. Folded, the box says what it holds: the words,
+  on one line and dimmer, and the files counted beside them ("2 files", "1 image"), or the count
+  alone where nothing was typed (`foldedReply`, ported as `src/rules/folded.rs` with its tests).
+  Escape in a box holding words or files lets go of it and leaves it open, as the web window's
+  does; the next Escape folds it.
+- **Send**: lit for words or files. A file still being turned holds the reply and says "… is still
+  being attached."; one that cannot be attached, or is over the 1 GB a message can send, holds it
+  and says why in the web window's words ("Not sent: … Your draft has been kept."), where the box
+  a thread is started in keeps Send off instead, as in the web window. Otherwise the files are
+  saved into the thread's project first (`zero:save-attachments`), Send saying "Sending…" off
+  meanwhile; then the reply is held its three seconds as any other is, its words with a link to
+  each file under them after a blank line (`[words, attachedMd].join('\n\n')`). Z gives back the
+  words and the files themselves, not the links; a refusal of either write keeps or puts back
+  the whole draft.
+
+The scenes: `thread-reply-files` (words, a picture pasted and a report picked), `thread-reply-files-too-big`
+(a film of 1.2 GB) and `thread-reply-files-folded` (the first, folded by a press on nothing). A
+fixture says what the box held, in the order it came (`replyFiles`: an entry with a `png` is a
+picture pasted, one with a `path` a file dropped) and whether it was folded (`folded`). At 1280 by
+760, 2x, the reply box with what it carries and the bar (`dock`), and the folded box:
+
+| Scene | Whole window | The box |
+|---|---|---|
+| `thread-reply-files` | 0.53 | 0.75 |
+| `thread-reply-files-too-big` | 0.53 | 0.76 |
+| `thread-reply-files-folded` | 0.43 | 1.04, the folded line |
+
+Every part stands where the web window's does; what differs is glyph edges and the picture's
+copy, resampled. Filmed at 60 frames a second, a picture pasted and a file dropped each land
+whole on the next frame, the box growing with them, with nothing animating.
+
+Against a scratch engine, a reply typed, with a screenshot pasted and a PDF dropped, wrote
+`Use this layout for the receipt.` and under it `![pasted-64740.png](attachments/…-pasted-64740.png)`
+and `[week-32.pdf](attachments/…-week-32.pdf)`, both files in the project's `attachments/` folder
+with the bytes pasted and dropped; once it was written the conversation drew the reply with the
+picture's place under its words, and the strip's Files button counted two. A reply with a HEIC
+photo dropped came in as `IMG_0042.jpg` and was
+taken back with Z inside the three seconds: no answer was written, and the box opened on its words
+and the photo.
 
 ## The command bar
 
@@ -1257,11 +1322,113 @@ what is in one and how it is asked for). The page reads them as the web window d
   conversation, and the line at its foot says which step is running in the agent's own words,
   how many more run beside it, how long it has worked, and where it runs when that is news. The
   sentence the agent is typing this second (`saying`) is placed where it began, once.
+- That line's words are a press, with a chevron after them that shows under the pointer and
+  turns down while it is open (`.live-disclosure`). Open, it lists the steps the run that is up
+  took since it last said anything, the newest five oldest first with the rest counted ("3
+  earlier steps since it last said something"), then each call running now, each row its mark
+  and its words, which a press opens onto the command behind it, in a block as code is
+  (`stepsSinceLastSaid`, `previousActivity`, `src/rules/live.rs` with the web's case). Escape
+  folds them before it leaves the conversation, and another conversation or another run starts
+  folded. The scenes `thread-working-steps` and `thread-working-steps-open` (its first step
+  opened, `liveOpen`, `liveRowsOpen`) are 0.44 and 1.19 whole at 1280 by 760, the steps 0.72 and
+  2.10: the opened command is set in Geist Mono where the web window's is the system's monospace
+  (see what still differs).
+- A chat just brought in, owed the run that writes it up (`catchUpDue`), says under its title
+  "Getting this chat ready. Its summary and options will appear here.", shimmering, over its
+  newest answer, as the web window's does (`thread-getting-ready`: 0.70 whole, 1.06 the page).
 - The head strip names the tab that holds the thread now (In progress while an agent is on it),
   and draws the arrows to the threads before and after only for one in Needs you.
 
 `src/rules/notes.rs` is `renderer/src/notes.ts` whole, with its tests: the diary of a run's
 sentences and its one-line summaries, which no screen of the web window draws today either.
+
+## What moves on its own
+
+The web window's conversation page moves in few places, and this window moves in the same ones.
+What its stylesheets animate there, and what became of each:
+
+- **The working line's mark** (`live-lattice-orbit`): nine cells in a square of 14 points, the
+  eight round the edge lit in turn every 1.488 s, each 186 ms behind the one before, on
+  `cubic-bezier(0.77, 0, 0.175, 1)` between faint (0.22) and lit, the middle a hole at 0.1.
+- **Its word** (`live-shimmer`): in full ink, a soft band of 45% travelling through it from left
+  to right every 2.6 s, linear: a mask gradient at 100 degrees, 260% of the word's width.
+- **The getting-ready line** of a chat just brought in: the same shimmer, at 15 points.
+- **The Inbox's running marks** (`th-breathe`, outside the conversation but asked for with it):
+  the half-dot and the cloud fade to 45% and back every 1.6 s, `ease-in-out`, all in step.
+- **A box's menu** (`tc-in`): the reply box's model menu, and the menus of the box a thread is
+  started in, fade in as they rise their last three points over 0.13 s, and go at once.
+
+Messages arriving, the reply box opening and folding, the options strip, a run's fold and its
+mark, the Files list, the strip's menus and the toasts have no transition in the web window: they
+land whole on the next frame there and here. Under Reduce motion the web window stands the mark
+at 0.65, takes the band away and draws the word in dim ink, and stops the breathing; so does this
+window (`cx.is_reduced_motion()`, and each loop's `still`).
+
+**How they are built.** Every one of them is a Rune loop on the window's clock (`El::cycle`,
+`rules/motion.rs`), which is an opacity, and the window draws a frame of nothing but loops as a
+loop-only step, with no poll, view, layout or paint, only for a loop on a plain fill that shows.
+So each is made of those:
+
+- The lattice's cells are each a cycle whose stops lay the web's keyframes and their easing down
+  in short straight pieces, closer than a frame.
+- The band is a veil: the word drawn whole, and over it strips of the ground's own colour, about
+  seventy whatever the word's length, each a cycle that comes up to 55% as the band's middle
+  reaches it (a veil of the ground at `1 − m` over ink is the ink at `m`, exactly, where the
+  ground is one colour, which under a conversation it is: the card's wash over the page and its
+  glow, worked out where the word stands, `ground_under_the_card`).
+- The running ring is a disc breathing, its middle in the card's colour standing still over it,
+  and the middle's right half breathing over that; the cloud, a mark of strokes, stands still
+  under a veil that breathes the other way.
+- The menu is the one transition: an overdamped spring standing for the curve, within a
+  seventieth of it at every frame of a 60 Hz display, on the menu alone (`animated_changes`),
+  its rows and its size still landing at once.
+
+The loops run only while they are on screen: the line reports itself (`on_visible`), and off
+screen, scrolled up through the conversation, it has no loops at all, so the window rests. Until
+it has reported itself, for the frame a conversation opens on, the mark stands as under Reduce
+motion. The mark and the band start where the web window's start as the line mounts, the band off
+the word's left end, from the moment the line was first seen, and keep their place across scrolling.
+They wake the window 60 times a second (`fps`), where the web window's run at the display's rate.
+
+**Measured against the web window.** `reference.mjs` films the web page (`MERCURY_FILM=186@60:x,y,w,h`
+stops every animation and moves it on a 60th of a second between shutters, so each frame is the
+page exactly that long after the last; `MERCURY_FILM_START=0` films from an animation's first
+frame) and `mercury --out` films this one, and `tools/film.py` reads both at the same points:
+
+```sh
+MERCURY_FILM='186@60:220,602,200,34' arch -arm64 node tools/reference.mjs <checkout> /tmp/film-web dark 1280 760 thread-working
+cargo run -- --fixture shots/thread-working-fixture.json --thread --out /tmp/film-native --frames 192 --fps 60 --size 1280x760 --scale 2
+python3 tools/film.py /tmp/film-web /tmp/film-native /tmp/film-web/thread-working-dump.json 60
+```
+
+| What | The web window | This window |
+|---|---|---|
+| A lattice cell's opacity, frame by frame, the films slid into step | | mean difference 0.005, largest 0.067 (of 1) |
+| One turn of the orbit | 1.483 s | 1.483 s (to the frame) |
+| The band's middle | 151.7 points a second | 152.8 |
+| The faintest the word gets | 0.450 of its ink | 0.454 |
+| The word with the band's middle on its middle, column by column | | 0.022 apart on average, 0.037 at most |
+| The model menu coming in, how much of it shows, frame by frame from the chip | 0.47, 0.73, 0.87, 0.94, 0.99, 1 | 0.48, 0.72, 0.86, 0.92, 0.96, 0.99, 1 |
+
+The breathing ring drawn as fills is 0.27 of 255 from the ring it was, at 2x, frame by frame.
+
+**What it costs.** `RUNE_LOOP_CHECK=1` has a headless run ask, before every frame, for the
+loop-only step a window would draw, and hold it against the ordinary frame drawn instead. With the
+working line on screen, every frame of three seconds is such a step and none differs (57 of 57,
+the rest the app's own timers); scrolled off screen there is no loop at all; and the same holds for
+the getting-ready line and for the Inbox with a running ring or a cloud. In a release build with
+Rune's frame profile, an ordinary frame of the working conversation costs 0.19 ms of the drawing
+thread's time (0.12 its update, 0.08 its paint), all of which a loop-only step leaves out. Run
+headless in real time, which draws every frame whole, 600 frames at 60 a second took 0.70 s of
+the process's time in 10 s with the line moving and 0.69 s with nothing moving: drawn whole, the
+conversation costs 7% of a core at 60 frames a second, and the loops add about a tenth of a
+percent to that. A window draws no frame at rest, and while the line moves draws only the steps.
+A window's own figure was not taken here, since none may be opened: with a working thread on
+screen in the installed window, `top -pid <pid>` gives it.
+
+The Inbox drawn whole costs far more, 2.27 s in the same 10 s (23% of a core). A ring's border,
+which no step can draw, breathing at thirty frames a second would have cost about half of that for
+as long as an agent worked: that is why the marks are built of plain fills.
 
 ## The same rows as the web window
 
@@ -1372,8 +1539,8 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
     drawn, and the thread's menu changes the level instead, at once. The second chip is
     not who takes the thread but what this message may do (`ModePicker`, Claude Code's
     permission modes, "Bypass Permissions" on a project run with full access): it now says the
-    thread's own mode in the web's words, and is not chosen. Nothing can be attached to a reply
-    and nothing sent later (the caret beside Send).
+    thread's own mode in the web's words, and is not chosen. Nothing is sent later (the caret
+    beside Send).
   - The thread's menu leaves out every row this window cannot do, which are also the ones never
     used: Open terminal (⌘J; this window has no terminal), Rename, Move to another project, Pin
     thread, Share…, Add people and Ask or hand off… (teammates), Waits on… and Blocked by…, Mark as
@@ -1410,7 +1577,11 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
   - The picks are this window's own. The web window keeps its own in its storage
     (`zero.lastProduct`, `zero.lastModel`, `zero.lastEffort`), which the door does not hand
     over, so each window opens on its own last project, model and effort.
-  - A menu lands at once. The web window's fades in and rises three points over 0.13 s (`tc-in`).
+  - A menu comes in on a spring that stands for the web window's curve (see "What moves on its
+    own"). Under Reduce motion Rune fades it without the rise, where the web window's still
+    rises. The reply box's model menu opened by the model's name on the folded box comes in a
+    frame late, its first frame already three quarters in: it hangs from the chip of a box that
+    opens in the same press, and is laid out once that box has been.
   - On the card, Escape out of a menu leaves the caret in the words rather than on the chip:
     Rune's dialog hands the keyboard back to its one field. A second Escape still closes the card
     and a letter still goes to the words, as in the web window; ↓ there moves the caret instead of
@@ -1446,6 +1617,14 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
     says the engine's reason then.
   - A link the app wrote into a person's message is a mention whose underline sits a point or two
     above the web window's, as every mention's does here.
+- **Files in a reply, where they still differ** (besides what is said of a new thread's files,
+  which holds here too):
+  - A draft lasts as long as the window, its files with its words. The web window keeps both
+    across a restart, and opens a conversation whose box holds a draft with the box open; here
+    the box stays folded and says what it holds.
+  - A voice note, a reply to a person and the slash commands are not here: the reply box takes
+    pictures and files.
+  - A press on nothing in the page does not fold the box, where the web window's does.
 - **A reply shows in the conversation once it is written.** The web window draws it at once,
   marked as sending. Here the box folds, the line says Sent, and the words appear three seconds
   later with the engine's next answer.
@@ -1504,8 +1683,21 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
 - **No "try again" mark.** After the Status word of a thread nothing will start (Stopped, Nothing
   running, At its limit) the web window draws a small button that starts it again. This window
   only reads, and leaves it out.
-- **The running marks stand still.** The half-dot and the small cloud before "Working" breathe in
-  the web window.
+- **What moves on its own, where it still differs** (see "What moves on its own"):
+  - The band crosses the word as vertical strips: the web window's gradient leans ten degrees,
+    which moves its edges a point and a half between the word's top and its foot.
+  - The loops wake the window 60 times a second, where the web window's run at the display's rate,
+    120 on a ProMotion screen.
+  - The veil is drawn in the colour the ground has where the word stands; a faint dot of the page
+    under the word, which the web window's mask leaves as it is, is veiled with it, by at most
+    three of 255.
+  - A conversation opens on one frame of the mark standing as under Reduce motion, before the line
+    has said it is on screen.
+  - A mention's look under the pointer lands at once, where the web window's eases in over 0.12 s
+    and out over 0.2 s: Rune's link has a look under the pointer and no curve for it.
+  - An option's words cut short by the strip open nowhere: the web window shows the whole option
+    in a card over the strip while the pointer is on it (`.opt-peek`, coming in over 0.13 s).
+  - The bar along a toast's foot is drawn anew every 33 ms rather than as a loop.
 - **What a run did, where it still differs:**
   - A line inside an opened fold does not open. The web window opens it onto the whole command
     and the first six lines of what came back, and all of them on a second press; here it shows
@@ -1517,13 +1709,13 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
     remembered when the thread is left and opened again (`useEscapePutsAway`, `keepPlace`).
   - The line for a long conversation's missing middle is drawn from the stylesheet: no scene has
     forty messages, so it was never photographed.
-  - The line at a working thread's foot does not open. The web window opens it onto the steps
-    since the agent last said something, five at most, and the calls running now. Only its
-    working state is drawn: queued, up next, signed out, at its limit, paused, nothing came
-    back, working elsewhere, shipping and waiting on a yes are not.
-  - Its mark and word stand still: the lattice at the web window's own opacity for no motion,
-    the word in full ink without the band that travels through it. A photograph of the web
-    window catches both mid-animation.
+  - Of the line at a working thread's foot only its working state is drawn: queued, up next,
+    signed out, at its limit, paused, nothing came back, working elsewhere, shipping and waiting on
+    a yes are not. Opened, its steps are those the conversation leaves out while the run is up,
+    read with the conversation, where the web window asks for the run's log again while it is
+    open; one that cannot be read says nothing of it, where the web window's says it could not.
+    The command a step opens onto is set in Geist Mono, where the web window's is the system's
+    monospace, which Rune's font slots do not offer beside Geist Mono.
   - In the opened reply box of a thread In progress, the web window puts Stop where Send is
     until something is typed. This window does not stop agents, so Send stays.
   - A conversation drawn from the answer its agent is working from lands at its foot, as an
@@ -1576,7 +1768,10 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
   asked), `src/reads.rs` asks for them and says when, and `src/markdown.rs` draws an agent's words.
 - `src/rules/notes.rs`, `trace.rs`, `work.rs`: a run's log read as the web window reads it, its
   sentences, the tools it ran in plain words and what came back. `src/rules/live.rs`: the line at
-  a working thread's foot and the line under its title.
+  a working thread's foot, the steps it opens onto, and the line under its title.
+- `src/rules/motion.rs`: what moves on its own, as Rune's loops: the lattice's keyframes, the
+  breath, the shimmer's veil and the ground it is drawn in. `tools/film.py` holds a film of this
+  window's working line against the web window's (`MERCURY_FILM` in `tools/reference.mjs`).
 - `src/later.rs`: the Later picker. `src/rules/later.rs` reads the time typed into it, on the
   calendar `src/rules/calendar.rs` keeps.
 - `src/reply.rs`: the model and level a conversation's reply box is on, and its model menu (the
@@ -1586,10 +1781,11 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
 - `src/compose.rs`: the box a thread is started in, on Home and as the New thread card, its
   menus and what a send does. `src/rules/compose.rs`: what a new thread is made of and the
   menus' rules. `src/picks.rs`: the picks kept from one window to the next.
-- `src/attach.rs`: the files in that box, how they come in and how they are drawn.
-  `src/rules/attach.rs`: which can go, what the box says of one that cannot, and how they are
-  saved and linked. `src/rules/typed.rs`: the lines the app wrote into a person's message for
-  its files, which a conversation draws.
+- `src/attach.rs`: the files in that box and in a conversation's reply box, how they come in,
+  how they are drawn and how a reply's are sent. `src/rules/attach.rs`: which can go, what the
+  box says of one that cannot, and how they are saved and linked. `src/rules/folded.rs`: what the
+  folded reply box says it holds. `src/rules/typed.rs`: the lines the app wrote into a person's
+  message for its files, which a conversation draws.
 - `src/palette.rs`: the command bar ⌘K opens. `src/rules/palette.rs` decides what it offers and
   in which order; `src/rules/search.rs` finds a thread by its words.
 - `src/head.rs`: what the Inbox's head strip opens, View and filters and the cloud's menu, ⌘C and

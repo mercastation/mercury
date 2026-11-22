@@ -296,17 +296,46 @@ fn priority_word(p: Priority) -> &'static str {
 /// The mark before a Status word (`StatusMark`), drawn only for a word about an agent: a ring
 /// for one waiting its turn, the orange ring for one nothing will start until something
 /// changes, the solid dot where someone's words wait on the person, and the half-dot or the
-/// cloud while an agent is on it. The last two breathe in the web window and stand still here.
-fn status_mark(mark: Mark) -> Option<El> {
+/// cloud while an agent is on it. The last two breathe, every one in step, as the web window's
+/// do (`th-breathe`, which `inStep` starts on one clock), and stand still under Reduce motion.
+/// `ground` is the colour of the card under the mark.
+fn status_mark(mark: Mark, ground: rune::Color) -> Option<El> {
+    use crate::rules::motion::{BREATHE_PERIOD, breathe_stops};
     let dot = || el().size(12.0, 12.0).radius(6.0).mr(8.0);
+    let breathing = |mark: El, fps: f32| mark.a11y_hidden().cycle(rune::Cycle { period: BREATHE_PERIOD, phase: 0.0, stops: breathe_stops(), still: 1.0, fps });
     match mark {
         Mark::None => None,
         Mark::Queued => Some(dot().border(1.5, muted())),
         Mark::Held => Some(dot().border(1.5, accent())),
         Mark::Need => Some(dot().fill(accent())),
-        // The ring, and its right half filled.
-        Mark::Running => Some(dot().border(1.5, accent()).clip_rounded(6.0).child(el().absolute(6.0, 0.0).size(6.0, 12.0).fill(accent()))),
-        Mark::Cloud => Some(el().size(14.0, 11.0).mr(6.0).child(el().absolute(0.0, 0.0).child(icon(&icons::CLOUD_MARK, 14.0).color(accent())))),
+        // The ring, and its right half filled, drawn as plain fills, which the window can step
+        // alone on a breath without drawing the page: the disc breathing, its middle in the
+        // card's own colour standing still over it, and the middle's right half breathing over
+        // that. It shows what a breathing ring shows, at every moment.
+        // Where the screen's pixels are larger than a point, the middle stands between two of
+        // them, as a border's inside edge does, rather than on one.
+        Mark::Running => Some(
+            dot()
+                .pixel_snap(false)
+                .child(breathing(el().absolute(0.0, 0.0).size(12.0, 12.0).radius(6.0).fill(accent()), 60.0))
+                .child(el().absolute(1.5, 1.5).size(9.0, 9.0).radius(4.5).fill(ground))
+                .child(breathing(el().absolute(6.0, 1.5).size(4.5, 9.0).corners([0.0, 4.5, 4.5, 0.0]).fill(accent()), 60.0)),
+        ),
+        // A mark of strokes is not one the window can step alone, so the cloud stands still and
+        // a veil of the card's colour over it breathes the other way: where the web window's
+        // cloud is at 45%, 55% of the card's colour covers it.
+        Mark::Cloud => Some(
+            el().size(14.0, 11.0)
+                .mr(6.0)
+                .child(el().absolute(0.0, 0.0).child(icon(&icons::CLOUD_MARK, 14.0).color(accent())))
+                .child(el().absolute(0.0, -2.0).size(14.0, 15.0).fill(ground).a11y_hidden().cycle(rune::Cycle {
+                    period: BREATHE_PERIOD,
+                    phase: 0.0,
+                    stops: crate::rules::motion::breathe_veil_stops(),
+                    still: crate::rules::motion::LEAST,
+                    fps: 60.0,
+                })),
+        ),
     }
 }
 
@@ -378,7 +407,10 @@ fn thread(s: &State, r: &Row, at: usize, picked: usize, cols: &Columns) -> El {
     let title = title_cell(r, at == picked, s.pointed.is_row(&r.product, &r.id), cols.title).key(subject.clone());
     let small = |s: &str, c: Color| capitals(s, 11.5, 20.0, 0.575, c).truncate();
     let mut state = row().items_center();
-    if let Some(mark) = status_mark(r.mark) {
+    // The card's colour where the row stands, as last laid out: what shows inside a ring.
+    let at_row = rune::memo::window_layout(&format!("thread-{}-{}", r.product, r.id)).map_or((s.size.0 / 2.0, s.size.1 / 2.0), |[x, y, w, h]| (x + w / 2.0, y + h / 2.0));
+    let [red, green, blue] = crate::rules::motion::ground_under_the_card(at_row, s.size);
+    if let Some(mark) = status_mark(r.mark, rgb(red.round() as u8, green.round() as u8, blue.round() as u8)) {
         state = state.child(mark);
     }
     let state = state.child(small(&r.status, dim()));
