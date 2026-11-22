@@ -246,7 +246,9 @@ function conversation(item, found, waiting = false, said = SHIPPED, runs = null)
 // screenshots besides, for a measurement.
 // `runs` gives the thread's runs their logs (see `conversation`); with `working` an agent is
 // on the thread as the picture is taken, so it is opened from In progress.
-export async function open(h, { unfold, found = FOUND, shipped = SHIPPED, files = null, waiting = false, then = null, runs = null }) {
+// `marks` is what the store folds a thread's marks on its files into (`item.artifacts`): the
+// notes on them, which the list of the thread's files counts.
+export async function open(h, { unfold, found = FOUND, shipped = SHIPPED, files = null, waiting = false, then = null, runs = null, marks = null }) {
   const snapshot = await h.evaluate('window.__SNAP__');
   // The Inbox opens on its first row; the snapshot's first thread is not always that one.
   await toInbox(h);
@@ -258,6 +260,7 @@ export async function open(h, { unfold, found = FOUND, shipped = SHIPPED, files 
   const planted = files ? plant({ thread: snapshot.items[at].id, large: !!files.large }) : null;
   const words = (text) => (typeof text === 'function' ? text(planted) : text);
   const { row, lines, sessions = [], session = null } = conversation(snapshot.items[at], words(found), waiting, words(shipped), runs);
+  if (marks) row.artifacts = marks;
   snapshot.items[at] = row;
   if (session) snapshot.supervisor.running = [session];
   if (planted) {
