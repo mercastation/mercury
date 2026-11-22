@@ -83,6 +83,8 @@ const PICTURES = [
   ...[1, 2, 3, 4, 5, 6, 7].map((n) => [`designs/rounds/round-${n}.png`, 1600, 1000, [40 + n * 26, 110 + n * 8, 200 - n * 20]]),
   // One level only: a round kept in a folder of its own is not one of the folder's pictures.
   ['designs/rounds/older/round-0.png', 800, 500, [120, 120, 120]],
+  // The total line drawn again: its second version, which the Files button lists in its place.
+  ['designs/<thread>/total-line-v2.png', 360, 64, [160, 132, 60]],
 ];
 // Ten screenshots the size a Retina Mac takes them, for measuring what a conversation full of
 // pictures costs. Planted only when asked for (`large`): they take a few seconds to paint.
@@ -98,6 +100,9 @@ const OTHERS = [
   ['media/checkout-demo.mp4', 'an invented film with nothing in it'],
   ['media/voice-over.mp3', 'an invented sound with nothing in it'],
   ['designs/rounds/notes.txt', 'Seven rounds, the seventh the newest.\n'],
+  // The note rewritten, and a second sheet, for a thread whose files come in versions.
+  ['notes/rounding-v2.md', '# Rounding\n\nRound each tax line, then add them up.\n'],
+  ['exports/refunds.csv', 'order,refund\n1001,8.40\n1007,12.15\n'],
 ];
 
 /**
