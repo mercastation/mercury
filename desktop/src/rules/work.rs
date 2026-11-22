@@ -627,6 +627,45 @@ pub fn run_overflow(more: usize) -> String {
     }
 }
 
+/// What a line's output kept of what came back, said under all of it when the log cut some
+/// (`outputCut`): "3 more lines came back, not kept".
+pub fn output_cut(shown: usize, all: usize) -> String {
+    if all == 0 || all <= shown {
+        return String::new();
+    }
+    let more = all - shown;
+    format!("{more} more line{} came back, not kept", if more == 1 { "" } else { "s" })
+}
+
+/// A fold's whole tally, its title under the pointer (`runSummary` in `shared/work-lines.mts`):
+/// the total first, then up to three verbs with their counts and one count for the rest; one
+/// verb with a plain word reads "20 things it ran". A count of one is not printed.
+pub fn run_summary<'a>(verbs: impl IntoIterator<Item = &'a str>) -> String {
+    const PLAIN: [&str; 8] = ["ran", "read", "wrote", "changed", "looked for", "searched for", "fetched", "messaged"];
+    let verbs: Vec<&str> = verbs.into_iter().collect();
+    if verbs.is_empty() {
+        return String::new();
+    }
+    let mut counts: Vec<(&str, usize)> = Vec::new();
+    for verb in &verbs {
+        match counts.iter_mut().find(|(v, _)| v == verb) {
+            Some((_, n)) => *n += 1,
+            None => counts.push((verb, 1)),
+        }
+    }
+    counts.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+    let total = verbs.len();
+    if counts.len() == 1 && PLAIN.contains(&counts[0].0) {
+        return format!("{total} thing{} it {}", if total == 1 { "" } else { "s" }, counts[0].0);
+    }
+    let mut shown: Vec<String> = counts.iter().take(3).map(|(v, n)| if *n == 1 { v.to_string() } else { format!("{v} {n}") }).collect();
+    let rest: usize = counts.iter().skip(3).map(|(_, n)| n).sum();
+    if rest > 0 {
+        shown.push(format!("{rest} more"));
+    }
+    format!("{total} things it did · {}", shown.join(" · "))
+}
+
 /// The line that stands for a long conversation's missing middle (`conversationGap`).
 pub fn conversation_gap(omitted: usize) -> String {
     match omitted {
@@ -896,5 +935,22 @@ mod tests {
         assert_eq!(unleaked(&format!("Done, all green.\n{close}\nmore")), "Done, all green.");
         assert_eq!(unleaked(&format!("The tag `{close}` is fine in code.")), format!("The tag `{close}` is fine in code."));
         assert_eq!(unleaked("Nothing leaked."), "Nothing leaked.");
+    }
+
+    /// `tests/the-work-lines-are-clean.test.mts` and `the-work-in-the-conversation.test.mts`.
+    #[test]
+    fn a_fold_tallies_what_it_holds_and_an_opened_line_says_what_was_not_kept() {
+        let work = |verb: &'static str, n: usize| std::iter::repeat_n(verb, n).collect::<Vec<_>>();
+        assert_eq!(run_summary(work("ran", 20)), "20 things it ran");
+        assert_eq!(run_summary(work("read", 4)), "4 things it read");
+        assert_eq!(run_summary([work("ran", 18), work("read", 4), work("edited", 2)].concat()), "24 things it did · ran 18 · read 4 · edited 2");
+        assert_eq!(run_summary(work("write html", 31)), "31 things it did · write html 31");
+        assert_eq!(run_summary([work("ran", 9), work("read", 5), work("edited", 3), work("wrote", 2), work("fetched", 1)].concat()), "20 things it did · ran 9 · read 5 · edited 3 · 3 more");
+        assert_eq!(run_summary([work("ran", 5), work("read", 2), work("asked a question", 1)].concat()), "8 things it did · ran 5 · read 2 · asked a question");
+        assert_eq!(run_summary(Vec::<&str>::new()), "");
+        assert_eq!(output_cut(6, 240), "234 more lines came back, not kept");
+        assert_eq!(output_cut(6, 7), "1 more line came back, not kept");
+        assert_eq!(output_cut(6, 6), "");
+        assert_eq!(output_cut(6, 0), "");
     }
 }

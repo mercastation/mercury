@@ -286,11 +286,12 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
             false
         }
         View::Thread { id, product } => {
-            // Escape is one step back: the steps the working line unfolded onto, the open reply
-            // box, then the conversation, onto the tab the strip names (`putAwayTheNewest`,
-            // `closeThreadOntoItsTab`).
+            // Escape is one step back: what was opened in the conversation on this visit, newest
+            // first (the folds and lines of what a run ran, the working line's steps), the open
+            // reply box, then the conversation, onto the tab the strip names
+            // (`putAwayTheNewest`, `closeThreadOntoItsTab`).
             if e.key == Key::Escape {
-                if s.fold_live_steps() {
+                if s.escape_in_the_conversation() {
                     return true;
                 }
                 // Then a file beside the conversation the person opened (`escapeClosesDoc`).

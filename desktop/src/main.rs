@@ -1262,6 +1262,8 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
     changed |= feel::hint_due(s, at);
     // What Try again came back with, and the line at a conversation's foot kept counting.
     changed |= foot::tend(s, tx);
+    // Where the person was in the conversation they left, and where they land in this one.
+    changed |= s.tend_the_reading(tx);
     if let Some((key, answer)) = s.asking.take() {
         // Whether it came back is said under the working line's steps (`thread.rs`).
         s.read_came_back(&key, answer.is_ok());
