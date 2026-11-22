@@ -237,12 +237,16 @@ try {
   // MERCURY_FILM=<frames>@<fps>[:x,y,w,h] films what moves on its own: every animation on the
   // page is stopped where it is and moved on a frame's time at each shutter, so each frame is
   // the page exactly that long after the one before, whatever the machine's speed. The frames
-  // are `<scene>-film-0000.png` on, of the region in points when one is named.
+  // are `<scene>-film-0000.png` on, of the region in points when one is named. With
+  // MERCURY_FILM_START=<ms> every animation is filmed from that far into it instead of from where
+  // it stood: 0 films a menu's entrance from its first frame, the scene having opened it with no
+  // `settle`.
   if (process.env.MERCURY_FILM) {
     const [count, rest] = process.env.MERCURY_FILM.split('@');
     const [fps, crop] = rest.split(':');
     const [x, y, w, hgt] = crop ? crop.split(',').map(Number) : [0, 0, width, height];
-    await h.evaluate('(() => { window.__FILM__ = document.getAnimations().map((a) => [a, a.currentTime]); for (const [a] of window.__FILM__) a.pause(); })()');
+    const from = process.env.MERCURY_FILM_START;
+    await h.evaluate(`(() => { window.__FILM__ = document.getAnimations().map((a) => [a, ${from === undefined ? 'a.currentTime' : Number(from)}]); for (const [a] of window.__FILM__) a.pause(); })()`);
     for (let k = 0; k < Number(count); k += 1) {
       await h.evaluate(`(() => { for (const [a, t] of window.__FILM__) a.currentTime = t + ${(k * 1000) / Number(fps)}; })()`);
       const { data } = await h.call('Page.captureScreenshot', { format: 'png', clip: { x, y, width: w, height: hgt, scale: 1 } });

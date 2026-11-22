@@ -649,10 +649,20 @@ fn placed_menu(s: &State, menu: &Menu, anchor: [f32; 4], hang: impl Fn(f32) -> H
     let tall = 12.0 + sum + parts.len().saturating_sub(1) as f32;
     let wide = rune::memo::layout_size(MENU).map_or(least, |[wide, _]| wide + 2.0);
     let fit = rules::fit_menu(anchor, hang(wide), (wide, tall), s.size.1, sides);
-    let rows = col().key(MENU).min_w(least - 2.0).items_stretch().gap(1.0).px(5.0).py(5.0).children(parts);
+    let rows = col().key(MENU).min_w(least - 2.0).items_stretch().gap(1.0).px(5.0).py(5.0).instant_changes().children(parts);
     // No clip on the shell itself: Rune's rounded clip takes the element's own shadow with it,
     // and the shadow is what lifts the menu off the card. The rows keep inside its corners.
     let shell = col().radius(10.0).fill(rgb(54, 52, 49)).border(1.0, rule()).border_layout().box_shadow(shadow(0.0, 18.0, 50.0, 0.0, rgba(0, 0, 0, 0.5), false));
+    // It comes in as the web window's does, fading in as it rises its last three points
+    // (`tc-in`, 0.13 s on `cubic-bezier(0.2, 0.8, 0.3, 1)`), and goes at once. A spring stands
+    // for the curve: this overdamped one keeps within a seventieth of it at every frame of a
+    // 60 Hz display. Everything else in the window lands at once, so the menu says so on itself,
+    // and its rows and its own size still land at once.
+    let comes_in = rune::Transition::offset(0.0, 3.0).combined(rune::Transition::opacity());
+    let shell = shell
+        .animated_changes()
+        .motion(rune::Spring::NONE)
+        .transition(rune::Transition::asymmetric(comes_in, rune::Transition::none()).springs(rune::SpringPair::new(rune::Spring::new(0.028, -0.66), rune::Spring::NONE)));
     let shell = match fit.max_height {
         // Too tall for the room it has: it is that tall, and its rows scroll inside it.
         Some(most) => shell.h(most).child(col().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(rows)),
