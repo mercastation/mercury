@@ -2526,8 +2526,10 @@ release or a second login.
     Restart the agent already stand aside where Try again would stand for them.
   - It finds threads only, the best five, with no "See all" row, since this window has no search
     page. The web's bar also finds people and groups, repeating tasks, teammates' threads, and
-    lines, files, comments and decisions inside things, which its main process searches; the
-    lines, files and comments a search finds inside threads are not ported yet.
+    lines, files, comments and decisions inside things, which its main process searches. The
+    lines, files and comments are not here yet: a line opens its thread scrolled to that message
+    and marks it, which needs this window's conversation to keep each message's line id (it keeps
+    none), and a comment opens its file big at the comment, which the big view does not draw.
   - Pause agents closes the bar as it is pressed; the web's closes it once the engine has
     answered, a few milliseconds later.
   - Resume this agent says what the web window says of the engine's answer, and that answer

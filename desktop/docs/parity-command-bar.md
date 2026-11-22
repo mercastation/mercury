@@ -171,10 +171,13 @@ file opens its thread with the file beside it, or big when it is not one that op
 comment opens the file big at the comment. The app is asked to read the threads ahead as the
 bar opens (`zero:warm-find-in-threads`).
 
-Status: not done. The lines, files and comments a search finds inside threads, and opening each
-where it was found, are a search of the app's own and a way into a message, a pane and a
-comment this window draws differently; they were not ported in this change, which ported every
-command row first.
+Status: not done. Asking the app is one call, but what a row does is not yet this window's to
+do the web's way: a line has to bring its own message to the middle of the page and mark it, and
+this window's conversation keeps no line's id (`talk.rs` builds its messages without `uid`, and
+the page's scroller has no key to scroll one into view), nor unfolds the earlier messages to
+find one folded away (`LINE_MISSING`); a comment has to open its file big at the comment, and
+the big view here draws no comments. Opening the thread alone would be a simpler stand-in for
+the row, so none of the three is offered until the conversation can be scrolled to a line.
 
 ## What the rows were checked against
 
