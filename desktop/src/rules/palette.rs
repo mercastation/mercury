@@ -138,9 +138,10 @@ fn return_at(item: &Item) -> f64 {
 /// `open` says the thread is the conversation on screen, which has no row to open.
 ///
 /// Left out, because this window cannot do them yet: Remote control, Open terminal, Approve,
-/// Run now, Close task, Try again and Resume this agent, Mark read and Mark unread, Stop, Send
+/// Run now, Close task, Try again and Resume this agent, Mark read and Mark unread, Send
 /// back to agent, the thread's own menu (rename, pin, where it runs, who sees it), its model,
-/// its project and its priority.
+/// its project and its priority. Stop is added by the bar where the thread is under way
+/// (`stop_row`), which these rules cannot tell.
 pub fn thread_commands(item: &Item, open: bool, now: f64) -> Vec<Row> {
     let thread = || (item.id.clone(), item.product.clone());
     let mut rows = Vec::new();
