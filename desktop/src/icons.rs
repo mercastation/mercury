@@ -180,3 +180,16 @@ pub static BAR_SEARCH: Icon = Icon {
     view: 16.0,
     body: r#"<g fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.6"/><path d="M10.4 10.4L14 14"/></g>"#,
 };
+
+// The mark on a line of what a run did that opens (`chevron` in `Thread.tsx`), and the same
+// mark turned a quarter for open, which the web window does with `rotate(90deg)`.
+pub static WORK_MARK: Icon = Icon {
+    name: "m-work-mark",
+    view: 8.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2.6 1.2 L5.6 4 L2.6 6.8"/></g>"#,
+};
+pub static WORK_MARK_OPEN: Icon = Icon {
+    name: "m-work-mark-open",
+    view: 8.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M6.8 2.6 L4 5.6 L1.2 2.6"/></g>"#,
+};

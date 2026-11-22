@@ -4,28 +4,43 @@
 //! `OneThingAtATime.tsx` and their stylesheets).
 //!
 //! The page opens the way the web app's does: on the newest answer alone, with the rest of the
-//! conversation folded behind one line under the title. Pressing that line unfolds it.
+//! conversation folded behind one line under the title. Pressing that line unfolds it. What
+//! each run did is in the conversation (`Thread.tsx`): what it said, at reading size, and what
+//! it ran folded to one quiet line under that, which a press opens to each thing it ran. While
+//! an agent is on the thread, a line at the foot says what it is doing now (`Live.tsx`).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use rune::time::LocalTime;
 use rune::{El, Icon, ScrollSpec, TextCase, TextStyle, col, el, icon, row, spacer, text, text_input};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use crate::data::{Item, Priority};
 use crate::files::Files;
 use crate::home;
 use crate::markdown::{self, Block};
 use crate::rules::format::{self, Choice};
-use crate::rules::place;
-use crate::talk::{self, Answers, Field, Line, Message, Said, Step, Talk};
+use crate::rules::notes::TraceSession;
+use crate::rules::{live, place, work};
+use crate::talk::{self, Answers, Field, Line, Message, Page, Said, Saying, Step, Talk, Work};
 use crate::theme::*;
 use crate::{State, View, chrome, icons};
 
-/// What the person has unfolded while reading: the threads whose earlier messages are shown.
+/// What the person has unfolded while reading: the threads whose earlier messages are shown,
+/// those whose whole middle was asked for, and the folds of what a run did that are open.
 #[derive(Default)]
 pub struct Reading {
     unfolded: HashSet<String>,
+    whole: HashSet<String>,
+    runs_open: HashSet<String>,
+}
+
+impl Reading {
+    /// Whether a conversation's whole middle has been asked for: from the first time its
+    /// earlier messages were unfolded, every run's whole log is read, as in the web window.
+    pub fn whole(&self, thread: &str) -> bool {
+        self.whole.contains(thread)
+    }
 }
 
 fn key(product: &str, id: &str) -> String {
@@ -85,6 +100,22 @@ fn crumb(title: &str) -> String {
     format!("{}…", kept.join(" ").trim_end_matches([',', ';', ':', '.', '-', '–']))
 }
 
+/// The tab the strip names: the one that holds the thread now, not the one it was opened from,
+/// so a thread that finishes while it is read stops saying In progress (`crumbTab` in
+/// `renderer/src/threads/page-rules.ts`). Needs you is called the Inbox there.
+fn crumb_from(s: &State, id: &str, product: &str) -> &'static str {
+    let holds = |list: &[crate::data::Row]| list.iter().any(|r| r.id == id && r.product == product);
+    if holds(&s.lists.progress) {
+        "In progress"
+    } else if holds(&s.lists.later) {
+        "Later"
+    } else if holds(&s.lists.done) && !holds(&s.lists.needs) {
+        "Done"
+    } else {
+        "Inbox"
+    }
+}
+
 /// The card's top strip over a conversation: the Inbox, back and forward, where the thread
 /// is, the threads before and after it in Needs you, and what can be done to it.
 pub fn head(s: &State, id: &str, product: &str) -> El {
@@ -123,9 +154,14 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
     if let Some(line) = chrome::toast_in_bar(s) {
         actions = actions.child(line.mr(16.0));
     }
-    let mut actions = actions
-        .child(step(&icons::UP, at.and_then(|a| a.checked_sub(1)).and_then(|a| s.lists.needs.get(a))))
-        .child(step(&icons::DOWN, at.and_then(|a| s.lists.needs.get(a + 1))));
+    // The threads before and after it are those of Needs you, so a thread elsewhere has none
+    // (`QueueNav` stands only on a thread with a place in that queue).
+    if at.is_some() {
+        actions = actions
+            .child(step(&icons::UP, at.and_then(|a| a.checked_sub(1)).and_then(|a| s.lists.needs.get(a))))
+            .child(step(&icons::DOWN, at.and_then(|a| s.lists.needs.get(a + 1))));
+    }
+    let mut actions = actions;
     if let Some(place) = place {
         actions = actions.child(place.ml(10.0));
     }
@@ -147,7 +183,7 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
                 .h(28.0)
                 .ml(12.0)
                 .items_center()
-                .child(text("Inbox").font(crumbs).text_case(TextCase::Uppercase).color(muted()).mr(8.0).on_press(|s: &mut State| s.go(View::Inbox)))
+                .child(text(crumb_from(s, id, product)).font(crumbs).text_case(TextCase::Uppercase).color(muted()).mr(8.0).on_press(|s: &mut State| s.go(View::Inbox)))
                 .child(text("/").font(crumbs).color(muted()).ml(5.0).mr(7.0))
                 .child(row().min_w(0.0).px(6.0).child(text(crumb(&title)).font(crumbs).text_case(TextCase::Uppercase).color(dim()).truncate())),
         )
@@ -212,7 +248,9 @@ fn message(msg: &Message, turn: (bool, bool), now: f64, m: &Measure, files: &Fil
         let (body, _, bottom) = markdown::stack(markdown::blocks(&msg.text, m.size, m.column, files), true);
         (body, bottom)
     };
-    let mut e = col().child(said_by(msg, now)).child(body.mt(3.0));
+    // A run still talking after its own line above wears no second name and time; across a
+    // long conversation's cut it gets its name back, since what it continued is not on screen.
+    let mut e = if msg.same && !msg.resumed { col().child(body) } else { col().child(said_by(msg, now)).child(body.mt(3.0)) };
     // The person's turn is framed: a rule over it where the agent spoke before, and one under
     // it where the agent speaks or works next.
     if turn.0 {
@@ -237,28 +275,212 @@ fn step(s: &Step) -> El {
     line
 }
 
-/// The conversation: each thing said or done under the last, 22 points apart, with lines of
-/// what happened drawn closer to what they follow (`.thread` and `.thread-block`).
-fn conversation(said: &[Said], now: f64, m: &Measure, files: &Files) -> El {
-    let turns = talk::turns(said);
+/// `--state-stopped`: the one colour on a run's lines, and only where a tool said no.
+fn stopped() -> rune::Color {
+    rgb(224, 138, 108)
+}
+
+/// One thing a run ran, inside its opened fold (`WorkLine`, shut): its mark when there is
+/// something behind it, its verb, what it acted on in the code face, and how many lines came
+/// back. A tool that said no wears the stopped colour on its verb.
+fn work_line(w: &Work) -> El {
+    let came_back = w.output.split('\n').count() - usize::from(w.output.ends_with('\n') || w.output.is_empty());
+    let opens = came_back > 0 || !w.full.is_empty();
+    let small = TextStyle::new(12.0, 400.0).lh(18.0);
+    let mut line = row().min_w(0.0).items_start().gap(8.0);
+    if opens {
+        line = line.child(icon(&icons::WORK_MARK, 8.0).color(muted()).mt(5.75));
+    }
+    line = line.child(text(w.verb.as_str()).font(TextStyle::new(13.0, 400.0).lh(19.5)).color(if w.failed { stopped() } else { dim() }));
+    if !w.subject.is_empty() {
+        line = line.child(row().min_w(0.0).mt(1.0).child(text(w.subject.as_str()).font(mono(12.0, 18.0)).color(muted()).truncate()));
+    }
+    if opens && w.lines > 1 {
+        line = line.child(text(format!("· {} lines", w.lines)).font(small).color(muted()).mt(1.0));
+    }
+    if w.more > 0 {
+        return col().child(line).child(text(work::run_overflow(w.more)).font(small).color(muted()).pt(5.0));
+    }
+    line
+}
+
+/// Consecutive things a run ran, folded to one line (`RunLine`): the kinds of thing it did,
+/// how many of them failed, and, open, each one on its own line under it. A press opens and
+/// shuts it at once.
+fn run_line(items: &[&Work], open: bool, key: String, m: &Measure) -> El {
+    let summary = work::activity_summary(items.iter().map(|w| (w.verb.as_str(), w.subject.as_str())));
+    let failed = work::run_failures(items.iter().filter(|w| w.failed).count());
+    let mut head = row().max_w(m.column).items_start().gap(8.0).child(row().min_w(0.0).child(text(summary).font(TextStyle::new(13.0, 400.0).lh(19.5)).color(dim()).truncate()));
+    if !failed.is_empty() {
+        head = head.child(text(failed).font(TextStyle::new(12.0, 400.0).lh(18.0)).color(stopped()).mt(1.0));
+    }
+    // Its mark shows only open, turned down, after the words (`order: 2; opacity: 0`).
+    if open {
+        head = head.child(icon(&icons::WORK_MARK_OPEN, 8.0).color(muted()).mt(5.75));
+    }
+    let head = row().key(key.clone()).cursor(rune::Cursor::Pointer).child(head).on_press(move |s: &mut State| {
+        if !s.reading.runs_open.remove(&key) {
+            s.reading.runs_open.insert(key.clone());
+        }
+    });
+    let run = col().child(head);
+    if !open {
+        return run;
+    }
+    // The lines inside step in by the mark and its gap, so the nested marks land on the fold's words.
+    run.child(col().pt(5.0).pb(2.0).pl(16.0).gap(5.0).children(items.iter().map(|w| work_line(w))))
+}
+
+/// What a block of the conversation holds, which decides the room above it (`.thread-block`
+/// and the rules on its neighbours in `styles.css`).
+#[derive(Clone, Copy, PartialEq)]
+enum Holds {
+    Msg,
+    /// A message of a run still talking, pulled up 14 points inside its block (`.msg.same`).
+    Same,
+    /// A line of the app's own about the thread (`is-work`).
+    Step,
+    /// Something the person did (`is-act`).
+    Act,
+    /// What a run ran, folded (`is-run`).
+    Run,
+}
+
+/// The room between two blocks: the column's 22 points, less what the rules on their
+/// neighbours pull back. A line of what happened sits 8 under a message and a run of them 5
+/// apart, as an opened fold's own lines are.
+fn room(above: Holds, here: Holds) -> f32 {
+    use Holds::*;
+    match (above, here) {
+        (_, Msg) => 22.0,
+        (_, Same) => 8.0,
+        (Msg | Same, Run | Step | Act) => 8.0,
+        (Run | Step, Run) | (Run, Step) => 5.0,
+        (Act, Run) | (Run, Act) => 14.0,
+        (Step | Act, Step | Act) => 5.0,
+    }
+}
+
+/// One name per thing said or run, from what it is and when it happened, numbered only among
+/// exact twins (`lineIds` in `renderer/src/thread-keys.ts`). A fold is named after the block
+/// above it, which stays put while the agent adds to the run under it (`blockKeys`).
+fn line_ids(said: &[Said]) -> Vec<String> {
+    let mut seen: HashMap<String, usize> = HashMap::new();
+    said.iter()
+        .map(|e| {
+            let base = match e {
+                Said::Message(m) => format!("m{}", m.at),
+                Said::Step(s) => format!("w{}:{}:{}", s.at, s.verb, s.words),
+                Said::Work(w) => format!("w{}:{}:{}", w.at, w.verb, w.subject),
+            };
+            let twins = seen.entry(base.clone()).or_insert(0);
+            *twins += 1;
+            if *twins > 1 { format!("{base}#{}", *twins - 1) } else { base }
+        })
+        .collect()
+}
+
+/// The line that stands for a long conversation's missing middle, which asks for it whole.
+fn gap_line(omitted: usize, thread: String) -> El {
+    let line = el().h(kept(25.6)).items_center().child(text(work::conversation_gap(omitted)).font(TextStyle::new(13.0, 400.0).lh(kept(25.6))).color(muted()));
+    line.mt(18.0).cursor(rune::Cursor::Pointer).on_press(move |s: &mut State| {
+        s.reading.whole.insert(thread.clone());
+    })
+}
+
+/// The conversation: each thing said or done under the last, 22 points apart, with what
+/// happened drawn closer to what it follows, and each stretch of what a run ran folded to one
+/// line (`.thread`, `.thread-block` and `groupWork`).
+fn conversation(s: &State, thread: &str, page: &Page, now: f64, m: &Measure, files: &Files) -> El {
+    let said = page.said;
+    let cut = page.gap.map(|(at, _)| at);
+    let turns = talk::turns(said, cut);
+    let ids = line_ids(said);
+    let pictured = pictured_runs(s);
     let mut out = col();
-    let mut above: Option<bool> = None;
-    for (e, turn) in said.iter().zip(turns) {
-        let (block, is_step) = match e {
-            Said::Message(msg) => (message(msg, turn, now, m, files), false),
-            Said::Step(s) => (step(s), true),
+    let (mut above, mut gap_above): (Option<Holds>, bool) = (None, false);
+    let mut name_above = "start".to_string();
+    let (mut i, mut runs) = (0, 0);
+    while i < said.len() {
+        let (block, holds) = match &said[i] {
+            Said::Work(_) => {
+                let from = i;
+                while i < said.len() && matches!(said[i], Said::Work(_)) {
+                    i += 1;
+                }
+                let items: Vec<&Work> = said[from..i].iter().filter_map(|e| if let Said::Work(w) = e { Some(w) } else { None }).collect();
+                let key = format!("{thread}|run>{name_above}");
+                let open = s.reading.runs_open.contains(&key) != pictured.contains(&runs);
+                runs += 1;
+                (run_line(&items, open, key, m), Holds::Run)
+            }
+            Said::Message(msg) => {
+                name_above = ids[i].clone();
+                i += 1;
+                (message(msg, turns[i - 1], now, m, files), if msg.same && !msg.resumed { Holds::Same } else { Holds::Msg })
+            }
+            Said::Step(st) => {
+                name_above = ids[i].clone();
+                i += 1;
+                (step(st), if st.mine { Holds::Act } else { Holds::Step })
+            }
         };
-        let gap = match (above, is_step) {
-            (None, _) => 0.0,
-            (Some(true), true) => 5.0,
-            (Some(false), true) => 8.0,
-            (Some(_), false) => 22.0,
+        // Under the line for the missing middle, nothing is pulled closer.
+        let gap = match above {
+            None => 0.0,
+            Some(_) if gap_above => 22.0,
+            Some(a) => room(a, holds),
         };
-        above = Some(is_step);
+        gap_above = cut == Some(i - 1);
+        let block = match page.gap.filter(|_| gap_above) {
+            Some((_, omitted)) => col().child(block).child(gap_line(omitted, thread.to_string())),
+            None => block,
+        };
+        above = Some(holds);
         out = out.child(block.mt(gap));
     }
     // The page's own foot mark is one more thing in the stack, so the gap comes after the last too.
     out.pb(22.0)
+}
+
+/// The line at the foot of a conversation an agent is on (`Live.tsx`, working): the mark, the
+/// step it is on in its own words, how many more run beside it, how long it has been at it,
+/// and where it runs when that is news. The web window's mark turns and its word shimmers;
+/// here both stand still, the mark at the web's own opacity for no motion.
+fn live_line(line: &live::Working) -> El {
+    let font = TextStyle::new(13.5, 400.0).lh(20.0);
+    let cell = |lit: bool| el().size(14.0 / 3.0 - 1.0, 14.0 / 3.0 - 1.0).radius(1.85).fill(ink()).opacity(if lit { 0.65 } else { 0.1 });
+    let mark = col().size(14.0, 14.0).gap(1.5).children((0..3).map(|r| row().gap(1.5).children((0..3).map(move |c| cell(!(r == 1 && c == 1))))));
+    // The step is said aloud each time it changes (`live-announcement`, `role="status"`).
+    let word = text(line.word.as_str()).font(TextStyle::new(13.5, 500.0).lh(20.0)).color(ink()).truncate().live_region(rune::LiveRegion::Polite);
+    let mut words = row().items_center().gap(6.0).min_w(0.0).child(row().min_w(0.0).child(word));
+    for span in [line.more.as_deref(), Some(line.span.as_str()), line.place.as_deref()].into_iter().flatten() {
+        words = words.child(text(span).font(font.features("'tnum' 1")).color(muted()));
+    }
+    row().items_center().gap(7.0).child(mark).child(words)
+}
+
+/// The line under the title (`.one-cols`): the summary a thread carries, or while an agent
+/// works what was asked, a rule down its left side and three lines at most.
+fn context_line(words: &str, m: &Measure) -> El {
+    let size = (0.76 * m.size).max(13.5);
+    row().w((size * 50.37).min(m.column)).border_sides([0.0, 0.0, 0.0, 2.0], rule()).border_layout().pl(14.0).child(
+        text(words).font(TextStyle::new(size, 400.0).lh(kept(1.55 * size))).color(muted()).wrap_anywhere().max_lines(3),
+    )
+}
+
+/// The folds a fixture's picture was taken with open, by their place among the page's folds.
+fn pictured_runs(s: &State) -> Vec<usize> {
+    s.fixture.get("runsOpen").and_then(Value::as_array).map(|list| list.iter().filter_map(Value::as_u64).map(|n| n as usize).collect()).unwrap_or_default()
+}
+
+/// The run on a thread now, off the snapshot's running list, when there is one.
+fn running(s: &State, id: &str, product: &str) -> Option<live::Session> {
+    let run = s.snap.supervisor.running.iter().find(|r| r.item_id == id && r.product == product)?;
+    let mut facts: Map<String, Value> = run.rest.clone();
+    facts.insert("itemId".to_string(), json!(id));
+    facts.insert("product".to_string(), json!(product));
+    serde_json::from_value(Value::Object(facts)).ok()
 }
 
 /// The line under the title that folds and unfolds the rest: small, quiet and underlined.
@@ -276,6 +498,8 @@ fn toggle(words: &str, thread: String, m: &Measure) -> El {
                 if !s.reading.unfolded.remove(&thread) {
                     s.reading.unfolded.insert(thread.clone());
                 }
+                // The middle is asked for whole from the first unfolding on (`setWhole(true)`).
+                s.reading.whole.insert(thread.clone());
             }),
     )
 }
@@ -304,14 +528,15 @@ fn answer_alone(answer: &Message, title: &str, m: &Measure, files: &Files) -> Ve
     blocks
 }
 
-/// What the engine answered about this thread: asked through the door when the window is live,
-/// carried by a fixture for a picture. With nothing to read yet, the row itself still says
-/// what was asked and what came back.
-fn ledger(s: &State, item: &Item) -> Vec<Line> {
+/// What the engine answered about this thread, its lines and its runs' logs: asked through the
+/// door when the window is live, carried by a fixture for a picture. With nothing to read yet,
+/// the row itself still says what was asked and what came back.
+fn ledger(s: &State, item: &Item) -> (Vec<Line>, Vec<TraceSession>) {
     let thread = key(&item.product, &item.id);
     let answered = s.threads.get(&thread).cloned().or_else(|| s.fixture.get("threads").and_then(|t| t.get(&thread)).cloned());
     if let Some(answers) = answered.and_then(|v| serde_json::from_value::<Answers>(v).ok()) {
-        return answers.history.lines;
+        let sessions = answers.sessions();
+        return (answers.history.lines, sessions);
     }
     let wrote = |field: &str| item.rest.get("wrote").and_then(|w| w.get(field)).cloned().unwrap_or(Value::Null);
     let said = |field: &str, words: Option<&str>, fallback: Option<f64>| {
@@ -335,7 +560,45 @@ fn ledger(s: &State, item: &Item) -> Vec<Line> {
     .flatten()
     .collect();
     lines.sort_by(|a, b| a.ts.total_cmp(&b.ts));
-    lines
+    (lines, Vec::new())
+}
+
+thread_local! {
+    /// The conversation last read and what it was read from. Its runs' logs can run to megabytes
+    /// and the page is drawn every frame, so it is read again only when what it is read from changes.
+    static READ: std::cell::RefCell<Option<(String, std::rc::Rc<Talk>)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// What an answer about a thread is, in a few numbers: how many lines its ledger has and the
+/// newest, and each log's start and length. Logs only grow, so the same numbers are the same logs.
+fn fingerprint(answers: &Value) -> String {
+    let lines = answers.get("zero:item-history").and_then(|h| h.get("lines")).and_then(Value::as_array);
+    let logs = |channel: &str| {
+        let sessions = answers.get(channel).and_then(|t| t.get("sessions")).and_then(Value::as_array);
+        sessions.map(|all| all.iter().map(|s| format!("{}:{}", s.get("startedAt").unwrap_or(&Value::Null), s.get("text").and_then(Value::as_str).map_or(0, str::len))).collect::<Vec<_>>().join(","))
+    };
+    let newest = lines.and_then(|l| l.last()).and_then(|l| l.get("ts")).map(Value::to_string);
+    format!("{}|{newest:?}|{:?}|{:?}", lines.map_or(0, Vec::len), logs("zero:session-trace"), logs("zero:session-trace/whole"))
+}
+
+/// The conversation, read from the thread's answers once per change of them: while an agent
+/// works, without the work its live line stands for.
+fn read(s: &State, item: &Item, whole: bool, working: bool, saying: Option<&Saying>) -> std::rc::Rc<Talk> {
+    let thread = key(&item.product, &item.id);
+    let answered = s.threads.get(&thread).or_else(|| s.fixture.get("threads").and_then(|t| t.get(&thread)));
+    let from = answered.map_or_else(|| format!("the row at {:?}", item.updated_at), fingerprint);
+    let print = format!("{thread}|{from}|{whole}|{working}|{saying:?}");
+    if let Some(talk) = READ.with(|last| last.borrow().as_ref().filter(|(p, _)| *p == print).map(|(_, t)| t.clone())) {
+        return talk;
+    }
+    let (lines, sessions) = ledger(s, item);
+    let mut talk = Talk::read(&lines, &sessions, saying, whole);
+    if working {
+        talk.without_trailing_work();
+    }
+    let talk = std::rc::Rc::new(talk);
+    READ.with(|last| *last.borrow_mut() = Some((print, talk.clone())));
+    talk
 }
 
 /// Whether a fixture's picture was taken with this thread's earlier messages unfolded.
@@ -472,17 +735,31 @@ pub fn view(s: &State, id: &str, product: &str) -> El {
     };
     let thread = key(product, id);
     let unfolded = s.reading.unfolded.contains(&thread) != pictured_unfolded(s, &thread);
-    let working = s.snap.supervisor.running.iter().any(|r| r.item_id == id && r.product == product);
+    // The run on the thread right now, and the sentence it is typing this second.
+    let session = running(s, id, product);
+    let working = session.is_some();
+    let saying = session.as_ref().and_then(|r| Some(Saying { text: r.saying.clone().filter(|t| !t.is_empty())?, at: r.saying_at?, run: r.started_at }));
     let imported = item.labels.iter().any(|l| l == "thread-import" || l.starts_with("codex:"));
     let title = name(item);
-    let talk = Talk::read(&ledger(s, item));
+    let every_run = s.reading.whole(&thread) || pictured_unfolded(s, &thread);
+    let talk = read(s, item, every_run, working, saying.as_ref());
     let page = talk.page(working, unfolded, imported);
     // What the files this conversation names are read against: its project's own folders.
     let files = Files::of(s, item);
 
     let mut summary = col().child(text(title.as_str()).font(TextStyle::new(1.7 * m.size, 500.0).lh(2.125 * m.size).tracking(-0.0255 * m.size)).color(ink()).wrap());
     if let Some(words) = &page.toggle {
-        summary = summary.child(toggle(words, thread, &m).mt(8.0));
+        summary = summary.child(toggle(words, thread.clone(), &m).mt(8.0));
+    }
+    // Under it, the summary the thread carries, or while an agent works what was asked.
+    let problem = item.rest.get("problem").and_then(Value::as_str).filter(|p| !p.trim().is_empty());
+    let context = match problem {
+        Some(problem) => Some(problem.to_string()),
+        None if working => live::working_context(item.body.as_deref().or(item.title.as_deref()).unwrap_or(""), &title),
+        None => None,
+    };
+    if let Some(words) = context {
+        summary = summary.child(context_line(&words, &m).mt(if page.toggle.is_some() { 10.0 } else { 8.0 }));
     }
     // Under the summary: the newest answer alone, or the conversation with its outcome.
     let mut blocks = vec![markdown::block(0.0, 18.0, summary)];
@@ -492,7 +769,7 @@ pub fn view(s: &State, id: &str, product: &str) -> El {
             if page.said.is_empty() && talk.outcome.is_none() {
                 blocks.push(markdown::block(0.0, 0.0, el().py(8.0).child(label("Nothing has been said here yet.", 14.0, 400.0, muted()))));
             } else {
-                blocks.push(markdown::block(0.0, 0.0, conversation(page.said, s.now, &m, &files)));
+                blocks.push(markdown::block(0.0, 0.0, conversation(s, &thread, &page, s.now, &m, &files)));
             }
             if let Some(answer) = &talk.outcome {
                 // The agent's own close leads with its result as it is; anything else is labelled.
@@ -506,20 +783,28 @@ pub fn view(s: &State, id: &str, product: &str) -> El {
     if !talk.after.is_empty() {
         blocks.push(markdown::block(22.0, 0.0, col().gap(9.0).children(talk.after.iter().map(step))));
     }
+    // And whether anything is happening, under the last message and over the reply box.
+    let asking = s.snap.rest.get("approvals").and_then(Value::as_array).is_some_and(|a| a.iter().any(|a| a.get("item").and_then(Value::as_str) == Some(id)));
+    let why_not_cloud = s.snap.supervisor.rest.get("whyNotCloud").and_then(|w| w.get(id)).and_then(|w| w.get("at")).and_then(Value::as_str);
+    if let Some(line) = live::working(session.as_ref(), &item.status, &item.labels, asking, why_not_cloud, s.now) {
+        blocks.push(markdown::block(14.0, 2.0, live_line(&line)));
+    }
     let (body, _, under) = markdown::stack(blocks, false);
-    // A browser scrolls a page that is a whole number of points tall, whatever its lines add
-    // up to, so the foot of a long conversation rests on a whole point. Once the words have
-    // been laid out, the room under them takes up the difference.
+    // A browser scrolls a page only as far as a whole device pixel, whatever its lines add up
+    // to, so the foot of a long conversation rests on one (1211.61 points scroll to 1211.5 on a
+    // 2x screen). Once the words have been laid out, the room under them takes up the difference.
+    let scale = s.pictures.scale().max(1.0);
     let whole = rune::memo::layout_size("thread-said").map_or(0.0, |[_, tall]| {
         let page = 28.0 + tall + 40.0 + under;
-        page.round() - page
+        (page * scale).floor() / scale - page
     });
-    // Unfolding lands on the newest thing said, at the foot; a folded page opens at its top.
+    // Unfolding lands on the newest thing said, at the foot, as does a conversation drawn from
+    // the answer an agent is working from; a page that leads with the answer opens at its top.
     let reading = col()
         .key(if unfolded { "thread-whole" } else { "thread-newest" })
         .grow(1.0)
         .min_h(0.0)
-        .scroll(ScrollSpec { stick_bottom: unfolded })
+        .scroll(ScrollSpec { stick_bottom: unfolded || (working && page.alone.is_none()) })
         .child(el().pt(28.0).pl(m.indent).pr(32.0).pb(40.0 + under + whole).child(body.key("thread-said").w(m.column).selection_group(true)));
     col().w(page_w).h(page_h).child(reading).child(dock(s, item, &m))
 }
