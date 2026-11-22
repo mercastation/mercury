@@ -54,14 +54,51 @@ fn door(glyph: &'static Icon, name: &str, count: Option<usize>, hot: bool) -> El
     }
 }
 
-fn chip(children: Vec<El>) -> El {
+/// One of the small framed words under a box to write in (`.tc-chip`): here and in a
+/// conversation's reply box.
+pub fn chip(children: Vec<El>) -> El {
     row().h(28.0).items_center().gap(8.0).px(10.0).radius(6.0).fill(white(0.03)).border(1.0, edge()).border_layout().children(children)
+}
+
+/// Send with its key, and the caret beside it for sending later. Send is faint until there
+/// is something to send.
+pub fn send_pair(ready: bool) -> El {
+    let fill = rgba(239, 235, 231, 0.15);
+    row()
+        .child(
+            row()
+                .key("send")
+                .h(32.0)
+                .items_center()
+                .gap(9.0)
+                .px(14.0)
+                .corners([6.0, 0.0, 0.0, 6.0])
+                .fill(fill)
+                .opacity(if ready { 1.0 } else { 0.45 })
+                .child(label("Send", 13.5, 500.0, ink()))
+                .child(text("⌘↵").font(mono(11.0, 14.0)).color(ink()).opacity(0.75)),
+        )
+        .child(
+            row()
+                .size(32.0, 32.0)
+                .items_center()
+                .pl(9.0)
+                .corners([0.0, 6.0, 6.0, 0.0])
+                .fill(fill)
+                .border_sides([0.0, 0.0, 0.0, 1.0], rgba(26, 24, 23, 0.55))
+                .border_layout()
+                .child(icon(&icons::CARET, 13.0).color(ink())),
+        )
+}
+
+/// The paper clip beside Send.
+pub fn attach() -> El {
+    row().size(30.0, 30.0).radius(6.0).center().child(icon(&icons::ATTACH, 16.0).color(muted()))
 }
 
 /// The composer: what do you need done, who does it, and Send. Phase 1 only draws it. `to` is
 /// the chip for who gets the thread, there only when someone besides the agent could.
 fn composer(project: &str, swatch: rune::Color, to: bool) -> El {
-    let send_fill = rgba(239, 235, 231, 0.15);
     let mut bar = row().pt(14.0).items_center().gap(8.0);
     if to {
         bar = bar.child(chip(vec![label("Agent", 13.0, 400.0, dim())]));
@@ -71,33 +108,8 @@ fn composer(project: &str, swatch: rune::Color, to: bool) -> El {
         .child(chip(vec![row().size(17.0, 17.0).center().child(el().size(9.0, 9.0).radius(4.5).fill(swatch)), label(project, 13.0, 400.0, dim())]))
         .child(chip(vec![bars(&[4.0, 7.5, 11.0], rgb(82, 80, 79)), label("Agent Decides", 13.0, 400.0, dim())]))
         .child(spacer())
-        .child(row().size(30.0, 30.0).radius(6.0).center().child(icon(&icons::ATTACH, 16.0).color(muted())))
-        .child(
-            row()
-                .child(
-                    row()
-                        .h(32.0)
-                        .items_center()
-                        .gap(9.0)
-                        .px(14.0)
-                        .corners([6.0, 0.0, 0.0, 6.0])
-                        .fill(send_fill)
-                        .opacity(0.45)
-                        .child(label("Send", 13.5, 500.0, ink()))
-                        .child(text("⌘↵").font(mono(11.0, 14.0)).color(ink()).opacity(0.75)),
-                )
-                .child(
-                    row()
-                        .size(32.0, 32.0)
-                        .items_center()
-                        .pl(9.0)
-                        .corners([0.0, 6.0, 6.0, 0.0])
-                        .fill(send_fill)
-                        .border_sides([0.0, 0.0, 0.0, 1.0], rgba(26, 24, 23, 0.55))
-                        .border_layout()
-                        .child(icon(&icons::CARET, 13.0).color(ink())),
-                ),
-        );
+        .child(attach())
+        .child(send_pair(false));
     glass(col())
         .h(152.0)
         .pt(16.0)

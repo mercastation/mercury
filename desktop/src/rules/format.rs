@@ -146,6 +146,41 @@ fn asks_to_ship(option: &str) -> bool {
     SHIPS.test(&LEADING_MARKS.strip(&bare_option(option)))
 }
 
+// What a pick does when it is not a reply (`renderer/src/format.ts`). The words alone, or with
+// a reason after them: "Ship it, then close the task" is still a reply.
+re!(CLOSES, r"^close (?:this|the) (?:task|thread)(?:$|\s*[,:;\p{Pd}](?!\s*(?:then|and|also)\b)|\s+(?:since|because|as|now that)\b)", "iu");
+re!(KEEPS_AND_CLOSES, r"^(?:keep|leave) (?:it|this|them|that)(?: as (?:is|sent|it is))?\s*,?\s+and close (?:this|the) (?:task|thread)$", "i");
+re!(RIGHT_FIRST, r"^(?:(?:that|it|this|all)\s+)?(?:looks\s+|is\s+)?(?:right|good|fine|great|perfect|correct)\s*[,.;:!]?\s+(?:and\s+|so\s+)?(?=close\b)", "i");
+re!(STAYS_ON_BRANCH, r"^(?:keep|leave)\s+(?:(?:it|this|them|that|the (?:change|changes|work|commits?))\s+)?(?:on|in)\s+(?:(?:the|its|this|a)\s+)?branch(?:\s+for now)?$", "i");
+re!(SAYS_NOTHING, r"^(?:change|revise|edit|adjust|tweak|amend|rework|redo|fix)\s+(?:something|anything|it|this|that|some of it|a few things|this (?:part|bit)|parts?|bits?)(?:\s+first)?$", "i");
+re!(NAMES_NOBODY, r"^commit it and ship, as the name and email below$", "i");
+re!(SOMETHING_ELSE, r"^(?:something|anything) else$", "i");
+re!(DISCARDS, r"^(?:discard|bin|delete|drop|throw away|throw out)\s+(?:it|them|this|that|the (?:change|changes|work|edits|diff|lot))(?:\s+away)?$|^(?:discard|throw (?:it|them|the (?:change|changes|lot)) (?:all )?away)$", "i");
+
+/// The option that closes the thread: a pick is a reply, and a reply on a finished row starts
+/// a run, so this one is done the way E does it instead (`closesTheTask`).
+pub fn closes_the_task(option: &str) -> bool {
+    let words = RIGHT_FIRST.strip(&bare_option(option));
+    CLOSES.test(&words) || KEEPS_AND_CLOSES.test(&words)
+}
+
+/// "Keep it on the branch" closes too, and leaves the work off main on purpose (`leavesItOnTheBranch`).
+pub fn leaves_it_on_the_branch(option: &str) -> bool {
+    STAYS_ON_BRANCH.test(&bare_option(option))
+}
+
+/// The option that throws the work away, which asks first (`discardsTheChange`).
+pub fn discards_the_change(option: &str) -> bool {
+    DISCARDS.test(&bare_option(option))
+}
+
+/// The option that says nothing without the person's own words, "Change something first": it
+/// opens the reply box with its words in it instead of sending them (`needsYourWords`).
+pub fn needs_your_words(option: &str) -> bool {
+    let words = bare_option(option);
+    SAYS_NOTHING.test(&words) || NAMES_NOBODY.test(&words) || SOMETHING_ELSE.test(&words)
+}
+
 re!(SHIPPED_NOTE, r"^Shipped to main(?: as [0-9a-f]{7,40})?\.$", "");
 
 /// The note the app writes on a row once its ship lands (`shared/shipped-note.mts`).
@@ -302,6 +337,41 @@ mod tests {
         assert!(offer_is_live(&shipped));
         let asked_to_ship = item(json!({ "result": offer, "note": "Shipped to main as 0a1b2c3.", "wrote": { "result": { "ts": 20, "source": "agent" }, "note": { "ts": 25, "source": "system" } } }));
         assert!(!offer_is_live(&asked_to_ship));
+    }
+
+    #[test]
+    fn an_option_that_closes_the_thread_is_a_close_and_one_that_asks_for_work_is_a_reply() {
+        assert!(closes_the_task("Close this task"));
+        assert!(closes_the_task("Close the thread (recommended)"));
+        assert!(closes_the_task("Close this task, since it shipped"));
+        assert!(closes_the_task("Looks right, close this task"));
+        assert!(closes_the_task("Keep it as sent and close this task."));
+        // Work first, or work after: still a reply.
+        assert!(!closes_the_task("Ship it, then close the task"));
+        assert!(!closes_the_task("Close this task, then file the follow-up"));
+        assert!(!closes_the_task("Keep the first layout and close this task"));
+    }
+
+    #[test]
+    fn keeping_it_on_the_branch_is_a_close_that_leaves_the_work_off_main() {
+        assert!(leaves_it_on_the_branch("Keep it on the branch"));
+        assert!(leaves_it_on_the_branch("Leave the changes on the branch for now."));
+        assert!(!leaves_it_on_the_branch("Keep the branch and open a pull request"));
+    }
+
+    #[test]
+    fn throwing_the_work_away_is_the_whole_option_or_none_of_it() {
+        assert!(discards_the_change("Discard it"));
+        assert!(discards_the_change("Throw the changes away"));
+        assert!(!discards_the_change("Discard the first layout and ship the second"));
+    }
+
+    #[test]
+    fn an_option_that_names_nothing_to_change_needs_the_persons_words() {
+        assert!(needs_your_words("Change something first"));
+        assert!(needs_your_words("Something else"));
+        assert!(needs_your_words("Commit it and ship, as the name and email below"));
+        assert!(!needs_your_words("Change the empty state copy first"));
     }
 
     #[test]

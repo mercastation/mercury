@@ -53,9 +53,27 @@ The fix is on main as \`a41c9e2\` and every checkout test passes. The 37 refunds
 
 // The ledger a thread like this leaves behind, one line per write, and the row those lines
 // fold into (shared/work-items.mts): the newest value of each field, and who wrote it when.
-function conversation(item, found) {
+function conversation(item, found, waiting = false) {
   const [asked, checked, replied, shipped] = [item.createdAt, item.createdAt + 38 * MIN, item.updatedAt - 17 * MIN, item.updatedAt];
   const { id, title } = item;
+  // `waiting`: the thread as it stood when the agent's first answer came back, its options
+  // still open and nothing said to them yet.
+  if (waiting) {
+    const lines = [
+      { id, ts: asked, source: 'founder', patch: { title, body: ASK, status: 'open', kind: 'directive', priority: item.priority, labels: item.labels } },
+      { id, ts: asked + MIN, source: 'agent', epoch: 1, claim: { holder: 'mcp-40122', leaseUntil: asked + 31 * MIN }, patch: { status: 'claimed' } },
+      { id, ts: item.updatedAt, source: 'agent', epoch: 1, patch: { status: 'blocked', note: found } },
+    ];
+    const { result: _result, ...rest } = item;
+    const row = {
+      ...rest, body: ASK, note: found, status: 'blocked',
+      wrote: {
+        title: { ts: asked, source: 'founder' }, body: { ts: asked, source: 'founder' },
+        note: { ts: item.updatedAt, source: 'agent' }, status: { ts: item.updatedAt, source: 'agent' },
+      },
+    };
+    return { row, lines };
+  }
   const lines = [
     { id, ts: asked, source: 'founder', patch: { title, body: ASK, status: 'open', kind: 'directive', priority: item.priority, labels: item.labels } },
     { id, ts: asked + MIN, source: 'agent', epoch: 1, claim: { holder: 'mcp-40122', leaseUntil: asked + 31 * MIN }, patch: { status: 'claimed' } },
@@ -78,7 +96,9 @@ function conversation(item, found) {
 // `unfold` presses the line under the title, so the picture is of the whole conversation
 // and not of its newest answer alone. `found` is the agent's first answer, for a scene that
 // wants other markdown in it.
-export async function open(h, { unfold, found = FOUND }) {
+// `waiting` leaves the thread at that first answer, waiting on the person. `then` is what a
+// scene does once the thread is open (a key, some typing), before the picture.
+export async function open(h, { unfold, found = FOUND, waiting = false, then = null }) {
   const snapshot = await h.evaluate('window.__SNAP__');
   // The Inbox opens on its first row; the snapshot's first thread is not always that one.
   await toInbox(h);
@@ -87,7 +107,7 @@ export async function open(h, { unfold, found = FOUND }) {
   const first = await h.evaluate(`document.querySelector('.list .row.selected')?.dataset.itemId ?? ''`);
   const at = snapshot.items.findIndex((i) => i.id === first || `${i.product}/${i.id}` === first);
   if (at < 0) throw new Error('thread scene: the Inbox\'s first row is not in the snapshot');
-  const { row, lines } = conversation(snapshot.items[at], found);
+  const { row, lines } = conversation(snapshot.items[at], found, waiting);
   snapshot.items[at] = row;
   // Keyed as the page asks: product and id. Each answer is under its channel's name.
   const threads = {
@@ -133,10 +153,13 @@ export async function open(h, { unfold, found = FOUND }) {
     await h.evaluate(`document.querySelector('.one-earlier')?.click()`);
     await h.wait(600);
   }
+  const did = then ? (await then(h)) ?? {} : {};
+  if (then) await h.wait(500);
   const unanswered = await h.evaluate('window.__UNANSWERED__');
   if (unanswered.length) console.error('thread scene: the page asked the bridge for', unanswered.join(', '), 'and got nothing');
   // `unfolded` tells the native window the same thing the click above told the page.
-  return { snapshot, threads, unfolded: unfold ? Object.keys(threads) : [] };
+  // And whatever `then` did, for the native window to do the same.
+  return { snapshot, threads, unfolded: unfold ? Object.keys(threads) : [], ...did };
 }
 
 export const go = (h) => open(h, { unfold: true });
