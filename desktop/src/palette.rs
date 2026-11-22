@@ -280,8 +280,9 @@ impl State {
         let Some(approval) = rules::approval(item) else {
             return self.close(&item.id, &item.product, false, tx);
         };
-        let inside = self.is_open(item);
-        let next = next_after(self, item);
+        let thread = thread_of(item);
+        let inside = self.is_open(&thread);
+        let next = next_after(self, &thread);
         self.hold(
             write::Held {
                 channel: writes::ANSWER,
@@ -300,8 +301,10 @@ impl State {
         }
     }
 
-    fn is_open(&self, item: &Item) -> bool {
-        self.open_item().is_some_and(|open| open.id == item.id && open.product == item.product)
+    /// Whether the thread `(id, product)` is the conversation on screen, whether or not the
+    /// engine still lists it.
+    fn is_open(&self, (id, product): &(String, String)) -> bool {
+        matches!(&self.view, View::Thread { id: open, product: of } if open == id && of == product)
     }
 
     /// From inside a thread just taken out of Needs you, on to `next`, or back where it was
@@ -358,10 +361,10 @@ fn thread_of(item: &Item) -> (String, String) {
     (item.id.clone(), item.product.clone())
 }
 
-/// The thread after this one in Needs you, or the one before, looked up before it leaves the list.
-fn next_after(s: &State, item: &Item) -> Option<(String, String)> {
+/// The thread after this one in Needs you, or the one before, while it is still in the list.
+fn next_after(s: &State, (id, product): &(String, String)) -> Option<(String, String)> {
     let needs = &s.lists.needs;
-    let at = needs.iter().position(|r| r.id == item.id && r.product == item.product)?;
+    let at = needs.iter().position(|r| &r.id == id && &r.product == product)?;
     needs.get(at + 1).or_else(|| at.checked_sub(1).and_then(|a| needs.get(a))).map(|r| (r.id.clone(), r.product.clone()))
 }
 
@@ -373,13 +376,14 @@ pub enum Wrote {
     /// Reopened: the line to say, and the one Z says when it marks it done again.
     Reopened { thread: (String, String), said: String, again: String },
     RunNow { thread: (String, String) },
-    /// An agent put back on it.
-    Resume { thread: (String, String) },
+    /// An agent put back on it; `next` is the thread after it in Needs you as it was pressed,
+    /// where the person goes on to from inside it once the agent is on it.
+    Resume { thread: (String, String), next: Option<(String, String)> },
     /// Its next model: the line to say once it stands.
     Model { said: String },
     /// Moved to the project `to`, called `name`; `from` is the one it was in.
     Move { thread: (String, String), to: String, name: String, from: String },
-    SendBack { thread: (String, String), project: String },
+    SendBack { thread: (String, String), project: String, next: Option<(String, String)> },
     Redeliver { thread: (String, String), project: String },
     /// Its run carried to the cloud.
     Moving,
@@ -439,7 +443,8 @@ fn run(s: &mut State, does: Does, tx: &mut Tx) {
         }
         Does::Resume(thread) => {
             if let Some(item) = item(s, &thread) {
-                s.palette_write(rules::resume(&item), Wrote::Resume { thread });
+                let next = next_after(s, &thread);
+                s.palette_write(rules::resume(&item), Wrote::Resume { thread, next });
             }
         }
         Does::MarkRead((id, product)) => s.saw(&id, &product),
@@ -470,7 +475,8 @@ fn run(s: &mut State, does: Does, tx: &mut Tx) {
         Does::SendBack(thread) => {
             if let Some(item) = item(s, &thread) {
                 let project = s.project_name(&item);
-                s.palette_write(rules::send_back(&item), Wrote::SendBack { thread, project });
+                let next = next_after(s, &thread);
+                s.palette_write(rules::send_back(&item), Wrote::SendBack { thread, project, next });
             }
         }
         Does::Redeliver(thread) => {
@@ -553,10 +559,7 @@ pub(crate) fn landed(s: &mut State, landed: write::Landed, tx: &mut Tx) {
             if let Some(why) = refusal() {
                 return s.tell(&format!("Not reopened: {why}"), tx);
             }
-            let Some(item) = s.item(&thread.0, &thread.1).cloned() else {
-                return;
-            };
-            s.last = Some(write::Undo { said: again, writes: vec![rules::done_again(&item)], sent: write::Sent::Palette(Wrote::Quiet), thread, opens: true });
+            s.last = Some(write::Undo { said: again, writes: vec![rules::done_again(&thread)], sent: write::Sent::Palette(Wrote::Quiet), thread, opens: true });
             let (line, undo) = crate::rules::compose::toast_parts(&said);
             s.say(line, undo, tx);
         }
@@ -564,12 +567,11 @@ pub(crate) fn landed(s: &mut State, landed: write::Landed, tx: &mut Tx) {
             let said = rules::run_now_said(&answer);
             if answer.get("ok") == Some(&Value::Bool(true)) { s.say_about(said, thread, tx) } else { s.tell(said, tx) }
         }
-        Wrote::Resume { thread } => {
+        Wrote::Resume { thread, next } => {
             let (said, names, started) = rules::resumed_said(&answer);
             if names { s.say_about(&said, thread.clone(), tx) } else { s.tell(&said, tx) }
             // Put back to work, it has left Needs you, and from inside it the person goes on.
-            if started && let Some(item) = s.item(&thread.0, &thread.1).cloned() && s.is_open(&item) {
-                let next = next_after(s, &item);
+            if started && s.is_open(&thread) {
                 s.advance(next);
             }
         }
@@ -584,21 +586,18 @@ pub(crate) fn landed(s: &mut State, landed: write::Landed, tx: &mut Tx) {
                 return s.tell(why, tx);
             };
             let copy = (made.get("id").and_then(Value::as_str).unwrap_or("").to_string(), made.get("product").and_then(Value::as_str).unwrap_or(&to).to_string());
-            if let Some(item) = s.item(&thread.0, &thread.1).cloned() {
-                // Z puts it back where it was: the copy is closed and the thread opened again.
-                s.last = Some(write::Undo { said: format!("Back in {from}"), writes: rules::move_back(made, &to, &item), sent: write::Sent::Palette(Wrote::Quiet), thread: thread.clone(), opens: true });
-                // Left on the old row, now closed, the person would reopen it and have two.
-                if s.is_open(&item) {
-                    s.palette.opens_when_listed = Some((copy.clone(), crate::clock()));
-                }
+            // Z puts it back where it was: the copy is closed and the thread opened again.
+            s.last = Some(write::Undo { said: format!("Back in {from}"), writes: rules::move_back(made, &to, &thread), sent: write::Sent::Palette(Wrote::Quiet), thread: thread.clone(), opens: true });
+            // Left on the old row, now closed, the person would reopen it and have two.
+            if s.is_open(&thread) {
+                s.palette.opens_when_listed = Some((copy.clone(), crate::clock()));
             }
             s.say_about(&format!("Moved to {name} · press Z to undo"), copy, tx);
         }
-        Wrote::SendBack { thread, project } => {
+        Wrote::SendBack { thread, project, next } => {
             s.say_about(&rules::sent_back_said(&project), thread.clone(), tx);
             // Back in the queue is out of the Inbox, so from inside it the person goes on.
-            if let Some(item) = s.item(&thread.0, &thread.1).cloned() && s.is_open(&item) {
-                let next = next_after(s, &item);
+            if s.is_open(&thread) {
                 s.advance(next);
             }
         }

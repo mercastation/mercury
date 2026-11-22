@@ -649,8 +649,9 @@ pub fn reopen_done(item: &Item) -> Write {
     (super::writes::ANSWER, with(item, "status", json!("open")))
 }
 
-pub fn done_again(item: &Item) -> Write {
-    (super::writes::ANSWER, with(item, "status", json!("done")))
+/// Z after Reopen: marked done again. Named by `(id, product)`, as the row may have changed by then.
+pub fn done_again((id, product): &Thread) -> Write {
+    (super::writes::ANSWER, json!({ "product": product, "id": id, "status": "done" }))
 }
 
 pub fn run_now(item: &Item) -> Write {
@@ -683,11 +684,15 @@ pub fn move_item(item: &Item, to: &str) -> Write {
     ("zero:move-item", with(item, "to", json!(to)))
 }
 
-/// Z after a move: the copy closed, and the thread that was moved open again where it was.
-pub fn move_back(made: &Value, to: &str, item: &Item) -> Vec<Write> {
-    let id = made.get("id").and_then(Value::as_str).unwrap_or("");
-    let product = made.get("product").and_then(Value::as_str).unwrap_or(to);
-    vec![(super::writes::ANSWER, json!({ "product": product, "id": id, "status": "done" })), (super::writes::ANSWER, with(item, "status", json!("open")))]
+/// Z after a move: the copy closed, and the thread that was moved, `(id, product)`, open again
+/// where it was. The moved row has left the engine's lists by then, so it is named, not read.
+pub fn move_back(made: &Value, to: &str, (id, product): &Thread) -> Vec<Write> {
+    let copy = made.get("id").and_then(Value::as_str).unwrap_or("");
+    let copied_to = made.get("product").and_then(Value::as_str).unwrap_or(to);
+    vec![
+        (super::writes::ANSWER, json!({ "product": copied_to, "id": copy, "status": "done" })),
+        (super::writes::ANSWER, json!({ "product": product, "id": id, "status": "open" })),
+    ]
 }
 
 /// Back to its agent: a blocked thread goes back in the queue (`sendBack`).
@@ -1538,9 +1543,10 @@ mod tests {
         let thread = answered();
         assert_eq!(reopened_said(&thread), ("Reopened: Fix the export · press Z to undo".to_string(), "Done again: Fix the export".to_string()));
         assert_eq!(reopen_done(&thread), ("zero:answer", json!({ "product": "shop", "id": "w-1", "status": "open" })));
-        assert_eq!(done_again(&thread), ("zero:answer", json!({ "product": "shop", "id": "w-1", "status": "done" })));
+        let named = ("w-1".to_string(), "shop".to_string());
+        assert_eq!(done_again(&named), ("zero:answer", json!({ "product": "shop", "id": "w-1", "status": "done" })));
         assert_eq!(move_item(&thread, "app"), ("zero:move-item", json!({ "product": "shop", "id": "w-1", "to": "app" })));
-        assert_eq!(move_back(&json!({ "id": "w-9", "product": "app" }), "app", &thread), vec![
+        assert_eq!(move_back(&json!({ "id": "w-9", "product": "app" }), "app", &named), vec![
             ("zero:answer", json!({ "product": "app", "id": "w-9", "status": "done" })),
             ("zero:answer", json!({ "product": "shop", "id": "w-1", "status": "open" })),
         ]);
