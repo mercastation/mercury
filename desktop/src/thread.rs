@@ -839,30 +839,59 @@ fn lattice(moving: bool, from: f64) -> El {
 /// The key of the step's word, whose place says what ground its veil is drawn in.
 const LIVE_WORD: &str = "live-word";
 
-/// The step's word (`.live-word.is-shimmering`): in full ink, with the soft band of the web
-/// window's mask travelling through it from left to right every 2.6 seconds, drawn as a veil of
-/// the ground over it in strips, each a loop (`rules::motion::shimmer_veil`). `wide` is how wide
-/// the word stands. Under Reduce motion (`still`) the web window takes the band away and draws
-/// the word in dim ink, and so does this one; off screen (`moving` false) it has no band. The
-/// band starts off the word's left end at `from`, as the web's does when the line mounts.
-fn shimmering(s: &State, words: &str, font: TextStyle, wide: f32, still: bool, moving: bool, from: f64) -> El {
+/// Words that shimmer (`.live-word.is-shimmering`): in full ink, with the soft band of the web
+/// window's mask travelling through them from left to right every 2.6 seconds, drawn as a veil
+/// of the ground over them in strips, each a loop (`rules::motion::shimmer_veil`). `wide` and
+/// `tall` are how large they stand, and `key` names them, for where they are. Under Reduce
+/// motion (`still`) the web window takes the band away and draws the words in dim ink, and so
+/// does this one; off screen (`moving` false) they have no band. The band starts off their left
+/// end at `from`, as the web's does when they mount.
+#[allow(clippy::too_many_arguments)]
+fn shimmering(s: &State, key: &'static str, words: &str, font: TextStyle, (wide, tall): (f32, f32), still: bool, moving: bool, from: f64) -> El {
     use crate::rules::motion::{LEAST, SHIMMER_PERIOD, ground_under_the_card, shimmer_veil};
-    // The step is said aloud each time it changes (`live-announcement`, `role="status"`).
+    // What they say is said aloud each time it changes (`live-announcement`, `role="status"`).
     let word = text(words).font(font).color(if still { dim() } else { ink() }).truncate().live_region(rune::LiveRegion::Polite);
-    let boxed = el().key(LIVE_WORD).shrink().min_w(0.0).child(word);
+    let boxed = el().key(key).shrink().min_w(0.0).child(word);
     if still || !moving {
         return boxed;
     }
-    // The ground under the word: where it was last laid out, else where a working line stands.
-    let at = rune::memo::window_layout(LIVE_WORD).map_or((s.size.0 * 0.3, s.size.1 * 0.8), |[x, y, w, h]| (x + w / 2.0, y + h / 2.0));
+    // The ground under them: where they were last laid out, else where a working line stands.
+    let at = rune::memo::window_layout(key).map_or((s.size.0 * 0.3, s.size.1 * 0.8), |[x, y, w, h]| (x + w / 2.0, y + h / 2.0));
     let [r, g, b] = ground_under_the_card(at, s.size);
     let ground = rgb(r.round() as u8, g.round() as u8, b.round() as u8);
-    let veil = shimmer_veil(wide, 20.0);
+    let veil = shimmer_veil(wide, tall);
     let start = started(from, SHIMMER_PERIOD);
     let strips = veil.strips.into_iter().map(move |strip| {
-        el().absolute(strip.x, 0.0).size(strip.w, 20.0).fill(ground).a11y_hidden().cycle(rune::Cycle { period: SHIMMER_PERIOD, phase: strip.phase + start, stops: veil.stops, still: LEAST, fps: LOOP_FPS })
+        el().absolute(strip.x, 0.0).size(strip.w, tall).fill(ground).a11y_hidden().cycle(rune::Cycle { period: SHIMMER_PERIOD, phase: strip.phase + start, stops: veil.stops, still: LEAST, fps: LOOP_FPS })
     });
     boxed.clip_rounded(0.0).children(strips)
+}
+
+/// Has `line` say when it is on screen and when it leaves (`on_visible`), as `seen`, whose loops
+/// run only while it is; and the first time, when, as the start of `run`'s loops.
+fn watched(line: El, seen: String, run: String) -> El {
+    line.on_visible(move |s: &mut State, on, tx| {
+        if on {
+            s.reading.live_seen = Some(seen.clone());
+            if s.reading.live_from.as_ref().is_none_or(|(seen_run, _)| *seen_run != run) {
+                s.reading.live_from = Some((run.clone(), tx.clock()));
+            }
+        } else if s.reading.live_seen.as_deref() == Some(seen.as_str()) {
+            s.reading.live_seen = None;
+        }
+    })
+}
+
+/// The line a chat just brought in shows until the run that writes it up has (`catchUpDue`,
+/// `.one-catching-up`): one sentence at 15 points, shimmering as the working line's word does.
+fn getting_ready(s: &State, thread: &str, m: &Measure, still: bool) -> El {
+    const WORDS: &str = "Getting this chat ready. Its summary and options will appear here.";
+    let seen = format!("{thread}#ready");
+    let moving = !still && s.reading.live_seen.as_deref() == Some(seen.as_str());
+    let from = s.reading.live_from.as_ref().filter(|(run, _)| *run == seen).map_or(0.0, |(_, at)| *at);
+    let font = TextStyle::new(15.0, 500.0).lh(24.0);
+    let wide = rune::text::measure(WORDS, &[], font, None).0.min(m.column);
+    watched(row().w(m.column).child(shimmering(s, "getting-ready", WORDS, font, (wide, 24.0), still, moving, from)), seen.clone(), seen)
 }
 
 /// How wide the step's word stands on the line: as wide as its words, unless the column leaves
@@ -888,7 +917,7 @@ fn live_line(s: &State, thread: &str, run: String, line: &live::Working, steps: 
     let wide = word_room(line, word_font, font.features("'tnum' 1"), m.column);
     // Rune's flex never shrinks a child below what it holds unless told to (`shrink`), and
     // the step is the one part that gives way.
-    let mut words = row().items_center().gap(6.0).shrink().child(shimmering(s, &line.word, word_font, wide, still, moving, from));
+    let mut words = row().items_center().gap(6.0).shrink().child(shimmering(s, LIVE_WORD, &line.word, word_font, (wide, 20.0), still, moving, from));
     for span in [line.more.as_deref(), Some(line.span.as_str()), line.place.as_deref()].into_iter().flatten() {
         words = words.child(text(span).font(font.features("'tnum' 1")).color(muted()));
     }
@@ -898,21 +927,10 @@ fn live_line(s: &State, thread: &str, run: String, line: &live::Working, steps: 
     let chevron = if open { chevron } else { chevron.group_opacity(0.0, 1.0) };
     let pressed = run.clone();
     let words = words.child(chevron).hover_group().cursor(rune::Cursor::Pointer).role("button").expanded(open).on_press(move |s: &mut State| s.toggle_live_steps(&pressed));
-    let thread = thread.to_string();
-    let seen = run.clone();
     // No wider than the column: a step is often a whole command line, and it is cut short with
     // dots, as `.live-disclosure .live-word` cuts it, rather than run past the page. The stack
     // it stands in takes its width from what is in it, so the column is said here.
-    let brief = row().max_w(m.column).items_center().gap(7.0).child(lattice(moving, from)).child(words).on_visible(move |s: &mut State, on, tx| {
-        if on {
-            s.reading.live_seen = Some(thread.clone());
-            if s.reading.live_from.as_ref().is_none_or(|(seen_run, _)| *seen_run != seen) {
-                s.reading.live_from = Some((seen.clone(), tx.clock()));
-            }
-        } else if s.reading.live_seen.as_deref() == Some(thread.as_str()) {
-            s.reading.live_seen = None;
-        }
-    });
+    let brief = watched(row().max_w(m.column).items_center().gap(7.0).child(lattice(moving, from)).child(words), thread.to_string(), run.clone());
     if !open {
         return brief;
     }
@@ -1327,10 +1345,21 @@ pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
     if let Some(words) = context {
         summary = summary.child(context_line(&words, &m).mt(if page.toggle.is_some() { 10.0 } else { 8.0 }));
     }
-    // Under the summary: the newest answer alone, or the conversation with its outcome.
+    // Under the summary: the newest answer alone, or the conversation with its outcome. A chat
+    // just brought in says first that it is being got ready, and then shows its newest answer,
+    // 28 points under that line (`catchUpDue` in `ItemThread.tsx`).
     let mut blocks = vec![markdown::block(0.0, 18.0, summary)];
-    match page.alone {
+    let getting = crate::rules::kinds::catch_up_due(item);
+    if getting {
+        blocks.push(markdown::block(8.0, 8.0, getting_ready(s, &thread, &m, still)));
+    }
+    match page.alone.or(if getting { talk.newest() } else { None }) {
+        Some(answer) if getting => {
+            let (body, top, bottom) = markdown::stack(answer_alone(answer, &title, &m, &files), false);
+            blocks.push(markdown::block(top.max(28.0), bottom, body));
+        }
         Some(answer) => blocks.extend(answer_alone(answer, &title, &m, &files)),
+        None if getting => {}
         None => {
             if page.said.is_empty() && talk.outcome.is_none() {
                 blocks.push(markdown::block(0.0, 0.0, el().py(8.0).child(label("Nothing has been said here yet.", 14.0, 400.0, muted()))));
