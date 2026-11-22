@@ -161,6 +161,12 @@ re!(SENT_COPY, r"(^|\/)(attachments|\.room-files)\/", "");
 const FIRST_SAVED_MS: u64 = 1_735_689_600_000;
 const DAY_MS: u64 = 86_400_000;
 
+/// Whether a path is a copy sent to a thread or kept for a group (`SENT_COPY.test`), whose
+/// saved name is new each time it is sent.
+pub fn is_sent_copy(path: &str) -> bool {
+    SENT_COPY.test(path)
+}
+
 /// A file's name as a person gave it (`shownName`): without the mark a copy carries in front.
 /// `now` is the clock, in milliseconds: a saved file's stamp must read as a moment that has been.
 pub fn shown_name(path: &str, now: f64) -> String {
