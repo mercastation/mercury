@@ -86,6 +86,18 @@ pub struct Menu {
     pub every_model: bool,
     /// The entry the keys are on, which the pointer moves too.
     pub lit: usize,
+    /// The model menu of a conversation's reply box (`reply.rs`), which is this box's menu as
+    /// the web window's is the card's (`ReplyModel` in `renderer/src/components/ReplyModel.tsx`
+    /// draws `ModelMenu`): the same rows, read off the reply's pick, rising out of its chip.
+    pub reply: bool,
+}
+
+/// What the model menu is drawn from for the box it hangs from: the model it is on, the level
+/// its strip lights, and the levels the strip offers.
+pub struct ModelFacts {
+    pub pick: Pick,
+    pub shown: Option<String>,
+    pub levels: Vec<(String, String)>,
 }
 
 /// What the box holds between one thread and the next.
@@ -434,6 +446,8 @@ pub fn layers(s: &State) -> Vec<El> {
         layers.push(el().absolute(0.0, 0.0).size(w, h).backdrop_blur(3.0).fill(rgba(16, 14, 13, 0.52)).child(card(s)));
     }
     layers.extend(menu_layer(s));
+    // And the same model menu, raised out of a conversation's reply box.
+    layers.extend(reply_menu_layer(s));
     layers
 }
 
@@ -442,11 +456,15 @@ pub fn layers(s: &State) -> Vec<El> {
 /// A row of a menu is 34 points tall: a 20 point line and 7 over and under it (`.tc-row`).
 const ROW: f32 = 34.0;
 
+/// What a menu's `lit` is while no entry is lit: the reply box's menu opened from the model's
+/// name on the folded box, with the caret still in the words.
+pub const NO_ENTRY: usize = usize::MAX;
+
 /// What every entry of a menu does under the pointer: it takes the keys when the pointer
 /// moves on it, and a press is Enter on it. On a pointer that moves, not one that is merely
 /// there: a page that moves under a still pointer must not take a row back from the arrows.
 fn entry(e: El, at: usize) -> El {
-    e.key(format!("entry-{at}")).cursor(rune::Cursor::Pointer).on_pointer_move(move |s: &mut State, _| s.light_entry(at)).on_background_press_tx(move |s: &mut State, tx| s.press_entry(at, tx))
+    e.key(format!("entry-{at}")).cursor(rune::Cursor::Pointer).on_pointer_move_local(move |s: &mut State, _, tx: &mut Tx| s.light_entry_by_pointer(at, tx)).on_background_press_tx(move |s: &mut State, tx| s.press_entry(at, tx))
 }
 
 /// One row (`.tc-row`): what leads it, its name, and what stands at its right. `lit` is the
@@ -546,7 +564,8 @@ fn menu_parts(s: &State, menu: &Menu) -> (Vec<El>, f32, f32) {
         }
         MenuKind::Model => {
             let engines = Engines::of(&s.snap);
-            let pick = s.compose_pick();
+            let facts = s.model_facts(menu.reply);
+            let pick = facts.pick.clone();
             let recent = rules::recent_models(&s.snap.items, &s.models, &engines);
             let all = rules::all_models(&s.models, &engines);
             let name = |p: &Pick| rules::model_label(p, &s.models);
@@ -580,11 +599,11 @@ fn menu_parts(s: &State, menu: &Menu) -> (Vec<El>, f32, f32) {
                 part(menu_row(at, lit(at), (false, true), None, "All models", (more > 0).then(|| aside(&format!("{more} more ›"), 18.0))), ROW);
                 at += 1;
             }
-            let levels = rules::effort_choices(&pick, &s.models);
+            let levels = facts.levels;
             if !levels.is_empty() {
                 part(menu_sep(), 9.0);
                 part(el().pt(6.0).px(10.0).pb(2.0).child(text("Effort").font(TextStyle::new(11.0, 400.0).lh(20.0).tracking(0.22)).color(muted())), 28.0);
-                let shown = rules::effort_shown(s.kept_effort(&pick.engine).as_deref(), &levels, rules::default_effort(&pick, &s.models).as_deref());
+                let shown = facts.shown;
                 let mut strip = row().pt(3.0).px(2.0).pb(2.0).gap(2.0);
                 for (id, word) in &levels {
                     strip = strip.child(effort_button(at, lit(at), shown.as_deref() == Some(id.as_str()), word));
@@ -598,35 +617,15 @@ fn menu_parts(s: &State, menu: &Menu) -> (Vec<El>, f32, f32) {
     (parts, tall, least)
 }
 
-/// The open menu, over the page or the card: hung from its control where the stylesheet hangs
-/// it, and kept inside the window as the web window keeps it (`rules::fit_menu`). Under it lies
-/// a layer the size of the window, and a press there closes the menu and goes on to what it
-/// was aimed at (`pressed_away`).
-fn menu_layer(s: &State) -> Option<El> {
-    let menu = s.compose.menu.as_ref()?;
-    // Where its control is in the window now. One not laid out yet has nothing hung from it.
-    let anchor = rune::memo::window_layout(menu.kind.anchor())?;
+/// A menu built and placed: its parts in their shell, hung from its control (`anchor`) where
+/// `hang` says for a menu so wide, and kept inside the window and inside `sides`
+/// (`rules::fit_menu`). The shell, and where it landed.
+fn placed_menu(s: &State, menu: &Menu, anchor: [f32; 4], hang: impl Fn(f32) -> Hang, sides: (f32, f32)) -> (El, rules::Fit) {
     let (parts, sum, least) = menu_parts(s, menu);
     // Its edge and the 5 points inside it, twice, and a point between each two parts.
     let tall = 12.0 + sum + parts.len().saturating_sub(1) as f32;
     let wide = rune::memo::layout_size(MENU).map_or(least, |[wide, _]| wide + 2.0);
-    let (w, h) = s.size;
-    let card = s.compose.card;
-    // On the page every menu drops under its control from its left edge (`.tc-inline
-    // .tc-menu`). On the card the head's menu drops from its word, sixteen points to the left
-    // so its names stand under the value (`.tc-drop`), and the bar's rise twelve points over
-    // their chips (`.tc-rise`). The caret's lines up with Send's right edge, eight points off
-    // (`.tc-right`), under it on the page and over it on the card.
-    let hang = match (card, menu.kind) {
-        (_, MenuKind::Later) => Hang { below: !card, gap: 8.0, dx: anchor[2] - wide },
-        (false, _) => Hang { below: true, gap: 8.0, dx: 0.0 },
-        (true, MenuKind::Model) => Hang { below: true, gap: 8.0, dx: -16.0 },
-        (true, _) => Hang { below: false, gap: 12.0, dx: 0.0 },
-    };
-    // A menu on the page is seen only inside the page, which clips it (`.hm-page`); over the
-    // card, anywhere in the window.
-    let sides = if card { (0.0, w) } else { (chrome::CARD[0], w - chrome::CARD[2]) };
-    let fit = rules::fit_menu(anchor, hang, (wide, tall), h, sides);
+    let fit = rules::fit_menu(anchor, hang(wide), (wide, tall), s.size.1, sides);
     let rows = col().key(MENU).min_w(least - 2.0).items_stretch().gap(1.0).px(5.0).py(5.0).children(parts);
     // No clip on the shell itself: Rune's rounded clip takes the element's own shadow with it,
     // and the shadow is what lifts the menu off the card. The rows keep inside its corners.
@@ -636,6 +635,56 @@ fn menu_layer(s: &State) -> Option<El> {
         Some(most) => shell.h(most).child(col().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(rows)),
         None => shell.child(rows),
     };
+    (shell, fit)
+}
+
+/// The model menu of a conversation's reply box, over the page: it rises out of the reply's
+/// chip eight points over it, its left edge on the chip's (`.dock-chips .model-pick .tc-drop`,
+/// `.tc-drop-up`), and is seen only inside the page. Under it lies a layer the size of the
+/// window, and a press there closes it on the way down, as the web window's `pointerdown` does
+/// (`ReplyModel`), going on to the reply's own Send (`reply.rs`).
+pub fn reply_menu_layer(s: &State) -> Option<El> {
+    let menu = s.reply_menu.as_ref()?;
+    let anchor = rune::memo::window_layout(crate::reply::CHIP)?;
+    let (w, h) = s.size;
+    let hang = |_| Hang { below: false, gap: 8.0, dx: 0.0 };
+    let (shell, fit) = placed_menu(s, menu, anchor, hang, (chrome::CARD[0], w - chrome::CARD[2]));
+    let marks: Vec<(&'static str, [f32; 4])> = crate::reply::MARKS.into_iter().filter_map(|key| rune::memo::window_layout(key).map(|rect| (key, rect))).collect();
+    let away = el().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).on_drag(move |s: &mut State, d: &mut Drag, tx: &mut Tx| {
+        if d.phase == Phase::Down {
+            s.reply_pressed_away(d.window_point(), &marks, tx);
+        }
+    });
+    let page_top = chrome::page_top(&s.view);
+    let page = el().pin(Some(chrome::CARD[0]), Some(page_top), Some(chrome::CARD[2]), Some(chrome::CARD[3])).clip_corners([0.0, 0.0, 6.0, 6.0]).child(shell.absolute(fit.left - chrome::CARD[0], fit.top - page_top));
+    Some(el().absolute(0.0, 0.0).size(w, h).child(away).child(page))
+}
+
+/// The open menu, over the page or the card: hung from its control where the stylesheet hangs
+/// it, and kept inside the window as the web window keeps it (`rules::fit_menu`). Under it lies
+/// a layer the size of the window, and a press there closes the menu and goes on to what it
+/// was aimed at (`pressed_away`).
+fn menu_layer(s: &State) -> Option<El> {
+    let menu = s.compose.menu.as_ref()?;
+    // Where its control is in the window now. One not laid out yet has nothing hung from it.
+    let anchor = rune::memo::window_layout(menu.kind.anchor())?;
+    let (w, h) = s.size;
+    let card = s.compose.card;
+    // On the page every menu drops under its control from its left edge (`.tc-inline
+    // .tc-menu`). On the card the head's menu drops from its word, sixteen points to the left
+    // so its names stand under the value (`.tc-drop`), and the bar's rise twelve points over
+    // their chips (`.tc-rise`). The caret's lines up with Send's right edge, eight points off
+    // (`.tc-right`), under it on the page and over it on the card.
+    let hang = |wide: f32| match (card, menu.kind) {
+        (_, MenuKind::Later) => Hang { below: !card, gap: 8.0, dx: anchor[2] - wide },
+        (false, _) => Hang { below: true, gap: 8.0, dx: 0.0 },
+        (true, MenuKind::Model) => Hang { below: true, gap: 8.0, dx: -16.0 },
+        (true, _) => Hang { below: false, gap: 12.0, dx: 0.0 },
+    };
+    // A menu on the page is seen only inside the page, which clips it (`.hm-page`); over the
+    // card, anywhere in the window.
+    let sides = if card { (0.0, w) } else { (chrome::CARD[0], w - chrome::CARD[2]) };
+    let (shell, fit) = placed_menu(s, menu, anchor, hang, sides);
     // On the way down, as the web window's `pointerdown` listener does, so the same press can
     // still land the caret in the words. Where the box's controls are is read here, while the
     // window is drawn: a handler has no layout to read.
@@ -865,6 +914,8 @@ impl State {
     pub fn open_card(&mut self, tx: &mut Tx) {
         self.compose.card = true;
         self.compose.menu = None;
+        // One menu stands at a time: the card closes whatever the conversation under it had open.
+        self.close_thread_menus();
         self.write_in_the_box(tx);
     }
 
@@ -875,26 +926,42 @@ impl State {
         self.let_go(tx);
     }
 
+    /// What the model menu reads for the box it is open on: this box, or the reply box of the
+    /// conversation on screen (`reply.rs`), each with its own pick and its own level.
+    pub(crate) fn model_facts(&self, reply: bool) -> ModelFacts {
+        let (pick, chosen) = if reply {
+            let (pick, effort) = self.reply_menu_pick();
+            (pick, effort)
+        } else {
+            let pick = self.compose_pick();
+            let kept = self.kept_effort(&pick.engine);
+            (pick, kept)
+        };
+        let levels = rules::effort_choices(&pick, &self.models);
+        let shown = rules::effort_shown(chosen.as_deref(), &levels, rules::default_effort(&pick, &self.models).as_deref());
+        ModelFacts { pick, shown, levels }
+    }
+
     /// What the keys can land on in a menu, in the order it draws them.
-    fn menu_entries(&self, menu: &Menu) -> Vec<Entry> {
+    pub(crate) fn menu_entries(&self, menu: &Menu) -> Vec<Entry> {
         match menu.kind {
             MenuKind::Project => rules::project_entries(&self.projects_offered()),
             MenuKind::Level => rules::level_entries(),
             MenuKind::Later => rules::later_entries(self.compose.later),
             MenuKind::Model => {
                 let engines = Engines::of(&self.snap);
-                let levels = rules::effort_choices(&self.compose_pick(), &self.models);
+                let levels = self.model_facts(menu.reply).levels;
                 rules::model_entries(menu.every_model, &rules::recent_models(&self.snap.items, &self.models, &engines), &rules::all_models(&self.models, &engines), &levels)
             }
         }
     }
 
-    /// Whether an entry is what the box is already on.
-    fn entry_is_picked(&self, entry: &Entry) -> bool {
+    /// Whether an entry is what the box is already on; `reply`, the reply box's.
+    pub(crate) fn entry_is_picked(&self, entry: &Entry, reply: bool) -> bool {
         match entry {
             Entry::Project(slug) => self.compose_project().is_some_and(|p| &p.slug == slug),
             Entry::Level(level) => *level == self.compose.level,
-            Entry::Model(pick) => *pick == self.compose_pick(),
+            Entry::Model(pick) => *pick == self.model_facts(reply).pick,
             Entry::AddToLater => self.compose.later,
             _ => false,
         }
@@ -909,8 +976,8 @@ impl State {
         }
         self.compose.words.focused = false;
         tx.blur();
-        let mut menu = Menu { kind, every_model: false, lit: 0 };
-        menu.lit = rules::entry_lit_first(&self.menu_entries(&menu), |entry| self.entry_is_picked(entry));
+        let mut menu = Menu { kind, every_model: false, lit: 0, reply: false };
+        menu.lit = rules::entry_lit_first(&self.menu_entries(&menu), |entry| self.entry_is_picked(entry, false));
         self.compose.menu = Some(menu);
         // The lists may have changed since the window opened: an agent's can land late.
         if kind == MenuKind::Model {
@@ -965,15 +1032,30 @@ impl State {
         }
     }
 
-    /// The pointer moved onto an entry, or the arrows did.
+    /// The pointer moved onto an entry, or the arrows did: of the reply box's menu when that is
+    /// the one open, else of this box's.
     pub fn light_entry(&mut self, at: usize) {
-        if let Some(menu) = &mut self.compose.menu {
+        if let Some(menu) = self.reply_menu.as_mut().or(self.compose.menu.as_mut()) {
             menu.lit = at;
         }
     }
 
+    /// The pointer moved onto an entry. In the reply box's menu it also takes the keys from the
+    /// words, as the web window's row takes the focus under the pointer (`onHover` in
+    /// `ReplyModel.tsx`); this box's menus have them already.
+    fn light_entry_by_pointer(&mut self, at: usize, tx: &mut Tx) {
+        if self.reply_menu.is_some() && self.reply.focused {
+            self.reply.focused = false;
+            tx.blur();
+        }
+        self.light_entry(at);
+    }
+
     /// Enter on an entry of the open menu, or a press on it.
     pub fn press_entry(&mut self, at: usize, tx: &mut Tx) {
+        if self.reply_menu.is_some() {
+            return self.press_reply_entry(at);
+        }
         let Some(mut menu) = self.compose.menu.clone() else {
             return;
         };
@@ -1011,7 +1093,7 @@ impl State {
             }
             Entry::AllModels | Entry::Recent => {
                 menu.every_model = entry == Entry::AllModels;
-                menu.lit = rules::entry_lit_first(&self.menu_entries(&menu), |entry| self.entry_is_picked(entry));
+                menu.lit = rules::entry_lit_first(&self.menu_entries(&menu), |entry| self.entry_is_picked(entry, false));
                 self.compose.menu = Some(menu);
             }
             // The level stays in the menu: the person may be here to set the model and the

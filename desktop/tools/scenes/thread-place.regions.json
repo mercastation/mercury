@@ -1,0 +1,8 @@
+[
+  ["rail", [0, 40, 82, 720]],
+  ["top strip", [82, 40, 1176, 56]],
+  ["the place button", [1072.78, 52.5, 30, 30]],
+  ["the panel", [662.78, 90.5, 440, 102.5]],
+  ["the panel and its shadow", [612.78, 90.5, 540, 172]],
+  ["the options and the reply bar", [227, 572, 761, 142]]
+]

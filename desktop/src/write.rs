@@ -10,6 +10,7 @@ use serde_json::Value;
 use crate::data::Item;
 use crate::rules::attach::{self, Pending};
 use crate::rules::compose::{Level, Pick};
+use crate::rules::reply_pick::ReplyPick;
 use crate::rules::writes::Write;
 use crate::source::{self, Door};
 
@@ -47,8 +48,10 @@ impl Step {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Sent {
     /// Words from the reply box of the thread `product/id`: they go back in the box if the
-    /// engine does not take them.
-    Reply { thread: String, words: String },
+    /// engine does not take them. `pick` is the model and level they carry, when the person
+    /// picked one in the box: the box shows it until the row does, and Z puts it back with the
+    /// words (`pickOnItsWay`, `wordsBackInTheBox` in `renderer/src/App.tsx`).
+    Reply { thread: String, words: String, pick: Option<ReplyPick> },
     /// A picked option of that thread.
     Pick { thread: String },
     Close { thread: String },
@@ -65,6 +68,12 @@ pub enum Sent {
     Thread { product: String, draft: Draft },
     /// A thread sent from here, taken back with Z, with its name for the line that says so.
     Withdraw { thread: String, title: String, draft: Draft },
+    /// That thread's level, picked in its menu: written at once, and said once the engine has
+    /// it (`retag` in `renderer/src/App.tsx`).
+    Priority { thread: String, said: String },
+    /// Where that thread runs, picked in its panel. The panel shows the pick, so nothing is
+    /// said, unless it was a move the cloud could not take (`placeThread`, `moveToCloud`).
+    Place { thread: String, moving: bool },
 }
 
 impl Sent {
@@ -79,7 +88,9 @@ impl Sent {
             | Sent::Later { thread, .. }
             | Sent::Back { thread, .. }
             | Sent::TakenBack { thread }
-            | Sent::Withdraw { thread, .. } => thread,
+            | Sent::Withdraw { thread, .. }
+            | Sent::Priority { thread, .. }
+            | Sent::Place { thread, .. } => thread,
             Sent::Thread { .. } => "",
         }
     }

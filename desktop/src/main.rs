@@ -28,9 +28,11 @@ mod palette;
 mod picks;
 mod pictures;
 mod reads;
+mod reply;
 mod rules;
 mod sky;
 mod source;
+mod strip;
 mod talk;
 mod theme;
 mod thread;
@@ -99,6 +101,12 @@ pub struct State {
     drafts: HashMap<String, String>,
     /// Which of the open conversation's options the arrows are on, by its place in the list.
     pub option: Option<usize>,
+    /// The model and level picked in each conversation's reply box, by `product/id`, kept beside
+    /// its words until the next reply carries them (`reply.rs`), and that box's menu while open.
+    pub reply_picks: HashMap<String, rules::reply_pick::ReplyPick>,
+    pub reply_menu: Option<compose::Menu>,
+    /// The menu or the panel open in the strip over a conversation (`strip.rs`).
+    pub strip: strip::Strip,
     /// What the person has unfolded in the conversations they opened.
     pub reading: thread::Reading,
     /// What the engine answered about each conversation opened so far, by `product/id` and
@@ -167,9 +175,11 @@ impl State {
         self.snap.items.iter().find(|i| &i.id == id && &i.product == product)
     }
     /// Leaving a conversation folds its reply box, drops the arrow off its options and closes
-    /// its list of files. Words written in the box wait for the next visit.
+    /// its list of files and whatever its strip had open. Words written in the box, and the
+    /// model picked in it, wait for the next visit.
     fn put_the_reply_away(&mut self) {
         self.close_files();
+        self.leave_the_strip();
         if let View::Thread { id, product } = &self.view {
             let key = format!("{product}/{id}");
             if self.reply.text.trim().is_empty() {
@@ -200,8 +210,10 @@ impl State {
         self.reply.focused = true;
         tx.focus_when_shown("reply", false);
     }
-    /// Folds the reply box back to its one line, keeping what was written.
+    /// Folds the reply box back to its one line, keeping what was written, and its model menu
+    /// with it.
     pub fn fold_reply(&mut self) {
+        self.reply_menu = None;
         self.replying = false;
         self.reply.focused = false;
     }
@@ -278,13 +290,17 @@ impl State {
                 self.refresh();
             }
             let (id, product) = held.thread.clone();
-            let words = match &held.sent {
-                write::Sent::Reply { words, .. } => Some(words.clone()),
-                _ => None,
+            let (words, pick) = match &held.sent {
+                write::Sent::Reply { words, pick, .. } => (Some(words.clone()), pick.clone()),
+                _ => (None, None),
             };
             // Back on the thread it was done from, when it was done from inside one.
             if held.from_inside || words.is_some() {
                 self.step_to_thread(&id, &product);
+            }
+            // The model it went with goes back in the box with the words (`wordsBackInTheBox`).
+            if let Some(pick) = pick {
+                self.reply_picks.insert(format!("{product}/{id}"), pick);
             }
             if let Some(words) = &words {
                 self.reply = TextEdit::new(words.clone());
@@ -337,6 +353,8 @@ impl State {
         if !self.fixed_clock {
             self.now = clock();
         }
+        // It stands over the page alone.
+        self.close_thread_menus();
         self.later = later::Picker::open_on(Some((id.to_string(), product.to_string())), "");
         tx.focus_when_shown("later", false);
     }
@@ -404,6 +422,22 @@ impl State {
         let Some((product, id)) = landed.sent.thread().split_once('/').map(|(product, id)| (product.to_string(), id.to_string())) else {
             return;
         };
+        // A level picked in the strip's menu is said once it stands (`retag`); a place picked in
+        // its panel says nothing the panel does not show (`strip.rs`).
+        match &landed.sent {
+            write::Sent::Priority { said, .. } => {
+                let said = said.clone();
+                self.say(said, false, tx);
+                self.refresh();
+                return;
+            }
+            write::Sent::Place { moving, .. } => {
+                let answer = landed.answer.as_ref().cloned().unwrap_or(Value::Null);
+                self.place_landed(*moving, &answer, tx);
+                return;
+            }
+            _ => {}
+        }
         let (said, undo) = match landed.sent {
             write::Sent::Later { thread, said, undo } => {
                 // The engine answers with the row as it now stands. Its moment is laid over
@@ -449,7 +483,9 @@ impl State {
         item.product_name.clone().or_else(|| self.snap.products.iter().find(|p| p.slug == item.product).map(|p| p.name.clone())).unwrap_or_else(|| item.product.clone())
     }
     /// Sends what is in the reply box to the thread's agent (Send, or ⌘Return). The box
-    /// empties and folds at once; Z, or a refusal, puts the words back.
+    /// empties and folds at once; Z, or a refusal, puts the words back. A model picked in the
+    /// box goes with them, written before the words (`answerItem` in `main/store.mts`), and the
+    /// box lets go of it as it lets go of the words (`clearDraft`).
     pub fn send_reply(&mut self, tx: &mut Tx) {
         let words = self.reply.text.trim().to_string();
         let Some(item) = self.open_item().cloned() else {
@@ -459,14 +495,24 @@ impl State {
             return;
         }
         let thread = format!("{}/{}", item.product, item.id);
+        let pick = self.reply_pick_to_send(&item);
+        let mut payload = writes::reply(&item, &words);
+        if let Some(fields) = payload.as_object_mut() {
+            fields.insert("permissionMode".to_string(), rules::reply_pick::mode_sent(&item));
+            if let Some(pick) = &pick {
+                fields.extend(rules::reply_pick::answer_fields(pick));
+            }
+        }
         self.drafts.remove(&thread);
+        self.reply_picks.remove(&thread);
+        self.reply_menu = None;
         self.reply = TextEdit::new("");
         self.replying = false;
         self.hold(
             write::Held {
                 channel: writes::ANSWER,
-                payload: writes::reply(&item, &words),
-                sent: write::Sent::Reply { thread, words },
+                payload,
+                sent: write::Sent::Reply { thread, words, pick },
                 said: writes::said_sent(&self.project_name(&item)),
                 at: tx.clock() + writes::UNDO_GRACE_MS / 1000.0,
                 thread: (item.id.clone(), item.product.clone()),
@@ -587,7 +633,9 @@ impl State {
                 self.refresh();
             }
         }
-        if let write::Sent::Reply { thread, words } = &landed.sent {
+        // The words go back in the box; the model they carried does not, as in the web window,
+        // whose refused reply comes back by its words alone (`restoreFailedDraft`).
+        if let write::Sent::Reply { thread, words, .. } = &landed.sent {
             let here = matches!(&self.view, View::Thread { id, product } if &format!("{product}/{id}") == thread);
             if here && self.reply.text.trim().is_empty() {
                 self.reply = TextEdit::new(words.clone());
@@ -604,6 +652,8 @@ impl State {
             write::Sent::Later { .. } => format!("Could not move it to Later: {why}"),
             write::Sent::Back { .. } => format!("Could not bring it back: {why}"),
             write::Sent::TakenBack { .. } => format!("Could not undo that: {why}"),
+            write::Sent::Priority { .. } => format!("Could not change its priority: {why}"),
+            write::Sent::Place { .. } => format!("Could not change where it runs: {why}"),
             // Both went their own way above.
             write::Sent::Thread { .. } | write::Sent::Withdraw { .. } => return,
         });
@@ -799,6 +849,9 @@ fn init() -> State {
         reply: TextEdit::new(""),
         drafts: HashMap::new(),
         option: None,
+        reply_picks: HashMap::new(),
+        reply_menu: None,
+        strip: strip::Strip::default(),
         reading: thread::Reading::default(),
         threads: HashMap::new(),
         asking: Latest::default(),
@@ -950,6 +1003,13 @@ fn press_what_the_picture_pressed(s: &mut State, tx: &mut Tx) {
     if s.fixture.remove("filesOpen").is_some() {
         s.open_files();
     }
+    // And one taken with something of the strip open, or the reply box's model menu (`actions`).
+    if let Some(which) = s.fixture.remove("actions") {
+        match which.as_str().unwrap_or_default() {
+            "model" => s.picture_reply_menu(tx),
+            which => s.picture_strip(which, tx),
+        }
+    }
 }
 
 fn setup(s: &mut State, wake: Waker) {
@@ -993,6 +1053,8 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
         changed = true;
     }
     changed |= s.say_if_not_taken(at, tx);
+    // A place picked in the strip's panel is drawn until the engine has its own say.
+    changed |= s.tend_strip(at, tx);
     if let Some(Ok(settings)) = s.reading_models.take() {
         s.models = rules::compose::Models::from_settings(&settings);
         changed = true;
@@ -1104,8 +1166,9 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
                 .scroll(ScrollSpec { stick_bottom: false })
                 .child(page),
         );
-    // The list a conversation's Files button opens, over the page and under everything else.
-    let root = root.children(thread::files_list(s));
+    // The list a conversation's Files button opens, over the page and under everything else, and
+    // what the rest of its strip opens.
+    let root = root.children(thread::files_list(s)).children(strip::layer(s));
     // The box a thread is started in: its open menu over the page it hangs in, or the New
     // thread card over the whole page, under the line about the last thing done.
     let root = root.children(compose::layers(s));

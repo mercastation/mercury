@@ -12,6 +12,12 @@ thread is started from Home's box or from the New thread card N opens over any o
 project, model, effort and level picked in its menus ("Starting a thread", below), with the files
 dropped on it, picked with its paper clip or pasted into it ("Files in a new thread").
 
+What can be chosen in a conversation is chosen as in the web window ("Choosing in a
+conversation", below): the model and level its next reply runs on, from the reply box's chip or
+the model named on the folded box; where it runs, this Mac or the cloud, from the place button's
+panel; and from the dots, Later and its priority. The strip's tab word and its arrows go where the
+web window's go.
+
 A file an agent names in a conversation is not left as its path: a picture is drawn in place, any
 other file is a mention that opens it, and a folder on a line of its own shows its newest pictures
 ("The files a message names", below). A thread that made or named files carries the Files button
@@ -315,13 +321,16 @@ The keys are the web window's (`src/keys.rs`, from the keydown handler in `rende
 | The Inbox | E | Marks the row done (under Needs you and In progress); under Later, brings it back |
 | The Inbox, a conversation | L | Opens the Later picker on the thread |
 | The Later picker | ↓, ↑, Enter, Esc | Walks its moments and picks the one lit, or what is typed; Esc closes it |
-| A conversation | Esc | Folds the reply box, then goes back |
+| A conversation | Esc | Folds the reply box, then goes back, onto the tab that holds the thread now |
 | A conversation | J, K | Goes to the next thread that needs the person, or the one before |
 | A conversation | ↓, ↑, Enter | Walks the agent's options and sends the one lit |
 | A conversation | 1 to 9 | Sends that option |
 | A conversation | R | Opens the reply box; ⌘Return sends what is in it |
 | A conversation | E | Marks it done and goes on to the next thread |
 | A conversation's list of files | Esc | Closes it; every other key goes on to the page under it |
+| A conversation's menu (the dots) | ↓, ↑, Home, End, Enter, Space | Walks its rows around both ends and presses the one lit; every other key goes on to the page |
+| A conversation's menu, its place panel | Esc | Closes it; Tab closes the menu too |
+| The reply box's model menu | ↓, ↑, Enter, Esc | Walks its rows around both ends and picks the one lit; Esc closes it and puts the caret back in the words; any other key goes on to the page |
 | Home | N, or a letter none of the list's keys | Puts the caret in the box on the page (the letter typed into it) |
 | The Inbox, a conversation | N | Opens the New thread card over the page |
 | The box, the card | ⌘Return | Sends the thread; Return is a new line |
@@ -337,7 +346,10 @@ words in it (`src/rules/writes.rs`): a reply, a picked option ("Option 2: …") 
 `zero:answer`, Reopen to `zero:reopen`, and a thread opened is told to the web window, which
 alone keeps what has been read, the way a phone tells it (`zero:phone-seen`). An option that
 closes ("Close this task"), leaves the work on its branch or needs the person's own words
-("Change something first") does that instead of being sent, by the web window's rules.
+("Change something first") does that instead of being sent, by the web window's rules. A reply
+typed in the box carries the model, level and agent picked in it, and what it may do, as the web
+window's box sends them; a level picked in a conversation's menu and where it runs are written
+on their own channels ("Choosing in a conversation", below).
 
 What is done waits three seconds before it is written, as in the web window (`deferCommit`): it
 shows at once, a line says so with Z and Undo beside it, and Z inside that time takes it back
@@ -378,6 +390,123 @@ A script is a list of events (`{"t": 0.5, "type": "key", "name": "e"}`, `"type":
 `thread-options-reply`, `thread-done-held`, `inbox-done-held` and the four `thread-later*` are the
 web window in each of these states; a fixture says what its picture had open (`replying`,
 `option`, `closed`, `later`, `laterRefused`).
+
+## Choosing in a conversation
+
+What a conversation offers to choose is the web window's, ported where the person uses it: the
+model and level of the next reply (`src/reply.rs`, its rules `src/rules/reply_pick.rs`), where the
+thread runs and the thread's own menu (`src/strip.rs`, the place's rules `src/rules/place.rs`),
+and the strip's other presses.
+
+**The model and how hard it thinks.** The reply box's model chip opens the New thread box's own
+model menu (`compose.rs`), raised out of the chip eight points over it, its left edge on the chip's
+(`ReplyModel.tsx`, which draws the card's `ModelMenu`): the models used lately, each with its agent
+where this Mac offers more than one, All models, and the level strip at its foot. It opens with the
+keys on the model the reply is on; the arrows walk it around both ends, Enter picks, Escape closes
+it and puts the caret back in the words. The model named at the folded box's right end opens the
+box with the menu already open. Then, as in the web window, whose box takes the focus back as it
+mounts (asked of the web page itself: the caret in the words, no row lit, ↓ moving the caret), no
+row is lit until the pointer moves onto one, which then takes the keys. The chip says the model,
+with its level where one will be sent ("Sonnet 5.5 · High", `effortSaid`). A model of another
+agent moves the thread to that agent, and a line under the words says it starts fresh
+(`freshNote`).
+
+A pick is not written. It is kept beside the box's words until the next reply, which carries it
+to `zero:answer`, and the store writes the agent, model and level before the words, so the run
+that reply starts reads them (`pickToSend`, `answerItem` in `main/store.mts`): Claude Code's model
+always named, the other agents' defaults by naming none, the agent only where the pick moves the
+thread. A pick with nothing typed writes nothing, a picked option of the agent's carries none, and
+the folded box goes on naming the thread's own model until a reply carries the pick. Z inside the
+three seconds puts the words and the pick back; a refused reply comes back by its words alone, as
+in the web window (`restoreFailedDraft`). The reply also says what it may do, the thread's own mode
+or none, which the engine keeps beside the ledger rather than on it (`permissionMode`, as
+`DockComposer` sends it).
+
+**Where it runs.** On a Mac set up for the cloud, the button beside Done, a cloud or a Mac, opens
+the panel under it, 440 points wide, its right edge on the button's (`PlaceButton.tsx`): Runs on,
+Cloud and This Mac with the thread's setting picked, a note saying why in the words of
+`renderer/src/where-why.ts`, and for a thread the cloud handed back, what it needs. A place that
+cannot be picked is faded. A pick is written at once: keeping the thread here or letting the cloud
+have it to `zero:set-thread-on-mac`, carrying its run there now to `zero:move-to-cloud`, and with
+the whole cloud off, the workspace back to what it ran when on (`zero:settings-set-workspace`) and
+the thread to the cloud (`placeThread` in `renderer/src/App.tsx`). The panel stays open on the
+pick, and the button with it, until the engine says something new about the thread or four
+seconds pass (`afterPick`). Nothing is said, unless the cloud takes none of a move: "The cloud
+can’t take this thread right now". Escape closes it, and so does a press outside it.
+
+**The thread's menu.** The dots open the web window's menu under them, 264 points wide, its right
+edge on theirs (`ThreadMenuList` in `renderer/src/threads/ThreadMenu.tsx`), with the rows this
+window does, in the web's order: Later (L), which opens the Later picker on the thread, and
+Priority with the level it runs at, which turns the menu to the four levels, the one it is at
+ticked. A level picked is written at once (`zero:answer` with the level and no words, which starts
+nothing: `retag`), and "Priority: high" is said once the engine has it. Done and Reopen stay
+buttons of their own beside the dots, as the web window's menu never lists them. The first row is
+lit as it opens; the pointer and the arrows move it, Home and End go to the ends, Enter and Space
+press it, Escape and Tab close it, and any other key goes on to the page, as the web window's
+capture listener lets it through (E still marks the thread done). On a finished thread the web
+window's menu holds only the terminal and renaming, so the dots are drawn and a press says where
+those are.
+
+One of the three is open at a time, on one thread: leaving the thread, the command bar, the Later
+picker and the New thread card close it. A press outside the strip's group of buttons closes the
+menu or the panel on its way down; a press on one of those buttons (the Files button, the place
+button, Done, the dots) goes on to it.
+
+**The rest of the strip.** The tab's word before the thread's name is the way back, as Escape is:
+to where the person came from, and when that is the Inbox and the thread has moved tabs while it
+was read, onto the tab the strip names, with the keys on the thread's row (`closeThreadOntoItsTab`).
+The arrows go to the thread before and after it in Needs you (`QueueNav`), and the list button at
+the strip's left to the Inbox's first tab, from its first row (`openView('inbox')`).
+
+The scenes: `thread-actions` (the menu open over the waiting thread), `thread-actions-priority`
+(turned to the four levels), `thread-place` (the panel, on the inbox with the cloud on) and
+`thread-reply-model` (the model's name on the folded box pressed). The web's rows this window does
+not do are handed on in the fixture (`actionRows`) and drawn as they were, a press on them doing
+nothing, as the command bar's scenes do with its commands. A fixture says what was open
+(`actions`). At 2x, dark, each scene's own regions:
+
+| Scene | Window | Whole window | The menu or panel | Its button |
+|---|---|---|---|---|
+| `thread-actions` | 1280 by 760 | 0.69 | 0.25 | 0.64 |
+| | 900 by 760 | 0.82 | 0.25 | 0.66 |
+| | 1600 by 1000 | 0.73 | 0.25 | 0.66 |
+| `thread-actions-priority` | 1280 by 760 | 0.68 | 0.08 | 0.61 |
+| `thread-place` | 1280 by 760 | 0.67 | 0.24 | 0.68 |
+| | 900 by 760 | 0.84 | 0.24 | 0.55 |
+| | 1600 by 1000 | 0.73 | 0.25 | 0.66 |
+| `thread-reply-model` | 1280 by 760 | 0.64 | 0.22 | the chip 0.79 |
+
+The page under them is the waiting thread's, 0.68 with nothing open (`thread-options`); its
+options and reply bar are 0.58. The screens before this did not move, to the thousandth: Home
+0.844, the Inbox 0.240, a conversation 0.409 and as first opened 0.389, the Later picker 0.216,
+the card 0.221, the command bar 0.146, the waiting thread 0.679. The reply box opened with R
+(`thread-reply`) went from 0.435 to 0.432, its three chips' words now landing where Chromium lands
+them.
+
+Filmed at 60 frames a second, the menu, the four levels, the panel and the reply box's menu each
+land whole on the frame after the press lets go or the key, close the same way, and every frame
+after is the same to the pixel. Rune counts no frame of the menu's film as animating, and one each
+where the reply box's menu opens and a place is picked: a colour landing at once (the chip's edge,
+the picked place's fill), with no source named and nothing in motion. A press on the dots or the
+place button acts on its way up, as the web window's click does.
+
+Against a scratch engine (above), each pick written by this window beside the web window's own
+payload for the same pick, sent by hand to a second thread, wrote the same lines, in order:
+
+- Sonnet 5.5 and High picked in the reply box, then a reply sent: `{"model":"sonnet"}`,
+  `{"effort":"high"}`, then the words. Picked and folded with nothing typed: no line at all.
+- Codex's own picked on a Claude Code thread: `{"engine":"codex"}`, `{"model":""}`,
+  `{"effort":""}`, then the words, the box having said "Codex starts fresh with this thread."
+- High picked in the menu: `{"priority":7}`, and "Priority: high" in the strip.
+- Later in the menu, then Enter: `{"snoozedUntil":…}`, thirty minutes on, as L does.
+- Z inside the hold after a reply with a pick: no line, and the words and the pick back in the box.
+
+The engine there has no cloud set up, so it draws no place button and the panel was not pressed
+against it. Its three writes were sent by hand, as `place::writes` makes them: keeping the thread
+here answered `{"ok":true}` and the supervisor kept it (`threadOnMac`), letting the cloud have it
+answered the same and moved it to `threadToCloud`, and a move with no run to move answered
+`{"moving":0}`, on which the panel says the cloud cannot take it. Picks in the panel were pressed
+only on pictures, where nothing is sent.
 
 ## Starting a thread
 
@@ -851,8 +980,39 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
     until more of it shows: Rune reports an element on screen from half of it.
 - **The team's card has no rows.** With teammates, Home's second card is the team's week; it says
   so when nobody else is on the team and is bare otherwise, until the Team page is drawn.
-- **The reply box's chips are drawn, not chosen.** In a conversation's reply box the priority,
-  the mode and the model cannot be changed, nothing can be attached and nothing can be sent later.
+- **Choosing in a conversation, where it still differs.** Ported is what is used day to day: the
+  model and level of the next reply, Later, and where a thread runs. Left out is what this window
+  cannot do and what goes unused, a thread's name, project, pin, waits, demand and shipped mark,
+  and what only teammates or approvals need:
+  - Of the reply box's chips only the model is chosen. The level (`PriorityPicker`, its own list
+    and not the box's menu) rides on the next reply in the web window and goes unused, so it is
+    drawn, and the thread's menu changes the level instead, at once. The second chip is
+    not who takes the thread but what this message may do (`ModePicker`, Claude Code's
+    permission modes, "Bypass Permissions" on a project run with full access): it now says the
+    thread's own mode in the web's words, and is not chosen. Nothing can be attached to a reply
+    and nothing sent later (the caret beside Send).
+  - The thread's menu leaves out every row this window cannot do, which are also the ones never
+    used: Open terminal (⌘J; this window has no terminal), Rename, Move to another project, Pin
+    thread, Share…, Add people and Ask or hand off… (teammates), Waits on… and Blocked by…, Mark as
+    shipped, Stop repeating, Close task, Run now, View code changes and Demand. On a finished
+    thread, where the web's menu holds only the first two, the dots say where they are.
+  - The model picked in the reply box lasts as long as the window. The web window keeps it in
+    its storage beside the draft (`saveDraftPick`), so it survives a restart.
+  - Codex's own model is held as no model, and the web window holds it as an empty one: the reply
+    sends `null` where the web's sends `""`, and the store writes both as `""`.
+  - One row of a menu is lit, by the arrows or the pointer. The web window can light two, the
+    row under the pointer and the one with the focus.
+  - The place button pressed while the thread's menu is open closes the menu. The web window's
+    leaves both open: its menu holds every button of the strip inside it.
+  - A press outside the menu or the panel closes it and lands nowhere else, but on the strip's own
+    buttons. The web window's press also lands on what it was aimed at (an option, a row).
+  - The panel's two places do not brighten under the pointer. Its part for a thread the cloud
+    handed back (Needs) is drawn from the stylesheet: no scene hands a thread back, so it was
+    never photographed.
+  - The panel was pressed only on pictures: the scratch engine has no cloud and draws no place
+    button. What a pick writes was sent to it by hand (above).
+  - The command bar still offers none of these: its rows for a thread's model, its priority and
+    where it runs stay the web window's.
 - **Starting a thread, where it still differs:**
   - Out of reach here, and drawn where the web window draws them: To (it says Agent and opens no
     menu), @-names in the words, recording, a demand, the branch a thread starts from, who sees
@@ -918,8 +1078,7 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
   the web window. Here it is not sent, and the line says to pick it there.
 - **No warning before closing a thread whose agent waits on an answer.** The web window gives it
   once ever, on the first such E, and remembers for itself that it did.
-- **Several rows cannot be ticked**, so nothing is done to many threads at once; the More menu is
-  not there yet.
+- **Several rows cannot be ticked**, so nothing is done to many threads at once.
 - **The command bar offers only what this window can do.**
   - Not listed, because nothing here does them yet: New project, Record meeting, Filter,
     Projects and ranking a project first, the cloud's
@@ -1001,7 +1160,8 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
 - `src/data.rs`: the snapshot's shapes and the lists the screens draw. `src/rules/`: the rules
   behind those lists, behind the Inbox's tabs and its cloud button (`page.rs`, `cloud.rs`), and
   behind what else depends on whose Mercury it is: `window.rs` (the team, the account, the rail's
-  foot, a project's colour) and `place.rs` (where a conversation runs).
+  foot, a project's colour) and `place.rs` (where a conversation runs, what its panel says and
+  what a pick there writes).
 - `src/chrome.rs`: the page, the card, the rail. `src/theme.rs`: colours and type.
 - `src/home.rs`, `src/inbox.rs`, `src/thread.rs`: the screens. `src/talk.rs` reads a thread's
   ledger and its runs' logs into a conversation (`docs/thread-data.md` says what the engine is
@@ -1011,6 +1171,10 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
   a working thread's foot and the line under its title.
 - `src/later.rs`: the Later picker. `src/rules/later.rs` reads the time typed into it, on the
   calendar `src/rules/calendar.rs` keeps.
+- `src/reply.rs`: the model and level a conversation's reply box is on, and its model menu (the
+  box's own, from `compose.rs`). `src/rules/reply_pick.rs`: what the box opens on, what a pick
+  keeps and what the next reply writes. `src/strip.rs`: what the strip over a conversation
+  opens, the thread's menu and the place panel, and what a pick there writes.
 - `src/compose.rs`: the box a thread is started in, on Home and as the New thread card, its
   menus and what a send does. `src/rules/compose.rs`: what a new thread is made of and the
   menus' rules. `src/picks.rs`: the picks kept from one window to the next.

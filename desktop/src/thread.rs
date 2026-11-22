@@ -19,7 +19,7 @@ use rune::time::LocalTime;
 use rune::{Drag, El, Icon, Phase, ScrollSpec, TextCase, TextStyle, col, el, icon, row, spacer, text, text_input};
 use serde_json::{Map, Value, json};
 
-use crate::data::{Item, Priority};
+use crate::data::{Item, Priority, Tab};
 use crate::files::Files;
 use crate::home;
 use crate::markdown::{self, Block};
@@ -29,7 +29,7 @@ use crate::rules::thread_files::{self, ThreadFile};
 use crate::rules::{live, place, work};
 use crate::talk::{self, Answers, Field, Line, Message, Page, Said, Saying, Step, Talk, Work};
 use crate::theme::*;
-use crate::{State, View, chrome, icons};
+use crate::{State, View, chrome, icons, reply, strip};
 
 /// What the person has unfolded while reading: the threads whose earlier messages are shown,
 /// those whose whole middle was asked for, the folds of what a run did that are open, and the
@@ -111,19 +111,29 @@ fn crumb(title: &str) -> String {
     format!("{}…", kept.join(" ").trim_end_matches([',', ';', ':', '.', '-', '–']))
 }
 
-/// The tab the strip names: the one that holds the thread now, not the one it was opened from,
-/// so a thread that finishes while it is read stops saying In progress (`crumbTab` in
-/// `renderer/src/threads/page-rules.ts`). Needs you is called the Inbox there.
-fn crumb_from(s: &State, id: &str, product: &str) -> &'static str {
+/// The tab that holds the thread now, not the one it was opened from, so a thread that finishes
+/// while it is read stops saying In progress; none for a thread in no tab (`crumbTab` in
+/// `renderer/src/threads/page-rules.ts`).
+fn holding_tab(s: &State, id: &str, product: &str) -> Option<Tab> {
     let holds = |list: &[crate::data::Row]| list.iter().any(|r| r.id == id && r.product == product);
     if holds(&s.lists.progress) {
-        "In progress"
+        Some(Tab::Progress)
     } else if holds(&s.lists.later) {
-        "Later"
+        Some(Tab::Later)
     } else if holds(&s.lists.done) && !holds(&s.lists.needs) {
-        "Done"
+        Some(Tab::Done)
+    } else if holds(&s.lists.needs) {
+        Some(Tab::Needs)
     } else {
-        "Inbox"
+        None
+    }
+}
+
+/// The tab the strip names. Needs you is called the Inbox there, as is a thread in no tab.
+fn crumb_from(s: &State, id: &str, product: &str) -> &'static str {
+    match holding_tab(s, id, product) {
+        Some(Tab::Needs) | None => "Inbox",
+        Some(tab) => tab.label(),
     }
 }
 
@@ -152,13 +162,27 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
     } else {
         close.child(icon(&icons::DONE, 16.0).color(dim())).child(label("Done", 13.0, 400.0, dim())).on_press_tx(|s: &mut State, tx| s.close_thread(false, tx))
     };
+    let open = s.strip_open().cloned();
+    // A button of the strip whose menu or panel is up is brighter, inside a stronger edge, on
+    // the wash (`.ts-more[aria-expanded="true"]`, `.ts-place.open`).
+    let lit = |b: El, on: bool| if on { b.border(1.0, rule()).fill(white(0.08)) } else { b.border(1.0, edge()) };
     // Where the thread runs, for one the cloud could take (`PlaceButton.tsx`): a cloud or a Mac,
-    // faded while the whole cloud is off, dotted when it was handed back for something.
-    let place = item(s, id, product).and_then(|i| place::thread_place(&s.snap, i).map(|p| place::mark(&s.snap, i, p))).map(|m| {
-        let glyph = icon(if m.cloud { &icons::PLACE_CLOUD } else { &icons::PLACE_MAC }, 16.0).color(dim()).opacity(if m.faded { 0.7 } else { 1.0 });
-        let button = row().size(30.0, 30.0).radius(6.0).center().border(1.0, edge()).child(glyph);
+    // faded while the whole cloud is off, dotted when it was handed back for something. A press
+    // opens the panel that says why and offers the other place.
+    let placing = open == Some(strip::Over::Place);
+    let place = item(s, id, product).and_then(|i| strip::place_view(s, i)).map(|v| {
+        let m = place::mark_of(&v);
+        let glyph = icon(if m.cloud { &icons::PLACE_CLOUD } else { &icons::PLACE_MAC }, 16.0).color(if placing { ink() } else { dim() }).opacity(if m.faded { 0.7 } else { 1.0 });
+        let button = lit(row().key(strip::PLACE_BUTTON).size(30.0, 30.0).radius(6.0).center().child(glyph), placing).label(if m.faded { "Runs on: This Mac, the cloud is off" } else if m.cloud { "Runs on: Cloud" } else { "Runs on: This Mac" }).expanded(placing).on_background_press(|s: &mut State| s.toggle_place());
         if m.dot { button.child(el().absolute(20.0, 4.0).size(6.0, 6.0).radius(3.0).fill(accent())) } else { button }
     });
+    // The dots, which the web window draws over every thread of work: its menu always holds the
+    // terminal and renaming there, which this window does not do (`threadMenuRows`).
+    let more_open = matches!(open, Some(strip::Over::More { .. }));
+    let more = lit(square(&icons::MORE, 16.0, 30.0, if more_open { ink() } else { dim() }).key(strip::MORE_BUTTON), more_open)
+        .label("More actions")
+        .expanded(more_open)
+        .on_background_press_tx(|s: &mut State, tx| s.toggle_more(tx));
     let mut actions = row().ml(16.0).min_w(0.0).items_center();
     // The line about what was just done stands first in this group (`.toast-in-bar`), and the
     // thread's name gives way to it.
@@ -172,16 +196,16 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
             .child(step(&icons::UP, at.and_then(|a| a.checked_sub(1)).and_then(|a| s.lists.needs.get(a))))
             .child(step(&icons::DOWN, at.and_then(|a| s.lists.needs.get(a + 1))));
     }
-    let mut actions = actions;
-    // The files the thread made, first of what can be done to it, for one that made any.
+    // What can be done to the thread, ten points apart (`.ts-more-wrap`): the files it made, for
+    // one that made any, where it runs, Done or Reopen, and the dots. A press on any of them
+    // is theirs while the strip has something open (`strip::layer`).
+    let mut group = row().key(strip::GROUP).items_center().gap(10.0);
     let files = item(s, id, product).map(|i| files_made_here(s, i)).unwrap_or_default();
     if !files.is_empty() {
-        actions = actions.child(files_button(files.len(), s.files_open()).ml(10.0));
+        group = group.child(files_button(files.len(), s.files_open()));
     }
-    if let Some(place) = place {
-        actions = actions.child(place.ml(10.0));
-    }
-    let actions = actions.child(close.ml(10.0)).child(square(&icons::MORE, 16.0, 30.0, dim()).ml(10.0).border(1.0, edge()));
+    let group = group.children(place).child(close).child(more);
+    let actions = actions.child(group.ml(10.0));
     row().absolute(chrome::CARD[0], chrome::CARD[1])
         .size(card_w, 56.0)
         .items_center()
@@ -189,7 +213,11 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
         .pr(28.0)
         .border_sides([0.0, 0.0, 1.0, 0.0], edge())
         .border_layout()
-        .child(square(&icons::INBOX, 15.0, 26.0, ink()).mr(10.0).on_press(|s: &mut State| s.go(View::Inbox)))
+        // The Inbox's first tab, from its first row (`openView('inbox')`).
+        .child(square(&icons::INBOX, 15.0, 26.0, ink()).mr(10.0).on_press(|s: &mut State| {
+            s.go(View::Inbox);
+            s.show_tab(Tab::Needs);
+        }))
         // Back is where the person came from, and a thread opened from nowhere came from the Inbox.
         .child(square(&icons::BACK, 15.0, 26.0, ink()).ml(2.0).on_press(|s: &mut State| s.leave_thread()))
         .child(square(&icons::FORWARD, 15.0, 26.0, muted()).ml(2.0).opacity(0.45))
@@ -199,7 +227,9 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
                 .h(28.0)
                 .ml(12.0)
                 .items_center()
-                .child(text(crumb_from(s, id, product)).font(crumbs).text_case(TextCase::Uppercase).color(muted()).mr(8.0).on_press(|s: &mut State| s.go(View::Inbox)))
+                // The tab's word is the way back, as Escape is, onto the tab that holds the
+                // thread now (`ThreadCrumb`'s back half, `closeThreadOntoItsTab`).
+                .child(text(crumb_from(s, id, product)).font(crumbs).text_case(TextCase::Uppercase).color(muted()).mr(8.0).on_press(|s: &mut State| s.close_onto_its_tab()))
                 .child(text("/").font(crumbs).color(muted()).ml(5.0).mr(7.0))
                 // The name gives way to what can be done to the thread, cut short with dots
                 // (`.thread-crumb-name`): Rune's flex never shrinks a child below what it holds
@@ -381,6 +411,24 @@ impl State {
     pub fn close_files(&mut self) {
         self.reading.files = None;
         self.reading.file_lit = None;
+    }
+    /// Out of the conversation, as Escape and the strip's tab word take the person: back where
+    /// they came from, and when that is the Inbox and the thread has moved tabs while it was
+    /// read, onto the tab the strip named, with the keys on the thread's row
+    /// (`closeThreadOntoItsTab` in `renderer/src/App.tsx`).
+    pub fn close_onto_its_tab(&mut self) {
+        let View::Thread { id, product } = self.view.clone() else {
+            return;
+        };
+        let tab = holding_tab(self, &id, &product);
+        let onto_the_inbox = matches!(self.history.last(), None | Some(View::Inbox));
+        self.leave_thread();
+        if let Some(tab) = tab.filter(|tab| onto_the_inbox && *tab != self.inbox_tab) {
+            self.show_tab(tab);
+            if let Some(at) = self.lists.under(tab).iter().position(|r| r.id == id && r.product == product) {
+                self.picked = at;
+            }
+        }
     }
 }
 
@@ -823,14 +871,18 @@ fn pictured_unfolded(s: &State, thread: &str) -> bool {
 }
 
 /// The reply box folded to its one line, as a conversation first shows it. R, or a press,
-/// opens it (`composer`).
-fn reply_box(m: &Measure) -> El {
+/// opens it (`composer`). At its right end the model that picks up the next reply, whose press
+/// opens the box with the model menu already open (`.ts-model`, `openModel`).
+fn reply_box(s: &State, item: &Item, m: &Measure) -> El {
     let size = (0.78 * m.size).max(14.5);
     let model = el()
-        .child(label("Opus 5.5", 13.0, 400.0, dim()))
+        .key(reply::WORD)
+        .child(label(&s.folded_model_word(item), 13.0, 400.0, dim()))
         // `underline dotted`, three points under the baseline: a dot every three points, as
         // far as the words reach.
-        .child(row().pin(Some(-0.25), Some(16.0), Some(0.0), None).h(1.5).gap(1.5).clip_rounded(0.0).children((0..18).map(|_| el().size(1.5, 1.5).fill(rule()))));
+        .child(row().pin(Some(-0.25), Some(16.0), Some(0.0), None).h(1.5).gap(1.5).clip_rounded(0.0).children((0..60).map(|_| el().size(1.5, 1.5).fill(rule()))))
+        .cursor(rune::Cursor::Pointer)
+        .on_background_press_tx(|s: &mut State, tx| s.open_reply_on_the_model(tx));
     let key = row().px(5.5).py(1.5).radius(6.0).fill(white(0.04)).border(1.0, rule()).border_layout().child(text("R").font(mono(10.5, 13.5)).color(dim()));
     row().w(m.column)
         .radius(10.0)
@@ -846,7 +898,8 @@ fn reply_box(m: &Measure) -> El {
 }
 
 /// The reply box opened (`.dock-card`): the words, then who takes them and Send. The words
-/// are the person's to type; the three chips are drawn, not yet chosen.
+/// are the person's to type. Of the three chips the model's opens its menu (`reply.rs`); the
+/// level and what the message may do are drawn, not chosen here.
 fn composer(s: &State, item: &Item, m: &Measure) -> El {
     let field = text_input(&s.reply, TextStyle::new(15.5, 400.0).lh(kept(24.025)))
         .key("reply")
@@ -866,6 +919,20 @@ fn composer(s: &State, item: &Item, m: &Measure) -> El {
         Priority::Low => (row().items_end().gap(1.5).child(el().size(3.0, 4.0).radius(1.0).fill(dim())).child(el().size(3.0, 7.5).radius(1.0).fill(off)).child(el().size(3.0, 11.0).radius(1.0).fill(off)), "Low"),
     };
     let ready = !s.reply.text.trim().is_empty();
+    // The model, with its level where one will be sent (`.tc-chip-level`), brighter inside a
+    // stronger edge while its menu is up (`.tc-chip.open`).
+    let open = s.reply_menu.is_some();
+    let (model, level_said) = s.reply_chip_words(item);
+    let words = level_said.map_or_else(|| model.clone(), |said| format!("{model} · {said}"));
+    let model_chip = home::chip(vec![pen(label(&words, 13.0, 400.0, if open { ink() } else { dim() }), 13.0)])
+        .key(reply::CHIP)
+        .cursor(rune::Cursor::Pointer)
+        .label("Which model this conversation runs on")
+        .on_background_press_tx(|s: &mut State, tx| s.toggle_reply_menu(tx));
+    let model_chip = if open { model_chip.border(1.0, rule()) } else { model_chip };
+    // What this message may do, in Claude Code's own words for the thread's mode, else its
+    // project's (`ModePicker`).
+    let mode = crate::rules::reply_pick::mode_word(&s.snap, item, crate::rules::reply_pick::running_engine(&s.snap, &item.id).as_deref());
     let bar = row()
         .h(57.0)
         .px(16.0)
@@ -873,12 +940,15 @@ fn composer(s: &State, item: &Item, m: &Measure) -> El {
         .items_center()
         .border_sides([1.0, 0.0, 0.0, 0.0], edge())
         .border_layout()
-        .child(home::chip(vec![level.0, label(level.1, 13.0, 400.0, dim())]))
-        .child(home::chip(vec![label("Auto", 13.0, 400.0, dim())]))
-        .child(home::chip(vec![label("Opus 5.5", 13.0, 400.0, dim())]))
+        .child(home::chip(vec![level.0, pen(label(level.1, 13.0, 400.0, dim()), 13.0)]))
+        .child(home::chip(vec![pen(label(&mode, 13.0, 400.0, dim()), 13.0)]))
+        .child(model_chip)
         .child(spacer())
         .child(home::attach())
-        .child(home::send_pair(ready).on_press_tx(|s: &mut State, tx| s.send_reply(tx)));
+        .child(home::send_pair(ready).key(reply::SEND).on_press_tx(|s: &mut State, tx| s.send_reply(tx)));
+    // The thread moves to another agent with the next reply, and its session cannot follow it:
+    // a note says so while that is true (`freshNote`, `.dock-card .compose-note`).
+    let note = s.reply_fresh_note(item).map(|note| el().px(16.0).pb(10.0).child(label(&note, 12.0, 400.0, muted())));
     col().w(m.column)
         .radius(10.0)
         .fill(white(0.04))
@@ -886,6 +956,7 @@ fn composer(s: &State, item: &Item, m: &Measure) -> El {
         .border_layout()
         .box_shadow(shadow(0.0, 10.0, 32.0, 0.0, rgba(0, 0, 0, 0.38), false))
         .child(el().min_h(92.0).pt(12.0).px(16.0).pb(6.0).child(field.w_full()))
+        .children(note)
         .child(bar)
 }
 
@@ -934,7 +1005,7 @@ fn dock(s: &State, item: &Item, m: &Measure) -> El {
     if !choices.is_empty() && !s.answer_waits(item) {
         inner = inner.child(options_strip(&choices, s.option, m).mb(10.0));
     }
-    inner = inner.child(if s.replying { composer(s, item, m) } else { reply_box(m).cursor(rune::Cursor::Text).on_press_tx(|s: &mut State, tx| s.open_reply(tx)) });
+    inner = inner.child(if s.replying { composer(s, item, m) } else { reply_box(s, item, m).cursor(rune::Cursor::Text).on_press_tx(|s: &mut State, tx| s.open_reply(tx)) });
     el().pl(m.indent).pr(32.0).pb(24.0).child(inner)
 }
 

@@ -30,6 +30,7 @@ pub mod palette;
 pub mod paths;
 pub mod place;
 pub mod rank;
+pub mod reply_pick;
 pub mod roots;
 pub mod search;
 pub mod shipping;
