@@ -17,7 +17,7 @@ use std::rc::Rc;
 
 use rune::time::LocalTime;
 use rune::{Drag, El, Icon, Phase, ScrollSpec, TextCase, TextStyle, col, el, icon, row, spacer, text, text_input};
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 
 use crate::attach::Holder;
 use crate::data::{Item, Tab};
@@ -57,6 +57,9 @@ pub struct Reading {
     /// commands, by the run and their place and words. A new run starts folded (`expandedAt`).
     live_open: Option<String>,
     live_rows_open: HashSet<String>,
+    /// The conversation, by `product/id`, whose last read of its runs' logs failed: the working
+    /// line's steps say so until a read lands (`historyError`).
+    history_failed: Option<String>,
 }
 
 impl Reading {
@@ -517,6 +520,25 @@ impl State {
     /// anything, and closes again.
     fn toggle_live_steps(&mut self, run: &str) {
         self.reading.live_open = if self.reading.live_open.as_deref() == Some(run) { None } else { Some(run.to_string()) };
+        // Opened, the run's log is asked for at once, with nothing said yet of a read that failed
+        // before (`setHistoryError(false)` and the read on `expanded`).
+        if self.reading.live_open.is_some() {
+            if self.reading.history_failed.as_deref().is_some_and(|thread| run.starts_with(&format!("{thread}|"))) {
+                self.reading.history_failed = None;
+            }
+            self.ask_for_the_open_thread(true);
+        }
+    }
+    /// A read of the conversation `product/id` came back, or did not: a failure is said under the
+    /// working line's steps until one lands.
+    pub fn read_came_back(&mut self, thread: &str, ok: bool) {
+        if ok {
+            if self.reading.history_failed.as_deref() == Some(thread) {
+                self.reading.history_failed = None;
+            }
+        } else {
+            self.reading.history_failed = Some(thread.to_string());
+        }
     }
     /// Escape, while the open conversation's working line is open onto its steps: it folds them,
     /// and that is all the key does (`useEscapePutsAway`). True when there were steps to fold.
@@ -531,6 +553,10 @@ impl State {
     /// What a picture taken with the working line open says of it (`liveOpen`), and of which of
     /// its steps were open onto their commands, by their place (`liveRowsOpen`).
     pub(crate) fn picture_live(&mut self) {
+        // One whose page could not read the run's log says so (`historyUnread`).
+        if let (Some(_), Some(thread)) = (self.fixture.remove("historyUnread"), self.thread_on_screen()) {
+            self.reading.history_failed = Some(thread);
+        }
         if self.fixture.remove("liveOpen").is_none() {
             return;
         }
@@ -950,19 +976,62 @@ fn getting_ready(s: &State, thread: &str, m: &Measure, still: bool) -> El {
 
 /// How wide the step's word stands on the line: as wide as its words, unless the column leaves
 /// it less after the mark, the counts and times beside it and the chevron, when it is cut short.
-fn word_room(line: &live::Working, word: TextStyle, beside: TextStyle, column: f32) -> f32 {
+fn word_room(line: &live::Foot, word: TextStyle, beside: TextStyle, column: f32) -> f32 {
     let natural = rune::text::measure(&line.word, &[], word, None).0;
-    let spans: f32 = [line.more.as_deref(), Some(line.span.as_str()), line.place.as_deref()].into_iter().flatten().map(|s| 6.0 + rune::text::measure(s, &[], beside, None).0).sum();
+    let place = line.place.as_ref().map(|p| p.word.as_str());
+    let spans: f32 = [line.more.as_deref(), line.span.as_deref(), place].into_iter().flatten().map(|s| 6.0 + rune::text::measure(s, &[], beside, None).0).sum();
     natural.min((column - 14.0 - 7.0 - spans - 6.0 - 10.0).max(0.0))
+}
+
+/// The mark of a line nothing is moving on (`LiveMark still`, `.live-mark.is-still`): every one
+/// of its nine cells at 0.35, the middle too, under Reduce motion as well.
+fn still_lattice() -> El {
+    let side = 14.0 / 3.0 - 1.0;
+    let cell = move || el().size(side, side).radius(side / 2.0).fill(ink()).opacity(0.35).a11y_hidden();
+    col().key("live-mark-idle").size(14.0, 14.0).gap(1.5).pixel_snap(false).children((0..3).map(move |_| row().gap(1.5).children((0..3).map(move |_| cell()))))
+}
+
+/// The line at the foot of a conversation no agent of this window is working on (`Live.tsx`
+/// but for working): the mark, still, or turning for an agent at work outside this window; the
+/// state's word, or for signed out, at its limit and cannot start the whole sentence, in dim
+/// ink, wrapping where it is longer than the column; how long ago a quiet run ended, or how
+/// long the run waiting on a yes has been up; and Try again where nothing will start it without
+/// the person. What it says is read aloud whole (`live-announcement`).
+fn still_line(s: &State, item: &Item, thread: &str, run: String, line: &live::Foot, m: &Measure, still: bool) -> El {
+    let moving = line.turning && !still && s.reading.live_seen.as_deref() == Some(thread);
+    let from = s.reading.live_from.as_ref().filter(|(seen, _)| *seen == run).map_or(0.0, |(_, at)| *at);
+    let mark = if line.turning { lattice(moving, from) } else { still_lattice() };
+    let word = pen(readable(text(line.word.as_str()).font(TextStyle::new(13.5, 500.0).lh(20.0)).color(dim()).wrap()), 13.5);
+    let mut brief = row()
+        .key(LIVE_WORD)
+        .max_w(m.column)
+        .items_center()
+        .gap(7.0)
+        .label(line.announced.as_str())
+        .live_region(rune::LiveRegion::Polite)
+        .child(mark)
+        .child(row().shrink().min_w(0.0).child(word));
+    if let Some(span) = &line.span {
+        brief = brief.child(pen(readable(text(span.as_str()).font(TextStyle::new(13.5, 400.0).lh(20.0).features("'tnum' 1")).color(muted())), 13.5));
+    }
+    if line.retry {
+        brief = brief.child(crate::foot::retry_button(&item.id, &item.product));
+    }
+    // An agent outside this window turns the mark while the line is on screen, as a working one does.
+    if line.turning { watched(brief, thread.to_string(), run) } else { brief }
 }
 
 /// The line at the foot of a conversation an agent is on (`Live.tsx`, working): the mark, the
 /// step it is on in its own words, how many more run beside it, how long it has been at it,
-/// and where it runs when that is news. The mark turns and the word shimmers, as the web
-/// window's do, and both stand still under Reduce motion (`still`), as the web's then do. They
-/// move only while the line is on screen: the window reports it (`on_visible`), and until it
-/// has, for the frame a conversation opens on, the mark stands as it does under Reduce motion.
-fn live_line(s: &State, thread: &str, run: String, line: &live::Working, steps: &live::Steps, m: &Measure, still: bool) -> El {
+/// and where it runs when that is news, a run on this Mac carrying the card that says why over
+/// it. The mark turns and the word shimmers, as the web window's do, and both stand still under
+/// Reduce motion (`still`), as the web's then do. They move only while the line is on screen:
+/// the window reports it (`on_visible`), and until it has, for the frame a conversation opens
+/// on, the mark stands as it does under Reduce motion. In every other state it is `still_line`.
+fn live_line(s: &State, item: &Item, thread: &str, run: String, line: &live::Foot, steps: &live::Steps, m: &Measure, still: bool) -> El {
+    if !line.working() {
+        return still_line(s, item, thread, run, line, m, still);
+    }
     let moving = !still && s.reading.live_seen.as_deref() == Some(thread);
     let from = s.reading.live_from.as_ref().filter(|(seen, _)| *seen == run).map_or(0.0, |(_, at)| *at);
     let open = s.reading.live_open.as_deref() == Some(run.as_str());
@@ -972,8 +1041,16 @@ fn live_line(s: &State, thread: &str, run: String, line: &live::Working, steps: 
     // Rune's flex never shrinks a child below what it holds unless told to (`shrink`), and
     // the step is the one part that gives way.
     let mut words = row().items_center().gap(6.0).shrink().child(shimmering(s, LIVE_WORD, &line.word, word_font, (wide, 20.0), still, moving, from));
-    for span in [line.more.as_deref(), Some(line.span.as_str()), line.place.as_deref()].into_iter().flatten() {
+    for span in [line.more.as_deref(), line.span.as_deref()].into_iter().flatten() {
         words = words.child(text(span).font(font.features("'tnum' 1")).color(muted()));
+    }
+    if let Some(place) = &line.place {
+        let said = text(place.word.as_str()).font(font.features("'tnum' 1")).color(muted());
+        words = words.child(match &place.why {
+            // Its card opens upward, as the reply box sits right under this line (`.live-place .th-why-card`).
+            Some(why) => crate::foot::with_card(el().child(said), "live-place".to_string(), why.clone(), true),
+            None => said,
+        });
     }
     // The words are a press that opens the line onto its steps (`.live-disclosure`), with a
     // chevron after them that shows only under the pointer and turns down while it is open.
@@ -1001,9 +1078,22 @@ fn live_steps(s: &State, run: &str, steps: &live::Steps) -> El {
     if steps.earlier > 0 {
         out = out.child(row().h(28.0).pl(21.0).items_center().child(text(live::earlier_steps(steps.earlier)).font(words).color(muted())));
     }
+    // The run's log read for them did not come back: said under whatever was read before it,
+    // until a read lands (`historyError`). With nothing at all to list, that there is nothing.
+    let unread = s.reading.history_failed.as_deref().is_some_and(|thread| run.starts_with(&format!("{thread}|")));
+    let said = |words_said: &str| row().h(28.0).items_center().child(readable(text(words_said).font(words).color(dim())));
     if steps.rows.is_empty() {
-        return out.child(row().h(28.0).items_center().child(text("No commands yet.").font(words).color(dim())));
+        return out.child(said(if unread { live::HISTORY_UNREAD } else { live::NO_COMMANDS }));
     }
+    let failed = unread.then(|| said(live::HISTORY_UNREAD));
+    let out = live_step_rows(s, run, steps, out);
+    out.children(failed)
+}
+
+/// Each step the working line lists and each call running now, as a line that opens onto its
+/// command, set in the system's monospace as the web window's `pre` is (`ui-monospace`).
+fn live_step_rows(s: &State, run: &str, steps: &live::Steps, mut out: El) -> El {
+    let words = TextStyle::new(13.0, 400.0).lh(20.8);
     for (at, step) in steps.rows.iter().enumerate() {
         let key = format!("{run}|{at}|{}", step.label);
         let open = s.reading.live_rows_open.contains(&key);
@@ -1023,7 +1113,7 @@ fn live_steps(s: &State, run: &str, steps: &live::Steps) -> El {
             });
         let mut item = col().child(head);
         if open {
-            let command = readable(text(step.detail.as_str()).font(mono(12.0, 19.2)).color(dim()).wrap_anywhere());
+            let command = readable(text(step.detail.as_str()).font(TextStyle::new(12.0, 400.0).family(rune::Family::SystemMono).lh(19.2)).color(dim()).wrap_anywhere());
             item = item.child(el().ml(21.0).mt(4.0).mb(10.0).px(14.0).py(12.0).radius(6.0).fill(rgba(40, 38, 37, 0.9)).border(1.0, edge()).border_layout().child(command));
         }
         out = out.child(item);
@@ -1047,11 +1137,8 @@ fn pictured_runs(s: &State) -> Vec<usize> {
 
 /// The run on a thread now, off the snapshot's running list, when there is one.
 fn running(s: &State, id: &str, product: &str) -> Option<live::Session> {
-    let run = s.snap.supervisor.running.iter().find(|r| r.item_id == id && r.product == product)?;
-    let mut facts: Map<String, Value> = run.rest.clone();
-    facts.insert("itemId".to_string(), json!(id));
-    facts.insert("product".to_string(), json!(product));
-    serde_json::from_value(Value::Object(facts)).ok()
+    // As the fleet keys it, by the thread's id, the newest entry winning; and on this project.
+    live::session_of(&s.snap.supervisor, id).filter(|run| run.product == product)
 }
 
 /// The line under the title that folds and unfolds the rest: small, quiet and underlined, the
@@ -1396,8 +1483,10 @@ pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
     };
     let thread = key(product, id);
     let unfolded = s.reading.unfolded.contains(&thread) != pictured_unfolded(s, &thread);
-    // The run on the thread right now, and the sentence it is typing this second.
-    let session = running(s, id, product);
+    // What the supervisor says about it, the run on it right now among it, and the sentence that
+    // run is typing this second (`crate::foot::facts`).
+    let facts = crate::foot::facts(s, item);
+    let session = facts.session.clone();
     let working = session.is_some();
     let saying = session.as_ref().and_then(|r| Some(Saying { text: r.saying.clone().filter(|t| !t.is_empty())?, at: r.saying_at?, run: r.started_at }));
     let imported = item.labels.iter().any(|l| l == "thread-import" || l.starts_with("codex:"));
@@ -1416,7 +1505,7 @@ pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
     let problem = item.rest.get("problem").and_then(Value::as_str).filter(|p| !p.trim().is_empty());
     let context = match problem {
         Some(problem) => Some(problem.to_string()),
-        None if working => live::working_context(item.body.as_deref().or(item.title.as_deref()).unwrap_or(""), &title),
+        None if working => live::working_context(live::asked_of(item), &title, crate::foot::repeats_of(s, item).as_deref()),
         None => None,
     };
     if let Some(words) = context {
@@ -1426,6 +1515,10 @@ pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
     // just brought in says first that it is being got ready, and then shows its newest answer,
     // 28 points under that line (`catchUpDue` in `ItemThread.tsx`).
     let mut blocks = vec![markdown::block(0.0, 18.0, summary)];
+    // Over it all, the bar that says the agent stopped, whose press tries again (`.stalled-bar`).
+    if facts.stalled {
+        blocks.insert(0, markdown::block(0.0, 18.0, el().pt(4.0).child(crate::foot::stalled_bar(item, m.column))));
+    }
     let getting = crate::rules::kinds::catch_up_due(item);
     if getting {
         blocks.push(markdown::block(8.0, 8.0, getting_ready(s, &thread, &m, still)));
@@ -1456,9 +1549,7 @@ pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
         blocks.push(markdown::block(22.0, 0.0, col().gap(9.0).children(talk.after.iter().map(step))));
     }
     // And whether anything is happening, under the last message and over the reply box.
-    let asking = s.snap.rest.get("approvals").and_then(Value::as_array).is_some_and(|a| a.iter().any(|a| a.get("item").and_then(Value::as_str) == Some(id)));
-    let why_not_cloud = s.snap.supervisor.rest.get("whyNotCloud").and_then(|w| w.get(id)).and_then(|w| w.get("at")).and_then(Value::as_str);
-    if let Some(line) = live::working(session.as_ref(), &item.status, &item.labels, asking, why_not_cloud, s.now) {
+    if let Some(line) = live::foot(item, &facts, true) {
         let run = format!("{thread}|{}", session.as_ref().map_or(0.0, |r| r.started_at));
         // What it opens onto: the steps the run that is up took since it last said anything,
         // and the calls running now (`stepsSinceLastSaid` of the newest run, `previousActivity`).
@@ -1468,7 +1559,7 @@ pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
         // The line's two points under it are its own (`.live-brief`), and its steps, open, end
         // the block with none.
         let under = if s.reading.live_open.as_deref() == Some(run.as_str()) { 0.0 } else { 2.0 };
-        blocks.push(markdown::block(14.0, under, live_line(s, &thread, run, &line, &steps, &m, still)));
+        blocks.push(markdown::block(14.0, under, live_line(s, item, &thread, run, &line, &steps, &m, still)));
     }
     let (body, _, under) = markdown::stack(blocks, false);
     // A browser scrolls a page only as far as a whole device pixel, whatever its lines add up

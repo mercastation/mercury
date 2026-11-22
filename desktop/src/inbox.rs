@@ -448,6 +448,15 @@ fn thread(s: &State, r: &Row, at: usize, picked: usize, cols: &Columns) -> El {
         state = state.child(mark);
     }
     let state = state.child(small(&r.status, dim()));
+    // Try again after the word, on a thread nothing will start without the person.
+    let state = state.children(r.retry.then(|| crate::foot::row_retry(&r.id, &r.product)));
+    // Under the pointer the word says its whole sentence, or the card says why the cloud has not
+    // got the thread, in its place (`RowCells`' `title`, `.th-cell-state.has-card`).
+    let state = match (&r.why, &r.status_title) {
+        (Some(why), _) => crate::foot::with_card(state, format!("status-{}-{}", r.product, r.id), why.clone(), false),
+        (None, Some(title)) => state.help(title.as_str()),
+        (None, None) => state,
+    };
     // A cause's row names where most of the threads behind it are, and counts the other projects.
     let mut project = row().items_center().child(small(&r.place, muted()));
     if r.place_more > 0 {

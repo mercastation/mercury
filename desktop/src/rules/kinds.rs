@@ -22,7 +22,7 @@ pub fn is_task_row(i: &Item) -> bool {
 }
 
 /// The repeating task a run belongs to (`ruleIdOf` in `shared/repeats.mts`).
-fn rule_id_of(i: &Item) -> Option<&str> {
+pub fn rule_id_of(i: &Item) -> Option<&str> {
     i.labels.iter().find_map(|l| l.strip_prefix("repeat:")).filter(|id| !id.is_empty())
 }
 

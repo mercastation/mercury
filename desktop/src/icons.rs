@@ -443,3 +443,10 @@ pub static PLAY: Icon = Icon {
     view: 16.0,
     body: r#"<path fill="currentColor" d="M5 3.2v9.6a.6.6 0 0 0 .9.5l7.6-4.8a.6.6 0 0 0 0-1L5.9 2.7a.6.6 0 0 0-.9.5Z"/>"#,
 };
+
+// Try again after a stuck row's Status word (`TryAgainButton`): an arrow round to its start.
+pub static TRY_AGAIN: Icon = Icon {
+    name: "m-try-again",
+    view: 16.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 8a6 6 0 1 1-6-6c1.7 0 3.3.7 4.5 1.8L14 5.3"/><path d="M14 2v3.3h-3.3"/></g>"#,
+};

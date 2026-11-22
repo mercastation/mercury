@@ -68,6 +68,12 @@ pub fn says_a_run_got_nowhere(text: Option<&str>) -> bool {
     s.starts_with(UNDELIVERED) || s.starts_with(&format!("{NAME} stopped starting this thread"))
 }
 
+/// The app's note that a thread chose a model for the other agent (`saysTheModelIsForAnotherEngine`
+/// in `shared/spawn-trouble.mts`): another try is refused the same way.
+pub fn says_the_model_is_for_another_engine(text: Option<&str>) -> bool {
+    MODEL_FOR_ANOTHER_ENGINE.test(text.unwrap_or(""))
+}
+
 /// The id of the row the app makes itself when tasks cannot run. It belongs to no project.
 pub const TROUBLE_ID: &str = "trouble";
 
