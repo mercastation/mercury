@@ -206,10 +206,12 @@ fn toast_keys(s: &State, toast: &crate::write::Toast) -> Option<El> {
 }
 
 /// The bar along the foot of a line that names a thread (`.toast-clock`): the time left to
-/// open it, running out to the left.
+/// open it, running out to the left. It is cut to the card's rounded inside (`overflow:
+/// hidden`) by a layer of its own: a rounded clip on the card would take the card's shadow too.
 fn toast_clock(toast: &crate::write::Toast, at: f64, width: f32) -> El {
     let left = ((toast.until - at) / (toast.until - toast.since).max(0.001)).clamp(0.0, 1.0) as f32;
-    el().pin(Some(0.0), None, None, Some(0.0)).size(width * left, 2.0).fill(accent()).opacity(0.7)
+    let bar = el().pin(Some(0.0), None, None, Some(0.0)).size(width * left, 2.0).fill(accent()).opacity(0.7);
+    el().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).clip_rounded(9.0).child(bar)
 }
 
 /// The line about what was just done, as a conversation's head strip carries it
@@ -276,7 +278,6 @@ fn toast_about(s: &State, toast: &crate::write::Toast) -> El {
     let card = |e: El| {
         e.pin(None, None, Some(30.0), Some(30.0))
             .radius(10.0)
-            .clip_rounded(10.0)
             .fill(rgb(54, 52, 49))
             .border(1.0, edge())
             .border_layout()

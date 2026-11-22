@@ -1,7 +1,7 @@
-//! The box a thread is started in: open on Home's page, under the greeting. Built from the web
-//! app's own measurements of its New thread card (`renderer/src/threads/ThreadComposer.tsx`,
-//! `thread-composer.css` and Home's `home.css`); what it sends, to which project and on which
-//! model is `rules/compose.rs`.
+//! The box a thread is started in: open on Home's page, under the greeting, and the same box as
+//! the New thread card N opens over any other page. Built from the web app's own measurements
+//! of its card (`renderer/src/threads/ThreadComposer.tsx`, `thread-composer.css` and Home's
+//! `home.css`); what it sends, to which project and on which model is `rules/compose.rs`.
 //!
 //! The words are the person's to type and ⌘Return or Send sends them. Nothing waits three
 //! seconds here, unlike a reply or a close: a thread held back would be in no list at all
@@ -9,13 +9,18 @@
 //! then where it went, and Z takes it back by closing it, which stops its agent.
 //!
 //! The chips under the words say what the thread will be sent with, and each opens a menu to
-//! change it: the model with its agent and how hard it thinks, the project, the level. One
-//! menu is open at a time; the pointer and the arrows walk its rows, Enter picks, and Escape
-//! closes the menu before anything else.
+//! change it: the model with its agent and how hard it thinks, the project, the level, and
+//! the caret beside Send, Later. One menu is open at a time; the pointer and the arrows walk
+//! its rows, Enter picks, and Escape closes the menu before anything else.
+//!
+//! There is one box and two places it is drawn, as in the web window, where one composer is
+//! drawn either in Home's slot or in the dialog and both read the same draft: open on Home's
+//! page, or as the card over any page, with a head over the words (who it is to, the model).
+//! While the card is up, Home's slot is empty.
 
 use rune::edit::Key;
 use rune::time::LocalTime;
-use rune::{El, KeyEvent, ScrollSpec, TextCase, TextEdit, TextStyle, Tx, col, el, icon, row, spacer, text, text_input};
+use rune::{Drag, El, KeyEvent, Phase, ScrollSpec, TextCase, TextEdit, TextStyle, Tx, col, el, icon, row, spacer, text, text_input};
 use serde_json::Value;
 
 use crate::data::{Item, Product};
@@ -28,22 +33,41 @@ use crate::{State, View, chrome, home, icons, write};
 pub const FIELD: &str = "compose";
 /// And of the open menu's rows, whose width decides whether it has to slide.
 const MENU: &str = "compose-menu";
+/// The card, which a press outside closes.
+const CARD: &str = "compose-card";
+/// Send, and the caret beside it that opens Later. The reply box has a Send of its own.
+const SEND: &str = "compose-send";
+const CARET: &str = "compose-caret";
 
-/// One of the box's menus, named by the chip that opens it.
+/// One of the box's menus, named by the control that opens it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MenuKind {
     Model,
     Project,
     Level,
+    /// The caret beside Send (`laterMenu`).
+    Later,
 }
 
 impl MenuKind {
-    /// The key of the chip the menu hangs from.
-    fn chip(self) -> &'static str {
+    const ALL: [MenuKind; 4] = [MenuKind::Model, MenuKind::Project, MenuKind::Level, MenuKind::Later];
+
+    /// The key of the control a press opens the menu with.
+    fn trigger(self) -> &'static str {
         match self {
             MenuKind::Model => "chip-model",
             MenuKind::Project => "chip-project",
             MenuKind::Level => "chip-level",
+            MenuKind::Later => CARET,
+        }
+    }
+
+    /// The key of what the menu hangs from: the control, except Later's, which lines up with
+    /// the whole of Send (`ref={anchor('later')}` on `.tc-send`).
+    fn anchor(self) -> &'static str {
+        match self {
+            MenuKind::Later => "compose-send-pair",
+            kind => kind.trigger(),
         }
     }
 }
@@ -67,10 +91,15 @@ pub struct Composer {
     pub project: Option<String>,
     /// The model picked on this box; none is the one the rules open it on.
     pub pick: Option<Pick>,
+    /// "Add it to Later" was picked under the caret: Send writes the thread down under Later,
+    /// where nothing starts it until the person does.
+    pub later: bool,
     pub menu: Option<Menu>,
     /// The chip the keyboard was left on when Escape closed its menu: an arrow opens the menu
     /// again, a letter goes to the words, and a second Escape lets go of the box.
     pub on_chip: Option<MenuKind>,
+    /// The box is the New thread card over the page, not the one on Home's page.
+    pub card: bool,
     /// When the window says that a thread on its way has not been taken yet, on its clock.
     not_taken_at: Option<f64>,
     /// O pressed while a thread was on its way, and the screen it was pressed on: the thread
@@ -80,7 +109,7 @@ pub struct Composer {
 
 impl Default for Composer {
     fn default() -> Composer {
-        Composer { words: TextEdit::new(""), level: None, project: None, pick: None, menu: None, on_chip: None, not_taken_at: None, o_waits: None }
+        Composer { words: TextEdit::new(""), level: None, project: None, pick: None, later: false, menu: None, on_chip: None, card: false, not_taken_at: None, o_waits: None }
     }
 }
 
@@ -95,11 +124,34 @@ impl Composer {
             Keyboard::Nothing
         }
     }
+
+    /// What Send takes off the box, for a refusal or Z to put back.
+    fn draft(&self) -> write::Draft {
+        write::Draft { words: self.words.text.clone(), level: self.level, pick: self.pick.clone(), later: self.later }
+    }
+
+    /// What a refusal or Z puts back: every word and every pick, in a box that holds nothing
+    /// newer. True when it did.
+    fn put_back(&mut self, draft: write::Draft) -> bool {
+        if !self.words.text.trim().is_empty() || draft.words.trim().is_empty() {
+            return false;
+        }
+        self.words = TextEdit::new(draft.words);
+        self.level = draft.level;
+        self.pick = draft.pick;
+        self.later = draft.later;
+        true
+    }
 }
 
 /// The box's words, each standing where Chromium puts its glyphs (`theme::pen`).
 fn label(s: &str, size: f32, weight: f32, c: rune::Color) -> El {
     pen(crate::theme::label(s, size, weight, c), size)
+}
+
+/// The card's hairlines, one step lighter than its edge (`--tc-hair`).
+fn hair() -> rune::Color {
+    rgb(59, 57, 55)
 }
 
 /// The mark beside a level's word (`PriorityIcon` in `renderer/src/components/Priority.tsx`):
@@ -128,7 +180,7 @@ pub fn swatch(slug: &str) -> El {
 /// A press never takes the keyboard to the chip itself: the box keeps track of where it is.
 fn menu_chip(s: &State, kind: MenuKind, inside: impl FnOnce(rune::Color) -> Vec<El>) -> El {
     let open = s.compose.menu.as_ref().is_some_and(|m| m.kind == kind);
-    let chip = home::chip(inside(if open { ink() } else { dim() })).key(kind.chip()).cursor(rune::Cursor::Pointer).on_background_press_tx(move |s: &mut State, tx| s.toggle_menu(kind, tx));
+    let chip = home::chip(inside(if open { ink() } else { dim() })).key(kind.trigger()).cursor(rune::Cursor::Pointer).on_background_press_tx(move |s: &mut State, tx| s.toggle_menu(kind, tx));
     if open { chip.border(1.0, rule()) } else { chip }
 }
 
@@ -144,17 +196,40 @@ fn filed_chips(s: &State) -> [El; 2] {
     ]
 }
 
+/// The caret half of Send, which opens the menu to send later; with Later picked it says so
+/// before the caret (`.tc-send-caret`, and `.set` with `.tc-send-when`).
+fn later_caret(s: &State) -> El {
+    let caret = if s.compose.later {
+        row()
+            .h(32.0)
+            .items_center()
+            .gap(6.0)
+            .pl(11.0)
+            .pr(9.0)
+            .corners([0.0, 6.0, 6.0, 0.0])
+            .fill(rgba(239, 235, 231, 0.15))
+            .border_sides([0.0, 0.0, 0.0, 1.0], rgba(26, 24, 23, 0.55))
+            .border_layout()
+            .child(pen(text(rules::LATER_WORD).font(figures(12.5, 500.0)).color(ink()), 12.5))
+            .child(icon(&icons::CARET, 13.0).color(ink()))
+    } else {
+        home::send_caret()
+    };
+    caret.key(CARET).cursor(rune::Cursor::Pointer).on_background_press_tx(|s: &mut State, tx| s.toggle_menu(MenuKind::Later, tx))
+}
+
 /// The paper clip, why Send is off when it is off for want of a project, and Send.
 fn bar_end(s: &State) -> Vec<El> {
-    let mut end = vec![spacer(), home::attach()];
-    if s.compose_project().is_none() {
-        // `.tc-why`. Making a project is the web window's to do, so the way out is words here
-        // and not a button.
-        end.push(label(&format!("{} {}", rules::NO_PROJECT_REASON, rules::NO_PROJECT_ACTION), 13.0, 400.0, dim()).pl(8.0));
-    }
     // The two halves of Send are one control with no room between them (`.tc-send`).
-    end.push(row().child(home::send_main(s.compose_ready()).cursor(rune::Cursor::Pointer).on_background_press_tx(|s: &mut State, tx| s.send_thread(tx))).child(home::send_caret()));
-    end
+    let send = row().key(MenuKind::Later.anchor()).child(home::send_main(s.compose_ready()).key(SEND).cursor(rune::Cursor::Pointer).on_background_press_tx(|s: &mut State, tx| s.send_thread(tx))).child(later_caret(s));
+    if s.compose_project().is_none() {
+        // `.tc-why` takes the room the clip would otherwise push Send across, so the clip
+        // stays by the chips. Making a project is the web window's to do, so the way out is
+        // words here and not a button.
+        let why = label(&format!("{} {}", rules::NO_PROJECT_REASON, rules::NO_PROJECT_ACTION), 13.0, 400.0, dim());
+        return vec![home::attach(), row().grow(1.0).min_w(0.0).pl(8.0).child(why), send];
+    }
+    vec![spacer(), home::attach(), send]
 }
 
 /// The bar under the words on the page: who gets the thread where someone besides the agent
@@ -181,12 +256,33 @@ fn words_field(s: &State, font: TextStyle, caret: rune::Color) -> El {
         .on_input_key(crate::keys::in_the_box)
 }
 
+/// The lines between the words and the bar (`.tc-note`): why Practice takes nothing, and where
+/// words about code are going. `pad` is the room the place it is drawn in gives a note.
+fn notes(s: &State, pad: impl Fn(El) -> El) -> Vec<El> {
+    let mut lines = Vec::new();
+    let note = |words: &str| pen(text(words).font(TextStyle::new(13.0, 400.0).lh(19.0)).color(dim()).wrap(), 13.0);
+    if let Some(why) = s.compose_project().and_then(|p| rules::practice_refusal(Some(p))) {
+        lines.push(pad(el().child(note(why))));
+    }
+    if let (Some(code), Some(pointed)) = (s.compose_code(), s.compose_pointed()) {
+        // The way back is a word of the sentence, underlined (`.tc-note button`).
+        let slug = pointed.slug.clone();
+        let keep = el()
+            .child(pen(text(rules::keep(&pointed.name)).font(TextStyle::new(13.0, 400.0).lh(19.0)).color(ink()), 13.0))
+            .child(el().pin(Some(0.0), Some(16.5), Some(0.0), None).h(1.0).fill(rule()))
+            .cursor(rune::Cursor::Pointer)
+            .on_background_press(move |s: &mut State| s.compose.project = Some(slug.clone()));
+        lines.push(pad(row().gap(4.0).child(note(&rules::going_to_code(&code.name))).child(keep)));
+    }
+    lines
+}
+
 /// The box on Home's page (`.hm-start .tc-card.tc-inline`): the words large over the bar, on
 /// the page's glass. Its edge brightens while the caret is in it.
 pub fn inline(s: &State) -> El {
     // `caret-color: var(--accent)` on the box drawn on a page.
     let field = words_field(s, TextStyle::new(22.0, 400.0).lh(30.0), accent());
-    let mut card = glass(col())
+    glass(col())
         .pt(16.0)
         .px(18.0)
         .pb(14.0)
@@ -197,12 +293,106 @@ pub fn inline(s: &State) -> El {
         .box_shadow(shadow(0.0, 0.0, 0.0, 3.0, white(0.03), false))
         .box_shadow(shadow(0.0, 12.0, 40.0, 0.0, rgba(0, 0, 0, 0.3), false))
         // One line tall until the words need more: 74 points with the room under them.
-        .child(el().min_h(74.0).pb(14.0).child(field.w_full()));
-    if let Some(why) = s.compose_project().and_then(|p| rules::practice_refusal(Some(p))) {
-        card = card.child(el().pt(12.0).child(label(why, 13.0, 400.0, dim())));
-    }
-    card.child(bar(s))
+        .child(el().min_h(74.0).pb(14.0).child(field.w_full()))
+        .children(notes(s, |n| n.pt(12.0)))
+        .child(bar(s))
 }
+
+/* -------------------------------- the card -------------------------------- */
+
+/// A value of the card's head (`.tc-word`): the word with a dotted line under it, a point
+/// wide every other point, three under its foot; the line brightens while the word's menu is
+/// open (`.tc-word.open`). The line is as long as the word and stops on the last whole dot.
+fn head_word(words: &str, open: bool) -> El {
+    let dots = row().gap(1.0).children((0..160).map(|_| el().size(1.0, 1.0).fill(if open { muted() } else { rule() })));
+    el().child(pen(text(words).font(TextStyle::new(14.0, 400.0).lh(21.0)).color(ink()), 14.0)).child(el().pin(Some(0.0), Some(18.5), Some(0.0), None).h(1.0).clip_corners([0.0; 4]).child(dots))
+}
+
+/// A field of the card's head (`.tc-field`): its name in small capitals, then its value. A
+/// field under another has a hairline over it.
+fn head_field(name: &str, value: El, first: bool) -> El {
+    let field = row().h(42.0).px(18.0).items_center().child(el().w(84.0).child(text(name).font(mono(11.0, 11.0).tracking(0.88)).text_case(TextCase::Uppercase).color(muted()))).child(value);
+    if first { field } else { field.border_sides([1.0, 0.0, 0.0, 0.0], hair()).border_layout() }
+}
+
+/// An agent's face, as To draws it: two eyes in a faint ring (`AgentFace`).
+fn agent_face() -> El {
+    row().size(18.0, 18.0).radius(9.0).center().border(1.0, rgba(239, 235, 231, 0.12)).child(icon(&icons::AGENT_EYES, 16.0).color(dim()))
+}
+
+/// The card's head (`.tc-head`): To where someone besides the agent could get the thread, then
+/// the model, whose word opens its menu.
+fn card_head(s: &State) -> El {
+    let mut head = col().border_sides([0.0, 0.0, 1.0, 0.0], hair()).border_layout();
+    let to = window::to_offered(&s.snap);
+    if to {
+        // The face hangs to the left of the word, so the two values start on one line
+        // (`.tc-word > .agent-face`, a point higher than the word's middle). Who else could get
+        // the thread is the web window's to pick: To says Agent here, and opens nothing.
+        let face = agent_face().ml(-27.0).mr(9.0).mt(-1.0).mb(1.0);
+        head = head.child(head_field("To", row().items_center().child(face).child(head_word("Agent", false)), true));
+    }
+    let open = s.compose.menu.as_ref().is_some_and(|m| m.kind == MenuKind::Model);
+    let model = head_word(&rules::model_label(&s.compose_pick(), &s.models), open)
+        .key(MenuKind::Model.trigger())
+        .cursor(rune::Cursor::Pointer)
+        .on_background_press_tx(|s: &mut State, tx| s.toggle_menu(MenuKind::Model, tx));
+    head.child(head_field("Model", model, !to))
+}
+
+/// The New thread card over the page (`.modal-backdrop.tc-veil` around `.tc-card`): the page
+/// veiled and blurred a little behind it, and the card centred a little above the middle of
+/// the window. The same box as Home's, with its head over the words and its bar under a
+/// hairline. A press outside it closes it, keeping every word.
+fn card(s: &State) -> El {
+    let (w, h) = s.size;
+    let width = 680.0_f32.min(0.92 * w);
+    // In the dialog the caret is the text's own colour, and the words scroll inside a box
+    // 156 points tall (`.tc-text`).
+    let field = words_field(s, TextStyle::new(15.0, 400.0).lh(23.25), ink());
+    let words = col().h(156.0).pt(12.0).px(18.0).pb(6.0).child(col().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(field.w_full()));
+    let lines = notes(s, |n| n.px(18.0).pb(10.0));
+    // How tall the card is, so it can stand where the grid puts it: as it was last laid out,
+    // else its edge, the head's fields and hairline, the words, one line a note and the bar.
+    let fields = if window::to_offered(&s.snap) { 2.0 } else { 1.0 };
+    let tall = rune::memo::layout_size(CARD).map_or(2.0 + fields * 42.0 + 1.0 + 156.0 + lines.len() as f32 * 29.0 + 57.0, |[_, tall]| tall);
+    // `place-items: center` in the window less a tenth of its height at the foot.
+    let top = ((h - 0.1 * h - tall) / 2.0).max(0.0).round();
+    let bar = row().pt(12.0).pr(14.0).pb(12.0).pl(18.0).gap(8.0).items_center().border_sides([1.0, 0.0, 0.0, 0.0], hair()).border_layout().children(filed_chips(s)).children(bar_end(s));
+    col()
+        .key(CARD)
+        .absolute(((w - width) / 2.0).round(), top)
+        .w(width)
+        .radius(10.0)
+        .fill(rgb(45, 43, 41))
+        .border(1.0, edge())
+        .border_layout()
+        .box_shadow(shadow(0.0, 32.0, 90.0, 0.0, rgba(0, 0, 0, 0.55), false))
+        .box_shadow(shadow(0.0, 1.0, 0.0, 0.0, white(0.05), true))
+        // A press on the card's own padding leaves the keyboard on nothing (`onClick` stops it
+        // reaching the veil), where a letter still goes to the words.
+        .on_background_press_tx(|s: &mut State, tx| s.let_go(tx))
+        // Escape that nothing else took, and a press outside: the card goes, the words stay.
+        .modal_tx(true, |s: &mut State, tx| s.close_card(tx))
+        .child(card_head(s))
+        .child(words)
+        .children(lines)
+        .child(bar)
+}
+
+/// The box's layers over the page: the card with the page veiled under it, when it is up, and
+/// the open menu over either.
+pub fn layers(s: &State) -> Vec<El> {
+    let mut layers = Vec::new();
+    if s.compose.card {
+        let (w, h) = s.size;
+        layers.push(el().absolute(0.0, 0.0).size(w, h).backdrop_blur(3.0).fill(rgba(16, 14, 13, 0.52)).child(card(s)));
+    }
+    layers.extend(menu_layer(s));
+    layers
+}
+
+/* -------------------------------- the menus ------------------------------- */
 
 /// A row of a menu is 34 points tall: a 20 point line and 7 over and under it (`.tc-row`).
 const ROW: f32 = 34.0;
@@ -297,6 +487,18 @@ fn menu_parts(s: &State, menu: &Menu) -> (Vec<El>, f32, f32) {
             }
             190.0
         }
+        MenuKind::Later => {
+            part(menu_head(rules::SEND_LATER), 24.5);
+            for (at, entry) in rules::later_entries(s.compose.later).iter().enumerate() {
+                let (glyph, words, on) = match entry {
+                    Entry::RemoveTheTime => (&icons::CLEAR, rules::REMOVE_THE_TIME, false),
+                    _ => (&icons::CLOCK, rules::ADD_TO_LATER, s.compose.later),
+                };
+                part(menu_row(at, lit(at), (on, false), Some(icon(glyph, 15.0).color(muted())), words, None), ROW);
+            }
+            // `.tc-wide`.
+            300.0
+        }
         MenuKind::Model => {
             let engines = Engines::of(&s.snap);
             let pick = s.compose_pick();
@@ -351,33 +553,66 @@ fn menu_parts(s: &State, menu: &Menu) -> (Vec<El>, f32, f32) {
     (parts, tall, least)
 }
 
-/// The open menu, over the page: hung from its chip where the stylesheet hangs it, and kept
-/// inside the window as the web window keeps it (`rules::fit_menu`). Under it lies a layer the
-/// size of the window, and a press there closes the menu.
-pub fn menu_layer(s: &State) -> Option<El> {
+/// The open menu, over the page or the card: hung from its control where the stylesheet hangs
+/// it, and kept inside the window as the web window keeps it (`rules::fit_menu`). Under it lies
+/// a layer the size of the window, and a press there closes the menu and goes on to what it
+/// was aimed at (`pressed_away`).
+fn menu_layer(s: &State) -> Option<El> {
     let menu = s.compose.menu.as_ref()?;
-    // Where its chip is in the window now. A chip not laid out yet has nothing hung from it.
-    let anchor = rune::memo::window_layout(menu.kind.chip())?;
+    // Where its control is in the window now. One not laid out yet has nothing hung from it.
+    let anchor = rune::memo::window_layout(menu.kind.anchor())?;
     let (parts, sum, least) = menu_parts(s, menu);
     // Its edge and the 5 points inside it, twice, and a point between each two parts.
     let tall = 12.0 + sum + parts.len().saturating_sub(1) as f32;
     let wide = rune::memo::layout_size(MENU).map_or(least, |[wide, _]| wide + 2.0);
     let (w, h) = s.size;
-    // On the page every menu drops under its chip, from the chip's left edge
-    // (`.tc-inline .tc-menu`), and is seen only inside the page, which clips it (`.hm-page`).
-    let hang = Hang { below: true, gap: 8.0, dx: 0.0 };
-    let fit = rules::fit_menu(anchor, hang, (wide, tall), h, (chrome::CARD[0], w - chrome::CARD[2]));
+    let card = s.compose.card;
+    // On the page every menu drops under its control from its left edge (`.tc-inline
+    // .tc-menu`). On the card the head's menu drops from its word, sixteen points to the left
+    // so its names stand under the value (`.tc-drop`), and the bar's rise twelve points over
+    // their chips (`.tc-rise`). The caret's lines up with Send's right edge, eight points off
+    // (`.tc-right`), under it on the page and over it on the card.
+    let hang = match (card, menu.kind) {
+        (_, MenuKind::Later) => Hang { below: !card, gap: 8.0, dx: anchor[2] - wide },
+        (false, _) => Hang { below: true, gap: 8.0, dx: 0.0 },
+        (true, MenuKind::Model) => Hang { below: true, gap: 8.0, dx: -16.0 },
+        (true, _) => Hang { below: false, gap: 12.0, dx: 0.0 },
+    };
+    // A menu on the page is seen only inside the page, which clips it (`.hm-page`); over the
+    // card, anywhere in the window.
+    let sides = if card { (0.0, w) } else { (chrome::CARD[0], w - chrome::CARD[2]) };
+    let fit = rules::fit_menu(anchor, hang, (wide, tall), h, sides);
     let rows = col().key(MENU).min_w(least - 2.0).items_stretch().gap(1.0).px(5.0).py(5.0).children(parts);
-    let shell = col().radius(10.0).clip_rounded(10.0).fill(rgb(54, 52, 49)).border(1.0, rule()).border_layout().box_shadow(shadow(0.0, 18.0, 50.0, 0.0, rgba(0, 0, 0, 0.5), false));
+    // No clip on the shell itself: Rune's rounded clip takes the element's own shadow with it,
+    // and the shadow is what lifts the menu off the card. The rows keep inside its corners.
+    let shell = col().radius(10.0).fill(rgb(54, 52, 49)).border(1.0, rule()).border_layout().box_shadow(shadow(0.0, 18.0, 50.0, 0.0, rgba(0, 0, 0, 0.5), false));
     let shell = match fit.max_height {
         // Too tall for the room it has: it is that tall, and its rows scroll inside it.
         Some(most) => shell.h(most).child(col().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(rows)),
         None => shell.child(rows),
     };
-    let away = el().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).on_background_press(|s: &mut State| {
-        s.compose.menu = None;
-        s.compose.on_chip = None;
+    // On the way down, as the web window's `pointerdown` listener does, so the same press can
+    // still land the caret in the words. Where the box's controls are is read here, while the
+    // window is drawn: a handler has no layout to read.
+    let marks: Vec<(&'static str, [f32; 4])> = [SEND, FIELD, CARD].into_iter().chain(MenuKind::ALL.map(MenuKind::trigger)).filter_map(|key| rune::memo::window_layout(key).map(|rect| (key, rect))).collect();
+    let away = el().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).on_drag(move |s: &mut State, d: &mut Drag, tx: &mut Tx| {
+        if d.phase == Phase::Down {
+            s.pressed_away(d.window_point(), &marks, tx);
+        }
     });
+    if card {
+        // Over the card the open menu is a dialog of its own, holding the keyboard itself: the
+        // card's would otherwise hand it straight back to the words, the one field it has, and
+        // the arrows would move the caret instead of the menu's rows.
+        return Some(
+            el().absolute(0.0, 0.0)
+                .size(w, h)
+                .on_key(|s: &mut State, e: &KeyEvent, tx: &mut Tx| key(s, e, tx).unwrap_or(false))
+                .modal_tx(true, |s: &mut State, tx| s.close_menu(false, tx))
+                .child(away)
+                .child(shell.absolute(fit.left, fit.top)),
+        );
+    }
     let page = el()
         .pin(Some(chrome::CARD[0]), Some(chrome::PAGE_TOP), Some(chrome::CARD[2]), Some(chrome::CARD[3]))
         .clip_corners([0.0, 0.0, 6.0, 6.0])
@@ -385,16 +620,21 @@ pub fn menu_layer(s: &State) -> Option<El> {
     Some(el().absolute(0.0, 0.0).size(w, h).child(away).child(page))
 }
 
-/// The keys while the box is on the page, for the ones no text field took. `None` when the
-/// key is not the box's, and the page's own keys go on to read it.
+/* ------------------------------- the keyboard ----------------------------- */
+
+/// The keys while the box is on Home's page or the card is up, for the ones no text field
+/// took. `None` when the key is not the box's, and the page's own keys go on to read it. The
+/// card owns the screen as the web window's dialog does: every key that is not a chord is its
+/// own (`keyWhileABoxIsOpen` in `renderer/src/keys.ts`).
 pub fn key(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> Option<bool> {
-    if s.view != View::Home {
+    let card = s.compose.card;
+    if !card && (s.view != View::Home || s.later.on.is_some()) {
         return None;
     }
     let chord = e.mods.cmd || e.mods.ctrl || e.mods.alt;
-    let sends = e.key == Key::Enter && e.mods.cmd;
+    let sends = e.key == Key::Enter && (e.mods.cmd || e.mods.ctrl);
     // An open menu has the keys: the arrows walk it around both ends, Enter presses the row
-    // they are on, Escape closes it and leaves the keyboard on its chip (`menuKeys`).
+    // they are on, Escape closes it and leaves the keyboard on its control (`menuKeys`).
     if let Some(menu) = s.compose.menu.clone() {
         if sends {
             s.send_thread(tx);
@@ -417,57 +657,45 @@ pub fn key(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> Option<bool> {
     }
     let on = s.compose.keyboard();
     if sends {
-        // On one of the box's controls the box itself hears ⌘Return. With nothing holding the
-        // keyboard the page hears it, and sends only a box that has words in it.
-        if on == Keyboard::Card || rules::mod_enter_sends(true, on, !s.compose.words.text.trim().is_empty()) {
+        // The card hears ⌘Return wherever the keyboard is; on the page, the box's own controls
+        // hear it, and with nothing holding the keyboard the page sends only a box with words.
+        if card || on == Keyboard::Card || rules::mod_enter_sends(true, on, !s.compose.words.text.trim().is_empty()) {
             s.send_thread(tx);
         }
         return Some(true);
     }
     if chord {
+        return if card { Some(false) } else { None };
+    }
+    if e.key == Key::Escape {
+        // On the card Escape closes it, keeping the words; on the page it lets go of the box.
+        if card {
+            s.close_card(tx);
+            return Some(true);
+        }
+        if s.compose.on_chip.take().is_some() {
+            return Some(true);
+        }
         return None;
     }
-    if let Some(kind) = s.compose.on_chip {
-        match e.key {
-            // An arrow on a chip opens its menu (`triggerKeys`).
-            Key::Down | Key::Up => {
-                s.toggle_menu(kind, tx);
-                return Some(true);
-            }
-            // And Escape lets go of the box, keeping the words.
-            Key::Escape => {
-                s.compose.on_chip = None;
-                return Some(true);
-            }
-            _ => {}
-        }
+    // An arrow on a chip opens its menu (`triggerKeys`).
+    if let (Some(kind), Key::Down | Key::Up) = (s.compose.on_chip, &e.key) {
+        s.toggle_menu(kind, tx);
+        return Some(true);
     }
     let typed = match &e.key {
         Key::Text(t) if t.chars().count() == 1 => Some(t.clone()),
         Key::Enter => Some("\n".to_string()),
         _ => None,
     };
-    // A letter with the keyboard on a chip is typed into the words: no control under it ever
-    // hears it.
-    if let Some(typed) = typed.filter(|_| rules::key_is_typed(true, chord, false, on, true)) {
+    // A letter is typed into the words wherever the keyboard sits on the card, and on the
+    // page with the keyboard on one of its chips: no control under it ever hears it.
+    if let Some(typed) = typed.filter(|_| rules::key_is_typed(true, chord, false, on, !card)) {
         s.caret_in_the_words(tx);
         s.compose.words.insert(&typed);
         return Some(true);
     }
-    None
-}
-
-/// What Z takes back once a thread sent from the box stands: a close of it, which stops its
-/// worker, and the box's words handed back (`noteNewTask` in `renderer/src/App.tsx`). The line
-/// is said once the engine has closed it, and says then where the words went.
-fn taking_back(id: &str, product: &str, title: &str, draft: write::Draft) -> write::Undo {
-    write::Undo {
-        said: rules::said_withdrawn(title, false),
-        writes: vec![(crate::rules::writes::ANSWER, rules::withdraw(product, id))],
-        sent: write::Sent::Withdraw { thread: format!("{product}/{id}"), title: title.to_string(), draft },
-        thread: (id.to_string(), product.to_string()),
-        opens: false,
-    }
+    if card { Some(true) } else { None }
 }
 
 /// "6:10pm", and the day after it when that is not today: when an agent out of usage has room
@@ -491,17 +719,41 @@ fn back_at(until: f64, now: f64) -> Option<String> {
     if until - now < 6.0 * 86_400_000.0 { Some(format!("{at} {weekday}")) } else { Some(format!("{at} {weekday} {} {}", MONTHS[(t.month as usize).clamp(1, 12) - 1], t.day)) }
 }
 
+/// What Z takes back once a thread sent from the box stands: a close of it, which stops its
+/// worker, and the box's words handed back (`noteNewTask` in `renderer/src/App.tsx`). The line
+/// is said once the engine has closed it, and says then where the words went.
+fn taking_back(id: &str, product: &str, title: &str, draft: write::Draft) -> write::Undo {
+    write::Undo {
+        said: rules::said_withdrawn(title, false),
+        writes: vec![(crate::rules::writes::ANSWER, rules::withdraw(product, id))],
+        sent: write::Sent::Withdraw { thread: format!("{product}/{id}"), title: title.to_string(), draft },
+        thread: (id.to_string(), product.to_string()),
+        opens: false,
+    }
+}
+
 impl State {
     /// The projects a thread can be filed into, in the person's own order.
     pub fn projects_offered(&self) -> Vec<&Product> {
         rules::projects_offered(&rules::rank_products(&self.snap.products, &self.snap.supervisor.product_order))
     }
 
-    /// The project the box is on: the one picked on it, else the open conversation's, else
-    /// the one last sent to.
-    pub fn compose_project(&self) -> Option<&Product> {
+    /// The project the box points at: the one picked on it, else the open conversation's,
+    /// else the one last sent to (`cardProject`).
+    fn compose_pointed(&self) -> Option<&Product> {
         let on_screen = self.open_item().map(|i| i.product.as_str());
         rules::card_project(&self.projects_offered(), self.compose.project.as_deref(), on_screen, self.picks.get().project.as_deref())
+    }
+
+    /// Where words about code go instead, while nobody has picked a project on the box.
+    fn compose_code(&self) -> Option<&Product> {
+        let pointed = self.compose_pointed().filter(|_| self.compose.project.is_none())?;
+        rules::code_project_for(&self.compose.words.text, &self.projects_offered(), &pointed.slug)
+    }
+
+    /// The project the box sends to.
+    pub fn compose_project(&self) -> Option<&Product> {
+        self.compose_code().or_else(|| self.compose_pointed())
     }
 
     /// The agent and model the box is on: the one picked on it while this Mac still runs it,
@@ -541,11 +793,33 @@ impl State {
         self.caret_in_the_words(tx);
     }
 
-    /// Escape in the box: the keys go back to the page, and the words stay.
+    /// Escape in the box on the page: the keys go back to the page, and the words stay.
     pub fn leave_the_box(&mut self, tx: &mut Tx) {
         self.compose.words.focused = false;
         self.compose.on_chip = None;
         tx.blur();
+    }
+
+    /// A press on the card's own padding: no menu, no chip, no caret, and the keyboard on
+    /// nothing.
+    fn let_go(&mut self, tx: &mut Tx) {
+        self.compose.menu = None;
+        self.leave_the_box(tx);
+    }
+
+    /// N away from Home, or New thread: the card over the page, holding what the box holds,
+    /// with the caret at the end of the words (`setModal('compose')` in `App.tsx`).
+    pub fn open_card(&mut self, tx: &mut Tx) {
+        self.compose.card = true;
+        self.compose.menu = None;
+        self.write_in_the_box(tx);
+    }
+
+    /// Escape on the card, or a press outside it: it goes, and what it held stays in the box
+    /// for the next time (`onClose`, with the draft keeping every word).
+    pub fn close_card(&mut self, tx: &mut Tx) {
+        self.compose.card = false;
+        self.let_go(tx);
     }
 
     /// What the keys can land on in a menu, in the order it draws them.
@@ -553,6 +827,7 @@ impl State {
         match menu.kind {
             MenuKind::Project => rules::project_entries(&self.projects_offered()),
             MenuKind::Level => rules::level_entries(),
+            MenuKind::Later => rules::later_entries(self.compose.later),
             MenuKind::Model => {
                 let engines = Engines::of(&self.snap);
                 let levels = rules::effort_choices(&self.compose_pick(), &self.models);
@@ -567,6 +842,7 @@ impl State {
             Entry::Project(slug) => self.compose_project().is_some_and(|p| &p.slug == slug),
             Entry::Level(level) => *level == self.compose.level,
             Entry::Model(pick) => *pick == self.compose_pick(),
+            Entry::AddToLater => self.compose.later,
             _ => false,
         }
     }
@@ -590,7 +866,7 @@ impl State {
     }
 
     /// Closes the open menu. A pick puts the caret back in the words, where the person was
-    /// going anyway; Escape leaves the keyboard on the chip that opened it (`close`).
+    /// going anyway; Escape leaves the keyboard on the control that opened it (`close`).
     pub fn close_menu(&mut self, to_the_words: bool, tx: &mut Tx) {
         let Some(menu) = self.compose.menu.take() else {
             return;
@@ -599,6 +875,36 @@ impl State {
             self.caret_in_the_words(tx);
         } else {
             self.compose.on_chip = Some(menu.kind);
+        }
+    }
+
+    /// A press outside the open menu, as it goes down, with where the box's controls stood
+    /// (`marks`). The menu closes and the press goes on to what it was aimed at in the box:
+    /// another chip opens its menu, its own chip keeps the keyboard, the words take the caret,
+    /// Send sends. On the card a press outside the card closes the card too, as the veil's own
+    /// press does. Anywhere else on the page the menu only closes.
+    pub fn pressed_away(&mut self, at: [f32; 2], marks: &[(&'static str, [f32; 4])], tx: &mut Tx) {
+        let inside = |key: &str| marks.iter().any(|(mark, [x, y, w, h])| *mark == key && at[0] >= *x && at[0] < x + w && at[1] >= *y && at[1] < y + h);
+        let Some(menu) = self.compose.menu.take() else {
+            return;
+        };
+        self.compose.on_chip = None;
+        if inside(SEND) {
+            return self.send_thread(tx);
+        }
+        if let Some(kind) = MenuKind::ALL.into_iter().find(|kind| inside(kind.trigger())) {
+            if kind == menu.kind {
+                self.compose.on_chip = Some(kind);
+            } else {
+                self.toggle_menu(kind, tx);
+            }
+            return;
+        }
+        if inside(FIELD) {
+            return self.caret_in_the_words(tx);
+        }
+        if self.compose.card && !inside(CARD) {
+            self.close_card(tx);
         }
     }
 
@@ -664,15 +970,22 @@ impl State {
                     }
                 });
             }
+            // A row of Send later sets when it goes, and Send sends it, so there is still room
+            // to add a line after picking (`pickWhen`).
+            Entry::AddToLater | Entry::RemoveTheTime => {
+                self.compose.later = entry == Entry::AddToLater;
+                self.close_menu(true, tx);
+            }
         }
     }
 
-    /// What a picture taken with a menu open says of it (`menu` in its fixture): the same chip
-    /// is pressed, and the same page turned.
+    /// What a picture taken with a menu open says of it (`menu` in its fixture): the same
+    /// control is pressed, and the same page turned.
     pub(crate) fn picture_menu(&mut self, which: &str, tx: &mut Tx) {
         let kind = match which {
             "project" => MenuKind::Project,
             "priority" => MenuKind::Level,
+            "later" => MenuKind::Later,
             _ => MenuKind::Model,
         };
         self.toggle_menu(kind, tx);
@@ -689,8 +1002,9 @@ impl State {
         self.snap.products.iter().find(|p| p.slug == slug).map_or_else(|| slug.to_string(), |p| p.name.clone())
     }
 
-    /// Sends what is in the box as a new thread (Send, or ⌘Return). The box empties at once
-    /// and a line says where the thread is going; a refusal puts every word back.
+    /// Sends what is in the box as a new thread (Send, or ⌘Return). The box empties at once,
+    /// the card closes, and a line says where the thread is going; a refusal puts every word
+    /// back.
     pub fn send_thread(&mut self, tx: &mut Tx) {
         let Some(message) = rules::thread_message(&self.compose.words.text) else {
             return;
@@ -703,8 +1017,9 @@ impl State {
         // A level is sent only when one was picked that this model takes.
         let effort = self.kept_effort(&pick.engine).filter(|level| rules::effort_picked(Some(level), &levels));
         let harness = rules::harness_fields(&pick, effort.as_deref(), Engines::of(&self.snap).rows().len(), self.models.codex_default.as_deref());
-        let payload = rules::compose(&product, &message, rules::sent_priority(self.compose.level), harness, false);
-        let draft = write::Draft { words: self.compose.words.text.clone(), level: self.compose.level, pick: self.compose.pick.clone() };
+        let later = self.compose.later;
+        let payload = rules::compose(&product, &message, rules::sent_priority(self.compose.level), harness, later);
+        let draft = self.compose.draft();
         // What was done before this and still waits its three seconds is written first.
         self.write_what_waits();
         let on_its_way = self.send(rules::COMPOSE, payload, write::Sent::Thread { product: product.clone(), draft });
@@ -714,17 +1029,26 @@ impl State {
         }
         self.picks.change(|picks| picks.project = Some(product.clone()));
         self.compose.words = TextEdit::new("");
+        self.compose.later = false;
         self.compose.menu = None;
         self.compose.on_chip = None;
         self.compose.o_waits = None;
+        // The card goes on Send, and the next one opens fresh: the level back on Agent Decides
+        // and the model on the agent from Settings (`onSending`, and a new card's draft). The
+        // box on the page keeps both for the next thread, as the web window's does.
+        if self.compose.card {
+            self.compose.card = false;
+            self.compose.level = None;
+            self.compose.pick = None;
+        }
         tx.blur();
         // Alone, on the Inbox, the tab moves to where the thread will land; over Home or a
         // conversation the person stays where they are.
         let covered = self.view != View::Inbox;
-        if let Some(tab) = rules::tab_after_sending(window::team_mode(&self.snap), false, Some(self.inbox_tab), covered) {
+        if let Some(tab) = rules::tab_after_sending(window::team_mode(&self.snap), later, Some(self.inbox_tab), covered) {
             self.show_tab(tab);
         }
-        self.say(rules::sending_line(&self.project_named(&product), false), false, tx);
+        self.say(rules::sending_line(&self.project_named(&product), later), false, tx);
         if on_its_way {
             self.compose.not_taken_at = Some(tx.clock() + rules::NOT_ANSWERING_MS / 1000.0);
         }
@@ -732,21 +1056,23 @@ impl State {
 
     /// What the engine said to a new thread. Taken, the thread is in the lists at once and a
     /// line names it, with O to open it and Z to take it back. Refused, every word goes back
-    /// in the box and a line says why.
-    pub(crate) fn thread_landed(&mut self, landed: write::Landed, tx: &Tx) {
+    /// and the card opens on them, unless something else is over the page by then: then a line
+    /// says where the words are (`onFailed` in `App.tsx`).
+    pub(crate) fn thread_landed(&mut self, landed: write::Landed, tx: &mut Tx) {
         let write::Sent::Thread { product, draft } = landed.sent.clone() else {
             return;
         };
         self.compose.not_taken_at = None;
         if let Some(why) = landed.refusal() {
-            // Unless the box holds something else by now: an older send never takes words away.
-            if self.compose.words.text.trim().is_empty() {
-                self.compose.words = TextEdit::new(draft.words);
-                self.compose.level = draft.level;
-                self.compose.pick = draft.pick;
-            }
             self.compose.o_waits = None;
-            self.say(rules::not_sent(&why), false, tx);
+            self.compose.put_back(draft);
+            let said = rules::not_sent(&why);
+            if self.compose.card || self.later.on.is_some() {
+                self.say(rules::not_sent_words_kept(&said), false, tx);
+            } else {
+                self.open_card(tx);
+                self.say(said, false, tx);
+            }
             return;
         }
         let made = landed.answer.ok().and_then(|row| serde_json::from_value::<Item>(row).ok()).filter(|row| !row.id.is_empty());
@@ -763,7 +1089,7 @@ impl State {
         }
         self.refresh();
         let back = limit.as_ref().map(|limit| (limit.tool.as_str(), back_at(limit.until, self.now)));
-        let line = rules::sent_line(&self.project_named(&product), false, back.as_ref().map(|(tool, at)| (*tool, at.as_deref())));
+        let line = rules::sent_line(&self.project_named(&product), draft.later, back.as_ref().map(|(tool, at)| (*tool, at.as_deref())));
         let Some(row) = made else {
             self.say(rules::toast_parts(&line).0, false, tx);
             return;
@@ -824,9 +1150,10 @@ impl State {
         }
     }
 
-    /// What the engine said to that close. Done, what the box held goes back in it, unless
-    /// it holds something newer; refused, Z keeps the thread and a line says why.
-    pub(crate) fn withdraw_landed(&mut self, landed: write::Landed, tx: &Tx) {
+    /// What the engine said to that close. Done, what the box held goes back in it, unless it
+    /// holds something newer, and the card opens on it over the list (`shownAfterUndo`);
+    /// refused, Z keeps the thread and a line says why.
+    pub(crate) fn withdraw_landed(&mut self, landed: write::Landed, tx: &mut Tx) {
         let refusal = landed.refusal();
         let write::Sent::Withdraw { thread, title, draft } = landed.sent else {
             return;
@@ -842,19 +1169,22 @@ impl State {
         // Out of Done from now on: a send taken back is not finished work.
         self.withdrawn.insert(id, crate::clock());
         self.refresh();
-        let back = self.compose.words.text.trim().is_empty() && !draft.words.trim().is_empty();
-        if back {
-            self.compose.words = TextEdit::new(draft.words);
-            self.compose.level = draft.level;
-            self.compose.pick = draft.pick;
-        }
+        let back = self.compose.put_back(draft);
         self.say(rules::said_withdrawn(&title, back), false, tx);
+        // The whole point of the press was to add a sentence to what was written: the card
+        // opens on it, over the list rather than a conversation.
+        if back && !self.compose.card && self.later.on.is_none() {
+            if matches!(self.view, View::Thread { .. }) {
+                self.leave_thread();
+            }
+            self.open_card(tx);
+        }
     }
 
     /// What a picture taken just after a send hands over (`sent` in its fixture): the row the
     /// page was answered with and when. The same answer lands here, and the line about it is
     /// as old as the page's was at the shutter.
-    pub(crate) fn picture_sent(&mut self, sent: &Value, tx: &Tx) {
+    pub(crate) fn picture_sent(&mut self, sent: &Value, tx: &mut Tx) {
         let Some(made) = sent.get("made") else {
             return;
         };
@@ -901,5 +1231,30 @@ mod tests {
         // Two days out names the weekday after the time, and a fortnight out the date too.
         assert_eq!(back_at(now + 2.0 * 86_400_000.0, now).unwrap().split(' ').count(), 2);
         assert_eq!(back_at(now + 14.0 * 86_400_000.0, now).unwrap().split(' ').count(), 4);
+    }
+
+    #[test]
+    fn a_refusal_or_z_puts_every_pick_back_but_never_over_newer_words() {
+        let mut box_ = Composer::default();
+        let draft = write::Draft { words: "Ship the fix".to_string(), level: Some(Level::High), pick: Some(Pick::new("claude", "sonnet")), later: true };
+        assert!(box_.put_back(draft.clone()));
+        assert_eq!(box_.draft(), draft);
+        // Something typed since stays, and so do its picks.
+        let mut busy = Composer { words: TextEdit::new("A newer thought"), ..Composer::default() };
+        assert!(!busy.put_back(draft));
+        assert_eq!((busy.words.text.as_str(), busy.level, busy.later), ("A newer thought", None, false));
+        // Nothing to give back is not a reason to empty the picks.
+        let mut picked = Composer { level: Some(Level::Low), ..Composer::default() };
+        assert!(!picked.put_back(write::Draft::default()));
+        assert_eq!(picked.level, Some(Level::Low));
+    }
+
+    #[test]
+    fn the_caret_hangs_its_menu_from_the_whole_of_send_and_the_rest_from_their_own_control() {
+        assert_eq!(MenuKind::Later.anchor(), "compose-send-pair");
+        assert_eq!(MenuKind::Later.trigger(), CARET);
+        for kind in [MenuKind::Model, MenuKind::Project, MenuKind::Level] {
+            assert_eq!(kind.anchor(), kind.trigger());
+        }
     }
 }

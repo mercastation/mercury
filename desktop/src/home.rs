@@ -246,7 +246,9 @@ pub fn view(s: &State) -> El {
         .child(el().h(above))
         .child(text(greeting(s.now, window::greeted(&s.snap))).font(TextStyle::new(30.0, 500.0).lh(36.0).tracking(-0.36)).color(ink()))
         .child(doors)
-        .child(el().mt(22.0).child(crate::compose::inline(s).w_full()))
+        // The box is drawn in this slot, or in the New thread card while that is up, and then
+        // the slot is empty and the cards under it come up (`drawnIn` in `App.tsx`).
+        .child(if s.compose.card { el().mt(22.0) } else { el().mt(22.0).child(crate::compose::inline(s).w_full()) })
         .child(if stacked {
             col().mt(24.0).gap(22.0).child(home_card("Needs you", count(needs.len()), "Open inbox →", Some(View::Inbox), rows, cards_h).w(column)).child(second.w(column))
         } else {

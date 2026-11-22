@@ -112,7 +112,8 @@ fn cloud_button(b: cloud::Button) -> El {
 }
 
 /// The card's top strip beside the arrows: the page's title, and at the right New thread, the
-/// cloud on a Mac that has one, and the display button. Phase 1 only draws the buttons.
+/// cloud on a Mac that has one, and the display button. New thread opens the New thread card
+/// (`onCompose`); the other two are drawn only.
 pub fn strip(s: &State) -> El {
     let (card_w, _) = s.card_size();
     let title = shaded(|shadow| pen(text("Inbox").font(sans(17.0, 400.0).tracking(-0.51)).color(if shadow { under(1.0) } else { ink() }), 17.0));
@@ -120,7 +121,9 @@ pub fn strip(s: &State) -> El {
         .gap(8.0)
         .px(13.0)
         .child(icon(&icons::PEN, 15.0).color(dim()))
-        .child(shaded(|shadow| pen(label("New thread", 13.5, 400.0, if shadow { under(1.0) } else { ink() }), 13.5)));
+        .child(shaded(|shadow| pen(label("New thread", 13.5, 400.0, if shadow { under(1.0) } else { ink() }), 13.5)))
+        .cursor(rune::Cursor::Pointer)
+        .on_press_tx(|s: &mut State, tx| s.open_card(tx));
     let display = strip_button().w(32.0).justify_center().child(icon(&icons::SLIDERS, 15.0).color(dim()));
     let mut buttons = row().gap(10.0).child(new_thread);
     if let Some(button) = cloud::button(s.snap.rest.get("cloud"), &s.local.cloud_broken_seen) {

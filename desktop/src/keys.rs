@@ -41,14 +41,14 @@ pub fn in_the_reply(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
 }
 
 /// The keys the box a thread is started in does not keep for typing: ⌘Return sends, and
-/// Escape gives the keys back to the page, keeping the words.
+/// Escape gives the keys back to the page, or closes the New thread card, keeping the words.
 pub fn in_the_box(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
-    if e.key == Key::Enter && e.mods.cmd {
+    if e.key == Key::Enter && (e.mods.cmd || e.mods.ctrl) {
         s.send_thread(tx);
         return true;
     }
     if e.key == Key::Escape {
-        s.leave_the_box(tx);
+        if s.compose.card { s.close_card(tx) } else { s.leave_the_box(tx) }
         return true;
     }
     false
@@ -125,6 +125,12 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
     }
     // O goes into the thread the line in the corner is about, while that line is up.
     if letter == "o" && s.open_what_the_line_names() {
+        return true;
+    }
+    // N starts a thread: in the box already on Home's page (below), and anywhere else in the
+    // New thread card over the page (`startThread` in `renderer/src/App.tsx`).
+    if letter == "n" && s.view != View::Home {
+        s.open_card(tx);
         return true;
     }
     if letter == "l" && s.view != View::Home {

@@ -175,3 +175,16 @@ stroked!(MENTION_FILE, "m-mention-file", "1.6", r#"<path d="M14 3H7.5A2.5 2.5 0 
 
 // The last row of the project menu, where a project's swatch would be: New project.
 stroked!(PLUS, "m-plus", "1.8", r#"<path d="M12 5v14M5 12h14"/>"#);
+
+// The rows of the caret's menu beside Send: a time to send at, and taking it back (`ClockIcon`
+// and `ClearIcon` in `ThreadComposer.tsx`, square ends as drawn there).
+pub static CLOCK: Icon = Icon {
+    name: "m-clock",
+    view: 24.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="8"/><path d="M12 8v4.5l3 2"/></g>"#,
+};
+pub static CLEAR: Icon = Icon {
+    name: "m-clear",
+    view: 24.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7 7l10 10M17 7 7 17"/></g>"#,
+};

@@ -889,10 +889,15 @@ fn init() -> State {
         }
     }
     // A picture taken with words typed into the box a thread is started in says so in its
-    // fixture (`composing`): the same words, with the caret after them.
+    // fixture (`composing`): the same words, with the caret after them. And one taken with the
+    // New thread card up (`card`) has the box there.
     if let Some(words) = s.fixture.get("composing").and_then(Value::as_str) {
         s.compose.words = TextEdit::new(words);
-        s.compose.words.focused = true;
+    }
+    if s.fixture.contains_key("composing") || s.fixture.get("card") == Some(&Value::Bool(true)) {
+        // With a menu open the keyboard is in the menu, and the words have no caret.
+        s.compose.words.focused = !s.fixture.contains_key("menu");
+        s.compose.card = s.fixture.get("card") == Some(&Value::Bool(true));
     }
     s
 }
@@ -1064,11 +1069,9 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
                 .scroll(ScrollSpec { stick_bottom: false })
                 .child(page),
         );
-    // An open menu of the box a thread is started in lies over the page it hangs in.
-    let root = match compose::menu_layer(s) {
-        Some(menu) => root.child(menu),
-        None => root,
-    };
+    // The box a thread is started in: its open menu over the page it hangs in, or the New
+    // thread card over the whole page, under the line about the last thing done.
+    let root = root.children(compose::layers(s));
     let root = match chrome::toast_card(s) {
         Some(toast) => root.child(toast),
         None => root,
