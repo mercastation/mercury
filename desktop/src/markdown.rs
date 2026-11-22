@@ -518,6 +518,54 @@ fn words(kids: &[Inline], font: TextStyle, p: Page) -> El {
     e.on_link(|s: &mut crate::State, href: &str, _: &mut rune::Tx| files::open(s, href))
 }
 
+/// The folder a link points at, when it is one: an address that keeps its slash, which is how
+/// a folder on a line of its own is told from a file (`a` in `Focus.tsx`).
+fn folder_of(kid: &Inline) -> Option<&str> {
+    let Inline::Link { url, .. } = kid else { return None };
+    let elsewhere = ["http:", "https:", "data:", "file:", "mailto:"].iter().any(|scheme| url.to_ascii_lowercase().starts_with(scheme));
+    (url.ends_with('/') && !elsewhere).then_some(url.as_str())
+}
+
+/// A paragraph's words. A folder named in it is a block of its own between the words before
+/// it and the words after: its name over its newest pictures (`.folder-preview`, eight points
+/// under the line above it and four over the line below).
+fn lines(kids: &[Inline], font: TextStyle, p: Page) -> El {
+    if !kids.iter().any(|k| folder_of(k).is_some()) {
+        return words(kids, font, p);
+    }
+    let mut out = col();
+    let mut any = false;
+    let mut after_folder = false;
+    let mut said: Vec<Inline> = Vec::new();
+    let flush = |said: &mut Vec<Inline>, out: El, any: &mut bool, after_folder: bool| {
+        // The line end that set the folder apart is not a word of the line before or after.
+        if let Some(Inline::Text(first)) = said.first_mut() {
+            *first = first.trim_start().to_string();
+        }
+        if let Some(Inline::Text(last)) = said.last_mut() {
+            *last = last.trim_end().to_string();
+        }
+        let kept: Vec<Inline> = std::mem::take(said).into_iter().filter(|k| !matches!(k, Inline::Text(t) if t.is_empty())).collect();
+        if kept.is_empty() {
+            return out;
+        }
+        let gap = if after_folder { 4.0 } else { 0.0 };
+        *any = true;
+        out.child(words(&kept, font, p).mt(gap))
+    };
+    for kid in kids {
+        match folder_of(kid) {
+            Some(url) => {
+                out = flush(&mut said, out, &mut any, after_folder);
+                out = out.child(files::folder(p.files, &paths::normalize_uri(url), p.width, p.size).mt(if any { 8.0 } else { 0.0 }));
+                (any, after_folder) = (true, true);
+            }
+            None => said.push(kid.clone()),
+        }
+    }
+    flush(&mut said, out, &mut any, after_folder)
+}
+
 /// A list's marker hangs in the 22 points left of its item: a bullet, or the item's number.
 fn marker(number: Option<u64>, p: Page) -> El {
     let em = p.size / 16.0;
@@ -648,8 +696,8 @@ fn lay(nodes: Vec<Node>, p: Page) -> Vec<Block> {
     nodes
         .into_iter()
         .map(|n| match n {
-            Node::Line(r) => Block::leaf(0.0, 0.0, words(&r, p.body(), p)),
-            Node::Paragraph(r) => Block::leaf(8.0, 8.0, words(&r, p.body(), p)),
+            Node::Line(r) => Block::leaf(0.0, 0.0, lines(&r, p.body(), p)),
+            Node::Paragraph(r) => Block::leaf(8.0, 8.0, lines(&r, p.body(), p)),
             // One picture under its sentence is a paragraph of its own (`.inline-image`), and
             // several are a row with its own room around it (`.media-row`).
             Node::Media(shown, false, margins) => {

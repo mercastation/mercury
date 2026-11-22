@@ -102,10 +102,37 @@ struct Entry {
     left: u64,
 }
 
+/// What a folder holds: its pictures, newest first, as far as the page shows them, and how
+/// many there are in all (`main/folder-pictures.mts`).
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct Listing {
+    /// Where the folder was found.
+    pub folder: String,
+    pub pictures: Vec<String>,
+    pub total: usize,
+}
+
+/// What the page is told about one folder.
+pub enum Listed {
+    /// Being read.
+    Asking,
+    Here(Listing),
+    /// In none of the places it was looked for.
+    Nowhere,
+}
+
+struct Folder {
+    places: Vec<String>,
+    /// None until it has been read once.
+    listing: Option<Option<Listing>>,
+    asked: bool,
+}
+
 struct Job {
     key: String,
     places: Vec<String>,
-    want: Want,
+    /// None for a folder, whose pictures are listed and not read.
+    want: Option<Want>,
     /// The file already held and its stamp: read again only if that changed.
     held: Option<(String, Stamp)>,
 }
@@ -123,6 +150,8 @@ enum Answer {
     Missing,
     /// The file held is still the file on disk.
     Same,
+    /// A folder's pictures, or None when it is nowhere.
+    Listed(Option<Listing>),
 }
 
 #[derive(Default)]
@@ -138,6 +167,7 @@ struct Shelf {
     entries: HashMap<String, Entry>,
     /// Each picture's own size once read, kept when its pixels are let go.
     sizes: HashMap<String, (u32, u32)>,
+    folders: HashMap<String, Folder>,
     bytes: usize,
     looks: u64,
     /// The conversation these pictures belong to.
@@ -202,7 +232,33 @@ fn read(places: &[String], want: Want) -> Answer {
     Answer::Read(Read { path: path.clone(), stamp, natural, size, rgba: rgba.into_raw() })
 }
 
+/// The most pictures of a folder the page is told about (`limit` in `folderPictures`).
+const LISTED: usize = 60;
+
+/// The pictures in the first of `places` that is a folder: one level only, the newest first,
+/// and of two written at the same moment the one whose name sorts first. The web app also
+/// lists `.avif`, which this window cannot decode, so here it is left out.
+fn list(places: &[String]) -> Option<Listing> {
+    let folder = places.iter().find(|p| Path::new(p).is_dir())?;
+    let mut pictures: Vec<(String, u128)> = std::fs::read_dir(folder)
+        .ok()?
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            let kind = path.extension()?.to_str()?.to_ascii_lowercase();
+            if !matches!(kind.as_str(), "png" | "jpg" | "jpeg" | "gif" | "webp") {
+                return None;
+            }
+            let (_, written) = stamp(&path)?;
+            Some((path.to_str()?.to_string(), written))
+        })
+        .collect();
+    pictures.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    Some(Listing { folder: folder.clone(), total: pictures.len(), pictures: pictures.into_iter().take(LISTED).map(|(path, _)| path).collect() })
+}
+
 fn work(job: &Job) -> Answer {
+    let Some(want) = job.want else { return Answer::Listed(list(&job.places)) };
     if let Some((path, held)) = &job.held {
         // Still the first place that has it, and still the same file.
         let first = job.places.iter().find(|p| stamp(Path::new(p)).is_some());
@@ -210,7 +266,7 @@ fn work(job: &Job) -> Answer {
             return Answer::Same;
         }
     }
-    read(&job.places, job.want)
+    read(&job.places, want)
 }
 
 impl Pictures {
@@ -274,10 +330,17 @@ impl Pictures {
 
     /// Puts an answer on the shelf. Says whether the page now draws something else.
     fn place(shelf: &mut Shelf, key: String, answer: Answer) -> bool {
+        if let Answer::Listed(listing) = answer {
+            let Some(folder) = shelf.folders.get_mut(&key) else { return false };
+            folder.asked = false;
+            let changed = folder.listing.as_ref() != Some(&listing);
+            folder.listing = Some(listing);
+            return changed;
+        }
         let Some(entry) = shelf.entries.get_mut(&key) else { return false };
         entry.asked = false;
         match answer {
-            Answer::Same => false,
+            Answer::Same | Answer::Listed(_) => false,
             Answer::Missing => {
                 if let State::Here { bytes, .. } = entry.state {
                     shelf.bytes -= bytes;
@@ -369,11 +432,33 @@ impl Pictures {
             entry.asked = true;
         }
         drop(shelf);
-        self.send(Job { key, places, want, held: None });
+        self.send(Job { key, places, want: Some(want), held: None });
         match meanwhile {
             Some(held) => Look::Here(held),
             None => Look::Arriving(known),
         }
+    }
+
+    /// The pictures of the folder that is the first of `places` there is. Asking is what has
+    /// it read, off the main thread like a picture.
+    pub fn folder(&self, places: Vec<String>) -> Listed {
+        let key = format!("folder\n{}", places.join("\n"));
+        let mut shelf = self.shelf.lock().unwrap();
+        let folder = shelf.folders.entry(key.clone()).or_insert_with(|| Folder { places: places.clone(), listing: None, asked: false });
+        if self.still && folder.listing.is_none() {
+            folder.listing = Some(list(&places));
+        }
+        let said = match &folder.listing {
+            Some(Some(listing)) => Listed::Here(listing.clone()),
+            Some(None) => Listed::Nowhere,
+            None => Listed::Asking,
+        };
+        if folder.listing.is_none() && !folder.asked {
+            folder.asked = true;
+            drop(shelf);
+            self.send(Job { key, places, want: None, held: None });
+        }
+        said
     }
 
     /// The page says a picture came on screen or left it.
@@ -418,6 +503,7 @@ impl Pictures {
         }
         shelf.owner = owner.map(str::to_string);
         shelf.entries.clear();
+        shelf.folders.clear();
         shelf.bytes = 0;
         self.desk.0.lock().unwrap().jobs.clear();
     }
@@ -436,7 +522,12 @@ impl Pictures {
                     State::Waiting => continue,
                 };
                 entry.asked = true;
-                jobs.push(Job { key: key.clone(), places: entry.places.clone(), want: entry.want, held });
+                jobs.push(Job { key: key.clone(), places: entry.places.clone(), want: Some(entry.want), held });
+            }
+            // And a folder is listed again: a round drawn since shows up beside the others.
+            for (key, folder) in shelf.folders.iter_mut().filter(|(_, f)| !f.asked && f.listing.is_some()) {
+                folder.asked = true;
+                jobs.push(Job { key: key.clone(), places: folder.places.clone(), want: None, held: None });
             }
         }
         for job in jobs {
@@ -452,7 +543,11 @@ impl Pictures {
     pub fn tend(&self, open: Option<&str>, now: f64) -> (bool, bool) {
         self.keep(open);
         let changed = self.land();
-        if self.still || self.never || self.shelf.lock().unwrap().entries.is_empty() {
+        let nothing = {
+            let shelf = self.shelf.lock().unwrap();
+            shelf.entries.is_empty() && shelf.folders.is_empty()
+        };
+        if self.still || self.never || nothing {
             return (changed, false);
         }
         let mut looked = self.looked.lock().unwrap();

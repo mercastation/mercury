@@ -15,7 +15,7 @@ use serde_json::Value;
 
 use crate::State;
 use crate::data::Item;
-use crate::pictures::{Held, Look, Pictures, Want};
+use crate::pictures::{Held, Listed, Look, Pictures, Want};
 use crate::rules::paths::decode_uri;
 use crate::rules::roots;
 use crate::theme::*;
@@ -40,6 +40,11 @@ pub struct Files<'a> {
     pub folder: Option<String>,
     /// Every folder a short path may be in, the likeliest first (`pictureRoots`).
     pub roots: Vec<String>,
+    /// Whether the conversation draws pictures of its own, which keeps a folder it names to
+    /// one line (`drawsPictures`).
+    pub draws_pictures: bool,
+    /// The other threads, for a designs folder named after one.
+    snap: &'a crate::data::Snapshot,
     pub pictures: &'a Pictures,
     /// The window's height, which caps a picture's.
     pub window_h: f32,
@@ -58,6 +63,8 @@ impl<'a> Files<'a> {
         Files {
             folder: roots::task_folder(Some(&repo), Some(&item.id)),
             roots: roots::picture_roots(Some(&dir), Some(&repo), Some(&item.id), &texts),
+            draws_pictures: roots::referenced_files(&texts, Some(&dir)).iter().any(|file| roots::is_image_path(file)),
+            snap: &s.snap,
             dir,
             repo,
             thread: item.id.clone(),
@@ -198,6 +205,99 @@ pub fn media_row(f: &Files, shown: &[Shown], room: f32) -> El {
         let drawn = wide.min(WIDEST);
         watched(col().w(wide).child(frame(held, drawn, ROW_TALL, Some(SurfaceFit::Fill))).child(name_under(src, wide, f.now).mt(6.0)), places, want)
     }))
+}
+
+/// How many of a folder's pictures are drawn (`FOLDER_SHOWS`), three across.
+const FOLDER_SHOWS: usize = 6;
+
+/// A text's baseline under the top of its own line, as `baseline` is for the reading size.
+fn baseline_in(size: f32, line: f32) -> f32 {
+    let snap = |v: f32| (v * 2.0).round() / 2.0;
+    let (up, down) = (snap(1.005 * size), snap(0.295 * size));
+    (((line - up - down) / 2.0 + up) * 2.0).floor() / 2.0
+}
+
+/// A folder a worker names on a line of its own (`FolderPreview` in `Focus.tsx`): a folder
+/// mark and the name the folder goes by, which opens it, then how many pictures it holds, its
+/// six newest three across, and a line for the rest. In a conversation that draws pictures of
+/// its own the folder stays its name, so the same pictures are not drawn twice.
+pub fn folder(f: &Files, href: &str, room: f32, size: f32) -> El {
+    let line = kept(1.6 * size);
+    let short = decode_uri(href.trim_end_matches('/'));
+    let places = f.places(&short);
+    let listed = if f.draws_pictures { None } else { Some(f.pictures.folder(places.clone())) };
+    let titled = crate::rules::mentions::folder_title(href, Some(&f.thread), |id| f.snap.items.iter().find(|i| i.id == id).map(crate::rules::title::row_title));
+    let pictures = match &listed {
+        Some(Listed::Here(listing)) if !listing.pictures.is_empty() => Some(listing),
+        _ => None,
+    };
+    // Its name: the mark, what the folder goes by, and how many pictures once that is known.
+    let mut name = row().h(line).items_center().gap(8.0).child(rune::icon(&crate::icons::MENTION_FOLDER, 15.0).color(muted())).child(text(titled).font(TextStyle::new(size, 500.0).lh(line)).color(ink()));
+    if let Some(listing) = pictures {
+        let count = format!("{} picture{}", listing.total, if listing.total == 1 { "" } else { "s" });
+        name = name.child(text(count).font(TextStyle::new(0.9 * size, 400.0).lh(kept(1.6 * 0.9 * size))).color(muted()).ml(2.0));
+    }
+    let open_folder = {
+        let places = places.clone();
+        move |_: &mut State| {
+            if let Some(found) = places.iter().find(|p| std::path::Path::new(p).is_dir()) {
+                open_with_system(found);
+            }
+        }
+    };
+    // The name stands in a line of reading text with its mark's foot on the baseline, so
+    // the line reaches a little under the name.
+    let name_line = (line - 15.0) / 2.0 + 15.0 + under_baseline(size);
+    let name = row().h(name_line).items_start().child(name.on_press(open_folder.clone()));
+    let wide = ((room - 20.0) / 3.0).max(1.0);
+    let tall = wide * 10.0 / 16.0;
+    let shot = |inside: El| el().size(wide, tall).radius(6.0).fill(rgb(47, 45, 44)).border(1.0, edge()).child(inside.absolute(1.0, 1.0).size(wide - 2.0, tall - 2.0).radius(5.0));
+    let Some(listing) = pictures else {
+        // Still being read: the places its first three will take. Otherwise only its name.
+        if !matches!(listed, Some(Listed::Asking)) {
+            return name;
+        }
+        return col().child(name).child(row().mt(8.0).gap(10.0).children((0..3).map(|_| shot(el()))));
+    };
+    let want = Want::Cover(f.pictures.pixels(wide - 2.0), f.pictures.pixels(tall - 2.0));
+    let label = TextStyle::new(0.82 * size, 400.0).lh(kept(1.6 * 0.82 * size));
+    let shots: Vec<El> = listing
+        .pictures
+        .iter()
+        .take(FOLDER_SHOWS)
+        .map(|file| {
+            let places = vec![file.clone()];
+            let inside = match f.pictures.look(places.clone(), want) {
+                // A cover keeps the picture's top, as a screenshot's top is what tells it apart.
+                Look::Here(held) => el().pixels_fit(&held.pixels, SurfaceFit::Fill).surface_anchor(rune::Align::Center, rune::Align::Start),
+                _ => el(),
+            };
+            let (file, base) = (file.clone(), paths_base(file).to_string());
+            let framed = shot(inside).on_press(move |_: &mut State| open_with_system(&file));
+            watched(col().w(wide).child(framed).child(row().mt(4.0).child(row().min_w(0.0).child(text(base).font(label).color(muted()).truncate()))), places, want)
+        })
+        .collect();
+    // Three across, row under row, ten points apart both ways.
+    let mut grid = col().mt(8.0).gap(10.0);
+    let mut shots = shots.into_iter().peekable();
+    while shots.peek().is_some() {
+        grid = grid.child(row().gap(10.0).children(shots.by_ref().take(3)));
+    }
+    let mut block = col().child(name).child(grid);
+    let more = listing.total.saturating_sub(listing.pictures.len().min(FOLDER_SHOWS));
+    if more > 0 {
+        // A smaller line of words in a line of reading text: the reading line's foot reaches
+        // under it by what its own does not.
+        let small = 0.86 * size;
+        let small_line = kept(1.6 * small);
+        let under = (under_baseline(size) - (small_line - baseline_in(small, small_line))).max(0.0);
+        block = block.child(row().mt(6.0).mb(under).child(text(format!("{more} more in the folder")).font(TextStyle::new(small, 400.0).lh(small_line)).color(dim()).on_press(open_folder)));
+    }
+    block
+}
+
+fn paths_base(file: &str) -> &str {
+    file.rsplit('/').next().unwrap_or(file)
 }
 
 /// Opens what a link in a message points at: an address in the browser, a file in the app
