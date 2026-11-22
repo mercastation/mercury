@@ -13,6 +13,11 @@ A file an agent names in a conversation is not left as its path: a picture is dr
 other file is a mention that opens it, and a folder on a line of its own shows its newest pictures
 ("The files a message names", below).
 
+A conversation shows what each of its agent's runs did: what the run said, between the messages,
+and what it ran folded to one line under that, which a press opens. A thread an agent is on says
+at its foot which step it is on and for how long, and is read again as the run goes on ("What a
+run did", below).
+
 The Inbox is its head strip (the title, New thread, the cloud button on a Mac set up for the cloud
 or offered it, the display button), its tabs (Needs you, In progress, Later while something is in
 it, Done) and the open tab's threads as a table. A row is its title with what follows it (an aside,
@@ -51,7 +56,9 @@ window calls (`POST /api/<channel>`, and `/events` for pushes). Two engines open
   `cargo run -- --door http://127.0.0.1:<port> --token <key>`.
 
 `cargo run -- --watch-door 20` follows the engine for twenty seconds with no window and prints a
-line each time its conversations change: a check that the live path works.
+line each time its conversations change: a check that the live path works. It also reads the
+newest thread the way an open conversation with a run up is read, on every change and every
+eight seconds, and with `MERCURY_READS=1` says what each read asked and how many bytes came back.
 
 The app opens a new door, on another port and with another key, each time it starts. The window
 reads the note again when the door it has stops answering, so it carries on by itself after the
@@ -80,6 +87,14 @@ written from those numbers, not by eye, and drawn from that same fixture. A scen
 `tools/scenes/` that takes the page from Home to the screen to photograph: `inbox`, its three other
 tabs (`inbox-progress`, `inbox-later`, `inbox-done`), `thread` (a whole conversation),
 `thread-folded` (as it first opens) and `thread-more` (the rest of the markdown).
+
+The same conversation is photographed with the logs its runs left, invented in the supervisor's
+own shape (`runs` in `thread.mjs`'s `open`): `thread-steps-folded` (as it first opens),
+`thread-steps` (unfolded, each run's work folded), `thread-steps-open` (one fold pressed open),
+`thread-steps-failed` (a run turned away at its usage limit, and the fold that holds a failed test
+pressed open) and `thread-working` (opened from In progress while a run is up, its last call
+still running). A fixture says which folds were pressed (`runsOpen`) and which thread was open
+when it is not the first in Needs you (`thread`).
 
 A conversation that names files needs files. `tools/pictures.mjs` plants an invented project
 folder in the system's temporary folder (flat pictures of several shapes, a folder of rounds, a
@@ -165,6 +180,20 @@ Inside the answer alone, at 1280 by 760: 0.07 where it is only pictures (`thread
 0.29 to 0.67 where sentences name them, and 1.23 for `thread-links`, whose ten mentions each
 carry an underline two points higher than the web window's (see what still differs).
 
+A conversation with its runs' logs, at 1280 by 760, whole window and the area the runs changed
+(each scene's own `.regions.json`). The text-dense areas of the earlier scenes sit between 1.1 and
+1.9 the same way, from how the two draw a glyph's edge:
+
+| Scene | Whole window | Where the runs are drawn |
+|---|---|---|
+| `thread-steps-folded` | 0.39 | 1.65, the title and its "Show 8 earlier messages" |
+| `thread-steps` | 0.50 | 1.22, a run's sentences and its two folds |
+| `thread-steps-open` | 0.44 | 0.92, a run and its fold opened |
+| `thread-steps-failed` | 0.47 | 0.96 the run turned away, 0.86 the fold with the failed test |
+| `thread-working` | 0.41 | 1.39 what the run said, 0.57 the line at the foot |
+
+`thread-steps-folded` is 0.53 at 900 by 760 and 0.33 at 1600 by 1000.
+
 ## What a press does, frame by frame
 
 A still picture says nothing about what happens between two of them. Rune animates a press by
@@ -181,6 +210,8 @@ cargo run -- --fixture shots/inbox-fixture.json --view inbox --script /tmp/tab.j
 ```
 
 The frame after the press should be the new page whole, and every frame after it the same.
+Pressing the fold of what a run ran in `thread-steps`, filmed at 60 frames a second, draws the
+closed fold until the tap lets go and the opened one whole from the next frame on.
 
 ## What the keys do, and what it writes
 
@@ -235,6 +266,12 @@ env -i HOME=/tmp/scratch/home PATH="$PATH" MERCURY_HOME=/tmp/scratch/store ZERO_
 cargo run -- --door http://127.0.0.1:<port> --token <key> --thread <id> \
   --script keys.json --realtime --strip shots/keys.png --frames 6 --fps 1 --size 1280x760 --scale 1
 ```
+
+`ZERO_NO_SUPERVISOR` keeps the supervisor's clock stopped (`bin/mercury.mjs`), and that is all:
+a thread composed on that engine (`zero:compose`, even with `"start": false`) still started a run
+on 2026-11-22. Under the empty `HOME` it ended at once, refused as not logged in, and the
+supervisor wrote its own note on the thread. To try reading a run's log, plant one under the
+thread's `sessions/` folder in the store rather than write anything that could start a run.
 
 A script is a list of events (`{"t": 0.5, "type": "key", "name": "e"}`, `"type": "type"` with
 `"text"`, `"type": "tap"` with `x` and `y`); `--realtime` lets the three seconds pass. The scenes
@@ -320,6 +357,37 @@ Reading one such screenshot takes 49 ms in the release build and 2.2 s in the de
 (`cargo test --release -- --ignored --nocapture a_screenshot_is_read_in`), so a debug window
 fills in a page of screenshots slowly. `MERCURY_PICTURES=1` prints what is held each time it
 changes.
+
+## What a run did
+
+Each run that picks a thread up leaves a log (`zero:session-trace`; `docs/thread-data.md` says
+what is in one and how it is asked for). The page reads them as the web window does
+(`itemThread` in `renderer/src/item-thread.ts`, ported in `src/talk.rs`):
+
+- Each run hangs under the pickup that started it: the latest run that had already begun when the
+  claim was written, since a worker claims its thread as its first action, sometimes an hour
+  later when the Mac slept first. Its sentences become the agent's messages, each at the moment it
+  was said, and the tools it ran the quiet lines between them, in plain words where a command can
+  be read ("ran the tests", "read …/src/checkout/tax.ts", "pushed the branch main") and as the
+  command otherwise (`src/rules/trace.rs`, `src/rules/work.rs`). The store's own bookkeeping is
+  left out, and a run that stopped on the tool's own refusal says so in the app's words ("This
+  run stopped because the account hit its usage limit.").
+- A run's closing message that types again the answer it wrote to the thread is drawn once, as
+  the thread's; a run still talking after its own line above wears no second name.
+- Each stretch of what a run ran is folded to one line ("Changed files, ran the tests, saved the
+  changes"), with how many of them failed in the stopped colour. A press opens it at once onto
+  each thing it ran, with a mark where there is more behind it and how many lines came back.
+- A long conversation keeps its opening and its last forty messages, with a line for the middle
+  that asks for it whole, as the web window does.
+- While an agent is on the thread, the work since anybody last said anything leaves the
+  conversation, and the line at its foot says which step is running in the agent's own words,
+  how many more run beside it, how long it has worked, and where it runs when that is news. The
+  sentence the agent is typing this second (`saying`) is placed where it began, once.
+- The head strip names the tab that holds the thread now (In progress while an agent is on it),
+  and draws the arrows to the threads before and after only for one in Needs you.
+
+`src/rules/notes.rs` is `renderer/src/notes.ts` whole, with its tests: the diary of a run's
+sentences and its one-line summaries, which no screen of the web window draws today either.
 
 ## The same rows as the web window
 
@@ -420,6 +488,29 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
   only reads, and leaves it out.
 - **The running marks stand still.** The half-dot and the small cloud before "Working" breathe in
   the web window.
+- **What a run did, where it still differs:**
+  - A line inside an opened fold does not open. The web window opens it onto the whole command
+    and the first six lines of what came back, and all of them on a second press; here it shows
+    its mark and how many lines came back. A command the column cuts gets no mark here, where the
+    browser tells the web window it was cut and that gives it one.
+  - A file a run changed is not a chip into the code. The web window makes it one when the
+    thread's change holds that file (`zero:code-change`, not read yet).
+  - Escape does not fold back what was opened on this visit, and an opened fold is not
+    remembered when the thread is left and opened again (`useEscapePutsAway`, `keepPlace`).
+  - The line for a long conversation's missing middle is drawn from the stylesheet: no scene has
+    forty messages, so it was never photographed.
+  - The line at a working thread's foot does not open. The web window opens it onto the steps
+    since the agent last said something, five at most, and the calls running now. Only its
+    working state is drawn: queued, up next, signed out, at its limit, paused, nothing came
+    back, working elsewhere, shipping and waiting on a yes are not.
+  - Its mark and word stand still: the lattice at the web window's own opacity for no motion,
+    the word in full ink without the band that travels through it. A photograph of the web
+    window catches both mid-animation.
+  - In the opened reply box of a thread In progress, the web window puts Stop where Send is
+    until something is typed. This window does not stop agents, so Send stays.
+  - A conversation drawn from the answer its agent is working from lands at its foot, as an
+    unfolded one does; the web window lands on the top of the last message when that message is
+    taller than the window.
 - **The cloud button is a picture of the cloud's state**, with no menu behind it. Live, it goes on
   saying "Sign in again" for as long as an account is stopped: the web window stops saying it once
   its menu has been opened on that account, which it remembers for itself
@@ -440,8 +531,11 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
   foot, a project's colour) and `place.rs` (where a conversation runs).
 - `src/chrome.rs`: the page, the card, the rail. `src/theme.rs`: colours and type.
 - `src/home.rs`, `src/inbox.rs`, `src/thread.rs`: the screens. `src/talk.rs` reads a thread's
-  ledger into a conversation (`docs/thread-data.md` says what the engine is asked), and
-  `src/markdown.rs` draws an agent's words.
+  ledger and its runs' logs into a conversation (`docs/thread-data.md` says what the engine is
+  asked), `src/reads.rs` asks for them and says when, and `src/markdown.rs` draws an agent's words.
+- `src/rules/notes.rs`, `trace.rs`, `work.rs`: a run's log read as the web window reads it, its
+  sentences, the tools it ran in plain words and what came back. `src/rules/live.rs`: the line at
+  a working thread's foot and the line under its title.
 - `src/later.rs`: the Later picker. `src/rules/later.rs` reads the time typed into it, on the
   calendar `src/rules/calendar.rs` keeps.
 - `src/files.rs`: the files those words name, drawn, and the one function that opens one.
