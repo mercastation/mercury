@@ -215,9 +215,9 @@ re!(ANY_EXT, &format!(r"\.(?:{EXT})"), "i");
 re!(FENCE, r"```.*?(?:```|$)", "s");
 
 // A page or a table an agent names by its bare path counts when there is a folder in it; a
-// script named bare is a sentence about code. Read back from each ending.
-const BARE_END_SOURCE: &str = r"\/[\w.-]+\.(?:html?|csv|tsv)(?![\w/-])";
-re!(BARE_END, BARE_END_SOURCE, "i");
+// script named bare is a sentence about code. Read back from each ending. It is the web's
+// `MAY_BE_BARE` too, a copy it keeps only because its `g` makes `test` remember where it was.
+re!(BARE_END, r"\/[\w.-]+\.(?:html?|csv|tsv)(?![\w/-])", "i");
 re!(BARE_OTHER, r"(?<![\w./:@~(\[-])((?:\.?\/)?[\w.-]+(?:\/[\w.-]+)+\.(?:html?|csv|tsv))$", "i");
 // Alone on its line, a name is a claim even with no folder or for a script.
 const ALONE_SOURCE: &str = r"^[ \t]*((?:\.?\/)?[\w-][\w.-]*(?:\/[\w.-]+)*\.[A-Za-z0-9]+)[ \t]*$";
