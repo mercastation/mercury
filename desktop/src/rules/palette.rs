@@ -138,9 +138,9 @@ fn return_at(item: &Item) -> f64 {
 /// `open` says the thread is the conversation on screen, which has no row to open.
 ///
 /// Left out, because this window cannot do them yet: Remote control, Open terminal, Approve,
-/// Run now, Close task, Try again and Resume this agent, Mark read and Mark unread, Stop, Send
-/// back to agent, the thread's own menu (rename, pin, where it runs, who sees it), its model,
-/// its project and its priority.
+/// Run now, Close task, Resume this agent, Mark read and Mark unread, Stop, Send back to agent,
+/// the thread's own menu (rename, pin, where it runs, who sees it), its model, its project and
+/// its priority. Try again goes in after Reply where the window offers it (`with_try_again`).
 pub fn thread_commands(item: &Item, open: bool, now: f64) -> Vec<Row> {
     let thread = || (item.id.clone(), item.product.clone());
     let mut rows = Vec::new();

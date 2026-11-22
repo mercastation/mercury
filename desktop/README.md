@@ -51,16 +51,24 @@ can, and a right press on a link or a picture opens the web window's menu for it
 the pointer and the hands", below).
 
 A conversation shows what each of its agent's runs did: what the run said, between the messages,
-and what it ran folded to one line under that, which a press opens. A thread an agent is on says
-at its foot which step it is on and for how long, and is read again as the run goes on ("What a
-run did", below). That line moves as the web window's does, its mark lighting in orbit and its
-word shimmering, and a press opens it onto the steps since the agent last said anything ("What
-moves on its own", below).
+and what it ran folded to one line under that, which a press opens, and each line in it opens
+onto the whole command and what came back. A thread an agent is on says at its foot which step it
+is on and for how long, and is read again as the run goes on; a thread no agent of this window is
+on says there why, in the web window's words (queued, up next, signed out, at its limit, paused,
+nothing came back, working elsewhere, shipping, waiting on a yes, cannot start, nothing running),
+with Try again where nothing will start it without the person, and a stopped one wears the bar
+that tries again over its title ("What a run did", below). Escape folds back what was opened on
+this visit, a conversation left and opened again is as it was left, and one opens where a person
+starts reading, its last message. The working line moves as the web window's does, its mark
+lighting in orbit and its word shimmering, and a press opens it onto the steps since the agent
+last said anything ("What moves on its own", below).
 
 The Inbox is its head strip (the title, New thread, the cloud button on a Mac set up for the cloud
 or offered it, the display button), its tabs (Needs you, In progress, Later while something is in
 it, Done) and the open tab's threads as a table. A row is the mark of the agent it runs on, its
-title with what follows it (an aside, "not started", a pin), the Status word with its mark, the
+title with what follows it (an aside, "not started", a pin), the Status word with its mark, Try
+again after it on a thread nothing will start, and under the pointer its whole sentence or the
+card saying why the cloud has not got the thread, the
 project, the priority, Medium included, and a time: when it was sent, when it comes back under
 Later, when it was finished under Done. The display button opens
 View and filters, whose sort and filters every list follows and which this window keeps for the
@@ -630,7 +638,7 @@ The keys are the web window's (`src/keys.rs`, from the keydown handler in `rende
 | The Inbox | E | Marks the row done (under Needs you and In progress); under Later, brings it back |
 | The Inbox, a conversation | L | Opens the Later picker on the thread |
 | The Later picker | ↓, ↑, Enter, Esc | Walks its moments and picks the one lit, or what is typed; Esc closes it |
-| A conversation | Esc | Folds the working line's steps, then the reply box, then goes back, onto the tab that holds the thread now |
+| A conversation | Esc | Folds back what was opened on this visit, newest first (the folds and lines of what a run ran together, the working line's steps), then the reply box, then goes back, onto the tab that holds the thread now; with a file beside it, what was opened after the file, then the file |
 | The reply box | Esc | Folds it when it is empty; holding words or files, lets go of it, and the next Esc folds it |
 | A conversation | J, K | Goes to the next thread that needs the person, or the one before |
 | A conversation | ↓, ↑, Enter | Walks the agent's options and sends the one lit |
@@ -1853,25 +1861,75 @@ what is in one and how it is asked for). The page reads them as the web window d
 - A run's closing message that types again the answer it wrote to the thread is drawn once, as
   the thread's; a run still talking after its own line above wears no second name.
 - Each stretch of what a run ran is folded to one line ("Changed files, ran the tests, saved the
-  changes"), with how many of them failed in the stopped colour. A press opens it at once onto
-  each thing it ran, with a mark where there is more behind it and how many lines came back.
+  changes"), with how many of them failed in the stopped colour, and its whole tally as its title
+  ("24 things it did · ran 18 · read 4 · edited 2", `runSummary`). A press opens it at once onto
+  each thing it ran.
+- Each of those lines has the web window's three states (`WorkLine`): shut, it is its mark, its
+  verb, what it acted on in the code face and "· 8 lines"; a press opens it onto the whole command
+  in a block (`.did-full`) and the first six lines of what came back in another (`.did-out`), with
+  "show all 8 lines" under them, whose press opens all of them and says under them what the log
+  did not keep (`outputCut`); a press on the line shuts it from either. A line opens when
+  something came back, when its words were shortened from the command, or when the column cut
+  the command, which it is measured for where it is laid out (`clipped`); otherwise it takes no
+  press and does not answer the pointer. Under the pointer its verb is the text's ink and its
+  mark dim.
+- Escape folds back what was opened on this visit, newest first (`putAwayTheNewest`): every fold
+  and line opened since the conversation was opened at once, as one step, and the working line's
+  steps as another; then the reply box, then the conversation. A file opened beside the
+  conversation counts too: what was opened after it goes first, then the file, then what was
+  opened before it (`docOpenedAt`). Folding something by hand takes it off the step.
+- Where the person was in a conversation is kept (`thread-place.ts`): the earlier messages shown,
+  the middle asked back, the folds and lines opened and how far, and how far they had scrolled it
+  themselves (the wheel is their hand). Coming back puts all of it back while the thread's newest
+  answer is the one it had when it was left, and reaches for the scrolled place while the page
+  settles; with news since, it opens as new. The newest fifty are written down with this window's
+  picks, so they outlast a restart, as the web window's do.
+- A conversation drawn as one (unfolded, from the answer an agent is working from, or short
+  enough to be drawn whole) lands where a person starts reading (`holdAtBottom`, `landingTop`): 20
+  points over the top of its last message, the outcome when there is one, or at its foot when that
+  and all under it fit, and holds there for 2.5 seconds while the page settles, until the person
+  scrolls; landed at its foot it stays there as it grows. A page that leads with the answer alone
+  opens at its top. Off its foot, what is read stays put when something over it changes height,
+  as a browser keeps it (`scroll_anchor`).
 - A long conversation keeps its opening and its last forty messages, with a line for the middle
-  that asks for it whole, as the web window does.
+  that asks for it whole (`.thread-gap`, dim and underlined under the pointer); what was under the
+  line stays where it is on the screen as the middle comes in over it (`openGap`).
 - While an agent is on the thread, the work since anybody last said anything leaves the
   conversation, and the line at its foot says which step is running in the agent's own words,
-  how many more run beside it, how long it has worked, and where it runs when that is news. The
-  sentence the agent is typing this second (`saying`) is placed where it began, once.
-- That line's words are a press, with a chevron after them that shows under the pointer and
-  turns down while it is open (`.live-disclosure`). Open, it lists the steps the run that is up
-  took since it last said anything, the newest five oldest first with the rest counted ("3
-  earlier steps since it last said something"), then each call running now, each row its mark
-  and its words, which a press opens onto the command behind it, in a block as code is
-  (`stepsSinceLastSaid`, `previousActivity`, `src/rules/live.rs` with the web's case). Escape
-  folds them before it leaves the conversation, and another conversation or another run starts
-  folded. The scenes `thread-working-steps` and `thread-working-steps-open` (its first step
-  opened, `liveOpen`, `liveRowsOpen`) are 0.39 and 1.19 whole at 1280 by 760, the line with its
-  steps (`.live-activity`) 0.73 and 2.73: the opened command is set in Geist Mono where the web
-  window's is the system's monospace (see what still differs).
+  how many more run beside it, how long it has worked, and where it runs when that is news: "in
+  the cloud", or "on this Mac" while the cloud takes everything, with the card saying why over it
+  while the pointer rests there. The sentence the agent is typing this second (`saying`) is
+  placed where it began, once. The line is drawn again every fifteen seconds while it counts.
+- In every other state the line says why nothing is moving (`liveLine`, the whole of it in
+  `src/rules/live.rs` with the web's cases): Asking with the time of the run waiting on a yes;
+  Working, its mark turning, for an agent outside this window; Shipping, Up next, Queued and
+  Paused; for signed out, at its limit and cannot start the whole sentence ("Claude Code is at its
+  usage limit, so this starts on its own when it resets at 3:00pm."); Nothing came back with how
+  long ago; Nothing running. Its mark stands still there, every cell at 0.35. Try again follows
+  where nothing will start the thread without the person (`offersTryAgain`): a quiet button that
+  takes the strong wash under the pointer. Out of In progress, a thread whose newest word is the
+  app's note that a run got nowhere gets the one line true of it: Nothing running, and Try again.
+  What the line says is read aloud whole.
+- A stopped thread draws no line; the bar over its title says so (`.stalled-bar`: "The agent
+  stopped without finishing this.", and that the person's answer still waits when it does, "try
+  again →" at its end), its edge lit under the pointer, and a press anywhere on it tries again.
+- Try again (on the line, the bar, a row and the command bar) is Resume on that one thread
+  (`zero:resume-items` with its id), and a line says what came back, as the web window's does
+  (`tryAgainWords`): "Trying again now.", "Queued.", or why not; with no app behind the window,
+  "Try again did not reach the app." The lists are read again at once. Checked headless against
+  a small door on loopback that answered `thread-line-idle`'s inbox: the press wrote
+  `{"ids":["w-readme0"]}` and the line said "Trying again now.". On a scratch engine the channel
+  answered as the web window reads it (the supervisor's queue, a list, over the count of that
+  name, which is why anything that did not start now says Queued there and here).
+- That line's words are a press while it works, with a chevron after them that shows under the
+  pointer and turns down while it is open (`.live-disclosure`). Open, it lists the steps the run
+  that is up took since it last said anything, the newest five oldest first with the rest counted
+  ("3 earlier steps since it last said something"), then each call running now, each row its mark
+  and its words, which a press opens onto the command behind it, in a block in the system's
+  monospace (`stepsSinceLastSaid`, `previousActivity`). Opening it asks for the run's log at once;
+  a read that fails says "Couldn’t read the command history." under them until one lands, with
+  only the calls running now listed when no read has landed since it opened, and with nothing at
+  all to list it says "No commands yet.". Another conversation or another run starts folded.
 - A chat just brought in, owed the run that writes it up (`catchUpDue`), says under its title
   "Getting this chat ready. Its summary and options will appear here.", shimmering, over its
   newest answer, as the web window's does (`thread-getting-ready`: 0.69 whole, 1.19 the column
@@ -1879,12 +1937,53 @@ what is in one and how it is asked for). The page reads them as the web window d
 - Under the title of a thread an agent is on, the line says what was asked: the first paragraph of
   the ask that is not a lead-in ending in a colon ("Priya Shah asked:" says who, not what), a link
   in it read as its words, and nothing when the title already says it (`askLine`, with the web's
-  cases).
+  cases); nothing of a cause's ask; and for a run of a repeating task its schedule after it
+  ("Repeats weekdays at 9:00am.", `workingContext`, `repeatsLine`), from the rules `zero:repeats`
+  lists, read when such a run is open and again when the threads change in number.
 - The head strip names the tab that holds the thread now (In progress while an agent is on it),
   and draws the arrows to the threads before and after only for one in Needs you.
 
 `src/rules/notes.rs` is `renderer/src/notes.ts` whole, with its tests: the diary of a run's
 sentences and its one-line summaries, which no screen of the web window draws today either.
+
+`docs/parity-run.md` is the checklist of all of this, line by line against the web window's
+code, each line with how it was checked or why it is not done.
+
+The scenes (`tools/scenes/thread-line*.mjs`) open `thread-working`'s conversation with the run
+taken away, or kept, and the supervisor saying each state (`fleet` in `thread.mjs`'s `open`);
+`thread-line-tried` is Try again pressed, `thread-line-hover-*` the pointer on Try again, the bar
+and the place. At 1280 by 760, 2x, of 255, whole and the line at the foot (the bar for
+`stalled`):
+
+| State | Whole | The line |
+|---|---|---|
+| Nothing running, with Try again (`idle`) | 0.33 | 0.48 |
+| Queued, Up next, Paused, Shipping | 0.33, 0.33, 0.40, 0.33 | 0.26, 0.17, 0.20, 0.21 |
+| Cannot start (asleep), Signed out, At its limit | 0.35, 0.34, 0.35 | 1.17, 1.06, 1.46 |
+| Working elsewhere, Nothing came back | 0.33, 0.33 | 0.59, 0.59 |
+| Asking | 2.67, the web window's approval card over the page | 0.38 |
+| Working on this Mac (`here`) | 0.44 | 0.90, the mark in another phase |
+| Stopped: the bar | 0.35 | 0.73 |
+
+The long sentences sit between 1.0 and 1.5 as other long lines of text do, from where the two put
+each glyph's edge. Under the pointer: Try again 2.04 (1.31 at rest), the bar 0.79 (0.79), the
+place with its card 1.47 (1.71), the card itself 0.75. The line said after Try again is the web
+window's to the word; it stands ten points further left in the strip, as this window's lines do
+there.
+
+A run's lines, photographed in a window 2400 points tall so the whole conversation shows
+(`thread-steps-line`, `-line-all`, `thread-steps-cut`, `-cut-shut`: the git log line opened, then
+all of it, and a command the column cuts, opened and shut), the opened fold: 0.80, 0.88, 1.21
+and 1.11; whole 0.58, 0.66, 0.56, 0.55. The cut command gets its mark from the frame after its
+first layout (`--at`), as it is measured where it is laid out. Filmed at 60 frames a second, a
+press on a line draws it shut until the press lets go and opened whole from the next frame.
+The long conversation (`thread-long`, forty-five checkpoints, scrolled to its top) is 0.52 whole,
+its gap line 0.29, and 0.58 with the pointer on it (0.44 at rest). The working line opened
+(`thread-working-steps-open`) is 1.17 whole, its steps 2.10 and the opened command 3.43, where
+they were 1.20, 2.32 and 4.17 in Geist Mono; `thread-working-steps-unread` (every read of the log
+failing) 0.43 whole, its steps 0.38. Every other conversation scene measured before this
+(`thread`, `-folded`, `-steps*`, `-options`, `-pictures-large`, `-reply-attached`,
+`-getting-ready`, `-working`) draws as it did, to the pixel.
 
 ## What moves on its own
 
@@ -1986,7 +2085,20 @@ stands around the rows: which tabs the strip draws and with which numbers, what 
 called, and what the cloud button wears. Any other picture of the Inbox left in the folder (a
 cloud scene, `inbox-later-kinds`) is held the same way. On the invented inbox and on the invented
 cases (`--cases`, whose rows run on Claude Code, Codex and Antigravity by their labels, their run
-and the engine's answer) every table row is the web window's.
+and the engine's answer) every table row is the web window's. A row is held by its Try again
+mark too, and by what its Status word says under the pointer: its sentence (the cell's `title`)
+and whether the card saying why the cloud has not got it takes the sentence's place
+(`.has-card`). `inbox-progress-stuck` is the In progress tab with a thread in each state a run
+can be in that its row says; it, the cases (5 marks under Needs you, 16 under In progress, 39
+sentences, 2 cards), the invented inbox and the running app's own inbox through `--door` all
+hold with 0 differences.
+
+The Try again mark (`th-retry`, the refresh arrow in an 18-point square after the word) takes
+the strong wash under the pointer; a press tries again and does not open the row. The card under
+a row's Status word is the web window's (`.th-why-card`), and as there the rows after it paint
+over it, so under a row with another after it only its top shows; under the last row all of it.
+`inbox-progress-stuck` is 0.29 whole against the web window's, with the pointer on a mark 0.34
+(0.34 at rest), on a Status word with its card 0.32 whole (the card's sliver 0.85).
 
 ```sh
 node desktop/tools/rows.mjs desktop/shots --shoot <checkout>            # the invented inbox
@@ -2222,13 +2334,14 @@ release or a second login.
     has an underline and no offset. The same was already true of a link.
   - A picture not found under any root is missing. The web window then asks the app, which
     also hunts the project's folders for a file of that name.
+  - With pictures above the place being read still loading, the landing on the last message
+    holds for its 2.5 seconds only on the turns the window takes (a picture landing is one),
+    where the web window's holds on every change of height.
   - A picture on the web (`https://…`) or pasted as `data:` is a mention, not drawn: this window
     reads pictures from the disk only. An `.svg` and an `.avif` are not decoded and say missing;
     an animated picture shows its first frame.
   - The place held for a picture on its way, and a missing picture's mark, do not change under
     the pointer, and the place does not shimmer.
-  - A conversation opened unfolded lands on its foot. The web window lands on the top of the
-    last answer when that answer is taller than the window, which pictures make it.
   - What only a conversation between people has is not drawn: tiles under a message
     (`MessageFiles`), how a file reached a teammate, a voice note. Nor a thread or a connection
     named as a link, which stays a link.
@@ -2460,8 +2573,8 @@ release or a second login.
     restarts, Pause agents, Resume interrupted agents, General agent instructions, Usage and
     limits, Settings, Keyboard shortcuts, Show as a board, Import chats and agents, the tutorial,
     setting Mercury up again, a demo copy and keyboard shortcut hints. On a thread: Remote
-    control, Open terminal, Approve, Run now, Close task, Try again and Resume this agent, Mark
-    read and Mark unread, the thread's own menu (who sees it, pin, rename, where it runs and the
+    control, Open terminal, Approve, Run now, Close task, Resume this agent (Try again, offered in
+    its place on a stuck thread, is listed, after Reply), Mark read and Mark unread, the thread's own menu (who sees it, pin, rename, where it runs and the
     rest), its model, moving it to another project, Stop, Send back to agent, Restart the agent
     and its priority. With rows ticked the web's bar acts on all of them; here none can be ticked.
   - It finds threads only, the best five, with no "See all" row, since this window has no search
@@ -2488,9 +2601,6 @@ release or a second login.
   does not ask, so on a Mac with repeating tasks its Later says a smaller number and has fewer rows.
   A terminal agent put off, which the web window lists when the setting for such agents is on, is
   not there either.
-- **No "try again" mark.** After the Status word of a thread nothing will start (Stopped, Nothing
-  running, At its limit) the web window draws a small button that starts it again. This window
-  only reads, and leaves it out.
 - **What moves on its own, where it still differs** (see "What moves on its own"):
   - The band crosses the word as vertical strips: the web window's gradient leans ten degrees,
     which moves its edges a point and a half between the word's top and its foot.
@@ -2505,28 +2615,31 @@ release or a second login.
     in a card over the strip while the pointer is on it (`.opt-peek`, coming in over 0.13 s).
   - The bar along a toast's foot is drawn anew every 33 ms rather than as a loop.
 - **What a run did, where it still differs:**
-  - A line inside an opened fold does not open. The web window opens it onto the whole command
-    and the first six lines of what came back, and all of them on a second press; here it shows
-    its mark and how many lines came back. A command the column cuts gets no mark here, where the
-    browser tells the web window it was cut and that gives it one.
+  - A command the column cuts gets its mark a frame after the line is first laid out: it is
+    measured where Rune lays it out, after the frame is drawn, where the browser measures it
+    before it paints.
   - A file a run changed is not a chip into the code. The web window makes it one when the
     thread's change holds that file (`zero:code-change`, not read yet).
-  - Escape does not fold back what was opened on this visit, and an opened fold is not
-    remembered when the thread is left and opened again (`useEscapePutsAway`, `keepPlace`).
-  - The line for a long conversation's missing middle is drawn from the stylesheet: no scene has
-    forty messages, so it was never photographed.
-  - Of the line at a working thread's foot only its working state is drawn: queued, up next,
-    signed out, at its limit, paused, nothing came back, working elsewhere, shipping and waiting on
-    a yes are not. Opened, its steps are those the conversation leaves out while the run is up,
-    read with the conversation, where the web window asks for the run's log again while it is
-    open; one that cannot be read says nothing of it, where the web window's says it could not.
-    The command a step opens onto is set in Geist Mono, where the web window's is the system's
-    monospace, which Rune's font slots do not offer beside Geist Mono.
+  - Where the cloud says why a run is on this Mac, and on a row whose Status word carries that
+    card, the web window shows the help pointer (`cursor: help`). Rune's pointers have no help
+    shape, and Chromium's is a picture of its own, not one the system has; this window shows the
+    arrow over the place and the pointing hand over a row, which is the row's.
+  - The person's hand that ends a landing and keeps a scrolled place is the wheel here; the web
+    window also counts a key or a press in the conversation (`HER_GESTURES`), which Rune does not
+    report to a scrolling box without taking them from what is in it.
+  - The working line's steps are read with the conversation, on every change the engine pushes
+    and every eight seconds while a run is up, open or not, and opening the line asks at once,
+    where the web window asks for the run's log alone while the line is open. One failed read of
+    either says the history could not be read, as the web window says of its own.
+  - The system's monospace is set 0.217 points a letter closer than Rune sets it at 12 points,
+    which is where Chromium sets it; `'trak' 0` does not take Rune's tracking back.
+  - Signed out never points at a sign-in bar at the top of the Inbox (`signInBar`): this window
+    has no such bar, so the sentence says to sign in from a terminal, as the web window's does
+    with its bar down.
+  - The walkthrough's practice thread never reads as being answered (`answering`): the window
+    has no walkthrough, and so never draws working on one.
   - In the opened reply box of a thread In progress, the web window puts Stop where Send is
     until something is typed. This window does not stop agents, so Send stays.
-  - A conversation drawn from the answer its agent is working from lands at its foot, as an
-    unfolded one does; the web window lands on the top of the last message when that message is
-    taller than the window.
 - **The Inbox's two menus, where they still differ** (see "The Inbox's View and filters, and the
   cloud's menu"):
   - The board is the web window's. Board in the menu and B say so, and the list stays a list; a
@@ -2574,8 +2687,16 @@ release or a second login.
   ledger and its runs' logs into a conversation (`docs/thread-data.md` says what the engine is
   asked), `src/reads.rs` asks for them and says when, and `src/markdown.rs` draws an agent's words.
 - `src/rules/notes.rs`, `trace.rs`, `work.rs`: a run's log read as the web window reads it, its
-  sentences, the tools it ran in plain words and what came back. `src/rules/live.rs`: the line at
-  a working thread's foot, the steps it opens onto, and the line under its title.
+  sentences, the tools it ran in plain words and what came back. `src/rules/live.rs`: whether
+  anything is happening on a thread (`liveLine`), what the line at its foot draws in each state,
+  the steps it opens onto, when Try again is offered and what it says, and the line under its
+  title. `src/rules/status.rs` reads the same line for the Inbox's Status word.
+- `src/foot.rs`: the facts a conversation's line is read from, the bar over a stopped
+  conversation, Try again on the line, the bar, a row and the command bar and what a press of it
+  writes, the card saying why the cloud has not got a thread, and the repeating tasks' rules.
+  `src/thread.rs` draws the line itself, a run's lines in their three states, and keeps what was
+  opened, where a conversation was left (in `src/picks.rs`) and where it lands.
+  `docs/parity-run.md`: the checklist of all of it against the web window.
 - `src/rules/motion.rs`: what moves on its own, as Rune's loops: the lattice's keyframes, the
   breath, the shimmer's veil and the ground it is drawn in. `tools/film.py` holds a film of this
   window's working line against the web window's (`MERCURY_FILM` in `tools/reference.mjs`).

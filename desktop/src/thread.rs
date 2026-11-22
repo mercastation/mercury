@@ -6,8 +6,9 @@
 //! The page opens the way the web app's does: on the newest answer alone, with the rest of the
 //! conversation folded behind one line under the title. Pressing that line unfolds it. What
 //! each run did is in the conversation (`Thread.tsx`): what it said, at reading size, and what
-//! it ran folded to one quiet line under that, which a press opens to each thing it ran. While
-//! an agent is on the thread, a line at the foot says what it is doing now (`Live.tsx`).
+//! it ran folded to one quiet line under that, which a press opens to each thing it ran, each of
+//! which opens onto its command and what came back. A line at the foot says what an agent is
+//! doing now, or why none is (`Live.tsx`, `foot.rs`).
 //!
 //! A thread that made or named files carries a Files button in its head strip, with how many,
 //! which opens the list of them (`ThreadFiles.tsx`).
