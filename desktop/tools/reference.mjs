@@ -234,6 +234,22 @@ try {
   const png = path.join(outDir, `${scene}-real.png`);
   // The page's own clock at the shutter, so a native picture can tell the same ages.
   const at = await h.evaluate('Date.now()');
+  // MERCURY_FILM=<frames>@<fps>[:x,y,w,h] films what moves on its own: every animation on the
+  // page is stopped where it is and moved on a frame's time at each shutter, so each frame is
+  // the page exactly that long after the one before, whatever the machine's speed. The frames
+  // are `<scene>-film-0000.png` on, of the region in points when one is named.
+  if (process.env.MERCURY_FILM) {
+    const [count, rest] = process.env.MERCURY_FILM.split('@');
+    const [fps, crop] = rest.split(':');
+    const [x, y, w, hgt] = crop ? crop.split(',').map(Number) : [0, 0, width, height];
+    await h.evaluate('(() => { window.__FILM__ = document.getAnimations().map((a) => [a, a.currentTime]); for (const [a] of window.__FILM__) a.pause(); })()');
+    for (let k = 0; k < Number(count); k += 1) {
+      await h.evaluate(`(() => { for (const [a, t] of window.__FILM__) a.currentTime = t + ${(k * 1000) / Number(fps)}; })()`);
+      const { data } = await h.call('Page.captureScreenshot', { format: 'png', clip: { x, y, width: w, height: hgt, scale: 1 } });
+      fs.writeFileSync(path.join(outDir, `${scene}-film-${String(k).padStart(4, '0')}.png`), Buffer.from(data, 'base64'));
+    }
+    await h.evaluate('(() => { for (const [a] of window.__FILM__) a.play(); })()');
+  }
   await h.capture(png);
   const dump = await h.evaluate(DUMP);
   dump.pointers = await h.evaluate(POINTERS(fed.pointer));

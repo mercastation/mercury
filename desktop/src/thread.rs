@@ -19,6 +19,7 @@ use rune::time::LocalTime;
 use rune::{Drag, El, Icon, Phase, ScrollSpec, TextCase, TextStyle, col, el, icon, row, spacer, text, text_input};
 use serde_json::{Map, Value, json};
 
+use crate::attach::Holder;
 use crate::data::{Item, Priority, Tab};
 use crate::files::Files;
 use crate::home;
@@ -44,6 +45,14 @@ pub struct Reading {
     files: Option<String>,
     /// The file of the open list under the pointer.
     file_lit: Option<usize>,
+    /// The conversation, by `product/id`, whose working line is on screen: its loops run only
+    /// while it is, since a loop nobody can see would have the window draw the whole page
+    /// every frame (`on_visible`).
+    live_seen: Option<String>,
+    /// The run, by `product/id|started`, whose line was first seen, and when on the window's
+    /// clock: the web window's mark and band start their loops as the line mounts, and so do
+    /// these, from then on, the line scrolled away and back or not.
+    live_from: Option<(String, f64)>,
 }
 
 impl Reading {
@@ -743,26 +752,109 @@ fn conversation(s: &State, thread: &str, page: &Page, now: f64, m: &Measure, fil
     out.pb(22.0)
 }
 
+/// Frames a second the line's loops ask for while nothing else moves: the web window's run at
+/// the display's rate, and at 60 the lattice's quickest change is nine frames long and the band
+/// moves a point or two a frame.
+const LOOP_FPS: f32 = 60.0;
+
+/// A loop's place in its period at `from` seconds on the window's clock, for a loop that starts
+/// then: a `Cycle` stands at `t / period − phase`, so one that starts at `from` adds this.
+fn started(from: f64, period: f32) -> f32 {
+    (from / f64::from(period)).rem_euclid(1.0) as f32
+}
+
+/// The working mark (`LiveMark`): nine round cells in a square of 14 points, the eight round the
+/// edge lighting in turn as an orbit (`live-lattice-orbit`), the middle a hole. Each cell is a
+/// loop of its own on Rune's clock (`rules::motion`), which the window draws without building the
+/// page again, and which holds the web's still opacity under Reduce motion. The orbit starts
+/// where the web's does as the line mounts, at `from` on the window's clock. The cells are where
+/// the grid puts them, between device pixels, as the browser draws them.
+fn lattice(moving: bool, from: f64) -> El {
+    use crate::rules::motion::{LATTICE_HOLE, LATTICE_ORBIT, LATTICE_PERIOD, LATTICE_STILL, lattice_phase, lattice_stops};
+    let side = 14.0 / 3.0 - 1.0;
+    let start = started(from, LATTICE_PERIOD);
+    let cell = move |at: usize| {
+        let dot = el().size(side, side).radius(side / 2.0).fill(ink()).a11y_hidden();
+        match LATTICE_ORBIT[at] {
+            Some(place) if moving => dot.cycle(rune::Cycle { period: LATTICE_PERIOD, phase: lattice_phase(place) + start, stops: lattice_stops(), still: LATTICE_STILL, fps: LOOP_FPS }),
+            Some(_) => dot.opacity(LATTICE_STILL),
+            None => dot.opacity(LATTICE_HOLE),
+        }
+    };
+    // A still mark is other elements than a turning one, so the loops leave with the cells they
+    // ran on rather than staying on them, cooling.
+    col().key(if moving { "live-mark" } else { "live-mark-still" }).size(14.0, 14.0).gap(1.5).pixel_snap(false).children((0..3).map(move |r| row().gap(1.5).children((0..3).map(move |c| cell(r * 3 + c)))))
+}
+
+/// The key of the step's word, whose place says what ground its veil is drawn in.
+const LIVE_WORD: &str = "live-word";
+
+/// The step's word (`.live-word.is-shimmering`): in full ink, with the soft band of the web
+/// window's mask travelling through it from left to right every 2.6 seconds, drawn as a veil of
+/// the ground over it in strips, each a loop (`rules::motion::shimmer_veil`). `wide` is how wide
+/// the word stands. Under Reduce motion (`still`) the web window takes the band away and draws
+/// the word in dim ink, and so does this one; off screen (`moving` false) it has no band. The
+/// band starts off the word's left end at `from`, as the web's does when the line mounts.
+fn shimmering(s: &State, words: &str, font: TextStyle, wide: f32, still: bool, moving: bool, from: f64) -> El {
+    use crate::rules::motion::{LEAST, SHIMMER_PERIOD, ground_under_the_card, shimmer_veil};
+    // The step is said aloud each time it changes (`live-announcement`, `role="status"`).
+    let word = text(words).font(font).color(if still { dim() } else { ink() }).truncate().live_region(rune::LiveRegion::Polite);
+    let boxed = el().key(LIVE_WORD).shrink().min_w(0.0).child(word);
+    if still || !moving {
+        return boxed;
+    }
+    // The ground under the word: where it was last laid out, else where a working line stands.
+    let at = rune::memo::window_layout(LIVE_WORD).map_or((s.size.0 * 0.3, s.size.1 * 0.8), |[x, y, w, h]| (x + w / 2.0, y + h / 2.0));
+    let [r, g, b] = ground_under_the_card(at, s.size);
+    let ground = rgb(r.round() as u8, g.round() as u8, b.round() as u8);
+    let veil = shimmer_veil(wide, 20.0);
+    let start = started(from, SHIMMER_PERIOD);
+    let strips = veil.strips.into_iter().map(move |strip| {
+        el().absolute(strip.x, 0.0).size(strip.w, 20.0).fill(ground).a11y_hidden().cycle(rune::Cycle { period: SHIMMER_PERIOD, phase: strip.phase + start, stops: veil.stops, still: LEAST, fps: LOOP_FPS })
+    });
+    boxed.clip_rounded(0.0).children(strips)
+}
+
+/// How wide the step's word stands on the line: as wide as its words, unless the column leaves
+/// it less after the mark, the counts and times beside it and the chevron, when it is cut short.
+fn word_room(line: &live::Working, word: TextStyle, beside: TextStyle, column: f32) -> f32 {
+    let natural = rune::text::measure(&line.word, &[], word, None).0;
+    let spans: f32 = [line.more.as_deref(), Some(line.span.as_str()), line.place.as_deref()].into_iter().flatten().map(|s| 6.0 + rune::text::measure(s, &[], beside, None).0).sum();
+    natural.min((column - 14.0 - 7.0 - spans - 6.0 - 10.0).max(0.0))
+}
+
 /// The line at the foot of a conversation an agent is on (`Live.tsx`, working): the mark, the
 /// step it is on in its own words, how many more run beside it, how long it has been at it,
-/// and where it runs when that is news. The web window's mark turns and its word shimmers;
-/// here both stand still, the mark at the web's own opacity for no motion.
-fn live_line(line: &live::Working, m: &Measure) -> El {
+/// and where it runs when that is news. The mark turns and the word shimmers, as the web
+/// window's do, and both stand still under Reduce motion (`still`), as the web's then do. They
+/// move only while the line is on screen: the window reports it (`on_visible`), and until it
+/// has, for the frame a conversation opens on, the mark stands as it does under Reduce motion.
+fn live_line(s: &State, thread: &str, run: String, line: &live::Working, m: &Measure, still: bool) -> El {
+    let moving = !still && s.reading.live_seen.as_deref() == Some(thread);
+    let from = s.reading.live_from.as_ref().filter(|(seen, _)| *seen == run).map_or(0.0, |(_, at)| *at);
     let font = TextStyle::new(13.5, 400.0).lh(20.0);
-    let cell = |lit: bool| el().size(14.0 / 3.0 - 1.0, 14.0 / 3.0 - 1.0).radius(1.85).fill(ink()).opacity(if lit { 0.65 } else { 0.1 });
-    let mark = col().size(14.0, 14.0).gap(1.5).children((0..3).map(|r| row().gap(1.5).children((0..3).map(move |c| cell(!(r == 1 && c == 1))))));
-    // The step is said aloud each time it changes (`live-announcement`, `role="status"`).
-    let word = text(line.word.as_str()).font(TextStyle::new(13.5, 500.0).lh(20.0)).color(ink()).truncate().live_region(rune::LiveRegion::Polite);
+    let word_font = TextStyle::new(13.5, 500.0).lh(20.0);
+    let wide = word_room(line, word_font, font.features("'tnum' 1"), m.column);
     // Rune's flex never shrinks a child below what it holds unless told to (`shrink`), and
     // the step is the one part that gives way.
-    let mut words = row().items_center().gap(6.0).shrink().child(row().shrink().child(word));
+    let mut words = row().items_center().gap(6.0).shrink().child(shimmering(s, &line.word, word_font, wide, still, moving, from));
     for span in [line.more.as_deref(), Some(line.span.as_str()), line.place.as_deref()].into_iter().flatten() {
         words = words.child(text(span).font(font.features("'tnum' 1")).color(muted()));
     }
+    let thread = thread.to_string();
     // No wider than the column: a step is often a whole command line, and it is cut short with
     // dots, as `.live-disclosure .live-word` cuts it, rather than run past the page. The stack
     // it stands in takes its width from what is in it, so the column is said here.
-    row().max_w(m.column).items_center().gap(7.0).child(mark).child(words)
+    row().max_w(m.column).items_center().gap(7.0).child(lattice(moving, from)).child(words).on_visible(move |s: &mut State, on, tx| {
+        if on {
+            s.reading.live_seen = Some(thread.clone());
+            if s.reading.live_from.as_ref().is_none_or(|(seen, _)| *seen != run) {
+                s.reading.live_from = Some((run.clone(), tx.clock()));
+            }
+        } else if s.reading.live_seen.as_deref() == Some(thread.as_str()) {
+            s.reading.live_seen = None;
+        }
+    })
 }
 
 /// The line under the title (`.one-cols`): the summary a thread carries, or while an agent
@@ -915,10 +1007,15 @@ fn pictured_unfolded(s: &State, thread: &str) -> bool {
 }
 
 /// The reply box folded to its one line, as a conversation first shows it. R, or a press,
-/// opens it (`composer`). At its right end the model that picks up the next reply, whose press
-/// opens the box with the model menu already open (`.ts-model`, `openModel`).
+/// opens it (`composer`). It says what is in it: the words written in it and not sent, on one
+/// line and dimmer, and the files in it counted, or only the invitation when it holds nothing
+/// (`foldedReply`, `.dock-pill-kept`, `.dock-pill-files`). At its right end the model that
+/// picks up the next reply, whose press opens the box with the model menu already open
+/// (`.ts-model`, `openModel`).
 fn reply_box(s: &State, item: &Item, m: &Measure) -> El {
     let size = (0.78 * m.size).max(14.5);
+    let files: Vec<(&str, bool)> = s.reply_files.open.iter().map(|a| (a.file.name.as_str(), a.file.image)).collect();
+    let folded = crate::rules::folded::folded_reply(&s.reply.text, &files);
     // With the pointing hand and the text's own colour under the pointer (`.ts-model`), and its
     // press is not a press on the box.
     let model = el()
@@ -932,6 +1029,8 @@ fn reply_box(s: &State, item: &Item, m: &Measure) -> El {
         .cursor(rune::Cursor::Pointer)
         .on_background_press_tx(|s: &mut State, tx| s.open_reply_on_the_model(tx));
     let key = row().px(5.5).py(1.5).radius(6.0).fill(white(0.04)).border(1.0, rule()).border_layout().child(text("R").font(mono(10.5, 13.5)).color(dim()));
+    let said = text(folded.text.as_str()).font(sans(size, 400.0)).color(if folded.draft { dim() } else { muted() }).truncate();
+    let counted = (!folded.files.is_empty()).then(|| el().pr(12.0).child(label(&folded.files, 12.0, 400.0, muted())));
     row().w(m.column)
         .radius(10.0)
         .fill(white(0.04))
@@ -939,8 +1038,8 @@ fn reply_box(s: &State, item: &Item, m: &Measure) -> El {
         .border_layout()
         .box_shadow(shadow(0.0, 10.0, 32.0, 0.0, rgba(0, 0, 0, 0.38), false))
         .items_center()
-        .child(el().px(16.0).py(11.0).child(label("Reply…", size, 400.0, muted())))
-        .child(spacer())
+        .child(row().grow(1.0).min_w(0.0).px(16.0).py(11.0).child(said))
+        .children(counted)
         .child(model.mr(12.0))
         .child(key.mr(14.0))
 }
@@ -957,7 +1056,9 @@ fn composer(s: &State, item: &Item, m: &Measure) -> El {
         .on_edit(|s: &mut State| &mut s.reply)
         // Return is a new line here, as in the web window's box; ⌘Return sends.
         .on_submit(|s: &mut State, _| s.reply.insert("\n"))
-        .on_input_key(crate::keys::in_the_reply);
+        .on_input_key(crate::keys::in_the_reply)
+        // A picture or a file on the clipboard is attached rather than typed (`onPaste`).
+        .on_input_paste(|s: &mut State, content, _| s.paste_into_the_box(Holder::Reply, content, crate::clock()));
     // The thread's own level, as the Inbox marks it, with its word.
     let off = rule();
     let level = match Priority::of(item.priority) {
@@ -966,7 +1067,11 @@ fn composer(s: &State, item: &Item, m: &Measure) -> El {
         Priority::Medium => (row().items_end().gap(1.5).child(el().size(3.0, 4.0).radius(1.0).fill(dim())).child(el().size(3.0, 7.5).radius(1.0).fill(dim())).child(el().size(3.0, 11.0).radius(1.0).fill(off)), "Medium"),
         Priority::Low => (row().items_end().gap(1.5).child(el().size(3.0, 4.0).radius(1.0).fill(dim())).child(el().size(3.0, 7.5).radius(1.0).fill(off)).child(el().size(3.0, 11.0).radius(1.0).fill(off)), "Low"),
     };
-    let ready = !s.reply.text.trim().is_empty();
+    // Send is lit for words or files, and off while the files of a reply are being saved, when
+    // it says so (`disabled={!hasDraft || saving}`).
+    let thread = key(&item.product, &item.id);
+    let saving = s.reply_files.saving.as_deref() == Some(thread.as_str());
+    let ready = (!s.reply.text.trim().is_empty() || !s.reply_files.open.is_empty()) && !saving;
     // The model, with its level where one will be sent (`.tc-chip-level`), brighter inside a
     // stronger edge while its menu is up (`.tc-chip.open`).
     let open = s.reply_menu.is_some();
@@ -982,10 +1087,12 @@ fn composer(s: &State, item: &Item, m: &Measure) -> El {
     // What this message may do, in Claude Code's own words for the thread's mode, else its
     // project's (`ModePicker`).
     let mode = crate::rules::reply_pick::mode_word(&s.snap, item, crate::rules::reply_pick::running_engine(&s.snap, &item.id).as_deref());
-    // The other chips, the paper clip and the caret answer the pointer as the web window's do,
-    // which open a menu or a picker there; here they open nothing yet. Send and its caret are
-    // two controls, as there (`.dock-send`, `.dock-send-later`).
+    // The other chips and the caret answer the pointer as the web window's do, which open a
+    // menu or a picker there; here they open nothing yet. The paper clip opens the system's file
+    // picker (`.dock-clip`). Send and its caret are two controls, as there (`.dock-send`,
+    // `.dock-send-later`).
     let chip = |kids: Vec<El>| crate::feel::answers(home::chip(kids));
+    let send = if saving { home::send_sending() } else { home::send_main(ready) };
     let bar = row()
         .h(57.0)
         .px(16.0)
@@ -997,12 +1104,15 @@ fn composer(s: &State, item: &Item, m: &Measure) -> El {
         .child(chip(vec![pen(label(&mode, 13.0, 400.0, dim()).group_color(ink()), 13.0)]).help("What this message may do"))
         .child(model_chip)
         .child(spacer())
-        .child(crate::feel::answers(home::attach()).help("Attach files"))
+        .child(home::attach().help("Attach files").on_background_press_tx(|s: &mut State, tx| s.pick_files(Holder::Reply, tx)))
         // Send carries the key a press away from the model menu lands on (`reply.rs`).
-        .child(row().child(home::send_main(ready).key(reply::SEND).help("Send · ⌘↵").on_press_tx(|s: &mut State, tx| s.send_reply(tx))).child(crate::feel::answers(home::send_caret()).help("Send later")));
+        .child(row().child(send.key(reply::SEND).help("Send · ⌘↵").on_press_tx(|s: &mut State, tx| s.send_reply(tx))).child(crate::feel::answers(home::send_caret()).help("Send later")));
     // The thread moves to another agent with the next reply, and its session cannot follow it:
     // a note says so while that is true (`freshNote`, `.dock-card .compose-note`).
     let note = s.reply_fresh_note(item).map(|note| el().px(16.0).pb(10.0).child(label(&note, 12.0, 400.0, muted())));
+    // The files it carries, between the words and the notes (`.attach-row` in `.dock-card`):
+    // eight points under the words, flush on the bar, and the line saying why one cannot go.
+    let files = crate::attach::rows(s, Holder::Reply, |r| r.pt(8.0).px(18.0), |n| n.px(16.0).pb(10.0));
     // The words fill the box above the bar, as the web window's text box does: the I-beam over
     // all of it, and a press anywhere in it puts the caret in the words.
     let area = el().min_h(92.0).pt(12.0).px(16.0).pb(6.0).cursor(rune::Cursor::Text).on_press_tx(|s: &mut State, tx| {
@@ -1015,7 +1125,11 @@ fn composer(s: &State, item: &Item, m: &Measure) -> El {
         .border(1.0, rule())
         .border_layout()
         .box_shadow(shadow(0.0, 10.0, 32.0, 0.0, rgba(0, 0, 0, 0.38), false))
+        // Files dropped anywhere on the box attach. The web window takes them on its words,
+        // which are most of it, as the box a thread is started in does here.
+        .on_drop_files(|s: &mut State, files, _| s.attach_paths(Holder::Reply, files))
         .child(area.child(field.w_full()))
+        .children(files)
         .children(note)
         .child(bar)
 }
@@ -1075,7 +1189,9 @@ pub fn live_options(item: &Item) -> Vec<Choice> {
     if format::offer_is_live(item) { format::item_options(item) } else { Vec::new() }
 }
 
-pub fn view(s: &State, id: &str, product: &str) -> El {
+/// The conversation `product/id`. `still`: the system asks for reduced motion, and what loops
+/// in the web window stands still here as it does there.
+pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
     let (page_w, page_h) = s.page_size();
     let m = Measure::of(page_w);
     let Some(item) = item(s, id, product) else {
@@ -1135,7 +1251,8 @@ pub fn view(s: &State, id: &str, product: &str) -> El {
     let asking = s.snap.rest.get("approvals").and_then(Value::as_array).is_some_and(|a| a.iter().any(|a| a.get("item").and_then(Value::as_str) == Some(id)));
     let why_not_cloud = s.snap.supervisor.rest.get("whyNotCloud").and_then(|w| w.get(id)).and_then(|w| w.get("at")).and_then(Value::as_str);
     if let Some(line) = live::working(session.as_ref(), &item.status, &item.labels, asking, why_not_cloud, s.now) {
-        blocks.push(markdown::block(14.0, 2.0, live_line(&line, &m)));
+        let run = format!("{thread}|{}", session.as_ref().map_or(0.0, |r| r.started_at));
+        blocks.push(markdown::block(14.0, 2.0, live_line(s, &thread, run, &line, &m, still)));
     }
     let (body, _, under) = markdown::stack(blocks, false);
     // A browser scrolls a page only as far as a whole device pixel, whatever its lines add up

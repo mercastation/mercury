@@ -29,14 +29,21 @@ fn next_tab(s: &State, back: bool) -> crate::data::Tab {
     shown[(at + if back { shown.len() - 1 } else { 1 }) % shown.len()]
 }
 
-/// The keys the reply box does not keep for typing: ⌘Return sends, Escape folds the box.
+/// The keys the reply box does not keep for typing: ⌘Return sends, Escape folds the box, or
+/// only lets go of it while it holds words or files, which hold it open (`held` in
+/// `DockComposer`'s keys): the next Escape is the page's, which folds it.
 pub fn in_the_reply(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
     if e.key == Key::Enter && e.mods.cmd {
         s.send_reply(tx);
         return true;
     }
     if e.key == Key::Escape {
-        s.fold_reply();
+        if s.reply.text.trim().is_empty() && s.reply_files.open.is_empty() {
+            s.fold_reply();
+        } else {
+            s.reply.focused = false;
+            tx.blur();
+        }
         return true;
     }
     false

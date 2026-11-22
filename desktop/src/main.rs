@@ -100,6 +100,8 @@ pub struct State {
     /// another is open.
     pub reply: TextEdit,
     drafts: HashMap<String, String>,
+    /// The files in it, and in the boxes of the conversations left, the same way (`attach.rs`).
+    pub reply_files: attach::ReplyFiles,
     /// Which of the open conversation's options the arrows are on, by its place in the list.
     pub option: Option<usize>,
     /// The model and level picked in each conversation's reply box, by `product/id`, kept beside
@@ -187,6 +189,7 @@ impl State {
         self.leave_the_strip();
         if let View::Thread { id, product } = &self.view {
             let key = format!("{product}/{id}");
+            self.reply_files.put_away(&key);
             if self.reply.text.trim().is_empty() {
                 self.drafts.remove(&key);
             } else {
@@ -200,7 +203,9 @@ impl State {
     }
     fn take_the_reply_out(&mut self) {
         if let View::Thread { id, product } = &self.view {
-            if let Some(words) = self.drafts.get(&format!("{product}/{id}")) {
+            let key = format!("{product}/{id}");
+            self.reply_files.take_out(&key);
+            if let Some(words) = self.drafts.get(&key) {
                 self.reply = TextEdit::new(words.clone());
             }
         }
@@ -231,7 +236,7 @@ impl State {
         self.send_steps(writes.into_iter().map(write::Step::Write).collect(), sent)
     }
     /// The same, where a write may be made of what the engine answered the one before it.
-    fn send_steps(&mut self, steps: Vec<write::Step>, sent: write::Sent) -> bool {
+    pub(crate) fn send_steps(&mut self, steps: Vec<write::Step>, sent: write::Sent) -> bool {
         self.refused = None;
         let Source::Door(door) = &self.source else {
             return false;
@@ -303,9 +308,9 @@ impl State {
                 self.refresh();
             }
             let (id, product) = held.thread.clone();
-            let (words, pick) = match &held.sent {
-                write::Sent::Reply { words, pick, .. } => (Some(words.clone()), pick.clone()),
-                _ => (None, None),
+            let (words, pick, files) = match &held.sent {
+                write::Sent::Reply { words, pick, files, .. } => (Some(words.clone()), pick.clone(), files.clone()),
+                _ => (None, None, Vec::new()),
             };
             // Back on the thread it was done from, when it was done from inside one.
             if held.from_inside || words.is_some() {
@@ -317,6 +322,8 @@ impl State {
             }
             if let Some(words) = &words {
                 self.reply = TextEdit::new(words.clone());
+                // And the files it carried, as the box held them (`SentDraft`).
+                self.reply_files.put_back(&format!("{product}/{id}"), true, files);
                 self.open_reply(tx);
             }
             self.say(writes::said_undone(&held.said, words.is_some()), false, tx);
@@ -498,35 +505,51 @@ impl State {
     /// Sends what is in the reply box to the thread's agent (Send, or ⌘Return). The box
     /// empties and folds at once; Z, or a refusal, puts the words back. A model picked in the
     /// box goes with them, written before the words (`answerItem` in `main/store.mts`), and the
-    /// box lets go of it as it lets go of the words (`clearDraft`).
+    /// box lets go of it as it lets go of the words (`clearDraft`). Files in the box are saved
+    /// into the project first, and the reply waits for them (`carry` in `attach.rs`).
     pub fn send_reply(&mut self, tx: &mut Tx) {
         let words = self.reply.text.trim().to_string();
         let Some(item) = self.open_item().cloned() else {
             return;
         };
+        if !self.reply_files.open.is_empty() {
+            return self.carry(&item, words, tx);
+        }
         if words.is_empty() {
             return;
         }
-        let thread = format!("{}/{}", item.product, item.id);
         let pick = self.reply_pick_to_send(&item);
-        let mut payload = writes::reply(&item, &words);
+        self.hold_reply(&item, words, "", pick, Vec::new(), tx);
+    }
+    /// The reply to `item` held its three seconds and then written: the words, and the links to
+    /// the files it carries under them after a blank line (`[words, attachedMd].join('\n\n')`).
+    /// That thread's box lets go of its words, files and pick, open or not, since the person
+    /// may have moved on while the files were saved.
+    pub(crate) fn hold_reply(&mut self, item: &data::Item, words: String, links: &str, pick: Option<rules::reply_pick::ReplyPick>, files: Vec<attach::Attached>, tx: &mut Tx) {
+        let thread = format!("{}/{}", item.product, item.id);
+        let message = [words.as_str(), links].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join("\n\n");
+        let mut payload = writes::reply(item, &message);
         if let Some(fields) = payload.as_object_mut() {
-            fields.insert("permissionMode".to_string(), rules::reply_pick::mode_sent(&item));
+            fields.insert("permissionMode".to_string(), rules::reply_pick::mode_sent(item));
             if let Some(pick) = &pick {
                 fields.extend(rules::reply_pick::answer_fields(pick));
             }
         }
+        let here = self.open_item().is_some_and(|open| open.id == item.id && open.product == item.product);
         self.drafts.remove(&thread);
         self.reply_picks.remove(&thread);
-        self.reply_menu = None;
-        self.reply = TextEdit::new("");
-        self.replying = false;
+        self.reply_files.clear(&thread, here);
+        if here {
+            self.reply_menu = None;
+            self.reply = TextEdit::new("");
+            self.replying = false;
+        }
         self.hold(
             write::Held {
                 channel: writes::ANSWER,
                 payload,
-                sent: write::Sent::Reply { thread, words, pick },
-                said: writes::said_sent(&self.project_name(&item)),
+                sent: write::Sent::Reply { thread, words, pick, files },
+                said: writes::said_sent(&self.project_name(item)),
                 at: tx.clock() + writes::UNDO_GRACE_MS / 1000.0,
                 thread: (item.id.clone(), item.product.clone()),
                 from_inside: true,
@@ -632,6 +655,7 @@ impl State {
         match &landed.sent {
             write::Sent::Thread { .. } => return self.thread_landed(landed, tx),
             write::Sent::Withdraw { .. } => return self.withdraw_landed(landed, tx),
+            write::Sent::Carry { .. } => return self.carried(landed, tx),
             _ => {}
         }
         let Some(why) = landed.refusal() else {
@@ -648,7 +672,7 @@ impl State {
         }
         // The words go back in the box; the model they carried does not, as in the web window,
         // whose refused reply comes back by its words alone (`restoreFailedDraft`).
-        if let write::Sent::Reply { thread, words, .. } = &landed.sent {
+        if let write::Sent::Reply { thread, words, files, .. } = &landed.sent {
             let here = matches!(&self.view, View::Thread { id, product } if &format!("{product}/{id}") == thread);
             if here && self.reply.text.trim().is_empty() {
                 self.reply = TextEdit::new(words.clone());
@@ -656,6 +680,8 @@ impl State {
             } else {
                 self.drafts.entry(thread.clone()).or_insert_with(|| words.clone());
             }
+            // The files it carried come back with the words (`restoreFailedDraft`).
+            self.reply_files.put_back(thread, here, files.clone());
         }
         self.refused = Some(match landed.sent {
             write::Sent::Reply { .. } => format!("Could not send: {why} Your message is back in the reply box."),
@@ -667,8 +693,8 @@ impl State {
             write::Sent::TakenBack { .. } => format!("Could not undo that: {why}"),
             write::Sent::Priority { .. } => format!("Could not change its priority: {why}"),
             write::Sent::Place { .. } => format!("Could not change where it runs: {why}"),
-            // Both went their own way above.
-            write::Sent::Thread { .. } | write::Sent::Withdraw { .. } => return,
+            // These went their own way above.
+            write::Sent::Thread { .. } | write::Sent::Withdraw { .. } | write::Sent::Carry { .. } => return,
         });
     }
     /// Out of a conversation: to where the person came from, and one opened from nowhere came
@@ -866,6 +892,7 @@ fn init_from(args: &[String]) -> State {
         replying: false,
         reply: TextEdit::new(""),
         drafts: HashMap::new(),
+        reply_files: attach::ReplyFiles::default(),
         option: None,
         reply_picks: HashMap::new(),
         reply_menu: None,
@@ -965,6 +992,11 @@ fn init_from(args: &[String]) -> State {
             s.reply = TextEdit::new(words);
             s.reply.focused = true;
             s.replying = true;
+            // And the files in it (`replyFiles`), and whether it had been folded over them.
+            s.picture_attached(attach::Holder::Reply);
+            if s.fixture.get("folded") == Some(&Value::Bool(true)) {
+                s.fold_reply();
+            }
         }
         s.option = s.fixture.get("option").and_then(Value::as_u64).and_then(|n| (n as usize).checked_sub(1));
         // And one taken with the Later picker open (`later` is what was typed into it,
@@ -995,7 +1027,7 @@ fn init_from(args: &[String]) -> State {
         s.compose.card = s.fixture.get("card") == Some(&Value::Bool(true));
     }
     // And one taken with files in that box says which (`attached`, `pasted`).
-    s.picture_attached();
+    s.picture_attached(attach::Holder::Compose);
     s
 }
 
@@ -1166,7 +1198,7 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
     let page = match &s.view {
         View::Home => home::view(s),
         View::Inbox => inbox::view(s),
-        View::Thread { id, product } => thread::view(s, id, product),
+        View::Thread { id, product } => thread::view(s, id, product, cx.is_reduced_motion()),
     };
     let root = el().w_full()
         .h_full()

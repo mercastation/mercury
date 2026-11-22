@@ -277,17 +277,22 @@ fn priority_word(p: Priority) -> &'static str {
 /// The mark before a Status word (`StatusMark`), drawn only for a word about an agent: a ring
 /// for one waiting its turn, the orange ring for one nothing will start until something
 /// changes, the solid dot where someone's words wait on the person, and the half-dot or the
-/// cloud while an agent is on it. The last two breathe in the web window and stand still here.
+/// cloud while an agent is on it. The last two breathe, every one in step, as the web window's
+/// do (`th-breathe`, which `inStep` starts on one clock), and stand still under Reduce motion.
 fn status_mark(mark: Mark) -> Option<El> {
+    use crate::rules::motion::{BREATHE_PERIOD, breathe_stops};
     let dot = || el().size(12.0, 12.0).radius(6.0).mr(8.0);
+    // A breath is slow, and thirty frames a second draw it smoothly: a ring is not a mark the
+    // window can step alone, so each of its frames draws the page.
+    let breathing = |mark: El| mark.cycle(rune::Cycle { period: BREATHE_PERIOD, phase: 0.0, stops: breathe_stops(), still: 1.0, fps: 30.0 });
     match mark {
         Mark::None => None,
         Mark::Queued => Some(dot().border(1.5, muted())),
         Mark::Held => Some(dot().border(1.5, accent())),
         Mark::Need => Some(dot().fill(accent())),
         // The ring, and its right half filled.
-        Mark::Running => Some(dot().border(1.5, accent()).clip_rounded(6.0).child(el().absolute(6.0, 0.0).size(6.0, 12.0).fill(accent()))),
-        Mark::Cloud => Some(el().size(14.0, 11.0).mr(6.0).child(el().absolute(0.0, 0.0).child(icon(&icons::CLOUD_MARK, 14.0).color(accent())))),
+        Mark::Running => Some(breathing(dot().border(1.5, accent()).clip_rounded(6.0).child(el().absolute(6.0, 0.0).size(6.0, 12.0).fill(accent())))),
+        Mark::Cloud => Some(breathing(el().size(14.0, 11.0).mr(6.0).child(el().absolute(0.0, 0.0).child(icon(&icons::CLOUD_MARK, 14.0).color(accent()))))),
     }
 }
 

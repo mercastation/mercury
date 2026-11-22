@@ -29,6 +29,7 @@ use crate::data::{Item, Product};
 use crate::rules::compose::{self as rules, Engines, Entry, Hang, Keyboard, Level, Pick};
 use crate::rules::{title, window};
 use crate::theme::*;
+use crate::attach::Holder;
 use crate::{State, View, attach, chrome, home, icons, write};
 
 /// The key of the field the words are typed in.
@@ -267,7 +268,7 @@ fn later_caret(s: &State) -> El {
 fn bar_end(s: &State) -> Vec<El> {
     // The two halves of Send are one control with no room between them (`.tc-send`).
     let send = row().key(MenuKind::Later.anchor()).child(home::send_main(s.compose_ready()).key(SEND).help("Send · ⌘↵").on_background_press_tx(|s: &mut State, tx| s.send_thread(tx))).child(later_caret(s));
-    let clip = home::attach().key(CLIP).help("Attach files").on_background_press_tx(|s: &mut State, tx| s.pick_files(tx));
+    let clip = home::attach().key(CLIP).help("Attach files").on_background_press_tx(|s: &mut State, tx| s.pick_files(Holder::Compose, tx));
     if s.compose_project().is_none() {
         // `.tc-why` takes the room the clip would otherwise push Send across, so the clip
         // stays by the chips. Making a project is the web window's to do, so the way out is
@@ -301,7 +302,7 @@ fn words_field(s: &State, font: TextStyle, caret: rune::Color) -> El {
         .on_submit(|s: &mut State, _| s.compose.words.insert("\n"))
         .on_input_key(crate::keys::in_the_box)
         // A picture or a file on the clipboard is attached rather than typed (`onPaste`).
-        .on_input_paste(|s: &mut State, content, _| s.paste_into_the_box(content, crate::clock()))
+        .on_input_paste(|s: &mut State, content, _| s.paste_into_the_box(Holder::Compose, content, crate::clock()))
 }
 
 /// The lines between the words and the bar (`.tc-note`): why Practice takes nothing, and where
@@ -343,13 +344,13 @@ pub fn inline(s: &State) -> El {
         .box_shadow(shadow(0.0, 12.0, 40.0, 0.0, rgba(0, 0, 0, 0.3), false))
         // Files dropped anywhere on the box attach. The web window takes them on its words,
         // which are most of it; a drop on the rest of it does nothing there.
-        .on_drop_files(|s: &mut State, files, _| s.attach_paths(files))
+        .on_drop_files(|s: &mut State, files, _| s.attach_paths(Holder::Compose, files))
         // One line tall until the words need more: 74 points with the room under them, all of
         // it the words' box, as the web window's text box is: the I-beam over it, and a press
         // anywhere in it puts the caret after the words.
         .child(el().min_h(74.0).pb(14.0).cursor(rune::Cursor::Text).on_press_tx(|s: &mut State, tx| s.write_in_the_box(tx)).child(field.w_full()))
         // The files, under the words and over the notes (`.tc-inline .attach-row`).
-        .children(attach::rows(s, |r| r.pt(12.0)))
+        .children(attach::rows(s, Holder::Compose, |r| r.pt(12.0), attach::compose_note))
         .children(notes(s, |n| n.pt(12.0)))
         .child(bar(s))
 }
@@ -424,7 +425,7 @@ fn card(s: &State) -> El {
         .on_press_tx(|s: &mut State, tx| s.write_in_the_box(tx))
         .child(col().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(field.w_full()));
     // The files, between the words and the notes (`.tc-card .attach-row`).
-    let files = attach::rows(s, |r| r.px(18.0).pb(10.0));
+    let files = attach::rows(s, Holder::Compose, |r| r.px(18.0).pb(10.0), attach::compose_note);
     let lines = notes(s, |n| n.px(18.0).pb(10.0));
     // How tall the card is, so it can stand where the grid puts it: as it was last laid out,
     // else its edge, the head's fields and hairline, the words, the files on one line, one
@@ -451,7 +452,7 @@ fn card(s: &State) -> El {
         // Escape that nothing else took, and a press outside: the card goes, the words stay.
         .modal_tx(true, |s: &mut State, tx| s.close_card(tx))
         // Files dropped anywhere on the card attach, as on the box on Home's page.
-        .on_drop_files(|s: &mut State, files, _| s.attach_paths(files))
+        .on_drop_files(|s: &mut State, files, _| s.attach_paths(Holder::Compose, files))
         .child(card_head(s))
         .child(words)
         .children(files)
@@ -1039,7 +1040,7 @@ impl State {
             return self.send_thread(tx);
         }
         if inside(CLIP) {
-            return self.pick_files(tx);
+            return self.pick_files(Holder::Compose, tx);
         }
         if let Some(kind) = MenuKind::ALL.into_iter().find(|kind| inside(kind.trigger())) {
             if kind == menu.kind {

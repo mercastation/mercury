@@ -1,10 +1,15 @@
-//! The files in the box a thread is started in, before it is sent: dropped on the box or the
-//! card, picked with the paper clip, or pasted into the words. They stand in a row between the
-//! words and the bar, as the web window draws them (`AttachRow` in
-//! `renderer/src/components/AttachRow.tsx`, the `.attach-*` rules in `styles.css`): a picture
-//! small, as tall as the row, with a × in its corner, and any other file as a chip with its
-//! name, its size and a ×, which removes it. A file that cannot go lights its chip, and a line
-//! under the row says why. Which files can go, and how they are sent, is `rules/attach.rs`.
+//! The files in a box, before it is sent: in the box a thread is started in, and in a
+//! conversation's reply box (`Holder`). Dropped on the box or the card, picked with the paper
+//! clip, or pasted into the words. They stand in a row between the words and the bar, as the
+//! web window draws them in both (`AttachRow` in `renderer/src/components/AttachRow.tsx`, the
+//! `.attach-*` rules in `styles.css`): a picture small, as tall as the row, with a × in its
+//! corner, and any other file as a chip with its name, its size and a ×, which removes it. A
+//! file that cannot go lights its chip, and a line under the row says why. Which files can go,
+//! and how they are sent, is `rules/attach.rs`.
+//!
+//! The reply box keeps its files with its words: leaving a conversation keeps them for the next
+//! visit, and Send saves them into the project before the reply goes, as the web window's
+//! `DockComposer` does (`ReplyFiles`).
 //!
 //! A file on this Mac is never read to be sent: the engine is handed its path and copies it.
 //! The box reads its size where it is attached, and a picture's shape off its header, which is
@@ -30,6 +35,73 @@ use crate::State;
 use crate::rules::attach::{self as rules, Pending, Source};
 use crate::source::{self, Source as Reading};
 use crate::theme::*;
+
+/// Which box a file goes in: the one a thread is started in (on Home or the New thread card),
+/// or the open conversation's reply box.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Holder {
+    Compose,
+    Reply,
+}
+
+/// The files of the reply boxes: the open conversation's, those left in the boxes of the
+/// conversations the person has left, by `product/id`, until they come back to them, and the
+/// conversation whose files are being saved before its reply goes, while Send says so.
+#[derive(Default)]
+pub struct ReplyFiles {
+    pub open: Vec<Attached>,
+    kept: std::collections::HashMap<String, Vec<Attached>>,
+    pub saving: Option<String>,
+}
+
+impl ReplyFiles {
+    /// Leaving the conversation `thread`: its box's files wait for the next visit.
+    pub fn put_away(&mut self, thread: &str) {
+        let files = std::mem::take(&mut self.open);
+        if files.is_empty() {
+            self.kept.remove(thread);
+        } else {
+            self.kept.insert(thread.to_string(), files);
+        }
+    }
+
+    /// Coming to the conversation `thread`: its box holds what it held.
+    pub fn take_out(&mut self, thread: &str) {
+        self.open = self.kept.remove(thread).unwrap_or_default();
+    }
+
+    /// The files of `thread`'s box, open or kept: let go, as the box empties when its reply goes.
+    pub fn clear(&mut self, thread: &str, open: bool) {
+        if open {
+            self.open.clear();
+        }
+        self.kept.remove(thread);
+    }
+
+    /// Files put back in `thread`'s box, where Z or a refusal hands back a reply that carried
+    /// them, unless the box holds newer ones: then those stay, as the words do.
+    pub fn put_back(&mut self, thread: &str, open: bool, files: Vec<Attached>) {
+        let into = if open { &mut self.open } else { self.kept.entry(thread.to_string()).or_default() };
+        if into.is_empty() {
+            *into = files;
+        }
+    }
+
+    fn all_mut(&mut self) -> impl Iterator<Item = &mut Attached> {
+        self.open.iter_mut().chain(self.kept.values_mut().flatten())
+    }
+}
+
+/// Why a reply with these files cannot go when Send is pressed, in the web window's words
+/// (`send` in `DockComposer`, and `persistAttachments`): one still on its way in, else one that
+/// cannot be attached or is too big. The reply box keeps Send lit for these and says so on the
+/// press, where the new thread's box keeps Send off.
+pub fn reply_refusal(files: &[Attached]) -> Option<String> {
+    if let Some(coming) = files.iter().find(|a| a.coming) {
+        return Some(format!("{} is still being attached.", coming.file.name));
+    }
+    rules::attach_problem(&pending(files)).map(|problem| format!("Not sent: {problem} Your draft has been kept."))
+}
 
 /// A picture in the row is this tall, edge and all (`.attach-thumb img { height: 84px }`), and
 /// no wider than this (`max-width: 220px`), cropped to fill what it has (`object-fit: cover`).
@@ -196,7 +268,7 @@ fn read_thumb(a: &Attached, scale: f32, still: bool) {
 /// A picture in the row (`.attach-thumb`): drawn in its edge, opened large by a press, with the
 /// × in its corner that takes it out (`.attach-remove`). Before its copy lands its place stands
 /// empty in its edge, as an image not yet decoded does in the web window.
-fn picture(at: usize, a: &Attached, thumb: &Thumb) -> El {
+fn picture(holder: Holder, at: usize, a: &Attached, thumb: &Thumb) -> El {
     let wide = thumb_wide(thumb.natural);
     let mut drawn = el().absolute(1.0, 1.0).size(wide - 2.0, THUMB_TALL - 2.0).radius(5.0).pixels_fit(&thumb.pixels, SurfaceFit::Fill);
     // The web window opens it large in a viewer of its own; here a file opens with the system,
@@ -220,7 +292,7 @@ fn picture(at: usize, a: &Attached, thumb: &Thumb) -> El {
         .child(crate::feel::edge_lit(6.0, muted(), true))
         .cursor(rune::Cursor::Pointer)
         .help("Remove")
-        .on_background_press_tx(move |s: &mut State, tx| s.remove_attached(at, tx));
+        .on_background_press_tx(move |s: &mut State, tx| s.remove_attached(holder, at, tx));
     // Its title is its name, and the ×'s says what it does (`title` on `.attach-thumb` and
     // `.attach-remove`).
     el().size(wide, THUMB_TALL).radius(6.0).border(1.0, edge()).help(a.file.name.as_str()).child(drawn).child(remove)
@@ -229,7 +301,7 @@ fn picture(at: usize, a: &Attached, thumb: &Thumb) -> El {
 /// Any other file (`.attach-chip`): its name, its size quieter and in figures that line up,
 /// and the ×; a press anywhere on it takes it out. One that cannot go is lit, with no size
 /// (`.attach-too-big`), and the line under the row says why.
-fn chip(at: usize, a: &Attached) -> El {
+fn chip(holder: Holder, at: usize, a: &Attached) -> El {
     let file = &a.file;
     let over = file.failed.is_some() || rules::too_big_to_send(file.size.unwrap_or(0));
     let words = |s: &str, font: TextStyle, c: rune::Color| pen(text(s).font(font).color(c), 12.0);
@@ -251,27 +323,34 @@ fn chip(at: usize, a: &Attached) -> El {
     // Its title says why one cannot go, and of any other that a press takes it out.
     let size = file.size.unwrap_or(0);
     let title = file.failed.clone().unwrap_or_else(|| if rules::too_big_to_send(size) { rules::over_the_limit(size) } else { "Remove".to_string() });
-    let chip = frame(line, if over { muted() } else { edge() }).cursor(rune::Cursor::Pointer).help(title).on_background_press_tx(move |s: &mut State, tx| s.remove_attached(at, tx));
+    let chip = frame(line, if over { muted() } else { edge() }).cursor(rune::Cursor::Pointer).help(title).on_background_press_tx(move |s: &mut State, tx| s.remove_attached(holder, at, tx));
     if over { chip } else { lit(chip) }
 }
 
-/// What the box holds of files, as the place it is drawn in lays it out: the row
+/// What a box holds of files, as the place it is drawn in lays it out: the row
 /// (`.attach-row`), handed to `pad` for the room that place gives it, and under it the line
-/// that says why one cannot go (`.compose-note.attach-problem`). Nothing for a box with none.
-pub fn rows(s: &State, pad: impl Fn(El) -> El) -> Vec<El> {
-    let files = &s.compose.files;
+/// that says why one cannot go (`.compose-note.attach-problem`), handed to `note` for its room.
+/// Nothing for a box with none.
+pub fn rows(s: &State, holder: Holder, pad: impl Fn(El) -> El, note: impl Fn(El) -> El) -> Vec<El> {
+    let files = s.files_in(holder);
     if files.is_empty() {
         return Vec::new();
     }
     let drawn = files.iter().enumerate().map(|(at, a)| match &a.thumb {
-        Some(thumb) if !a.coming => picture(at, a, thumb),
-        _ => chip(at, a),
+        Some(thumb) if !a.coming => picture(holder, at, a, thumb),
+        _ => chip(holder, at, a),
     });
     let mut out = vec![pad(row().flex_wrap().items_start().gap(GAP).children(drawn))];
     if let Some(problem) = rules::attach_problem(&pending(files)) {
-        out.push(el().pt(6.0).px(18.0).pb(2.0).child(pen(text(problem).font(sans(12.0, 400.0)).color(dim()).wrap(), 12.0)));
+        out.push(note(el().pt(6.0).child(pen(text(problem).font(sans(12.0, 400.0)).color(dim()).wrap(), 12.0))));
     }
     out
+}
+
+/// The room the box a thread is started in gives the line under its files, on Home and on the
+/// card (`.compose-note`'s own padding).
+pub fn compose_note(note: El) -> El {
+    note.px(18.0).pb(2.0)
 }
 
 /// How tall the row and its line stand on one line, where the box has to know before it is
@@ -290,11 +369,27 @@ fn still() -> bool {
 }
 
 impl State {
-    /// Files dropped on the box or the card, picked with the paper clip, or pasted from Finder,
-    /// in the order they came (`addFiles` in `ThreadComposer.tsx`). A TIFF or a HEIC is handed
-    /// to the engine to be turned into a picture the window draws, and is on its way in until
-    /// it answers (`stageAttachment`); with no engine to ask, it goes as the file it is.
-    pub fn attach_paths(&mut self, paths: &[PathBuf]) {
+    /// The files in a box.
+    pub fn files_in(&self, holder: Holder) -> &Vec<Attached> {
+        match holder {
+            Holder::Compose => &self.compose.files,
+            Holder::Reply => &self.reply_files.open,
+        }
+    }
+
+    fn files_in_mut(&mut self, holder: Holder) -> &mut Vec<Attached> {
+        match holder {
+            Holder::Compose => &mut self.compose.files,
+            Holder::Reply => &mut self.reply_files.open,
+        }
+    }
+
+    /// Files dropped on a box or the card, picked with the paper clip, or pasted from Finder,
+    /// in the order they came (`addFiles` in `ThreadComposer.tsx`, `setAttachments` in
+    /// `DockComposer`). A TIFF or a HEIC is handed to the engine to be turned into a picture the
+    /// window draws, and is on its way in until it answers (`stageAttachment`); with no engine to
+    /// ask, it goes as the file it is.
+    pub fn attach_paths(&mut self, holder: Holder, paths: &[PathBuf]) {
         for path in paths {
             let mut attached = Attached::from_disk(path);
             let door = match &self.source {
@@ -314,82 +409,143 @@ impl State {
                 });
             }
             read_thumb(&attached, self.pictures.scale(), still());
-            self.compose.files.push(attached);
+            self.files_in_mut(holder).push(attached);
         }
     }
 
     /// What the engine said of the files it was turning into pictures, put in their place in
-    /// the box: from the window's turn. One taken out meanwhile is gone, and so is the answer.
-    /// True when the box changed.
+    /// whichever box holds them, a reply box left meanwhile included: from the window's turn.
+    /// One taken out meanwhile is gone, and so is the answer. True when a box changed.
     pub fn land_staged(&mut self) -> bool {
         let landed: Vec<(u64, Result<Value, String>)> = self.compose.staging.rx.try_iter().collect();
         let mut changed = false;
+        let scale = self.pictures.scale();
         for (id, answer) in landed {
-            let Some(attached) = self.compose.files.iter_mut().find(|a| a.id == id) else { continue };
+            let Some(attached) = self.compose.files.iter_mut().chain(self.reply_files.all_mut()).find(|a| a.id == id) else { continue };
             attached.staged(answer);
-            read_thumb(attached, self.pictures.scale(), still());
+            read_thumb(attached, scale, still());
             changed = true;
         }
         changed
     }
 
     /// A picture pasted with no file behind it: a screenshot, as PNG.
-    pub fn attach_pasted(&mut self, png: &[u8], natural: (u32, u32), name: String) {
+    pub fn attach_pasted(&mut self, holder: Holder, png: &[u8], natural: (u32, u32), name: String) {
         let attached = Attached::pasted(png, natural, name);
         read_thumb(&attached, self.pictures.scale(), still());
-        self.compose.files.push(attached);
+        self.files_in_mut(holder).push(attached);
     }
 
     /// ⌘V in the words. Files copied in Finder attach as themselves; a picture attaches,
     /// named for the moment it came (`fromPaste`); anything else is the words' own to paste.
     /// A Finder copy also carries the file's icon as a picture, which is not what was meant.
-    pub fn paste_into_the_box(&mut self, content: &ClipboardContent, now_ms: f64) -> bool {
+    pub fn paste_into_the_box(&mut self, holder: Holder, content: &ClipboardContent, now_ms: f64) -> bool {
         if !content.files().is_empty() {
-            self.attach_paths(content.files());
+            self.attach_paths(holder, content.files());
             return true;
         }
         if let Some(picture) = content.image() {
-            self.attach_pasted(picture.png(), picture.size(), rules::pasted_name(now_ms));
+            self.attach_pasted(holder, picture.png(), picture.size(), rules::pasted_name(now_ms));
             return true;
         }
         false
     }
 
     /// The paper clip: the system's picker, over the window, and the file picked attaches
-    /// (the box's hidden `<input type="file">`). Cancelling it changes nothing.
-    pub fn pick_files(&mut self, tx: &mut Tx) {
-        self.compose.menu = None;
-        tx.open_file(FileDialogOptions::default(), |s: &mut State, picked, tx| match picked {
-            Ok(Some(path)) => s.attach_paths(&[path]),
+    /// (the box's hidden `<input type="file">`). Cancelling it changes nothing. The box's open
+    /// menu closes first.
+    pub fn pick_files(&mut self, holder: Holder, tx: &mut Tx) {
+        match holder {
+            Holder::Compose => self.compose.menu = None,
+            Holder::Reply => self.reply_menu = None,
+        }
+        tx.open_file(FileDialogOptions::default(), move |s: &mut State, picked, tx| match picked {
+            Ok(Some(path)) => s.attach_paths(holder, &[path]),
             Ok(None) => {}
             Err(e) => s.tell(&format!("The file picker did not open: {e}"), tx),
         });
     }
 
     /// The × on a file: it leaves the box, and the keyboard with it, as the web window's focus
-    /// goes when the button it was on goes.
-    pub fn remove_attached(&mut self, at: usize, tx: &mut Tx) {
-        if at < self.compose.files.len() {
-            self.compose.files.remove(at);
+    /// goes when the button it was on goes. The reply box stays open on its words.
+    pub fn remove_attached(&mut self, holder: Holder, at: usize, tx: &mut Tx) {
+        let files = self.files_in_mut(holder);
+        if at < files.len() {
+            files.remove(at);
         }
-        self.compose.menu = None;
-        self.leave_the_box(tx);
+        match holder {
+            Holder::Compose => {
+                self.compose.menu = None;
+                self.leave_the_box(tx);
+            }
+            Holder::Reply => {
+                self.reply_menu = None;
+                self.reply.focused = false;
+                tx.blur();
+            }
+        }
     }
 
-    /// What a picture taken with files in the box says of them: each file by its path
-    /// (`attached`), attached as a drop attaches it, and each picture pasted (`pasted`) by the
-    /// PNG it was and the name the page gave it.
-    pub(crate) fn picture_attached(&mut self) {
+    /// Send, with files in the open conversation's reply box (`send` in `DockComposer`): a file
+    /// still on its way in, or one that cannot go, is said and nothing is sent; otherwise the
+    /// files are saved into the thread's project (`zero:save-attachments`), Send says Sending…
+    /// meanwhile, and the box keeps its words and files until the engine has them. A send already
+    /// on its way is not sent twice.
+    pub(crate) fn carry(&mut self, item: &crate::data::Item, words: String, tx: &mut Tx) {
+        if self.reply_files.saving.is_some() {
+            return;
+        }
+        let files = self.reply_files.open.clone();
+        if let Some(refused) = reply_refusal(&files) {
+            return self.tell(&refused, tx);
+        }
+        let thread = format!("{}/{}", item.product, item.id);
+        let pick = self.reply_pick_to_send(item);
+        let save = crate::write::Step::Save { product: item.product.clone(), files: pending(&files) };
+        if self.send_steps(vec![save], crate::write::Sent::Carry { thread: thread.clone(), words, pick, files }) {
+            self.reply_files.saving = Some(thread);
+        }
+    }
+
+    /// What the engine said to a reply's files. Saved, the reply is held as any other is, its
+    /// words with a link to each file under them; refused, the box keeps everything and a line
+    /// says why, in the web window's words.
+    pub(crate) fn carried(&mut self, landed: crate::write::Landed, tx: &mut Tx) {
+        let crate::write::Sent::Carry { thread, words, pick, files } = landed.sent.clone() else {
+            return;
+        };
+        if self.reply_files.saving.as_deref() == Some(thread.as_str()) {
+            self.reply_files.saving = None;
+        }
+        if let Some(why) = landed.refusal() {
+            return self.tell(&format!("Not sent: {why} Your draft has been kept."), tx);
+        }
+        let links = rules::attachment_links(landed.answer.as_ref().unwrap_or(&Value::Null));
+        let Some(item) = thread.split_once('/').and_then(|(product, id)| self.snap.items.iter().find(|i| i.id == id && i.product == product)).cloned() else {
+            return;
+        };
+        self.hold_reply(&item, words, &links, pick, files, tx);
+    }
+
+    /// What a picture taken with files in a box says of them: each file by its path, attached
+    /// as a drop attaches it, and each picture pasted by the PNG it was and the name the page
+    /// gave it. The box a thread is started in reads `attached`, then `pasted`; the reply box,
+    /// `replyFiles`, one list in the order they came, a pasted picture's entry the one with a PNG.
+    pub(crate) fn picture_attached(&mut self, holder: Holder) {
         let list = |field: &str| self.fixture.get(field).and_then(serde_json::Value::as_array).cloned().unwrap_or_default();
+        let files = match holder {
+            Holder::Compose => [list("attached"), list("pasted")].concat(),
+            Holder::Reply => list("replyFiles"),
+        };
         let text = |file: &serde_json::Value, field: &str| file.get(field).and_then(serde_json::Value::as_str).map(str::to_string);
-        let (attached, pasted) = (list("attached"), list("pasted"));
-        let paths: Vec<PathBuf> = attached.iter().filter_map(|file| text(file, "path")).map(PathBuf::from).collect();
-        self.attach_paths(&paths);
-        for file in pasted {
-            let (Some(png), Some(name)) = (text(&file, "png"), text(&file, "name")) else { continue };
-            let Ok(bytes) = std::fs::read(&png) else { continue };
-            if let Some(natural) = crate::pictures::size_of(Path::new(&png)) {
-                self.attach_pasted(&bytes, natural, name);
+        for file in files {
+            if let (Some(png), Some(name)) = (text(&file, "png"), text(&file, "name")) {
+                let Ok(bytes) = std::fs::read(&png) else { continue };
+                if let Some(natural) = crate::pictures::size_of(Path::new(&png)) {
+                    self.attach_pasted(holder, &bytes, natural, name);
+                }
+            } else if let Some(path) = text(&file, "path") {
+                self.attach_paths(holder, &[PathBuf::from(path)]);
             }
         }
     }
@@ -479,5 +635,129 @@ mod tests {
         assert_eq!((&refused.file, refused.coming), (&photo().file, false));
         assert!(ready(&[refused]));
         std::fs::remove_dir_all(&folder).unwrap();
+    }
+
+    /* ------------------------------ the reply box ------------------------------ */
+
+    use crate::feel::tests::{key, window};
+    use rune::{ClipboardImage, Key, KeyEvent, Mods, Runtime};
+
+    /// The first thread of the invented inbox, its reply box opened with R and the caret in it.
+    fn replying(name: &str) -> Runtime<State> {
+        let mut rt = window(name, &["--thread"]);
+        key(&mut rt, Key::Text("r".into()));
+        assert!(rt.state.replying && rt.state.reply.focused, "R opens the box with the caret in it");
+        rt
+    }
+
+    /// A screenshot on the clipboard, as PNG.
+    fn screenshot() -> ClipboardImage {
+        let mut png = Vec::new();
+        image::RgbImage::from_pixel(240, 150, image::Rgb([52, 120, 196])).write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).unwrap();
+        ClipboardImage::from_png(png).unwrap()
+    }
+
+    fn reply_names(rt: &Runtime<State>) -> Vec<String> {
+        rt.state.reply_files.open.iter().map(|a| a.file.name.clone()).collect()
+    }
+
+    #[test]
+    fn a_picture_pasted_into_the_reply_box_attaches_and_words_on_the_clipboard_are_typed() {
+        let mut rt = replying("reply-paste");
+        rt.paste_content(ClipboardContent::new("").with_image(screenshot()));
+        rt.frame(1.0 / 60.0);
+        let names = reply_names(&rt);
+        assert_eq!(names.len(), 1, "the picture is in the box");
+        assert!(names[0].starts_with("pasted-") && names[0].ends_with(".png") && rt.state.reply_files.open[0].file.image, "{names:?}");
+        assert!(rt.state.reply.text.is_empty(), "and nothing was typed");
+        // Words on the clipboard are the box's own to paste.
+        rt.paste("Look at the total line.");
+        rt.frame(1.0 / 60.0);
+        assert_eq!((rt.state.reply.text.as_str(), rt.state.reply_files.open.len()), ("Look at the total line.", 1));
+        // Nothing went in the box a thread is started in.
+        assert!(rt.state.compose.files.is_empty());
+    }
+
+    #[test]
+    fn files_in_a_reply_box_wait_in_their_thread_while_another_is_read() {
+        let folder = std::env::temp_dir().join(format!("mercury-desktop-reply-drop-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&folder);
+        std::fs::create_dir_all(&folder).unwrap();
+        let report = folder.join("week-32.pdf");
+        std::fs::write(&report, "%PDF-1.4 invented").unwrap();
+        let mut rt = replying("reply-drop");
+        let first = rt.state.open_item().map(|i| i.id.clone()).unwrap();
+        // Dropped on the box.
+        let at = rt.find("reply").expect("the box's words");
+        rt.drop_files(vec![report.clone()], Some(at));
+        rt.frame(1.0 / 60.0);
+        assert_eq!(reply_names(&rt), vec!["week-32.pdf".to_string()]);
+        // Escape lets go of a box that holds something, and it stays open on it.
+        key(&mut rt, Key::Escape);
+        assert!(rt.state.replying && !rt.state.reply.focused, "held open by its file");
+        // Off to the next thread and back: the file waited.
+        key(&mut rt, Key::Text("j".into()));
+        assert_ne!(rt.state.open_item().map(|i| i.id.clone()), Some(first.clone()));
+        assert!(rt.state.reply_files.open.is_empty(), "the next thread's box is its own");
+        key(&mut rt, Key::Text("k".into()));
+        assert_eq!(rt.state.open_item().map(|i| i.id.clone()), Some(first));
+        assert_eq!(reply_names(&rt), vec!["week-32.pdf".to_string()]);
+        // Its × takes it out, and an empty box folds on Escape.
+        rt.update(|s, tx| s.remove_attached(Holder::Reply, 0, tx));
+        rt.frame(1.0 / 60.0);
+        key(&mut rt, Key::Text("r".into()));
+        key(&mut rt, Key::Escape);
+        assert!(!rt.state.replying, "an empty box folds");
+        std::fs::remove_dir_all(&folder).unwrap();
+    }
+
+    #[test]
+    fn a_file_that_cannot_go_holds_the_reply_and_says_why_in_the_web_windows_words() {
+        let mut rt = replying("reply-cannot");
+        let gone = std::env::temp_dir().join(format!("mercury-desktop-reply-gone-{}.mov", std::process::id()));
+        rt.update(|s, _| s.attach_paths(Holder::Reply, std::slice::from_ref(&gone)));
+        rt.update(|s, _| s.reply.insert("Here it is"));
+        rt.key(KeyEvent { key: Key::Enter, mods: Mods { cmd: true, ..Mods::default() } });
+        rt.frame(1.0 / 60.0);
+        let name = gone.file_name().unwrap().to_string_lossy().to_string();
+        assert_eq!(rt.state.toast.as_ref().map(|t| t.line.clone()), Some(format!("Not sent: {name} could not be attached: the file was not found on this computer. Your draft has been kept.")));
+        assert!(rt.state.held.is_none() && rt.state.replying, "nothing is held and the box keeps it all");
+        assert_eq!(rt.state.reply.text, "Here it is");
+        // One still on its way in is said so (`attaching`).
+        rt.state.reply_files.open[0].coming = true;
+        rt.update(|s, tx| s.send_reply(tx));
+        assert_eq!(rt.state.toast.as_ref().map(|t| t.line.clone()), Some(format!("{name} is still being attached.")));
+    }
+
+    #[test]
+    fn a_reply_carrying_files_goes_with_their_links_and_z_hands_back_its_words_and_files() {
+        let mut rt = replying("reply-carry");
+        rt.paste_content(ClipboardContent::new("").with_image(screenshot()));
+        rt.frame(1.0 / 60.0);
+        rt.update(|s, _| s.reply.insert("Use this layout."));
+        let item = rt.state.open_item().cloned().unwrap();
+        let thread = format!("{}/{}", item.product, item.id);
+        let files = rt.state.reply_files.open.clone();
+        let name = files[0].file.name.clone();
+        // Send with no engine behind the window (a fixture's): nothing goes, and the box keeps it all.
+        rt.update(|s, tx| s.send_reply(tx));
+        assert_eq!((rt.state.reply_files.open.len(), rt.state.reply_files.saving.clone(), rt.state.reply.text.as_str()), (1, None, "Use this layout."));
+        // The engine saved the picture: the reply is held with the link under its words, and the
+        // box empties and folds.
+        let saved = json!([{ "rel": format!("attachments/mx1-ab-{name}"), "name": name, "image": true }]);
+        let landed = crate::write::Landed { sent: crate::write::Sent::Carry { thread: thread.clone(), words: "Use this layout.".to_string(), pick: None, files: files.clone() }, answer: Ok(saved), snapshot: None };
+        rt.update(|s, tx| s.carried(landed, tx));
+        let held = rt.state.held.as_ref().expect("the reply waits its three seconds");
+        assert_eq!(held.payload["answer"], json!(format!("Use this layout.\n\n![{name}](attachments/mx1-ab-{name})")));
+        assert!(!rt.state.replying && rt.state.reply_files.open.is_empty() && rt.state.reply.text.is_empty());
+        // Z gives back the words and the picture, not the link.
+        rt.update(|s, tx| s.undo(tx));
+        assert_eq!((rt.state.reply.text.as_str(), reply_names(&rt)), ("Use this layout.", vec![name.clone()]));
+        assert!(rt.state.replying && rt.state.held.is_none());
+        // Refused by the engine instead, the box keeps everything and says why.
+        let refused = crate::write::Landed { sent: crate::write::Sent::Carry { thread, words: "Use this layout.".to_string(), pick: None, files }, answer: Err("connection refused".to_string()), snapshot: None };
+        rt.update(|s, tx| s.carried(refused, tx));
+        assert_eq!(rt.state.toast.as_ref().map(|t| t.line.clone()), Some("Not sent: connection refused Your draft has been kept.".to_string()));
+        assert!(rt.state.held.is_none() && rt.state.reply_files.open.len() == 1);
     }
 }
