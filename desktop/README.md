@@ -7,7 +7,9 @@ and asks the engine for everything through a local door.
 Where this is now: it reads, and it has begun to write. Home, the Inbox and one conversation come
 from the same snapshot the web window gets and are kept current while the engine works. A
 conversation can be answered, by typing or by picking one of its agent's options, marked done and
-opened again, and the keys walk the lists (see "What the keys do, and what it writes").
+opened again, and the keys walk the lists (see "What the keys do, and what it writes"). A new
+thread is started from Home's box or from the New thread card N opens over any other page, on the
+project, model, effort and level picked in its menus ("Starting a thread", below).
 
 A file an agent names in a conversation is not left as its path: a picture is drawn in place, any
 other file is a mention that opens it, and a folder on a line of its own shows its newest pictures
@@ -200,6 +202,12 @@ The keys are the web window's (`src/keys.rs`, from the keydown handler in `rende
 | A conversation | 1 to 9 | Sends that option |
 | A conversation | R | Opens the reply box; ⌘Return sends what is in it |
 | A conversation | E | Marks it done and goes on to the next thread |
+| Home | N, or a letter none of the list's keys | Puts the caret in the box on the page (the letter typed into it) |
+| The Inbox, a conversation | N | Opens the New thread card over the page |
+| The box, the card | ⌘Return | Sends the thread; Return is a new line |
+| The box, the card | Esc | Closes the open menu; then lets go of the box, or closes the card, keeping the words |
+| A chip of the box | ↓, ↑ | Opens its menu (after Esc left the keyboard on it) |
+| A menu of the box | ↓, ↑, Enter | Walks its rows around both ends and picks the one lit |
 | Anywhere | Z | Takes back the last thing done |
 
 Everything written is one call on a channel the web window calls too, with the web window's own
@@ -242,6 +250,88 @@ A script is a list of events (`{"t": 0.5, "type": "key", "name": "e"}`, `"type":
 `thread-options-reply`, `thread-done-held`, `inbox-done-held` and the four `thread-later*` are the
 web window in each of these states; a fixture says what its picture had open (`replying`,
 `option`, `closed`, `later`, `laterRefused`).
+
+## Starting a thread
+
+There is one box to start a thread in, drawn in one of two places, as the web window draws its one
+composer either in Home's slot or in a dialog (`ThreadComposer.tsx`, `drawnIn` in `App.tsx`):
+
+- **On Home** it is open under the greeting (`src/compose.rs`, `inline`). N, a press on it, or a
+  letter that is none of the list's own keys puts the caret in it.
+- **Anywhere else** N, and New thread on the Inbox's strip, open it as the **New thread card**
+  over the page: the page veiled and blurred a little, the card 680 points wide a tenth above the
+  middle, its head saying who the thread is to (where someone besides the agent could get it) and
+  on which model, then the words, then its bar. While the card is up Home's slot is empty, as in
+  the web window. The empty Inbox has no box of its own here, so N opens the card there too.
+
+Both hold the same words and picks: whatever was typed on Home is in the card, and the other way
+round. Escape, or a press outside the card, closes it and keeps every word.
+
+Under the words: the model (a chip on the page, the head's Model on the card), the project and the
+level, the paper clip, and Send with the caret beside it. Each opens the web window's menu, built
+from its measurements: the models used lately, each with its agent where there are two, then
+every model in a column for each agent, and how hard it thinks at the foot; the projects in the
+person's order with New project last; Agent Decides and the four levels; and under the caret, Add
+it to Later. On the page every menu drops under its chip; on the card the model's drops from its
+word and the others rise out of the bar. A menu is kept inside the window as the web window keeps
+it (`fitMenu`), opens with the keys on what is picked, and is walked by the pointer and by ↓, ↑
+and Enter around both ends. Escape closes it and leaves the keyboard on its chip, where an arrow
+opens it again and a letter goes to the words. A press outside it closes it on the way down and
+goes on to what it was aimed at in the box: another chip opens its menu, the words take the caret,
+Send sends.
+
+Send, or ⌘Return, writes the thread at once, one `zero:compose` as the web window's
+(`api.compose`): the project, the title and body split out of the words by the web window's rule
+(`splitMessage`), `kind: directive`, the level as a number (nought for Agent Decides), the Claude
+model always (another agent's only when moved off its default), the agent where this Mac offers
+more than one, the effort only when one was picked, and `start: later` when Later was. The box
+empties at once and the card closes; a line says where it is going, then names the thread with O
+to open it and Z to take it back, which closes it and stops its agent unless the agent has
+already answered. Z hands the words back and opens the card on them. A send the engine refuses
+puts every word and pick back and opens the card on them, unless something else is over the page
+by then, when the line says where the words are. Alone on the Inbox the tab moves to where the
+thread lands.
+
+What was picked is kept: the project, and for each agent its model and effort, in memory and in
+one small file beside the door's note (`~/Library/Application Support/Mercury/native-picks.json`,
+`src/picks.rs`), written when a pick changes and read when the window opens. A fixture's picture
+never reads or writes it (its picks are the fixture's `picks`, or none), nor does a window given a
+door by hand (`--door`), which may be a scratch engine's, unless `--picks <file>` says where.
+
+The scenes: `home-typed` (words in Home's box), `home-menu-project`, `home-menu-priority`,
+`home-menu-model`, `home-menu-models` (every model), the same two with two agents
+(`home-menu-model-engines`, `home-menu-models-engines`, whose settings the scene answers with
+invented Codex models), `home-sending` (between Send and the answer), `home-sent` (the line that
+names the new thread), and the card N opens on the Inbox: `compose-card`, with its menus
+`compose-card-model` and `compose-card-priority`, and `compose-card-team` (To over Model). The
+card scenes are drawn with `--view inbox`. Each has its regions (`tools/scenes/*.regions.json`).
+At 1280 by 760, 2x:
+
+| Scene | Whole window | Where it changed |
+|---|---|---|
+| `home-typed` | 0.90 | the box 2.48 (Home's own box is 2.15: see the glass below) |
+| `home-menu-project` | 0.77 | the menu 0.27 |
+| `home-menu-priority` | 0.76 | the menu 0.29 |
+| `home-menu-model` | 0.72 | the menu 0.23 |
+| `home-menu-models` | 0.70 | the menu 0.16 |
+| `home-menu-model-engines` | 0.72 | the menu 0.29 |
+| `home-menu-models-engines` | 0.63 | the menu 0.15 |
+| `home-sending` | 0.85 | the line 0.86 |
+| `home-sent` | 0.84 | the line 0.35 |
+| `compose-card` | 0.22 | the card 0.29 |
+| `compose-card-model` | 0.20 | the card 0.15, the menu 0.22 |
+| `compose-card-priority` | 0.22 | the card 0.27, the menu 0.30 |
+| `compose-card-team` | 0.20 | the card 0.16 |
+
+At 900 by 760 the menus are 0.23 to 0.29 and the card 0.27 (whole windows 0.84 to 0.91 for Home
+with a menu, 0.23 to 0.25 for the card); at 1600 by 1000 the menus are 0.23 to 0.29 and the card
+0.29 (whole windows 0.56 to 0.61, and 0.15 to 0.16).
+
+Filmed at 60 frames a second, a menu, the card and a send each land whole on the frame after the
+press and stay still. Against a scratch engine (above), a thread typed on Home and sent wrote
+its title, body, level and model to the ledger; one sent to Later wrote `start: later`, and Z
+then wrote its close and opened the card on its words; one sent from the card on the Inbox, at
+High, wrote level 7.
 
 ## The files a message names
 
@@ -383,10 +473,35 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
     until more of it shows: Rune reports an element on screen from half of it.
 - **The team's card has no rows.** With teammates, Home's second card is the team's week; it says
   so when nobody else is on the team and is bare otherwise, until the Team page is drawn.
-- **The composer's chips are drawn, not chosen.** The model always reads Opus 5.5, To always
-  reads Agent, and in a conversation's reply box the priority, the mode and the model cannot be
-  changed, nothing can be attached and nothing can be sent later. Home's box cannot be typed in
-  yet, so a new thread still starts in the web window.
+- **The reply box's chips are drawn, not chosen.** In a conversation's reply box the priority,
+  the mode and the model cannot be changed, nothing can be attached and nothing can be sent later.
+- **Starting a thread, where it still differs:**
+  - Out of reach here, and drawn where the web window draws them: attaching files (the paper
+    clip opens nothing), To (it says Agent and opens no menu), @-names in the words, recording,
+    a demand, the branch a thread starts from, who sees it, and the tutorial's suggestions.
+  - The caret's menu offers Add it to Later and nothing with a clock in it: no Tomorrow morning,
+    no Monday morning, no time typed in words, no repeating task, which the web window's menu
+    lists under it.
+  - New project and Reorder are drawn, and both are the web window's to do (its New project
+    card, Settings): New project says so in a line.
+  - The words last as long as the window. The web window writes its card's draft down on every
+    keystroke and has it back after a restart.
+  - The picks are this window's own. The web window keeps its own in its storage
+    (`zero.lastProduct`, `zero.lastModel`, `zero.lastEffort`), which the door does not hand
+    over, so each window opens on its own last project, model and effort.
+  - A menu lands at once. The web window's fades in and rises three points over 0.13 s (`tc-in`).
+  - A chip does not brighten under the pointer, only while its menu is open.
+  - On the card, Escape out of a menu leaves the caret in the words rather than on the chip:
+    Rune's dialog hands the keyboard back to its one field. A second Escape still closes the card
+    and a letter still goes to the words, as in the web window; ↓ there moves the caret instead of
+    opening the menu again.
+  - A press outside an open menu goes on only to the box's own controls (another chip, the words,
+    Send). Anywhere else on the page it only closes the menu, where the web window's also lands
+    where it was aimed (a row opens).
+  - Z on a new thread is refused when its agent has answered by the window's last reading of the
+    thread; the web window reads the engine afresh first.
+  - The caret is half a point wider and a fifth shorter, as Rune draws every caret, and the large
+    words on Home sit up to half a point from the browser's, glyph by glyph.
 - **A reply shows in the conversation once it is written.** The web window draws it at once,
   marked as sending. Here the box folds, the line says Sent, and the words appear three seconds
   later with the engine's next answer.
@@ -399,8 +514,8 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
   the web window. Here it is not sent, and the line says to pick it there.
 - **No warning before closing a thread whose agent waits on an answer.** The web window gives it
   once ever, on the first such E, and remembers for itself that it did.
-- **Several rows cannot be ticked**, so nothing is done to many threads at once; N (New thread),
-  ⌘K and the More menu are not there yet.
+- **Several rows cannot be ticked**, so nothing is done to many threads at once; ⌘K and the More
+  menu are not there yet.
 - **The Later picker takes a moment, not a rhythm.** In the web window "every monday 9am" typed
   there makes the thread a repeating task, and its box says so in its hint. This window keeps
   no repeating tasks, so the phrase is "not a time" and the hint names only what is read. A
@@ -444,6 +559,9 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
   `src/markdown.rs` draws an agent's words.
 - `src/later.rs`: the Later picker. `src/rules/later.rs` reads the time typed into it, on the
   calendar `src/rules/calendar.rs` keeps.
+- `src/compose.rs`: the box a thread is started in, on Home and as the New thread card, its
+  menus and what a send does. `src/rules/compose.rs`: what a new thread is made of and the
+  menus' rules. `src/picks.rs`: the picks kept from one window to the next.
 - `src/files.rs`: the files those words name, drawn, and the one function that opens one.
   `src/pictures.rs`: the pictures, read off the disk on a worker and kept small.
   `src/rules/paths.rs`, `mentions.rs`, `roots.rs`: which words name a file, what kind it is and
