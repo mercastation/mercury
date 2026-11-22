@@ -18,6 +18,7 @@ mod home;
 mod icons;
 mod inbox;
 mod keys;
+mod later;
 mod markdown;
 mod rules;
 mod sky;
@@ -112,6 +113,8 @@ pub struct State {
     /// The threads closed here whose close the engine has not told back yet: out of the lists
     /// from the moment E is pressed.
     hidden: HashSet<String>,
+    /// The Later picker L opens.
+    pub later: later::Picker,
 }
 
 impl State {
@@ -176,11 +179,15 @@ impl State {
     }
     /// One write to the engine. A fixture has nobody to send to, and says nothing of it.
     fn send(&mut self, channel: &'static str, payload: Value, sent: write::Sent) -> bool {
+        self.send_all(vec![(channel, payload)], sent)
+    }
+    /// Several writes that are one thing done, sent in order.
+    fn send_all(&mut self, writes: Vec<writes::Write>, sent: write::Sent) -> bool {
         self.refused = None;
         let Source::Door(door) = &self.source else {
             return false;
         };
-        if self.outbox.send(door, channel, payload, sent) {
+        if self.outbox.send_in_order(door, writes, sent) {
             return true;
         }
         self.refused = Some("Mercury is not running, so this was not sent.".to_string());
@@ -189,6 +196,10 @@ impl State {
     /// One line about what was just done, for as long as the web window keeps its own up.
     fn say(&mut self, line: String, undo: bool, tx: &Tx) {
         self.toast = Some(write::Toast { line, undo, until: tx.clock() + writes::TOAST_MS / 1000.0 });
+    }
+    /// A line that only tells: nothing was done, so there is nothing for Z.
+    pub fn tell(&mut self, line: &str, tx: &Tx) {
+        self.say(line.to_string(), false, tx);
     }
     /// Does something now and writes it in three seconds, unless Z comes first
     /// (`deferCommit` in `renderer/src/App.tsx`). One thing waits at a time: whatever was
@@ -211,8 +222,10 @@ impl State {
         };
         self.last = held.closes.as_ref().map(|item| write::Undo {
             said: format!("Reopened: {}", writes::clip_to_sentence(item.title.as_deref().unwrap_or(""), 48)),
-            payload: writes::reopen_as_it_was(item),
+            writes: vec![(writes::ANSWER, writes::reopen_as_it_was(item))],
+            sent: write::Sent::Reopen { thread: format!("{}/{}", held.thread.1, held.thread.0) },
             thread: held.thread.clone(),
+            opens: true,
         });
         self.send(held.channel, held.payload, held.sent);
     }
@@ -241,13 +254,145 @@ impl State {
         }
         if let Some(last) = self.last.take() {
             let (id, product) = last.thread.clone();
-            if self.send(writes::ANSWER, last.payload, write::Sent::Reopen { thread: format!("{product}/{id}") }) {
+            if self.send_all(last.writes, last.sent) {
                 self.say(last.said, false, tx);
-                self.open_thread(&id, &product);
+                // What it puts back in front of the person is opened, so Z is seen to have
+                // done something (`brings` in `renderer/src/App.tsx`).
+                if last.opens {
+                    self.open_thread(&id, &product);
+                }
             }
             return;
         }
         self.say(writes::NOTHING_TO_UNDO.to_string(), false, tx);
+    }
+    /// The clock for something done this instant. A fixture has its own.
+    fn moment(&self) -> f64 {
+        if self.fixed_clock { self.now } else { clock() }
+    }
+    fn item(&self, id: &str, product: &str) -> Option<&data::Item> {
+        self.snap.items.iter().find(|i| i.id == id && i.product == product)
+    }
+    /// The rows the open Later picker offers.
+    pub fn later_choices(&self) -> Vec<later::Choice> {
+        let on = self.later.on.as_ref().and_then(|(id, product)| self.item(id, product));
+        on.map(|item| later::choices(item, self.now)).unwrap_or_default()
+    }
+    /// L: opens the Later picker on a thread (`openSnooze` in `renderer/src/App.tsx`).
+    pub fn open_later(&mut self, id: &str, product: &str, tx: &mut Tx) {
+        // A row the app made itself has no ledger to keep a moment in.
+        if product.is_empty() {
+            self.say("Nothing to put off here. Press E to close it until something else stops.".to_string(), false, tx);
+            return;
+        }
+        if self.item(id, product).is_none() {
+            return;
+        }
+        // The moments it offers are counted from this minute, not from when the lists were last read.
+        if !self.fixed_clock {
+            self.now = clock();
+        }
+        self.later = later::Picker::open_on(Some((id.to_string(), product.to_string())), "");
+        tx.focus_when_shown("later", false);
+    }
+    pub fn close_later(&mut self) {
+        self.later = later::Picker::closed();
+    }
+    /// Enter in the Later picker, or a press on one of its rows (`at`). Typed words decide;
+    /// with none, the lit row does; words that are not a time are refused and said so.
+    pub fn pick_later(&mut self, at: Option<usize>) {
+        let Some((id, product)) = self.later.on.clone() else {
+            return;
+        };
+        let Some(item) = self.item(&id, &product).cloned() else {
+            self.close_later();
+            return;
+        };
+        let now = self.moment();
+        let rows = later::choices(&item, now);
+        let row = |at: usize| rows.get(at).map(|choice| (choice.ts, choice.name.to_string()));
+        let picked = match at {
+            Some(at) => row(at),
+            None => {
+                let read = rules::later::parse_when(&self.later.words.text, now);
+                match rules::later::enter_means(&self.later.words.text, read.is_some()) {
+                    rules::later::Enter::Typed => read,
+                    rules::later::Enter::Selected => row(self.later.selected),
+                    rules::later::Enter::Refuse => {
+                        self.later.refused = true;
+                        return;
+                    }
+                }
+            }
+        };
+        let Some((until, back)) = picked else {
+            return;
+        };
+        self.close_later();
+        // "Now" on a thread already put off wakes it instead of timing it again.
+        if until == 0.0 {
+            self.bring_back(&id, &product);
+            return;
+        }
+        self.write_what_waits();
+        let (channel, payload) = writes::put_off(&item, until);
+        let sent = write::Sent::Later {
+            thread: format!("{product}/{id}"),
+            said: writes::said_later(&rules::title::row_title(&item), &back),
+            undo: writes::put_off(&item, item.number("snoozedUntil").unwrap_or(0.0)),
+        };
+        self.send(channel, payload, sent);
+    }
+    /// Brings a thread back from Later: E on its row there, or "Now" in the picker (`unsnooze`).
+    pub fn bring_back(&mut self, id: &str, product: &str) {
+        let Some(item) = self.item(id, product).cloned() else {
+            return;
+        };
+        self.write_what_waits();
+        let back = writes::bring_back(&item, self.moment());
+        self.send_all(back.writes, write::Sent::Back { thread: format!("{product}/{id}"), said: back.said, undo: back.undo });
+    }
+    /// What a write the engine took still has to do on screen. Putting a thread off and
+    /// bringing one back are said only now, as the web window says them only once the write
+    /// stands: a line promising a row had gone, over a row still there, is worse than a wait.
+    fn took(&mut self, landed: write::Landed, tx: &mut Tx) {
+        let Some((product, id)) = landed.sent.thread().split_once('/').map(|(product, id)| (product.to_string(), id.to_string())) else {
+            return;
+        };
+        let (said, undo) = match landed.sent {
+            write::Sent::Later { thread, said, undo } => {
+                // The engine answers with the row as it now stands. Its moment is laid over
+                // the row in hand, so the lists move now and not at the next reading.
+                if let (Ok(row), Some(item)) = (&landed.answer, self.snap.items.iter_mut().find(|i| i.id == id && i.product == product)) {
+                    if let Some(until) = row.get("snoozedUntil") {
+                        item.rest.insert("snoozedUntil".to_string(), until.clone());
+                    }
+                    if let (Some(wrote), Some(mine)) = (row.get("wrote").and_then(|w| w.get("snoozedUntil")), item.rest.get_mut("wrote").and_then(Value::as_object_mut)) {
+                        mine.insert("snoozedUntil".to_string(), wrote.clone());
+                    }
+                }
+                let undo = write::Undo {
+                    said: writes::BACK_IN_YOUR_INBOX.to_string(),
+                    writes: vec![undo],
+                    sent: write::Sent::TakenBack { thread },
+                    thread: (id.clone(), product.clone()),
+                    opens: true,
+                };
+                (said, undo)
+            }
+            write::Sent::Back { thread, said, undo } => {
+                let undo = write::Undo { said: writes::RETURNED_TO_LATER.to_string(), writes: undo, sent: write::Sent::TakenBack { thread }, thread: (id.clone(), product.clone()), opens: false };
+                (said.to_string(), undo)
+            }
+            _ => return,
+        };
+        self.last = Some(undo);
+        self.say(said, true, tx);
+        self.refresh();
+        // The thread has left the list the person was reading it from, so they are back on it.
+        if matches!(&self.view, View::Thread { id: open, product: of } if *open == id && *of == product) {
+            self.leave_thread();
+        }
     }
     /// Whether an answer to this thread is waiting to be written: its options are spent on
     /// screen from the moment one is picked.
@@ -378,8 +523,9 @@ impl State {
     }
     /// What the engine said to something sent. A refusal is said in one line, and refused
     /// words go back where the person can send them again.
-    fn landed(&mut self, landed: write::Landed) {
+    fn landed(&mut self, landed: write::Landed, tx: &mut Tx) {
         let Some(why) = landed.refusal() else {
+            self.took(landed, tx);
             return;
         };
         // A close the engine did not make puts the row back in its list.
@@ -404,6 +550,9 @@ impl State {
             write::Sent::Pick { .. } => format!("Could not send that option: {why}"),
             write::Sent::Close { .. } => format!("Could not mark it done: {why}"),
             write::Sent::Reopen { .. } => format!("Could not reopen it: {why}"),
+            write::Sent::Later { .. } => format!("Could not move it to Later: {why}"),
+            write::Sent::Back { .. } => format!("Could not bring it back: {why}"),
+            write::Sent::TakenBack { .. } => format!("Could not undo that: {why}"),
         });
     }
     /// Out of a conversation: to where the person came from, and one opened from nowhere came
@@ -579,6 +728,7 @@ fn init() -> State {
         last: None,
         toast: None,
         hidden: HashSet::new(),
+        later: later::Picker::closed(),
     };
     // The first skies and a fixture are in place before the first frame, so a picture is whole.
     let first = paint_skies(s.card_size());
@@ -635,6 +785,12 @@ fn init() -> State {
             s.replying = true;
         }
         s.option = s.fixture.get("option").and_then(Value::as_u64).and_then(|n| (n as usize).checked_sub(1));
+        // And one taken with the Later picker open (`later` is what was typed into it,
+        // `laterRefused` that Enter was pressed on words it could not read).
+        if let (Some(words), View::Thread { id, product }) = (s.fixture.get("later").and_then(Value::as_str), &s.view) {
+            s.later = later::Picker::open_on(Some((id.clone(), product.clone())), words);
+            s.later.refused = s.fixture.get("laterRefused").and_then(Value::as_bool).unwrap_or(false);
+        }
     }
     s
 }
@@ -708,7 +864,7 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
         s.picked = s.picked.min(s.rows_under_the_keys().saturating_sub(1));
     }
     for landed in s.outbox.landed() {
-        s.landed(landed);
+        s.landed(landed, tx);
         changed = true;
     }
     if let Some((key, answer)) = s.asking.take() {
@@ -767,6 +923,11 @@ fn view(s: &State, _: &mut Cx<State>) -> El {
         );
     let root = match chrome::toast_card(s) {
         Some(toast) => root.child(toast),
+        None => root,
+    };
+    // The Later picker stands over everything, the line about the last thing done included.
+    let root = match later::view(s) {
+        Some(picker) => root.child(picker),
         None => root,
     };
     match chrome::notice(s) {

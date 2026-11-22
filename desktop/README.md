@@ -144,7 +144,9 @@ The keys are the web window's (`src/keys.rs`, from the keydown handler in `rende
 | A list | J, K, ↓, ↑ | Walks the rows |
 | A list | Enter | Opens the row, which reads it |
 | The Inbox | Tab, Shift Tab | Turns its tabs |
-| The Inbox | E | Marks the row done (under Needs you and In progress) |
+| The Inbox | E | Marks the row done (under Needs you and In progress); under Later, brings it back |
+| The Inbox, a conversation | L | Opens the Later picker on the thread |
+| The Later picker | ↓, ↑, Enter, Esc | Walks its moments and picks the one lit, or what is typed; Esc closes it |
 | A conversation | Esc | Folds the reply box, then goes back |
 | A conversation | J, K | Goes to the next thread that needs the person, or the one before |
 | A conversation | ↓, ↑, Enter | Walks the agent's options and sends the one lit |
@@ -166,6 +168,17 @@ whole, because nothing was written. After a close is written, Z opens the thread
 was, blocked if it was blocked, so no run starts. If the engine refuses a write, its own reason
 is said in one line and what was refused is put back.
 
+Later is the one thing not held back, as in the web window (`snoozeUntil`, `unsnooze`): L opens
+the picker (`src/later.rs`), which offers the web window's moments and reads a time typed in
+words by its grammar (`src/rules/later.rs`, with the web's own test cases: "3h", "tomorrow at
+noon", "fri 3pm", "oct 10"). Typed words decide, and words that are not a time are refused
+beside the box rather than falling through to the lit row. The pick is written at once to
+`zero:snooze`, and only when the engine has it does the line say so and the thread leave the
+list; Z then writes the moment it had before and opens the thread. A thread already put off
+offers "Now" first, which brings it back, as E does on its row under Later: the reminder comes
+off, a run set for later is let go now (`zero:schedule`), and a thread written down and never
+begun is started (`zero:thread-edit`). Z puts all of that back.
+
 To try any of this without touching a real inbox, run an engine with no window and no agents on
 an empty store, and point the window at it:
 
@@ -179,8 +192,9 @@ cargo run -- --door http://127.0.0.1:<port> --token <key> --thread <id> \
 A script is a list of events (`{"t": 0.5, "type": "key", "name": "e"}`, `"type": "type"` with
 `"text"`, `"type": "tap"` with `x` and `y`); `--realtime` lets the three seconds pass. The scenes
 `thread-options`, `thread-option-picked`, `thread-reply`, `thread-reply-typed`,
-`thread-options-reply`, `thread-done-held` and `inbox-done-held` are the web window in each of
-these states; a fixture says what its picture had open (`replying`, `option`, `closed`).
+`thread-options-reply`, `thread-done-held`, `inbox-done-held` and the four `thread-later*` are the
+web window in each of these states; a fixture says what its picture had open (`replying`,
+`option`, `closed`, `later`, `laterRefused`).
 
 ## The same rows as the web window
 
@@ -235,8 +249,13 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
   the web window. Here it is not sent, and the line says to pick it there.
 - **No warning before closing a thread whose agent waits on an answer.** The web window gives it
   once ever, on the first such E, and remembers for itself that it did.
-- **E does nothing under Later and Done**, where the web window's brings a thread back; several
-  rows cannot be ticked; L (Later), N (New thread), ⌘K and the More menu are not there yet.
+- **Several rows cannot be ticked**, so nothing is done to many threads at once; N (New thread),
+  ⌘K and the More menu are not there yet.
+- **The Later picker takes a moment, not a rhythm.** In the web window "every monday 9am" typed
+  there makes the thread a repeating task, and its box says so in its hint. This window keeps
+  no repeating tasks, so the phrase is "not a time" and the hint names only what is read. A
+  terminal agent's row cannot be put off here, and the one warning before putting off a thread
+  whose agent waits on an answer is not given, as before closing one.
 - **The rail does not widen under the pointer**, and a person's photo is their two letters.
 - **What the web window remembers only for itself is not known here**: an update card the person
   closed still shows its Restart row, and the Sign in row of someone who skipped signing in is
@@ -273,6 +292,8 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
 - `src/home.rs`, `src/inbox.rs`, `src/thread.rs`: the screens. `src/talk.rs` reads a thread's
   ledger into a conversation (`docs/thread-data.md` says what the engine is asked), and
   `src/markdown.rs` draws an agent's words.
+- `src/later.rs`: the Later picker. `src/rules/later.rs` reads the time typed into it, on the
+  calendar `src/rules/calendar.rs` keeps.
 - `tools/install-mac.sh`: builds the app and puts it in `~/Applications` as "Mercury Native".
 - `src/sky.rs`: the dithered sky, ported from `renderer/src/home/sky.ts` with the same seed.
 - `src/icons.rs`: the icons, with the web app's own paths and strokes.

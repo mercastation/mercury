@@ -8,6 +8,7 @@ use rune::Waker;
 use serde_json::Value;
 
 use crate::data::Item;
+use crate::rules::writes::Write;
 use crate::source::{self, Door};
 
 /// What was sent, kept until the engine answers, so a refusal can be put right on screen.
@@ -20,6 +21,28 @@ pub enum Sent {
     Pick { thread: String },
     Close { thread: String },
     Reopen { thread: String },
+    /// That thread put off until later. Once the engine has it, the line `said` goes up and
+    /// Z can still write `undo`.
+    Later { thread: String, said: String, undo: Write },
+    /// That thread brought back from Later, the same way.
+    Back { thread: String, said: &'static str, undo: Vec<Write> },
+    /// Z, taking one of those two back.
+    TakenBack { thread: String },
+}
+
+impl Sent {
+    /// The thread it was done to, as `product/id`.
+    pub fn thread(&self) -> &str {
+        match self {
+            Sent::Reply { thread, .. }
+            | Sent::Pick { thread }
+            | Sent::Close { thread }
+            | Sent::Reopen { thread }
+            | Sent::Later { thread, .. }
+            | Sent::Back { thread, .. }
+            | Sent::TakenBack { thread } => thread,
+        }
+    }
 }
 
 /// Something done and not yet written (`deferCommit` in `renderer/src/App.tsx`). It shows at
@@ -41,12 +64,17 @@ pub struct Held {
     pub closes: Option<Item>,
 }
 
-/// The one thing Z still takes back after it was written: a close, by opening the thread as
-/// it was before.
+/// What Z still takes back after it was written: a close, by opening the thread as it was
+/// before; a thread put off or brought back, by writing its moments as they were. `sent` is
+/// what the engine's answer to that is filed under.
 pub struct Undo {
     pub said: String,
-    pub payload: Value,
+    pub writes: Vec<Write>,
+    pub sent: Sent,
     pub thread: (String, String),
+    /// Whether Z then opens that thread: it does when the thread comes back in front of the
+    /// person, so the key is seen to have done something.
+    pub opens: bool,
 }
 
 /// One line about what was just done, with Z beside it while Z can take it back.
@@ -63,17 +91,21 @@ pub struct Landed {
     pub answer: Result<Value, String>,
 }
 
-impl Landed {
-    /// Why the write did not happen, when it did not: the door failed, or the engine refused
-    /// (`{ ok: false, error }`, as `main/ipc.mts` answers a write it turns down).
-    pub fn refusal(&self) -> Option<String> {
-        match &self.answer {
-            Err(e) => Some(e.clone()),
-            Ok(v) if v.get("ok") == Some(&Value::Bool(false)) => {
-                Some(v.get("error").or_else(|| v.get("why")).and_then(Value::as_str).unwrap_or("Mercury did not take it.").to_string())
-            }
-            Ok(_) => None,
+/// Why a write did not happen, when it did not: the door failed, or the engine refused
+/// (`{ ok: false, error }`, as `main/ipc.mts` answers a write it turns down).
+fn refusal_in(answer: &Result<Value, String>) -> Option<String> {
+    match answer {
+        Err(e) => Some(e.clone()),
+        Ok(v) if v.get("ok") == Some(&Value::Bool(false)) => {
+            Some(v.get("error").or_else(|| v.get("why")).and_then(Value::as_str).unwrap_or("Mercury did not take it.").to_string())
         }
+        Ok(_) => None,
+    }
+}
+
+impl Landed {
+    pub fn refusal(&self) -> Option<String> {
+        refusal_in(&self.answer)
     }
 }
 
@@ -96,14 +128,22 @@ impl Outbox {
         self.waker = Some(waker);
     }
 
-    /// Sends, and says whether there was a door to send through.
-    pub fn send(&self, door: &Door, channel: &'static str, payload: Value, sent: Sent) -> bool {
+    /// Sends the writes that are one thing done, each after the one before it was taken, and
+    /// says whether there was a door to send through. The first the engine refuses stops the
+    /// rest, and its refusal is the answer; otherwise the answer is the last one's.
+    pub fn send_in_order(&self, door: &Door, writes: Vec<Write>, sent: Sent) -> bool {
         let Some((url, token)) = door.now() else {
             return false;
         };
         let (tx, waker, door) = (self.tx.clone(), self.waker.clone(), door.clone());
         std::thread::spawn(move || {
-            let answer = source::call(&url, &token, channel, &payload);
+            let mut answer = Ok(Value::Null);
+            for (channel, payload) in &writes {
+                answer = source::call(&url, &token, channel, payload);
+                if refusal_in(&answer).is_some() {
+                    break;
+                }
+            }
             // What was written changes the lists: read them again at once, not at the next turn.
             door.ask_soon();
             let _ = tx.send(Landed { sent, answer });
