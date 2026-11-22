@@ -185,6 +185,10 @@ fn lines(s: &State) -> Vec<Line> {
     }
     let under = under_the_keys(s);
     let mut commands = rules::commands(under.map(|(item, _)| item), under.is_some_and(|(_, open)| open), s.now, starts_a_thread().is_some());
+    // Try again, after Reply, on a thread nothing will start without the person (`foot.rs`).
+    if let Some((item, _)) = under.filter(|(item, _)| crate::foot::offered_on_the_bar(s, item)) {
+        rules::with_try_again(&mut commands, (item.id.clone(), item.product.clone()));
+    }
     // Then the Files place, and each project's page once the place has been read.
     commands.extend(rules::file_rows(&s.files.projects()));
     let listed = rules::listed(commands, threads, query);
@@ -275,6 +279,7 @@ fn run(s: &mut State, does: Does, tx: &mut Tx) {
         Does::Later((id, product)) => s.open_later(&id, &product, tx),
         Does::Back((id, product)) => s.bring_back(&id, &product),
         Does::Files(project) => s.open_files_place(project),
+        Does::TryAgain((id, product)) => s.try_again(&id, &product, tx),
     }
 }
 

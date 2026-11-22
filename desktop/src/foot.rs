@@ -55,6 +55,17 @@ pub fn facts(s: &State, item: &Item) -> live::Facts {
     f
 }
 
+/// Whether the command bar offers Try again on the thread under the keys (`itemCommands` in
+/// `App.tsx`): on the fleet's own facts, In progress by the rule that says a thread can be
+/// stopped (`stoppableNow`), with no moment it is put off to.
+pub fn offered_on_the_bar(s: &State, item: &Item) -> bool {
+    let mut f = facts(s, item);
+    f.stalled = live::Facts::of(&s.snap.supervisor, &item.id, s.now).stalled;
+    f.in_progress = f.in_progress && item.status != "done" && !item.truthy("agent");
+    f.scheduled_until = 0.0;
+    live::offers_try_again(item, &f)
+}
+
 /// The bar over a stopped conversation (`.stalled-bar`): over the title, as wide as the column,
 /// 4 points under the page's top (the 18 under it are its block's), on the raised ground with the
 /// card's corner. It says the agent
@@ -355,6 +366,29 @@ mod tests {
         press(&mut rt, x, y);
         run(&mut rt, 0.1);
         assert_eq!(rt.state.toast.as_ref().map(|t| t.line.as_str()), Some("Try again did not reach the app."));
+    }
+
+    #[test]
+    fn a_stuck_rows_mark_tries_again_without_opening_the_row_and_the_bar_offers_it_too() {
+        let mut rt = window_dressed("foot-row", &["--view", "inbox", "--tab", "progress"], "/fixtures/storefront", "Done, and tested. Merge it?", |fixture| {
+            let now = fixture["now"].as_f64().unwrap();
+            let item = &mut fixture["snapshot"]["items"][0];
+            item["status"] = json!("open");
+            item["answer"] = json!("Go on.");
+            item["wrote"]["answer"] = json!({ "ts": now - 60_000.0, "source": "founder" });
+        });
+        run(&mut rt, 0.1);
+        let row = rt.state.lists.in_progress_tab().first().map(|r| (r.retry, r.status_title.clone()));
+        assert_eq!(row, Some((true, Some("No agent is on this, and none is waiting to start.".to_string()))));
+        let (x, y) = rt.find("retry-storefront-w-feel0").expect("the mark after the word");
+        press(&mut rt, x, y);
+        run(&mut rt, 0.1);
+        assert!(matches!(rt.state.view, crate::View::Inbox), "the row did not open");
+        assert_eq!(rt.state.toast.as_ref().map(|t| t.line.as_str()), Some("Try again did not reach the app."));
+        // ⌘K over the row offers it after Reply.
+        rt.key(rune::KeyEvent { key: rune::Key::Command('k'), mods: rune::Mods { cmd: true, ..rune::Mods::default() } });
+        run(&mut rt, 0.1);
+        assert!(texts(&rt).iter().any(|t| t == "Try again"), "{:?}", texts(&rt));
     }
 
     #[test]

@@ -234,6 +234,11 @@ function tableRows(dump) {
       pinned: !!t.first(titleCell, (k) => t.has(k, 'th-pin')),
       status: state?.text ?? '',
       mark,
+      // Try again after the word, and what the word says under the pointer: its sentence, or
+      // the card saying why the cloud has not got the thread in its place.
+      retry: !!t.first(state, (k) => t.has(k, 'th-retry')),
+      statusTitle: state?.attrs?.title ?? '',
+      whyCard: !!state && t.has(state, 'has-card'),
       ...(gaveUp.project ? {} : { place: t.first(proj, (k) => t.has(k, 'th-proj-name'))?.text ?? proj?.text ?? '', placeMore: more ? Number(more.replace('+', '')) : 0 }),
       ...(gaveUp.priority ? {} : { priority: levelOf(t, cell('th-cell-prio')), priorityLabel: cell('th-cell-prio')?.text ?? '' }),
       when: t.first(r, (k) => t.has(k, 'th-when'))?.text ?? '',
@@ -317,13 +322,16 @@ const asHomeNeeds = (r) => ({ face: 'agent', title: r.title, priority: r.priorit
 const asHomeProgress = (r) => ({ face: 'agent', title: r.title, progressLine: `${r.engine} · ${r.project}`, when: r.when });
 const asTable = (r) => ({
   harness: r.harness,
-  title: r.title, aside: r.aside, held: r.held, pinned: r.pinned, status: r.status, mark: r.mark, place: r.place, placeMore: r.placeMore,
+  title: r.title, aside: r.aside, held: r.held, pinned: r.pinned, status: r.status, mark: r.mark,
+  retry: r.retry, statusTitle: r.why ? '' : (r.statusTitle ?? ''), whyCard: !!r.why,
+  place: r.place, placeMore: r.placeMore,
   priority: r.priority, priorityLabel: LABEL[r.priority], when: r.when, unread: r.unread,
 });
 
 /* ------------------------------------------------------------ comparing */
 
-const WORDS_OF_THE_THREAD = new Set(['title', 'project', 'place', 'aside', 'progressLine']);
+// A Stopped row's sentence is its result's first line, so the hover sentence is the thread's words too.
+const WORDS_OF_THE_THREAD = new Set(['title', 'project', 'place', 'aside', 'progressLine', 'statusTitle']);
 const said = (field, value) => (show || !WORDS_OF_THE_THREAD.has(field) ? JSON.stringify(value) : `«${String(value).length} characters»`);
 
 function compare(name, drawn, native, what = 'rows') {
