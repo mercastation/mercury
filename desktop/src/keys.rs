@@ -70,7 +70,7 @@ pub fn in_the_box(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
 
 /// The Inbox's row the keys act on, as `(id, product)`: the one the pointer moved onto while it
 /// is still there and still in the list, else the picked one (`pointed` in `App.tsx`).
-fn picked_row(s: &State) -> Option<(String, String)> {
+pub(crate) fn picked_row(s: &State) -> Option<(String, String)> {
     let rows = s.lists.under(s.inbox_tab);
     let pointed = rows.iter().find(|r| s.pointed.is_row(&r.product, &r.id));
     pointed.or_else(|| rows.get(s.picked)).map(|r| (r.id.clone(), r.product.clone()))

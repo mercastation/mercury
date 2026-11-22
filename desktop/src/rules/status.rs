@@ -300,6 +300,38 @@ pub fn status_cell(i: &Item, f: &Facts) -> Cell {
     says(state_word_of(i, state), Mark::None)
 }
 
+/// Whether Try again is offered: nothing will start the thread without a person
+/// (`offersTryAgain` in `renderer/src/try-again.ts`). Queued, Up next and Shipping come on their
+/// own and Signed out waits for a sign-in; At its limit is offered, as switching accounts is
+/// when one more try is wanted. The command bar asks it to leave Resume this agent and Restart
+/// the agent out where Try again stands for them. `scheduledUntil` is never among the facts
+/// those callers hand it (`factsFor`), so it is not asked here.
+pub fn offers_try_again(i: &Item, f: &Facts) -> bool {
+    if i.truthy("agent") || i.status == "done" || f.session.is_some() || f.practice || i.has_label("first-run") {
+        return false;
+    }
+    // Without the fleet this window knows nothing about what is coming.
+    let Some(queued) = f.supervisor.rest.get("queued").and_then(Value::as_array) else {
+        return false;
+    };
+    if f.asking || f.listed("shipping", &i.id) || f.listed("remoteHeld", &i.id) {
+        return false;
+    }
+    if f.listed("stalled", &i.id) && f.keyed("signInNeeded", &i.id).is_none() {
+        return true;
+    }
+    if let Some(live) = live_line(i, f) {
+        return matches!(live, Live::Idle | Live::Silent | Live::Limit);
+    }
+    // Out of In progress, the newest word on it is the app's own note that a run stopped, and
+    // no start is queued for it yet; a model it can run is the way on, not another try.
+    i.status == "open"
+        && !queued.iter().any(|q| q.as_str() == Some(i.id.as_str()))
+        && i.wrote("result").is_some_and(|w| w.source == "agent")
+        && says_a_run_got_nowhere(i.result.as_deref())
+        && !super::nowhere::says_the_model_is_for_another_engine(i.result.as_deref())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -322,6 +354,38 @@ mod tests {
 
     fn open() -> Value {
         json!({ "id": "w-1", "product": "shop", "status": "open", "kind": "directive", "labels": ["founder"], "title": "Fix the export", "createdAt": 1000, "updatedAt": 1000 })
+    }
+
+    fn tries_again(i: Value, supervisor: Value, in_progress: bool) -> bool {
+        let i = item(i);
+        let supervisor: Supervisor = serde_json::from_value(supervisor).unwrap();
+        let session = supervisor.running.iter().find(|r| r.item_id == i.id);
+        offers_try_again(&i, &Facts { supervisor: &supervisor, session, asking: false, in_progress, practice: false, later: false, now: NOW })
+    }
+
+    #[test]
+    fn try_again_stands_where_nothing_will_start_the_thread() {
+        // Stopped by the supervisor, and not for a sign-in.
+        assert!(tries_again(open(), json!({ "queued": [], "stalled": ["w-1"] }), false));
+        assert!(!tries_again(open(), json!({ "queued": [], "stalled": ["w-1"], "signInNeeded": { "w-1": "Claude Code" } }), false));
+        // Nothing running In progress, a run that wrote nothing, and one at its limit.
+        assert!(tries_again(open(), json!({ "queued": [] }), true));
+        assert!(tries_again(open(), json!({ "queued": [], "atLimit": { "w-1": { "tool": "Claude Code", "until": 0 } } }), true));
+        // Queued, a run on it, or the fleet not read: something is coming, or nothing is known.
+        assert!(!tries_again(open(), json!({ "queued": ["w-1"] }), true));
+        assert!(!tries_again(open(), json!({ "running": [{ "itemId": "w-1", "product": "shop" }], "queued": [] }), true));
+        assert!(!tries_again(open(), json!({}), true));
+        // Out of In progress, only the app's own note that a run got nowhere asks for it.
+        assert!(!tries_again(open(), json!({ "queued": [] }), false));
+        let mut nowhere = open();
+        nowhere["result"] = json!("Your reply did not reach this task.");
+        nowhere["wrote"] = json!({ "result": { "ts": 2000, "source": "agent" } });
+        assert!(tries_again(nowhere.clone(), json!({ "queued": [] }), false));
+        nowhere["result"] = json!("This task chose Codex's model \"gpt-5\", but this computer would run it with Claude Code. Nothing has been done.");
+        assert!(!tries_again(nowhere, json!({ "queued": [] }), false));
+        let mut done = open();
+        done["status"] = json!("done");
+        assert!(!tries_again(done, json!({ "queued": [], "stalled": ["w-1"] }), false));
     }
 
     #[test]

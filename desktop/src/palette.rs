@@ -3,8 +3,10 @@
 //! search threads or type a command in, over the rows that answer it: the arrows and the
 //! pointer move the lit row, Enter or a press runs it, Escape or a press outside closes it.
 //!
-//! Which rows there are is `rules/palette.rs`; here they are drawn and carried out. A row is
-//! there only when this window does what it says, so the list is much shorter than the web's.
+//! Which rows there are is `rules/palette.rs`; here they are drawn and carried out, each through
+//! what this window's own key, button or page already does, or the web row's own write. A row
+//! whose doing needs a screen this window does not have is not offered
+//! (`docs/parity-command-bar.md`).
 
 use std::cell::RefCell;
 
@@ -15,9 +17,10 @@ use serde_json::{Map, Value};
 
 use crate::data::Item;
 use crate::rules::palette::{self as rules, Does};
+use crate::rules::place::Act;
 use crate::rules::{js, search, writes};
 use crate::theme::*;
-use crate::{State, View, icons, write};
+use crate::{State, View, front, icons, write};
 
 mod marks;
 
@@ -43,11 +46,14 @@ pub struct Bar {
     index: RefCell<search::Index>,
     /// The web window's own rows, when a fixture brings them for a picture.
     pictured: Option<Vec<Pictured>>,
+    /// A thread moved to another project from the open conversation: its copy, opened once the
+    /// lists have it, if they do within ten seconds (`opensWhenListed`).
+    opens_when_listed: Option<((String, String), f64)>,
 }
 
 impl Bar {
     pub fn closed() -> Bar {
-        Bar { open: false, words: TextEdit::new(""), lit: None, pointer: None, index: RefCell::new(search::Index::default()), pictured: None }
+        Bar { open: false, words: TextEdit::new(""), lit: None, pointer: None, index: RefCell::new(search::Index::default()), pictured: None, opens_when_listed: None }
     }
 
     /// A picture taken with the bar open says so in its fixture: `palette` is what was typed
@@ -131,10 +137,12 @@ impl Line {
 
 /// The web window's rows as a fixture carries them, with this window's own threads where it
 /// listed threads. A thread it found that the web did not list goes at the end, so the
-/// picture shows it too.
-fn pictured_lines(pictured: &[Pictured], threads: Vec<rules::Row>) -> Vec<Line> {
+/// picture shows it too. A command this window has too, by its words and its drawing, is its
+/// own row, which does what it says; one it does not have is drawn as it was and does nothing.
+fn pictured_lines(pictured: &[Pictured], threads: Vec<rules::Row>, own: Vec<Line>) -> Vec<Line> {
     let keys = rules::row_keys(&threads);
     let mut found = threads.into_iter().zip(keys);
+    let mut own: Vec<Option<Line>> = own.into_iter().map(Some).collect();
     let (mut lines, mut heading) = (Vec::new(), None);
     for (at, row) in pictured.iter().enumerate() {
         match row {
@@ -144,17 +152,23 @@ fn pictured_lines(pictured: &[Pictured], threads: Vec<rules::Row>) -> Vec<Line> 
                     lines.push(Line::of(thread, key, heading.take()));
                 }
             }
-            Pictured::Command { icon, label, hint, cap } => lines.push(Line {
-                key: format!("pictured-{at}"),
-                heading: heading.take(),
-                icon: icon.clone(),
-                label: label.clone(),
-                hint: hint.clone(),
-                cap: cap.clone(),
-                sub: None,
-                done: false,
-                does: None,
-            }),
+            Pictured::Command { icon, label, hint, cap } => {
+                let mine = own.iter_mut().find(|l| l.as_ref().is_some_and(|l| l.sub.is_none() && &l.label == label && &l.icon == icon)).and_then(Option::take);
+                lines.push(match mine {
+                    Some(line) => Line { heading: heading.take(), ..line },
+                    None => Line {
+                        key: format!("pictured-{at}"),
+                        heading: heading.take(),
+                        icon: icon.clone(),
+                        label: label.clone(),
+                        hint: hint.clone(),
+                        cap: cap.clone(),
+                        sub: None,
+                        done: false,
+                        does: None,
+                    },
+                });
+            }
         }
     }
     lines.extend(found.map(|(thread, key)| Line::of(thread, key, None)));
@@ -162,35 +176,52 @@ fn pictured_lines(pictured: &[Pictured], threads: Vec<rules::Row>) -> Vec<Line> 
 }
 
 /// The thread the keys are on, and whether it is the conversation on screen: the open
-/// conversation, or the Inbox's picked row (`focused ?? pointed` in `App.tsx`). Home has none,
-/// and neither has a row the app made itself, which is no thread.
+/// conversation, or the Inbox's row under the pointer, else its picked row, the one E acts on
+/// (`focused ?? pointed` in `App.tsx`). Home has none, and neither has a row the app made
+/// itself, which is no thread.
 fn under_the_keys(s: &State) -> Option<(&Item, bool)> {
     match &s.view {
         View::Thread { .. } => s.open_item().map(|item| (item, true)),
-        View::Inbox => s.lists.under(s.inbox_tab).get(s.picked).and_then(|r| s.item(&r.id, &r.product)).map(|item| (item, false)),
+        View::Inbox => crate::keys::picked_row(s).and_then(|(id, product)| s.item(&id, &product)).map(|item| (item, false)),
         View::Home | View::Files { .. } => None,
     }
 }
 
-/// The rows the bar lists for what is typed, in the order drawn.
-fn lines(s: &State) -> Vec<Line> {
+/// This window's own rows for what is typed, in the order drawn, whatever a picture's fixture
+/// says the web window drew.
+fn own_lines(s: &State, threads: Vec<rules::Row>) -> Vec<Line> {
     let query = s.palette.words.text.as_str();
-    let threads = {
-        let mut index = s.palette.index.borrow_mut();
-        index.read(&s.snap.items);
-        rules::threads_found(&index, &s.snap, query, s.now)
+    let projects = s.files.projects();
+    let facts = rules::Facts {
+        snap: &s.snap,
+        local: &s.local,
+        now: s.now,
+        models: &s.models,
+        file_projects: &projects,
+        key_hints: s.picks.get().key_hints.unwrap_or(true),
+        starts_threads: starts_a_thread().is_some(),
     };
-    if let Some(pictured) = &s.palette.pictured {
-        return pictured_lines(pictured, threads);
-    }
-    let under = under_the_keys(s);
-    let mut commands = rules::commands(under.map(|(item, _)| item), under.is_some_and(|(_, open)| open), s.now, starts_a_thread().is_some());
-    // Then the Files place, and each project's page once the place has been read.
-    commands.extend(rules::file_rows(&s.files.projects()));
+    let commands = rules::commands(&facts, under_the_keys(s));
     let listed = rules::listed(commands, threads, query);
     let keys = rules::row_keys(&listed.rows);
     let headings: Vec<Option<String>> = (0..listed.rows.len()).map(|at| listed.label_over(at).map(str::to_string)).collect();
     listed.rows.into_iter().zip(keys).zip(headings).map(|((row, key), heading)| Line::of(row, key, heading)).collect()
+}
+
+/// The threads the words find, from the search kept between keystrokes.
+fn threads(s: &State) -> Vec<rules::Row> {
+    let mut index = s.palette.index.borrow_mut();
+    index.read(&s.snap.items);
+    rules::threads_found(&index, &s.snap, &s.palette.words.text, s.now)
+}
+
+/// The rows the bar lists for what is typed, in the order drawn.
+fn lines(s: &State) -> Vec<Line> {
+    let own = own_lines(s, threads(s));
+    match &s.palette.pictured {
+        Some(pictured) => pictured_lines(pictured, threads(s), own),
+        None => own,
+    }
 }
 
 /// Which row is lit: the one picked under these same words, else the first (`keptPick`).
@@ -222,35 +253,152 @@ impl State {
         // Fresh each time, as the web window mounts its box anew: empty, the first row lit, the
         // list at its top. Rune would otherwise carry out again the last request to bring a lit
         // row into view, which outlives the list it was made for.
-        self.palette = Bar { open: true, index: std::mem::take(&mut self.palette.index), ..Bar::closed() };
+        self.palette = Bar { open: true, index: std::mem::take(&mut self.palette.index), opens_when_listed: self.palette.opens_when_listed.take(), ..Bar::closed() };
         self.palette.words.focused = true;
         tx.focus_when_shown("palette", false);
         tx.scroll_to_y("palette-list", 0.0);
     }
 
     pub fn close_palette(&mut self) {
-        self.palette = Bar { index: std::mem::take(&mut self.palette.index), ..Bar::closed() };
+        self.palette = Bar { index: std::mem::take(&mut self.palette.index), opens_when_listed: self.palette.opens_when_listed.take(), ..Bar::closed() };
     }
 
-    /// Opens a finished thread again: what the Reopen button over a conversation writes
-    /// (`reopen_thread`), for the thread the keys are on.
-    fn reopen(&mut self, id: &str, product: &str) {
-        if self.open_item().is_some_and(|item| item.id == id && item.product == product) {
-            return self.reopen_thread();
-        }
-        let Some(item) = self.item(id, product).cloned() else {
-            return;
-        };
+    /// Reopen from the bar: the thread opened again with nothing said, written at once, and Z
+    /// marks it done again (`reopenDone`, which the bar's row runs, and not the Reopen button's
+    /// `zero:reopen`).
+    fn reopen_done(&mut self, item: &Item) {
         self.write_what_waits();
-        let thread = format!("{}/{}", item.product, item.id);
-        self.send(writes::REOPEN, writes::reopen(&item), write::Sent::Reopen { thread });
+        let (said, again) = rules::reopened_said(item);
+        let (channel, payload) = rules::reopen_done(item);
+        self.send(channel, payload, write::Sent::Palette(Wrote::Reopened { thread: thread_of(item), said, again }));
+    }
+
+    /// Approve: the agent's recommended option, the go-ahead on a review, or the word to run a
+    /// proposal, held three seconds as an answer is, and from inside the thread the person goes
+    /// on to the next that needs them (`resolve`, through `deferCommit` and `leaveResolved`).
+    fn approve(&mut self, item: &Item, tx: &mut Tx) {
+        let Some(approval) = rules::approval(item) else {
+            return self.close(&item.id, &item.product, false, tx);
+        };
+        let inside = self.is_open(item);
+        let next = next_after(self, item);
+        self.hold(
+            write::Held {
+                channel: writes::ANSWER,
+                payload: rules::approve(item, &approval),
+                sent: write::Sent::Pick { thread: format!("{}/{}", item.product, item.id) },
+                said: approval.said(item, &self.project_name(item)),
+                at: tx.clock() + writes::UNDO_GRACE_MS / 1000.0,
+                thread: thread_of(item),
+                from_inside: inside,
+                closes: None,
+            },
+            tx,
+        );
+        if inside {
+            self.advance(next);
+        }
+    }
+
+    fn is_open(&self, item: &Item) -> bool {
+        self.open_item().is_some_and(|open| open.id == item.id && open.product == item.product)
+    }
+
+    /// From inside a thread just taken out of Needs you, on to `next`, or back where it was
+    /// opened from (`advanceAfter`, as a close does).
+    fn advance(&mut self, next: Option<(String, String)>) {
+        match next {
+            Some((id, product)) => self.step_to_thread(&id, &product),
+            None => self.leave_thread(),
+        }
+    }
+
+    /// Pins a thread, or lets it go: shown at once, written after, and said (`pinThread` from
+    /// the menu). Letting it go forgets a place it was dragged to as well.
+    fn pin(&mut self, item: &Item, pin: bool, tx: &Tx) {
+        if let Some(row) = self.snap.items.iter_mut().find(|i| i.id == item.id && i.product == item.product) {
+            row.rest.insert("pinned".to_string(), Value::Bool(pin));
+            if !pin {
+                row.rest.remove("place");
+            }
+        }
+        self.refresh();
+        self.write_what_waits();
+        self.send_all(rules::pin(item, pin), write::Sent::Palette(Wrote::Quiet));
+        self.tell(if pin { "Pinned to the top of your list" } else { "Unpinned" }, tx);
+    }
+
+    /// Where it runs, as the place button's panel picks it, said here since no panel shows it
+    /// (`placeThread` with `said`).
+    fn place(&mut self, item: &Item, act: Act, tx: &Tx) {
+        self.write_what_waits();
+        let writes = crate::rules::place::writes(&self.snap, item, act);
+        match act {
+            Act::Move => {
+                self.send_all(writes, write::Sent::Palette(Wrote::Moving));
+            }
+            Act::Keep(keep) => {
+                self.send_all(writes, write::Sent::Palette(Wrote::Quiet));
+                self.tell(if keep { "This thread now runs only on this Mac" } else { "This thread can run on the cloud again" }, tx);
+            }
+            Act::CloudOn => {
+                self.send_all(writes, write::Sent::Palette(Wrote::Quiet));
+            }
+        }
+    }
+
+    /// One write a row makes, on its own channel, its answer said in `landed` below.
+    fn palette_write(&mut self, write: writes::Write, wrote: Wrote) {
+        self.write_what_waits();
+        self.send(write.0, write.1, write::Sent::Palette(wrote));
     }
 }
 
+fn thread_of(item: &Item) -> (String, String) {
+    (item.id.clone(), item.product.clone())
+}
+
+/// The thread after this one in Needs you, or the one before, looked up before it leaves the list.
+fn next_after(s: &State, item: &Item) -> Option<(String, String)> {
+    let needs = &s.lists.needs;
+    let at = needs.iter().position(|r| r.id == item.id && r.product == item.product)?;
+    needs.get(at + 1).or_else(|| at.checked_sub(1).and_then(|a| needs.get(a))).map(|r| (r.id.clone(), r.product.clone()))
+}
+
+/// What a row of the bar wrote, kept until the engine answers, for what is then said and done.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Wrote {
+    /// Nothing is said of it but a refusal.
+    Quiet,
+    /// Reopened: the line to say, and the one Z says when it marks it done again.
+    Reopened { thread: (String, String), said: String, again: String },
+    RunNow { thread: (String, String) },
+    /// An agent put back on it.
+    Resume { thread: (String, String) },
+    /// Its next model: the line to say once it stands.
+    Model { said: String },
+    /// Moved to the project `to`, called `name`; `from` is the one it was in.
+    Move { thread: (String, String), to: String, name: String, from: String },
+    SendBack { thread: (String, String), project: String },
+    Redeliver { thread: (String, String), project: String },
+    /// Its run carried to the cloud.
+    Moving,
+    /// A project put first, by its name.
+    Ranked { name: String },
+    ResumeStopped,
+    UpdateMove,
+    UpdateCheck,
+}
+
 /// Runs a row: the bar closes first, then the row does what it says, each through what the
-/// key or the button for it already does.
+/// key or the button for it already does, or the web row's own write. The one row that does
+/// nothing leaves the bar open, as the web's does: its press is a no-op that does not close it.
 fn run(s: &mut State, does: Does, tx: &mut Tx) {
+    if does == Does::Nothing {
+        return;
+    }
     s.close_palette();
+    let item = |s: &State, (id, product): &(String, String)| s.item(id, product).cloned();
     match does {
         Does::NewThread => {
             if let Some(start) = starts_a_thread() {
@@ -271,11 +419,230 @@ fn run(s: &mut State, does: Does, tx: &mut Tx) {
             s.open_reply(tx);
         }
         Does::Done((id, product)) => s.close(&id, &product, false, tx),
-        Does::Reopen((id, product)) => s.reopen(&id, &product),
+        Does::Reopen(thread) => {
+            if let Some(item) = item(s, &thread) {
+                s.reopen_done(&item);
+            }
+        }
         Does::Later((id, product)) => s.open_later(&id, &product, tx),
         Does::Back((id, product)) => s.bring_back(&id, &product),
         Does::Files(project) => s.open_files_place(project),
+        Does::Approve(thread) => {
+            if let Some(item) = item(s, &thread) {
+                s.approve(&item, tx);
+            }
+        }
+        Does::RunNow(thread) => {
+            if let Some(item) = item(s, &thread) {
+                s.palette_write(rules::run_now(&item), Wrote::RunNow { thread });
+            }
+        }
+        Does::Resume(thread) => {
+            if let Some(item) = item(s, &thread) {
+                s.palette_write(rules::resume(&item), Wrote::Resume { thread });
+            }
+        }
+        Does::MarkRead((id, product)) => s.saw(&id, &product),
+        Does::Pin(thread, pin) => {
+            if let Some(item) = item(s, &thread) {
+                s.pin(&item, pin, tx);
+            }
+        }
+        Does::Place(thread, act) => {
+            if let Some(item) = item(s, &thread) {
+                s.place(&item, act, tx);
+            }
+        }
+        Does::Model(thread, pick) => {
+            if let Some(item) = item(s, &thread) {
+                let said = format!("{} picks this up next", crate::rules::compose::model_label(&pick, &s.models));
+                s.palette_write(rules::hand_to_model(&item, &pick), Wrote::Model { said });
+            }
+        }
+        Does::Move(thread, to) => {
+            if let Some(item) = item(s, &thread) {
+                let name = s.snap.products.iter().find(|p| p.slug == to).map_or_else(|| to.clone(), |p| p.name.clone());
+                let from = s.project_name(&item);
+                s.palette_write(rules::move_item(&item, &to), Wrote::Move { thread, to, name, from });
+            }
+        }
+        Does::CannotMove(why) => s.tell(&why, tx),
+        Does::SendBack(thread) => {
+            if let Some(item) = item(s, &thread) {
+                let project = s.project_name(&item);
+                s.palette_write(rules::send_back(&item), Wrote::SendBack { thread, project });
+            }
+        }
+        Does::Redeliver(thread) => {
+            if let Some(item) = item(s, &thread) {
+                let project = s.project_name(&item);
+                s.palette_write(rules::redeliver(&item), Wrote::Redeliver { thread, project });
+            }
+        }
+        // Every level is written, the one it is at included (`retag` from the bar).
+        Does::Priority(thread, level) => {
+            if let Some(item) = item(s, &thread) {
+                s.retag(&item, level);
+            }
+        }
+        // A page this window draws opens here; one it does not is the web window's, which comes
+        // forward on it, as this window's own Settings sends it there.
+        Does::Settings(page) => {
+            if page.native() {
+                crate::settings::open(s, page, tx);
+            } else {
+                crate::settings::bridge(s, page, tx);
+            }
+        }
+        Does::RankFirst(slug) => {
+            let name = s.snap.products.iter().find(|p| p.slug == slug).map_or_else(|| slug.clone(), |p| p.name.clone());
+            let write = rules::rank_first(&s.snap, &slug);
+            s.palette_write(write, Wrote::Ranked { name });
+        }
+        // Off asks first, as ⌘C does (`cloudOffAsks`); on is written and says nothing.
+        Does::Cloud(mode) => {
+            if mode == crate::rules::cloud::Mode::Mac {
+                s.head.asking_off = true;
+            } else {
+                s.pick_cloud(crate::rules::cloud::set_mode(mode));
+            }
+        }
+        Does::InstallUpdate => s.ask_the_app(front::INSTALL_UPDATE, "Mercury could not restart onto the new version. Try again in a moment.", tx),
+        Does::MoveToApplications => s.palette_write(("zero:update-move", Value::Null), Wrote::UpdateMove),
+        // It says it is looking at once, and what it found once the engine has said.
+        Does::CheckForUpdates => {
+            s.tell("Looking for a new version.", tx);
+            s.palette_write(("zero:update-check", Value::Null), Wrote::UpdateCheck);
+        }
+        Does::Pause(paused) => s.palette_write(rules::pause(paused), Wrote::Quiet),
+        Does::ResumeStopped => s.palette_write(rules::resume_stopped(), Wrote::ResumeStopped),
+        // A plate left over from before the switch is let go, and so is the row the pointer
+        // was keeping for the keys (`setHints`).
+        Does::KeyHints(on) => {
+            s.picks.change(|p| p.key_hints = Some(on));
+            if !on {
+                s.pointed.hint = None;
+                s.pointed.row = None;
+            }
+        }
+        Does::Nothing => {}
     }
+}
+
+/// What the engine said to a row's write: said in the web window's words, and what then
+/// follows done (`App.tsx`'s handlers for each).
+pub(crate) fn landed(s: &mut State, landed: write::Landed, tx: &mut Tx) {
+    let write::Sent::Palette(wrote) = landed.sent else {
+        return;
+    };
+    let answer = match landed.answer {
+        Ok(answer) => answer,
+        Err(why) => {
+            s.refused = Some(format!("Could not do that: {why}"));
+            return;
+        }
+    };
+    let refusal = || answer.get("ok").filter(|ok| **ok == Value::Bool(false)).map(|_| answer.get("error").and_then(Value::as_str).unwrap_or("Mercury did not take it.").to_string());
+    match wrote {
+        Wrote::Quiet => {
+            if let Some(why) = refusal() {
+                s.refused = Some(format!("Could not do that: {why}"));
+            }
+        }
+        Wrote::Reopened { thread, said, again } => {
+            if let Some(why) = refusal() {
+                return s.tell(&format!("Not reopened: {why}"), tx);
+            }
+            let Some(item) = s.item(&thread.0, &thread.1).cloned() else {
+                return;
+            };
+            s.last = Some(write::Undo { said: again, writes: vec![rules::done_again(&item)], sent: write::Sent::Palette(Wrote::Quiet), thread, opens: true });
+            let (line, undo) = crate::rules::compose::toast_parts(&said);
+            s.say(line, undo, tx);
+        }
+        Wrote::RunNow { thread } => {
+            let said = rules::run_now_said(&answer);
+            if answer.get("ok") == Some(&Value::Bool(true)) { s.say_about(said, thread, tx) } else { s.tell(said, tx) }
+        }
+        Wrote::Resume { thread } => {
+            let (said, names, started) = rules::resumed_said(&answer);
+            if names { s.say_about(&said, thread.clone(), tx) } else { s.tell(&said, tx) }
+            // Put back to work, it has left Needs you, and from inside it the person goes on.
+            if started && let Some(item) = s.item(&thread.0, &thread.1).cloned() && s.is_open(&item) {
+                let next = next_after(s, &item);
+                s.advance(next);
+            }
+        }
+        Wrote::Model { said } => match refusal() {
+            Some(why) => s.refused = Some(format!("Could not change its model: {why}")),
+            None => s.tell(&said, tx),
+        },
+        Wrote::Move { thread, to, name, from } => {
+            let made = answer.get("item").filter(|m| m.is_object());
+            let (Some(made), None) = (made, refusal()) else {
+                let why = answer.get("error").and_then(Value::as_str).unwrap_or("That thread could not be moved.");
+                return s.tell(why, tx);
+            };
+            let copy = (made.get("id").and_then(Value::as_str).unwrap_or("").to_string(), made.get("product").and_then(Value::as_str).unwrap_or(&to).to_string());
+            if let Some(item) = s.item(&thread.0, &thread.1).cloned() {
+                // Z puts it back where it was: the copy is closed and the thread opened again.
+                s.last = Some(write::Undo { said: format!("Back in {from}"), writes: rules::move_back(made, &to, &item), sent: write::Sent::Palette(Wrote::Quiet), thread: thread.clone(), opens: true });
+                // Left on the old row, now closed, the person would reopen it and have two.
+                if s.is_open(&item) {
+                    s.palette.opens_when_listed = Some((copy.clone(), crate::clock()));
+                }
+            }
+            s.say_about(&format!("Moved to {name} · press Z to undo"), copy, tx);
+        }
+        Wrote::SendBack { thread, project } => {
+            s.say_about(&rules::sent_back_said(&project), thread.clone(), tx);
+            // Back in the queue is out of the Inbox, so from inside it the person goes on.
+            if let Some(item) = s.item(&thread.0, &thread.1).cloned() && s.is_open(&item) {
+                let next = next_after(s, &item);
+                s.advance(next);
+            }
+        }
+        Wrote::Redeliver { thread, project } => match rules::redeliver_said(&answer, &project) {
+            Some(said) => s.say_about(&said, thread, tx),
+            None => s.tell("Nothing here to restart", tx),
+        },
+        Wrote::Moving => s.tell(&crate::rules::cloud::moved_line(crate::rules::place::moving(&answer, 1)), tx),
+        Wrote::Ranked { name } => match refusal() {
+            Some(why) => s.refused = Some(format!("Could not change the order: {why}")),
+            None => s.tell(&format!("{name} is now first"), tx),
+        },
+        Wrote::ResumeStopped => s.tell(&rules::resume_stopped_said(&answer), tx),
+        // A move that worked relaunches the app; one that did not says its own reason.
+        Wrote::UpdateMove => {
+            if answer.get("moved") != Some(&Value::Bool(true)) && let Some(why) = answer.get("error").and_then(Value::as_str).filter(|e| !e.is_empty()) {
+                s.tell(why, tx);
+            }
+        }
+        Wrote::UpdateCheck => {
+            let said = crate::rules::settings::update_look(Some(&answer), false).sentence;
+            s.tell(&said, tx);
+        }
+    }
+}
+
+/// The poll's part: a moved thread's copy opens once the lists have it, within ten seconds
+/// (`listedNow`). True when it opened.
+pub(crate) fn tend(s: &mut State) -> bool {
+    let Some(((id, product), at)) = s.palette.opens_when_listed.clone() else {
+        return false;
+    };
+    if crate::clock() - at > 10_000.0 {
+        s.palette.opens_when_listed = None;
+        return false;
+    }
+    let lists = &s.lists;
+    let listed = lists.needs.iter().chain(&lists.progress).chain(&lists.later).chain(&lists.done).any(|r| r.id == id && r.product == product);
+    if !listed {
+        return false;
+    }
+    s.palette.opens_when_listed = None;
+    s.open_thread(&id, &product);
+    true
 }
 
 /// Enter: runs the lit row. With no row there is nothing to run.
@@ -530,7 +897,7 @@ mod tests {
         let pictured: Vec<Pictured> = rows.as_array().unwrap().iter().filter_map(Pictured::read).collect();
         // A row with no name is no row.
         assert_eq!(pictured.len(), 4);
-        let lines = pictured_lines(&pictured, vec![found("w-1", "Checkout fails"), found("w-2", "Onboarding checklist copy"), found("w-3", "Not listed by the web")]);
+        let lines = pictured_lines(&pictured, vec![found("w-1", "Checkout fails"), found("w-2", "Onboarding checklist copy"), found("w-3", "Not listed by the web")], Vec::new());
         let said: Vec<(&str, Option<&str>)> = lines.iter().map(|l| (l.label.as_str(), l.heading.as_deref())).collect();
         assert_eq!(said, [("Check for updates", None), ("Checkout fails", Some("Threads")), ("Onboarding checklist copy", None), ("Not listed by the web", None)]);
         // The web's command does nothing here, and the threads open as they would anywhere.
@@ -538,6 +905,10 @@ mod tests {
         assert_eq!(lines[1].does, Some(Does::Open(("w-1".to_string(), "shop".to_string()))));
         assert_eq!((lines[0].icon.as_str(), lines[1].icon.as_str(), lines[1].hint.as_deref()), ("refresh", "thread", Some("Storefront · now")));
         // With fewer threads found than the web listed, the places left over stay empty.
-        assert_eq!(pictured_lines(&pictured, vec![found("w-1", "Checkout fails")]).len(), 2);
+        assert_eq!(pictured_lines(&pictured, vec![found("w-1", "Checkout fails")], Vec::new()).len(), 2);
+        // A command this window has too, by its words and drawing, is its own row and does what it says.
+        let own = rules::update_rows(&crate::data::Snapshot::default()).into_iter().map(|row| Line::of(row, "update-check".to_string(), None)).collect();
+        let lines = pictured_lines(&pictured, Vec::new(), own);
+        assert_eq!((lines[0].does.clone(), lines[0].hint.as_deref(), lines[0].key.as_str()), (Some(Does::CheckForUpdates), Some("look for one now"), "update-check"));
     }
 }

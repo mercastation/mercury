@@ -51,6 +51,12 @@ const UNDELIVERED: &str = "Your reply did not reach this task.";
 
 re!(MODEL_FOR_ANOTHER_ENGINE, r#"^This task chose .+ model ".*", but this computer would run it with .+\. Nothing has been done\."#, "");
 
+/// The app's note that the thread's model is for the other agent (`saysTheModelIsForAnotherEngine`):
+/// another try is refused the same way.
+pub fn says_the_model_is_for_another_engine(text: Option<&str>) -> bool {
+    MODEL_FOR_ANOTHER_ENGINE.test(text.unwrap_or(""))
+}
+
 /// Whether a result is the app saying a run got nowhere: a dead-run sentence, from a run that
 /// used a tool or one that did not, the reply that never landed, a thread it stopped starting,
 /// or a model that is for the other agent.
