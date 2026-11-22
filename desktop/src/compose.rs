@@ -132,12 +132,10 @@ fn menu_chip(s: &State, kind: MenuKind, inside: impl FnOnce(rune::Color) -> Vec<
     if open { chip.border(1.0, rule()) } else { chip }
 }
 
-/// The three chips every bar has: the model, the project, the level.
-fn chips(s: &State) -> [El; 3] {
-    let model = rules::model_label(&s.compose_pick(), &s.models);
+/// The project's chip and the level's, which every bar has.
+fn filed_chips(s: &State) -> [El; 2] {
     let project = s.compose_project();
     [
-        menu_chip(s, MenuKind::Model, |tone| vec![label(&model, 13.0, 400.0, tone)]),
         menu_chip(s, MenuKind::Project, |tone| match project {
             Some(p) => vec![swatch(&p.slug), label(&p.name, 13.0, 400.0, tone)],
             None => vec![label("No project", 13.0, 400.0, tone)],
@@ -166,22 +164,28 @@ fn bar(s: &State) -> El {
     if window::to_offered(&s.snap) {
         bar = bar.child(home::chip(vec![label("Agent", 13.0, 400.0, dim())]));
     }
-    bar.children(chips(s)).children(bar_end(s))
+    let model = rules::model_label(&s.compose_pick(), &s.models);
+    bar.child(menu_chip(s, MenuKind::Model, |tone| vec![label(&model, 13.0, 400.0, tone)])).children(filed_chips(s)).children(bar_end(s))
+}
+
+/// The field the words are typed in, in the type of the place it is drawn in.
+fn words_field(s: &State, font: TextStyle, caret: rune::Color) -> El {
+    text_input(&s.compose.words, font)
+        .key(FIELD)
+        .color(ink())
+        .placeholder("What do you need done?", muted())
+        .caret(caret, rgba(110, 165, 255, 0.3))
+        .on_edit(|s: &mut State| &mut s.compose.words)
+        // Return is a new line, as in the web window's box; ⌘Return sends.
+        .on_submit(|s: &mut State, _| s.compose.words.insert("\n"))
+        .on_input_key(crate::keys::in_the_box)
 }
 
 /// The box on Home's page (`.hm-start .tc-card.tc-inline`): the words large over the bar, on
 /// the page's glass. Its edge brightens while the caret is in it.
 pub fn inline(s: &State) -> El {
-    let field = text_input(&s.compose.words, TextStyle::new(22.0, 400.0).lh(30.0))
-        .key(FIELD)
-        .color(ink())
-        .placeholder("What do you need done?", muted())
-        // `caret-color: var(--accent)` on the box drawn on a page.
-        .caret(accent(), rgba(110, 165, 255, 0.3))
-        .on_edit(|s: &mut State| &mut s.compose.words)
-        // Return is a new line, as in the web window's box; ⌘Return sends.
-        .on_submit(|s: &mut State, _| s.compose.words.insert("\n"))
-        .on_input_key(crate::keys::in_the_box);
+    // `caret-color: var(--accent)` on the box drawn on a page.
+    let field = words_field(s, TextStyle::new(22.0, 400.0).lh(30.0), accent());
     let mut card = glass(col())
         .pt(16.0)
         .px(18.0)
