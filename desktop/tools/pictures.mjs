@@ -16,8 +16,11 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 
-/** Where the scenes plant their folder unless told otherwise. */
-export const PLANTED = path.join(os.tmpdir(), 'mercury-desktop-scenes');
+/**
+ * Where the scenes plant their folder unless told otherwise. Two tasks photographing scenes on
+ * one Mac would start each other's folder again: each names its own with `MERCURY_PLANTED`.
+ */
+export const PLANTED = process.env.MERCURY_PLANTED || path.join(os.tmpdir(), 'mercury-desktop-scenes');
 
 const chunk = (type, data) => {
   const body = Buffer.concat([Buffer.from(type, 'latin1'), data]);
