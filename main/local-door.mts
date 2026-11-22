@@ -29,6 +29,19 @@
 // web screen, which is how a tab gets its page. This door is for a window that
 // draws itself, so it is handed a folder with no screen in it and every such
 // path is a plain 404.
+//
+// WHAT GOES THROUGH IT, EACH WAY. The native window calls the channels the web
+// window calls, and two that only this door answers:
+// - WINDOW_KEEPS (below): what the web window keeps for itself, so both windows
+//   show the same Inbox.
+// - NATIVE_WINDOW (main/native-window.mts): whether the native window is in
+//   front, at each change and every five seconds, so no banner and no island
+//   comes up over the window the person is working in.
+// On its event stream the app tells it two things, and nothing else:
+// - TOLD_AT_THE_DOOR (below): the inbox changed, so it reads it again now.
+// - OPEN_IN_NATIVE (main/native-window.mts): the banner or the tray was
+//   pressed, and on which thread, so the person lands in the window they work
+//   in. The app's own word, never one of its window's pushes.
 
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';

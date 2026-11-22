@@ -82,6 +82,48 @@ window is never pushed. An app from before this (or any engine that keeps the st
 says nothing on it) is asked every two seconds, as it always was; measured on a 99-thread
 inbox, that costs the app about 2% of one core and the reader next to nothing.
 
+### The banner, the island and this window
+
+The desktop app puts up a banner, and its island in the notch (the corner tag elsewhere), only
+while the person is somewhere other than the app, and it judged that by its own window's focus.
+With the day's work done here, its window had no focus, so the banner spoke and the island came
+up over this very window, and pressing either brought the web window forward. So the two tell each
+other two things more, on the desktop app's own door alone (`src/front.rs`, and
+`main/native-window.mts` in the app):
+
+- **This window says where it is** (`zero:native-window`, `{ "focused": true }`) each time it gains
+  or loses focus, and again every five seconds, in front or not. The app counts the person as at
+  the app while this window is in front, as it does for its own window. It believes a word for
+  three beats: each beat is asked of this window's drawing thread, so a window that hangs falls
+  silent and stops counting, and one that quits or crashes hangs up the event stream and is
+  forgotten at once.
+- **A press comes here** (`zero:open-in-native` on the event stream, `{ "id", "product" }`). While
+  the app has heard this window within three beats, a press on the banner, on the island or the
+  corner tag, or on a line of either, is sent here instead of bringing the web window forward: the
+  window comes forward and opens the thread, as a press on its row would. The tray knows a
+  thread's id and not its project, which is taken from the snapshot. A press naming no thread (the
+  island itself), or a thread this window does not have, brings the window forward as it is.
+
+An approval's banner still brings the web window, which alone draws the card that answers it, and
+so does Settings in the tray's menu. With no window beating at the door, a press does what it
+always did.
+
+Checked headless on 2026-11-22 against a small door on loopback that answers the snapshot with an
+invented inbox, records what this window says and pushes `zero:open-in-native` at set times; a
+script's `{"t": 0.5, "focus": true}` stands for the window gaining focus:
+
+```sh
+cargo run -- --door http://127.0.0.1:<port> --token <key> --script focus.json --realtime \
+  --snap /tmp/after.png --size 1280x760 --scale 1
+```
+
+Each change of focus reached the door within 10 ms, a window never focused said where it was at
+its first beat and every five seconds after, and a push opened its thread within 10 ms (the
+`zero:phone-seen` that opening writes, and the picture after). A push naming no thread, a thread
+that has gone, or another project's left the page as it was. A headless run drops the request to
+come forward, so this window coming to the front over another app has not been seen; on a Mac it
+is winit's `focus_window` (`activateIgnoringOtherApps`, then `makeKeyAndOrderFront`).
+
 ## Compare a screen with the real one
 
 ```sh
@@ -953,7 +995,8 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
   pick, a close and Z do to that state.
 - `src/keys.rs`: what each key does. `src/write.rs`: sending, off the main thread, and what
   waits to be sent.
-- `src/source.rs`: fixtures and the door.
+- `src/source.rs`: fixtures and the door. `src/front.rs`: whether this window is in front, said
+  to the desktop app, and the app's word to come forward at a thread.
 - `src/data.rs`: the snapshot's shapes and the lists the screens draw. `src/rules/`: the rules
   behind those lists, behind the Inbox's tabs and its cloud button (`page.rs`, `cloud.rs`), and
   behind what else depends on whose Mercury it is: `window.rs` (the team, the account, the rail's
