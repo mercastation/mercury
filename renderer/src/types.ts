@@ -573,6 +573,8 @@ export interface TeamState {
   error: string | null;
   /** False only when the cloud said this person's team is not let into multiplayer yet. */
   multiplayer?: boolean | null;
+  /** False only when the cloud said this person's team has no Pro and no free days, so it neither invites nor shares. */
+  pro?: boolean | null;
   /** Rooms (alpha), while switched on in Alpha features (main/team/rooms.mts). */
   rooms?: RoomsState | null;
 }
@@ -940,10 +942,14 @@ export interface CloudPlan {
   trial?: { hours: number; usedSeconds: number };
   /** Before any subscription: every paid plan's free week and its hours, the same on each. */
   trialOffer?: { days: number; hours: number };
+  /** On a team: the free days its Pro would start with now. */
+  teamFreeDays?: number;
   /** The team's hours: a trial until `endsAt`, or `seats` paid for; `seats` in a trial means the card is in and not yet charged. */
   /** Hours are this person's own, with no limit at once; `people` is every member's own use (names come from the team). */
   team?: {
     trial: boolean; endsAt: number | null; seats: number; members: number; owner: boolean; agents?: null; running: number; hours: number; usedSeconds: number;
+    /** What Stripe charges a seat, a code taken off. Absent from servers before 2026-11-21. */
+    dollarsPerSeat?: number;
     people?: { id: string; usedSeconds: number; running: number; name?: string }[];
   };
   /** Who bills the plan: Stripe, or nobody because it was set by hand. Absent from older servers. */
@@ -1483,6 +1489,8 @@ export interface AccountSetting {
   // emails.
   email: string | null;
   accountUuid: string | null;
+  /** Main's answer. A login with no email on file can still be signed in. */
+  signedIn?: boolean;
   /**
    * Whether her work runs on THIS account and no other. False on every row
    * until she picks one, and then every account runs as it always has. */

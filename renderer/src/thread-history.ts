@@ -26,6 +26,7 @@ import { baseName, familyName, filesInLines, placeWords, threadFiles } from '../
 import { handedFrom } from '../../shared/team-departures.mts';
 import { isContinuedNote } from '../../shared/thread-continued.mts';
 import { shortTitle } from '../../shared/thread-title.mts';
+import { handBackReadBy } from '../../shared/thread-asks.mts';
 import type { AgentVoice, ArtifactMark, FileMarkLink } from './types';
 
 const fileShownName = (id: string) => id.replace(/#\d+$/, '');
@@ -462,7 +463,7 @@ export function threadEvents(lines: LedgerLine[], engine?: string | null, number
     const from = line.source === 'system' && has(patch, 'answer') ? (patch!.from as { name?: string } | undefined)?.name : undefined;
     if (from && words(patch.answer)) {
       const fromId = (patch!.from as { teammate?: unknown }).teammate;
-      events.push({ at, who: 'agent', said: `${from} handed this over`, words: words(patch.answer)!, message: true, field: 'answer', from, ...(typeof fromId === 'string' ? { fromId } : {}) });
+      events.push({ at, who: 'agent', said: `${from} handed this over`, words: handBackReadBy(words(patch.answer)!, 'asker'), message: true, field: 'answer', from, ...(typeof fromId === 'string' ? { fromId } : {}) });
       continue;
     }
     if (has(patch, 'answer')) {
@@ -602,6 +603,8 @@ export function threadEvents(lines: LedgerLine[], engine?: string | null, number
         // repeated once per attempt over a thread out of usage
         // (tests/an-out-of-usage-thread-does-not-say-it-handed-this-back).
         if (line.source === 'system' && events.at(-1)?.field === 'result') continue;
+        // Nor is the app reopening the row for a teammate's words (`tellItem`).
+        if (line.source === 'system' && events.at(-1)?.from && events.at(-1)?.field === 'answer') continue;
         const said = mine ? 'You sent it back' : 'It handed this back';
         // One press can write the reopening twice (the notes path does), so the same words within a second are one.
         const last = events.at(-1);

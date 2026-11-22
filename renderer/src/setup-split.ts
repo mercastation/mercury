@@ -18,20 +18,10 @@ export function setupPreview(width: number, height: number) {
   return { left, x, y, scale, h: (height - 16 - y) / scale, right: Math.max(0, 1120 - (width - 16 - x) / scale) };
 }
 
-/** How long Add waits on the import before the setup moves on. Skip and Back are greyed out
- *  while it waits, so a longer wait reads as a frozen screen; the import carries on behind it. */
-export const BRING_IN_WAIT_MS = 15_000;
-
-/** How many chats came in, or null when the import failed or ran past the wait. */
-export async function bringInWithin(bring: () => Promise<number>, ms = BRING_IN_WAIT_MS): Promise<number | null> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([bring(), new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), ms); })]);
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
+/** Starts the import and returns at once, so no step of the setup waits on it.
+ *  `landed` hears how many chats came in, 0 when the import failed. */
+export function bringInBehind(bring: () => Promise<number>, landed: (n: number) => void): void {
+  void Promise.resolve().then(bring).then((n) => Number(n) || 0, () => 0).then(landed);
 }
 
 export type SetupStep = 'chats' | 'folder' | 'agent' | 'account' | 'plan' | 'join' | 'teammates' | 'look';
@@ -84,12 +74,14 @@ export const PRO_PITCH = {
   free: 'Stay on Free',
 };
 
-type PlanSeen = { team?: { trial: boolean; endsAt: number | null } | null } | null | undefined;
+type PlanSeen = { teamFreeDays?: number; team?: { trial: boolean; endsAt: number | null } | null } | null | undefined;
 
 /** The free days Pro starts with. A team is made when Pro starts, so without one they are all there;
- *  a team already made has what its checkout would give, and none unless the cloud says its trial is on. */
+ *  a team already made has what the cloud says its checkout would give. A cloud from before
+ *  2026-11-21 does not say, and its team had what was left of a trial counted from the day it was made. */
 export function proFreeDays(hasTeam: boolean, plan: PlanSeen, now = Date.now()): number {
   if (!hasTeam) return TEAM.trialDays;
+  if (typeof plan?.teamFreeDays === 'number') return plan.teamFreeDays;
   return plan?.team?.trial && plan.team.endsAt ? teamFreeDays(plan.team.endsAt, now) : 0;
 }
 
@@ -98,6 +90,13 @@ export function proOffer(days: number) {
   if (!days) return { trial: null, paid: { ...PRO_PITCH.paid, label: 'From today' }, cta: 'Start Pro now' };
   if (days === TEAM.trialDays) return { trial: PRO_PITCH.trial, paid: PRO_PITCH.paid, cta: PRO_PITCH.cta };
   return { trial: { ...PRO_PITCH.trial, label: `First ${days} days` }, paid: PRO_PITCH.paid, cta: `Try Pro free for ${days} days` };
+}
+
+/** Pro's button where inviting would be: the plan page's for the free days the cloud says the team has, and no promise until it has said. */
+export function proButton(hasTeam: boolean, plan: (PlanSeen & { signedIn?: boolean }) | null | undefined): string {
+  if (!hasTeam) return PRO_PITCH.cta;
+  if (!plan || plan.signedIn === false) return 'Start Pro';
+  return proOffer(proFreeDays(true, plan)).cta;
 }
 
 /** A team is made when Pro starts, before anyone has named it; Settings › Team renames it. */
