@@ -179,8 +179,14 @@ function homeRows(dump) {
   const t = tree(dump);
   const card = (name) => dump.nodes.find((n) => t.has(n, 'hm-card') && t.first(n, (k) => t.has(k, 't'))?.text === name);
   const rows = (name) => (card(name) ? t.under(card(name)).filter((n) => t.has(n, 'hm-row')) : null);
+  // What a row wears before its title: an agent's thread the agent face (`.hm-agent`), anyone
+  // else their letters.
+  const face = (r) => {
+    const f = t.first(r, (k) => t.has(k, 'hm-face'));
+    return f && t.has(f, 'hm-agent') ? 'agent' : f?.text ?? '';
+  };
   const needs = rows('Needs you')?.map((r) => ({
-    letter: t.first(r, (k) => t.has(k, 'hm-face'))?.text ?? '',
+    face: face(r),
     title: t.first(r, (k) => k.tag === 'b')?.text ?? '',
     priority: levelOf(t, t.first(r, (k) => t.has(k, 'hm-prio'))),
     project: t.under(r).filter((k) => t.has(k, 'hm-tag')).map((k) => k.text ?? '').join(' | '),
@@ -188,7 +194,7 @@ function homeRows(dump) {
     unread: t.has(r, 'unread'),
   }));
   const progress = rows('In progress')?.map((r) => ({
-    letter: t.first(r, (k) => t.has(k, 'hm-face'))?.text ?? '',
+    face: face(r),
     title: t.first(r, (k) => k.tag === 'b')?.text ?? '',
     progressLine: t.first(r, (k) => k.tag === 'small')?.text ?? '',
     when: t.first(r, (k) => k.tag === 'time')?.text ?? '',
@@ -301,9 +307,10 @@ function nativeLists(scene, tab = null) {
 
 const LABEL = { urgent: 'Urgent', high: 'High', medium: '', low: 'Low' };
 
-/** A native row, said the way one of the two pages would draw it. */
-const asHomeNeeds = (r) => ({ letter: r.letter, title: r.title, priority: r.priority, project: r.project, when: r.when, unread: r.unread });
-const asHomeProgress = (r) => ({ letter: r.letter, title: r.title, progressLine: `${r.engine} · ${r.project}`, when: r.when });
+/** A native row, said the way one of the two pages would draw it. Home draws every row with the
+ *  agent face: this window does not tell a teammate's thread from an agent's. */
+const asHomeNeeds = (r) => ({ face: 'agent', title: r.title, priority: r.priority, project: r.project, when: r.when, unread: r.unread });
+const asHomeProgress = (r) => ({ face: 'agent', title: r.title, progressLine: `${r.engine} · ${r.project}`, when: r.when });
 const asTable = (r) => ({
   title: r.title, aside: r.aside, held: r.held, pinned: r.pinned, status: r.status, mark: r.mark, place: r.place, placeMore: r.placeMore,
   priority: r.priority, priorityLabel: LABEL[r.priority], when: r.when, unread: r.unread,

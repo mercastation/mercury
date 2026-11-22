@@ -79,8 +79,6 @@ pub struct Rail {
     width: Fade,
     /// The words, the team's name, Inbox's count and the keys beside Search.
     words: Fade,
-    /// The line under Search.
-    line: Fade,
     /// The dot on Inbox while something waits, which the count stands for when open.
     dot: Fade,
     /// The pointer is on it.
@@ -89,17 +87,18 @@ pub struct Rail {
 
 impl Default for Rail {
     fn default() -> Rail {
-        Rail { open: false, due: None, width: Fade::still(FOLDED), words: Fade::still(0.0), line: Fade::still(0.0), dot: Fade::still(1.0), pointed: false }
+        Rail { open: false, due: None, width: Fade::still(FOLDED), words: Fade::still(0.0), dot: Fade::still(1.0), pointed: false }
     }
 }
 
 impl Rail {
     /// The pointer's 140 ms on the rail are up, or it left the rail (`on`). The rules
     /// are `renderer/src/team/rooms/rooms.css`'s: the width eases open over 0.24 s and shut
-    /// over 0.2 s; the words come in 0.08 s later over 0.14 s and go over 0.06 s; Search's line
-    /// crosses in 0.14 s and Inbox's dot in 0.1 s, its `ease` both ways. Under the system's
-    /// Reduce motion (`still`) none of it moves: it opens and folds whole, as the same rules'
-    /// `prefers-reduced-motion` block takes every transition away.
+    /// over 0.2 s; the words come in 0.08 s later over 0.14 s and go over 0.06 s; Inbox's dot
+    /// crosses in 0.1 s, its `ease` both ways. Search has no line under it to cross any more
+    /// (`.workspace-find`). Under the system's Reduce motion (`still`) none of it moves: it opens
+    /// and folds whole, as the same rules' `prefers-reduced-motion` block takes every transition
+    /// away.
     fn point(&mut self, on: bool, now: f64, still: bool) {
         if on == self.open {
             return;
@@ -109,12 +108,10 @@ impl Rail {
         if on {
             self.width = self.width.toward(OPEN, now, 0.0, 0.24 * k, Easing::cubic(0.22, 0.61, 0.36, 1.0));
             self.words = self.words.toward(1.0, now, 0.08 * k, 0.14 * k, ease);
-            self.line = self.line.toward(1.0, now, 0.0, 0.14 * k, ease);
             self.dot = self.dot.toward(0.0, now, 0.0, 0.1 * k, ease);
         } else {
             self.width = self.width.toward(FOLDED, now, 0.0, 0.2 * k, Easing::cubic(0.4, 0.0, 0.2, 1.0));
             self.words = self.words.toward(0.0, now, 0.0, 0.06 * k, ease);
-            self.line = self.line.toward(0.0, now, 0.0, 0.14 * k, ease);
             self.dot = self.dot.toward(1.0, now, 0.0, 0.1 * k, ease);
         }
     }
@@ -124,7 +121,7 @@ impl Rail {
     }
     /// Whether it is opening or folding at `now`, when every frame has to be drawn.
     pub fn moving(&self, now: f64) -> bool {
-        [self.width, self.words, self.line, self.dot].iter().any(|f| f.moving(now))
+        [self.width, self.words, self.dot].iter().any(|f| f.moving(now))
     }
 }
 
@@ -246,7 +243,7 @@ fn my_face(letters: &str) -> El {
 /// page for either, brings the app's own window forward on them.
 pub fn rail(s: &State, still: bool) -> El {
     let now = s.at;
-    let (wide, words, line, dot) = (s.rail.width(now), s.rail.words.at(now), s.rail.line.at(now), s.rail.dot.at(now));
+    let (wide, words, dot) = (s.rail.width(now), s.rail.words.at(now), s.rail.dot.at(now));
     // Folded, a button's title names it; open, its word does (`title={collapsed ? … : undefined}`).
     let folded = !s.rail.open;
     let button = |glyph: &'static Icon, word: &str, active: bool| {
@@ -256,11 +253,11 @@ pub fn rail(s: &State, still: bool) -> El {
     let on_home = s.view == View::Home;
     let on_inbox = matches!(s.view, View::Inbox | View::Thread { .. });
     let waiting = s.lists.needs.len();
-    // Inbox: the number that waits, open (`.workspace-running`, in the accent's figures), and
-    // folded a dot in its corner standing for it (`.has-count::after`).
+    // Inbox: the number that waits, open (`.workspace-running`, in the dim ink's figures, no
+    // longer the accent), and folded a dot in its corner standing for it (`.has-count::after`).
     let mut inbox = rail_button(&icons::INBOX, "Inbox", on_inbox, wide, words);
     if waiting > 0 {
-        let count = text(waiting.to_string()).font(mono(13.0, 18.0).features("'tnum' 1")).color(accent());
+        let count = text(waiting.to_string()).font(mono(13.0, 18.0).features("'tnum' 1")).color(dim());
         inbox = inbox.child(spacer()).child(row().min_w(20.0).justify_end().opacity(words).child(count)).help(format!("Inbox · {waiting} {} waiting", if waiting == 1 { "thread" } else { "threads" }));
     } else if folded {
         inbox = inbox.help("Inbox");
@@ -303,10 +300,9 @@ pub fn rail(s: &State, still: bool) -> El {
         .child(el().absolute(13.0, 11.0).child(app_mark()))
         .child(el().absolute(39.0, 8.0).opacity(words).child(pen(text(window::team_name(&s.snap)).font(sans(14.0, 400.0)).color(ink()), 14.0)));
     let team = if folded { team } else { team.help(window::team_name(&s.snap)) };
-    // Search, over the places (`.workspace-find`): the glass, its word and its keys, and a line
-    // under them that shows only open, fainter than any divider until the pointer is on it. It
-    // opens the command bar, as ⌘K does.
-    let under = el().pin(Some(10.0), None, Some(10.0), Some(0.0)).h(1.0).fill(edge()).opacity(line).group_opacity(0.55, 1.0);
+    // Search, over the places (`.workspace-find`): the glass, its word and its keys, a row like
+    // the ones under it with no line of its own under it, washed under the pointer as they are.
+    // It opens the command bar, as ⌘K does.
     let search = row()
         .absolute(0.0, 52.0)
         .size(wide, 32.0)
@@ -314,14 +310,15 @@ pub fn rail(s: &State, still: bool) -> El {
         .pl(10.0)
         .pr(10.0)
         .gap(11.0)
-        .clip_rounded(0.0)
+        .radius(6.0)
+        .clip_rounded(6.0)
         .hover_group()
+        .hover(feel::wash())
         .cursor(Cursor::Pointer)
         .child(icon(&icons::SEARCH, 18.0).color(muted()).group_color(ink()))
         .child(pen(label("Search", 13.0, 400.0, muted()).group_color(ink()), 13.0).opacity(words))
         .child(spacer())
         .child(pen(text("⌘K").font(sans(12.0, 400.0).tracking(0.24)).color(muted()), 12.0).opacity(0.7 * words))
-        .child(under)
         .help("Search · ⌘K")
         .on_press_tx(|s: &mut State, tx| s.open_palette(tx));
 

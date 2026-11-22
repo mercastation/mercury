@@ -2,7 +2,7 @@
 //! you beside what is in progress. Built from the web app's own measurements
 //! (`renderer/src/home`).
 
-use rune::{Cursor, El, Icon, ScrollSpec, TextCase, TextStyle, col, el, icon, row, text};
+use rune::{Cursor, El, Icon, ScrollSpec, TextStyle, col, el, icon, row, text};
 
 use crate::data::{Priority, Row, Tab};
 use crate::rules::window;
@@ -28,9 +28,12 @@ const FIXED: f32 = 36.0 + 16.0 + 32.0 + 22.0 + 24.0;
 /// slot and the cards' height. The box gives a sliver of a point until the other two are at
 /// their least, and its slot is that much shorter with the box itself whole; past that, where
 /// the web window's box would scroll its words inside itself, this page scrolls instead.
-fn give_way(room: f32, above: f32, box_h: f32) -> (f32, f32, f32) {
+/// `fitted`: the cards hold three rows or fewer and are as tall as those (`.hm-two.fits`,
+/// `flex: none`), which they never give up.
+fn give_way(room: f32, above: f32, box_h: f32, fitted: Option<f32>) -> (f32, f32, f32) {
     // Each part that can give: its height, how readily it gives, and the least it can be.
-    let parts = [(above, 1000.0, 0.0), (box_h, 1.0, 0.0), (CARDS_TALL, 100.0, CARDS_LEAST)];
+    let cards = fitted.map_or((CARDS_TALL, 100.0, CARDS_LEAST), |tall| (tall, 0.0, tall));
+    let parts = [(above, 1000.0, 0.0), (box_h, 1.0, 0.0), cards];
     let mut size = parts.map(|(basis, _, _)| basis);
     let mut held = [false; 3];
     loop {
@@ -79,9 +82,11 @@ fn greeting(now_ms: f64, name: Option<&str>) -> String {
 /// `.hm-glass`: a faint white wash over the page. The web app also blurs the page behind it;
 /// Rune blurs four surfaces a frame (`MAX_BACKDROP_BLURS`) and Home has five, so the three
 /// cards take the blur, where the sky's streak runs, and the two small doors go without.
-/// A door with no count (Team) is its icon and its name. Under the pointer the door is whole
-/// where it stood at .9, and its edge brighter (`.hm-door:hover`): its look is a layer the
-/// door's hover lifts, and its translucent edge two, the one at rest giving way to the other.
+/// A door with nothing behind it shows no number (`doors` in `home-model.ts`), nor does Team.
+/// Under the pointer the door is whole where it stood at .9, and its edge brighter
+/// (`.hm-door:hover`): its look is a layer the door's hover lifts, and its translucent edge two,
+/// the one at rest giving way to the other. Its corner is the small one things pressed wear
+/// (`--artifact-corner-small`).
 fn door(glyph: &'static Icon, name: &str, count: Option<usize>, hot: bool) -> El {
     // A Rune that blurs five or more gives the doors theirs back with no change here.
     let glass = if rune::MAX_BACKDROP_BLURS >= 5 { row().backdrop_blur(20.0) } else { row() };
@@ -91,14 +96,14 @@ fn door(glyph: &'static Icon, name: &str, count: Option<usize>, hot: bool) -> El
         .gap(8.0)
         .pl(11.0)
         .pr(12.0)
-        .radius(8.0)
+        .radius(6.0)
         .fill(white(0.043))
         .border(1.0, rgba(0, 0, 0, 0.0))
         .border_layout()
         .box_shadow(shadow(0.0, 1.0, 0.0, 0.0, white(0.06), true))
         .group_opacity(0.9, 1.0)
-        .children(feel::edges(8.0, white(0.15), white(0.26), true))
-        .child(icon(glyph, 14.0).color(ink()).opacity(0.65))
+        .children(feel::edges(6.0, white(0.15), white(0.26), true))
+        .child(icon(glyph, 16.0).color(ink()).opacity(0.65))
         .child(label(name, 13.5, 400.0, ink()));
     let face = match count {
         Some(n) => face.child(text(n.to_string()).font(figures(12.0, 400.0)).color(if hot { ink() } else { muted() })),
@@ -141,11 +146,17 @@ pub fn brightened(e: El) -> El {
 }
 
 /// Send with its key. Faint until there is something to send, when it takes neither the
-/// pointing hand nor a look under the pointer (`:disabled`).
+/// pointing hand nor a look under the pointer (`:disabled`). A conversation's reply box has it 32
+/// points tall (`.dock-send-pair`).
 pub fn send_main(ready: bool) -> El {
+    send_main_at(ready, 32.0)
+}
+
+/// Send, `tall` points tall: the box a thread is started in has it 28 (`.tc-send`).
+pub fn send_main_at(ready: bool, tall: f32) -> El {
     let send = row()
         .key("send")
-        .h(32.0)
+        .h(tall)
         .items_center()
         .gap(9.0)
         .px(14.0)
@@ -174,21 +185,34 @@ pub fn send_sending() -> El {
 
 /// The caret beside Send, for sending later.
 pub fn send_caret() -> El {
+    send_caret_at(32.0, false)
+}
+
+/// The caret, `tall` points tall. On the box a thread is started in it dims with Send while
+/// there is nothing to send, so the two read as one button (`.tc-send:has(> .tc-send-main:disabled)
+/// > .tc-send-caret`), and still opens its menu.
+pub fn send_caret_at(tall: f32, dimmed: bool) -> El {
     let caret = row()
-        .size(32.0, 32.0)
+        .size(32.0, tall)
         .items_center()
         .pl(9.0)
         .corners([0.0, 6.0, 6.0, 0.0])
         .fill(send_fill())
         .border_sides([0.0, 0.0, 0.0, 1.0], rgba(26, 24, 23, 0.55))
         .border_layout()
+        .opacity(if dimmed { 0.45 } else { 1.0 })
         .child(icon(&icons::CARET, 13.0).color(ink()).group_color(white(1.0)));
     brightened(caret).cursor(Cursor::Pointer)
 }
 
 /// The paper clip beside Send, the text's own colour under the pointer (`.tc-icon:hover`).
 pub fn attach() -> El {
-    row().size(30.0, 30.0).radius(6.0).center().hover_group().cursor(Cursor::Pointer).child(icon(&icons::ATTACH, 16.0).color(muted()).group_color(ink()))
+    attach_at(30.0)
+}
+
+/// The paper clip in a square `side` points wide: 28 on the box a thread is started in.
+pub fn attach_at(side: f32) -> El {
+    row().size(side, side).radius(6.0).center().hover_group().cursor(Cursor::Pointer).child(icon(&icons::ATTACH, 16.0).color(muted()).group_color(ink()))
 }
 
 fn priority_mark(p: Priority) -> Option<El> {
@@ -214,10 +238,11 @@ enum Card {
 fn task_row(r: &Row, at: usize, on: bool, card: Card) -> El {
     let first = at == 0;
     // A thread not yet read has its title a step heavier (`.hm-row.unread .hm-text b`).
-    let title = text(r.title.as_str()).font(TextStyle::new(14.5, if r.unread && card == Card::Needs { 500.0 } else { 400.0 }).lh(20.0)).color(ink()).truncate();
+    let title = text(r.title.as_str()).font(TextStyle::new(14.0, if r.unread && card == Card::Needs { 500.0 } else { 400.0 }).lh(20.0)).color(ink()).truncate();
     let under = match card {
         Card::Needs => {
-            let mut tags = row().mt(3.0).h(16.0).items_center().gap(10.0);
+            // The facts under the title, on the second line's own 17 points (`.hm-tags`).
+            let mut tags = row().h(17.0).items_center().gap(10.0);
             // The mark's title is its level's word (`.hm-prio`'s `title`).
             if let Some(mark) = priority_mark(r.priority) {
                 let word = match r.priority {
@@ -228,15 +253,19 @@ fn task_row(r: &Row, at: usize, on: bool, card: Card) -> El {
                 };
                 tags = tags.child(mark.help(word));
             }
+            // The project as the line's own faint words, no longer the Inbox's small capitals
+            // (`.hm-tag`), cut short before the mark is.
             if !r.project.is_empty() {
-                tags = tags.child(text(r.project.as_str()).font(mono(10.5, 16.0).tracking(0.525)).text_case(TextCase::Uppercase).color(muted()));
+                tags = tags.child(row().min_w(0.0).child(pen(text(r.project.as_str()).font(TextStyle::new(12.5, 400.0).lh(17.0)).color(muted()).truncate(), 12.5)));
             }
             tags
         }
         // Who is working on it and where, in one faint line (`.hm-text small`).
         Card::Progress => row().child(pen(text(format!("{} · {}", r.engine, r.project)).font(TextStyle::new(12.5, 400.0).lh(17.0)).color(dim()).truncate(), 12.5)),
     };
-    let mut face = row().size(28.0, 28.0).radius(14.0).center().fill(white(0.12)).child(label(r.letter, 12.0, 500.0, ink()));
+    // An agent's thread wears the app's agent face, two eyes in a faint ring, where a letter in
+    // a circle read as a close button (`.hm-face.hm-agent`): 28 points, its eyes 22.
+    let mut face = row().size(28.0, 28.0).radius(14.0).center().border(1.0, rgba(239, 235, 231, 0.12)).child(icon(&icons::AGENT_EYES, 22.0).color(dim()));
     if card == Card::Progress {
         // The green dot of a thread an agent is on (`.hm-face.live::after`), ringed in the card's dark.
         face = face.child(el().absolute(21.0, 21.0).size(8.0, 8.0).radius(4.0).fill(rgb(0x8f, 0xd1, 0x8f)).box_shadow(shadow(0.0, 0.0, 0.0, 2.0, rgba(18, 16, 18, 0.95), false)));
@@ -272,9 +301,19 @@ fn door_to(tab: Option<Tab>) -> impl Fn(&mut State) + 'static {
     }
 }
 
+/// How tall a card is that fits its rows (`.hm-two.fits .hm-card`, its height its own): its
+/// edge, its head, and its rows four points clear of the head and of its foot, the first row 57
+/// points and each after it 58 with the hairline over it; with no rows, the line that says so.
+fn fitted(rows: usize) -> f32 {
+    let body = if rows == 0 { 45.5 } else { 57.0 + 58.0 * (rows - 1) as f32 };
+    2.0 + 44.0 + 4.0 + body + 4.0
+}
+
 /// One of Home's two cards: a head with a link out, and what is in it. The link is the text's
-/// own colour under the pointer (`.hm-link:hover`).
-fn home_card(title: &str, count: Option<usize>, link: &str, to: Option<Tab>, body: El, height: f32) -> El {
+/// own colour under the pointer (`.hm-link:hover`). Holding more rows than three, the rows fade
+/// out into its foot; with three or fewer it is as tall as they are and has no fade
+/// (`.hm-two.fits`).
+fn home_card(title: &str, count: Option<usize>, link: &str, to: Option<Tab>, body: El, height: f32, fits: bool) -> El {
     let mut name = row().items_center().child(label(title, 14.0, 500.0, ink()));
     if let Some(n) = count {
         name = name.child(text(n.to_string()).font(figures(14.0, 400.0)).color(muted()).ml(8.0));
@@ -289,7 +328,7 @@ fn home_card(title: &str, count: Option<usize>, link: &str, to: Option<Tab>, bod
         .border_layout()
         .child(name)
         .child(row().hover_group().cursor(Cursor::Pointer).child(label(link, 13.0, 400.0, dim()).group_color(ink())).on_press(door_to(to)));
-    glass(col())
+    let card = glass(col())
         .h(height)
         .radius(10.0)
         .clip_rounded(10.0)
@@ -298,9 +337,12 @@ fn home_card(title: &str, count: Option<usize>, link: &str, to: Option<Tab>, bod
         .box_shadow(shadow(0.0, 1.0, 0.0, 0.0, white(0.16), true))
         .box_shadow(shadow(0.0, 12.0, 40.0, 0.0, rgba(0, 0, 0, 0.3), false))
         .child(head)
-        .child(col().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(col().pt(4.0).pb(28.0).child(body)))
-        // The rows fade out into the card's foot.
-        .child(el().pin(Some(1.0), None, Some(1.0), Some(1.0)).h(56.0).gradient(rgba(24, 21, 26, 0.0), rgba(24, 21, 26, 0.9)))
+        .child(col().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(col().pt(4.0).pb(if fits { 4.0 } else { 28.0 }).child(body)));
+    if fits {
+        return card;
+    }
+    // The rows fade out into the card's foot.
+    card.child(el().pin(Some(1.0), None, Some(1.0), Some(1.0)).h(56.0).gradient(rgba(24, 21, 26, 0.0), rgba(24, 21, 26, 0.9)))
 }
 
 pub fn view(s: &State) -> El {
@@ -324,9 +366,21 @@ pub fn view(s: &State) -> El {
         0.0
     } else {
         let files = if s.compose.files.is_empty() { 0.0 } else { 12.0 + crate::attach::rows_tall(&s.compose.files) };
-        rune::memo::layout_size(crate::compose::BOX).map_or(152.0 + files, |[_, tall]| tall)
+        rune::memo::layout_size(crate::compose::BOX).map_or(148.0 + files, |[_, tall]| tall)
     };
-    let (above, slot, cards_h) = if stacked { (above, box_h, CARDS_TALL) } else { give_way(COLUMN_TALL.max(page_h - 64.0), above, box_h) };
+    // Home shows the first eighty that need the person and the first sixty in progress (`App.tsx`).
+    let (needs_shown, progress_shown) = (&needs[..needs.len().min(80)], &progress[..progress.len().min(60)]);
+    // With teammates the second card is the team's week, and Team is a third door (`HomePage.tsx`).
+    let team = window::team_mode(&s.snap);
+    // Three rows or fewer in the fuller card and both cards fit their rows (`tallest` in
+    // `HomePage.tsx`): side by side they are one height, the fuller card's, and stacked each its
+    // own. The team's card counts the team's rows, which this window does not draw.
+    let second_rows = if team { window::team_rows(&s.snap) } else { progress_shown.len() };
+    let fits = needs_shown.len().max(second_rows).max(1) <= 3;
+    let fit_h = fits.then(|| fitted(needs_shown.len()).max(fitted(second_rows)).min(CARDS_TALL));
+    let (above, slot, cards_h) = if stacked { (above, box_h, CARDS_TALL) } else { give_way(COLUMN_TALL.max(page_h - 64.0), above, box_h, fit_h) };
+    // Stacked, a card that fits is its own height.
+    let (needs_h, second_h) = if stacked && fits { (fitted(needs_shown.len()), fitted(second_rows)) } else { (cards_h, cards_h) };
 
     // An empty card says so in one line (`HomePage.tsx`), and a head shows its count only above zero.
     let list = |rows: &[Row], empty: &str, card: Card| {
@@ -337,18 +391,15 @@ pub fn view(s: &State) -> El {
             col().children(rows.iter().enumerate().map(|(i, r)| task_row(r, i, card == Card::Needs && s.home_pick == Some(i), card)))
         }
     };
-    // Home shows the first eighty that need the person and the first sixty in progress (`App.tsx`).
-    let rows = list(&needs[..needs.len().min(80)], "Nothing needs you.", Card::Needs);
-    let working = list(&progress[..progress.len().min(60)], "No agent is working right now.", Card::Progress);
+    let rows = list(needs_shown, "Nothing needs you.", Card::Needs);
+    let working = list(progress_shown, "No agent is working right now.", Card::Progress);
     let count = |n: usize| (n > 0).then_some(n);
-    // With teammates the second card is the team's week, and Team is a third door (`HomePage.tsx`).
-    let team = window::team_mode(&s.snap);
     let mut doors = row()
         .mt(16.0)
         .gap(8.0)
-        // Only the Inbox's count is lit, and only above zero (`.hm-door.hot`).
-        .child(door(&icons::DOOR_INBOX, "Inbox", Some(needs.len()), !needs.is_empty()).on_press(door_to(Some(Tab::Needs))))
-        .child(door(&icons::DOOR_PROGRESS, "In progress", Some(working_count), false).on_press(door_to(Some(Tab::Progress))));
+        // Only the Inbox's count is lit (`.hm-door.hot`), and neither shows a zero.
+        .child(door(&icons::DOOR_INBOX, "Inbox", count(needs.len()), !needs.is_empty()).on_press(door_to(Some(Tab::Needs))))
+        .child(door(&icons::DOOR_PROGRESS, "In progress", count(working_count), false).on_press(door_to(Some(Tab::Progress))));
     if team {
         doors = doors.child(feel::answers(door(&icons::DOOR_TEAM, "Team", None, false)));
     }
@@ -356,9 +407,9 @@ pub fn view(s: &State) -> El {
         // The team's rows are the Team page's, which this window does not have yet: the card
         // says so when nobody else is on the team, and is bare otherwise.
         let nobody = if window::team_has_others(&s.snap) { el() } else { el().py(14.0).px(18.0).child(label("Nobody else on your team yet.", 13.5, 400.0, dim())) };
-        home_card("Team this week", None, "Open Team →", None, nobody, cards_h)
+        home_card("Team this week", None, "Open Team →", None, nobody, second_h, fits)
     } else {
-        home_card("In progress", count(working_count), "Open →", Some(Tab::Progress), working, cards_h)
+        home_card("In progress", count(working_count), "Open →", Some(Tab::Progress), working, second_h, fits)
     };
 
     let page = col()
@@ -381,13 +432,13 @@ pub fn view(s: &State) -> El {
             el().mt(22.0).child(crate::compose::inline(s).w_full())
         })
         .child(if stacked {
-            col().mt(24.0).gap(22.0).child(home_card("Needs you", count(needs.len()), "Open inbox →", Some(Tab::Needs), rows, cards_h).w(column)).child(second.w(column))
+            col().mt(24.0).gap(22.0).child(home_card("Needs you", count(needs.len()), "Open inbox →", Some(Tab::Needs), rows, needs_h, fits).w(column)).child(second.w(column))
         } else {
             row()
                 .mt(24.0)
                 .gap(22.0)
                 // `grid-template-columns: 1.35fr 1fr`: the shares are of the row less its gap.
-                .child(home_card("Needs you", count(needs.len()), "Open inbox →", Some(Tab::Needs), rows, cards_h).w((column - 22.0) * 1.35 / 2.35))
+                .child(home_card("Needs you", count(needs.len()), "Open inbox →", Some(Tab::Needs), rows, needs_h, fits).w((column - 22.0) * 1.35 / 2.35))
                 .child(second.w((column - 22.0) / 2.35))
         });
     row().w_full().justify_center().child(page)
@@ -400,16 +451,29 @@ mod tests {
     #[test]
     fn a_taller_box_takes_its_room_from_above_the_greeting_first_and_then_from_the_cards() {
         let near = |a: (f32, f32, f32), b: (f32, f32, f32)| (a.0 - b.0).abs() < 0.01 && (a.1 - b.1).abs() < 0.01 && (a.2 - b.2).abs() < 0.01;
-        // A window 760 points tall: one line of words leaves everything where it was.
-        assert_eq!(give_way(660.0, 44.4, 152.0), (44.4, 152.0, 300.0));
-        // A file's chip (the web window draws the greeting at 171.27, the box 187.49 tall and the
-        // cards 299.24) and a picture (135.29, 247.79 and 274.92).
-        assert!(near(give_way(660.0, 44.4, 187.5), (43.27, 187.49, 299.24)), "{:?}", give_way(660.0, 44.4, 187.5));
-        assert!(near(give_way(660.0, 44.4, 248.0), (7.29, 247.79, 274.92)), "{:?}", give_way(660.0, 44.4, 248.0));
+        // A window 760 points tall: one line of words leaves everything where it was, and so does
+        // a file's chip, the box 183.5 tall (the web window draws the greeting at 172.4).
+        assert_eq!(give_way(660.0, 44.4, 148.0, None), (44.4, 148.0, 300.0));
+        assert_eq!(give_way(660.0, 44.4, 183.5, None), (44.4, 183.5, 300.0));
+        // A film too big to send, with the line saying why (the greeting at 159.66, the box 206.94
+        // tall and the cards 291.4), and a picture (137.66, 243.81 and 276.53).
+        assert!(near(give_way(660.0, 44.4, 207.0, None), (31.66, 206.94, 291.4)), "{:?}", give_way(660.0, 44.4, 207.0, None));
+        assert!(near(give_way(660.0, 44.4, 244.0, None), (9.66, 243.81, 276.53)), "{:?}", give_way(660.0, 44.4, 244.0, None));
         // Far too tall: the room above is gone, the cards stop at 240, and the rest is the box's.
-        let squeezed = give_way(660.0, 44.4, 500.0);
+        let squeezed = give_way(660.0, 44.4, 500.0, None);
         assert_eq!((squeezed.0, squeezed.2), (0.0, 240.0));
         // A window with room to spare gives nothing up.
-        assert_eq!(give_way(810.0, 66.0, 248.0), (66.0, 248.0, 300.0));
+        assert_eq!(give_way(810.0, 66.0, 248.0, None), (66.0, 248.0, 300.0));
+    }
+
+    #[test]
+    fn cards_of_three_rows_or_fewer_are_as_tall_as_their_rows_and_never_give_them_up() {
+        // The head and edge, then the rows four points clear above and below: one row, three, and
+        // the one line of an empty card.
+        assert_eq!((fitted(1), fitted(3), fitted(0)), (111.0, 227.0, 99.5));
+        // A box grown far past the room takes it from above the greeting alone: the cards stand.
+        let squeezed = give_way(660.0, 44.4, 500.0, Some(fitted(2)));
+        assert_eq!((squeezed.0, squeezed.2), (0.0, fitted(2)));
+        assert_eq!(give_way(660.0, 44.4, 148.0, Some(fitted(3))), (44.4, 148.0, 227.0));
     }
 }

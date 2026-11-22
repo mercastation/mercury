@@ -19,6 +19,8 @@ use crate::rules::{js, search, writes};
 use crate::theme::*;
 use crate::{State, View, icons, write};
 
+mod marks;
+
 /// New thread. The web's bar has it second, after New project, and N does the same
 /// (`onNewThread` in `Palette.tsx`): it opens the New thread card over the page, Home included,
 /// with the caret in its words (`compose.rs`). A row that would do nothing is never drawn, so
@@ -75,7 +77,8 @@ enum Pictured {
     Heading(String),
     /// Where it listed a thread.
     Thread,
-    Command { glyph: String, label: String, hint: Option<String>, cap: Option<String> },
+    /// A command, with the web's name for the drawing at its head.
+    Command { icon: String, label: String, hint: Option<String>, cap: Option<String> },
 }
 
 impl Pictured {
@@ -87,7 +90,7 @@ impl Pictured {
         if row.get("thread").and_then(Value::as_bool) == Some(true) {
             return Some(Pictured::Thread);
         }
-        Some(Pictured::Command { glyph: words("glyph").unwrap_or_default(), label: words("label")?, hint: words("hint"), cap: words("key") })
+        Some(Pictured::Command { icon: words("icon").unwrap_or_else(|| rules::PLAIN_ICON.to_string()), label: words("label")?, hint: words("hint"), cap: words("key") })
     }
 }
 
@@ -97,7 +100,8 @@ struct Line {
     key: String,
     /// The heading over it, when a section starts at it.
     heading: Option<String>,
-    glyph: String,
+    /// The web's name for the drawing at its head (`iconFor`).
+    icon: String,
     label: String,
     hint: Option<String>,
     /// The key that does the same, drawn in place of a hint.
@@ -113,7 +117,7 @@ impl Line {
         Line {
             key,
             heading,
-            glyph: rules::glyph_for(&row.id).to_string(),
+            icon: rules::icon_for(&row.id, &row.label).to_string(),
             label: row.label,
             // A key says more than a hint, and a row has room for one of them.
             hint: row.hint.filter(|_| row.key.is_none()),
@@ -140,10 +144,10 @@ fn pictured_lines(pictured: &[Pictured], threads: Vec<rules::Row>) -> Vec<Line> 
                     lines.push(Line::of(thread, key, heading.take()));
                 }
             }
-            Pictured::Command { glyph, label, hint, cap } => lines.push(Line {
+            Pictured::Command { icon, label, hint, cap } => lines.push(Line {
                 key: format!("pictured-{at}"),
                 heading: heading.take(),
-                glyph: glyph.clone(),
+                icon: icon.clone(),
                 label: label.clone(),
                 hint: hint.clone(),
                 cap: cap.clone(),
@@ -327,13 +331,13 @@ pub fn took(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
 
 /* ------------------------------------ how it is drawn ------------------------------------ */
 
-/// `--agent-ink`: the placeholder, an unlit row's mark, the headings and the foot.
+/// `--agent-ink`: the placeholder and the headings.
 fn quiet() -> Color {
     rgb(127, 121, 117)
 }
 
-/// The small capitals of the mono face: Esc, a heading, the foot. The line is as tall as the
-/// type, and the letters stand a tenth or so of it apart.
+/// The small capitals of the mono face: a heading. The line is as tall as the type, and the
+/// letters stand a tenth or so of it apart.
 fn capitals(size: f32, apart: f32) -> TextStyle {
     TextStyle::new(size, 500.0).mono().lh(size).tracking(apart)
 }
@@ -341,16 +345,16 @@ fn capitals(size: f32, apart: f32) -> TextStyle {
 const WIDTH: f32 = 620.0;
 const BOX: f32 = 56.0;
 const ROW: f32 = 38.0;
-const FOOT: f32 = 30.5;
 /// What the list grows to before it scrolls (`.palette-list`'s `max-height`).
 const LIST_CAP: f32 = 320.0;
 
-/// The mark at the head of a row, in the middle of its 18 points.
-fn glyph(mark: &str, lit: bool) -> El {
-    row().w(18.0).justify_center().child(pen(text(mark).font(mono(13.0, 13.0)).color(if lit { accent() } else { quiet() }), 13.0))
+/// The drawing at the head of a row, 16 points in the middle of its 18 (`.palette-glyph`):
+/// in the faint ink, and in the text's own on the lit row.
+fn glyph(name: &str, lit: bool) -> El {
+    row().size(18.0, 18.0).center().child(icon(marks::mark(name), 16.0).color(if lit { ink() } else { muted() }))
 }
 
-/// A key at a row's end (`.palette-key`).
+/// A key at a row's end (`.palette-key`), and Esc in the box, which wears the same cap.
 fn key_cap(cap: &str) -> El {
     row().min_w(22.0).h(20.0).px(5.0).center().radius(6.0).fill(page()).border(1.0, edge()).border_layout().child(text(cap).font(mono(11.5, 15.0)).color(dim()))
 }
@@ -384,14 +388,15 @@ fn line_row(line: &Line, lit: bool, query: &str) -> El {
                 }
             }
             let found_by = pen(text(said).font(sans(12.0, 400.0)).color(muted()).spans(marks).truncate(), 12.0);
-            let mut e = row().min_h(50.0).py(7.0).px(18.0).gap(12.0).items_start().child(fade(el().pt(3.0).child(glyph(&line.glyph, lit)))).child(fade(col().grow(1.0).min_w(0.0).gap(3.0).child(name).child(found_by)));
+            // The drawing stands at the top of the two lines, level with the title's.
+            let mut e = row().min_h(50.0).py(7.0).px(18.0).gap(12.0).items_start().child(fade(glyph(&line.icon, lit))).child(fade(col().grow(1.0).min_w(0.0).gap(3.0).child(name).child(found_by)));
             if let Some(hint) = hint {
                 e = e.child(fade(el().pt(2.0).child(hint)));
             }
             e
         }
         None => {
-            let mut e = row().h(ROW).px(18.0).gap(12.0).items_center().child(fade(glyph(&line.glyph, lit))).child(fade(row().grow(1.0).min_w(0.0).child(name)));
+            let mut e = row().h(ROW).px(18.0).gap(12.0).items_center().child(fade(glyph(&line.icon, lit))).child(fade(row().grow(1.0).min_w(0.0).child(name)));
             match (&line.cap, hint) {
                 (Some(cap), _) => e = e.child(fade(key_cap(cap))),
                 (None, Some(hint)) => e = e.child(fade(hint)),
@@ -400,8 +405,9 @@ fn line_row(line: &Line, lit: bool, query: &str) -> El {
             e
         }
     };
+    // The lit row is a wash, with no accent down its left edge any more (`.palette-item.selected`).
     if lit {
-        e = e.fill(white(0.04)).child(el().pin(Some(0.0), Some(0.0), None, Some(0.0)).w(2.0).fill(accent()));
+        e = e.fill(white(0.04));
     }
     let (key, does) = (line.key.clone(), line.does.clone());
     e.key(format!("palette-{}", line.key))
@@ -444,15 +450,8 @@ pub fn view(s: &State) -> Option<El> {
         .on_edit(|s: &mut State| &mut s.palette.words)
         .on_submit(run_the_lit_row)
         .on_input_key(in_the_box);
-    let esc = row()
-        .px(6.0)
-        .py(4.0)
-        .radius(6.0)
-        .border(1.0, edge())
-        .border_layout()
-        .cursor(Cursor::Pointer)
-        .child(text("ESC").font(capitals(10.0, 1.0)).color(muted()))
-        .on_press(|s: &mut State| s.close_palette());
+    // Esc is a key's cap, as the rows' keys are, its word as the key is named (`.palette-esc`).
+    let esc = key_cap("esc").cursor(Cursor::Pointer).on_press(|s: &mut State| s.close_palette());
     let ask = row()
         .h(BOX)
         .pl(18.0)
@@ -487,16 +486,13 @@ pub fn view(s: &State) -> Option<El> {
     // there is nothing left over to scroll to.
     let list = col().key("palette-list").h(tall.min(LIST_CAP)).scroll(ScrollSpec { stick_bottom: false }).child(rows);
 
-    // What the keys do, said once at the foot.
-    let keys = |keys: &str, does: &str| text(format!("{keys} {does}")).font(capitals(9.5, 1.14)).color(quiet()).spans(vec![Span::new(0, keys.len()).color(muted())]);
-    let foot = row().px(18.0).py(10.0).gap(18.0).border_sides([1.0, 0.0, 0.0, 0.0], edge()).border_layout().child(keys("↑ ↓", "MOVE")).child(keys("↵", "SELECT"));
-
     // The box stands where a command bar stands: its middle three eighths of the way down the
     // window, at every window size (`place-items: center` over a quarter of the height held
-    // back under it, in `.modal-backdrop.palette-backdrop`).
+    // back under it, in `.modal-backdrop.palette-backdrop`). It ends with the list: the foot
+    // that said what the arrows and Return do is gone (`.palette-foot`).
     // No rounded clip: Rune's takes the card's own shadow with it, and nothing inside reaches
     // a corner (the list scrolls inside its own bounds).
-    let card_tall = 2.0 + BOX + tall.min(LIST_CAP) + FOOT;
+    let card_tall = 2.0 + BOX + tall.min(LIST_CAP);
     let card = col()
         .absolute((w - width) / 2.0, (0.75 * h - card_tall) / 2.0)
         .w(width)
@@ -507,8 +503,7 @@ pub fn view(s: &State) -> Option<El> {
         .box_shadow(shadow(0.0, 24.0, 70.0, 0.0, rgba(0, 0, 0, 0.55), false))
         .modal_tx(true, |s: &mut State, _| s.close_palette())
         .child(ask)
-        .child(list)
-        .child(foot);
+        .child(list);
     // `--scrim` over the whole window, as this look has it.
     Some(el().absolute(0.0, 0.0).size(w, h).fill(rgba(0, 0, 0, 0.72)).child(card))
 }
@@ -526,11 +521,11 @@ mod tests {
     #[test]
     fn a_picture_draws_the_webs_commands_and_this_windows_threads_in_their_places() {
         let rows = json!([
-            { "glyph": "↻", "label": "Check for updates", "hint": "look now", "key": "" },
+            { "icon": "refresh", "label": "Check for updates", "hint": "look now", "key": "" },
             { "section": "Threads" },
             { "thread": true },
             { "thread": true },
-            { "glyph": "", "label": "" },
+            { "icon": "", "label": "" },
         ]);
         let pictured: Vec<Pictured> = rows.as_array().unwrap().iter().filter_map(Pictured::read).collect();
         // A row with no name is no row.
@@ -541,7 +536,7 @@ mod tests {
         // The web's command does nothing here, and the threads open as they would anywhere.
         assert!(lines[0].does.is_none() && lines[0].cap.is_none() && lines[0].hint.as_deref() == Some("look now"));
         assert_eq!(lines[1].does, Some(Does::Open(("w-1".to_string(), "shop".to_string()))));
-        assert_eq!((lines[1].glyph.as_str(), lines[1].hint.as_deref()), ("›", Some("Storefront · now")));
+        assert_eq!((lines[0].icon.as_str(), lines[1].icon.as_str(), lines[1].hint.as_deref()), ("refresh", "thread", Some("Storefront · now")));
         // With fewer threads found than the web listed, the places left over stay empty.
         assert_eq!(pictured_lines(&pictured, vec![found("w-1", "Checkout fails")]).len(), 2);
     }

@@ -1,11 +1,10 @@
 [
-  ["the box, frame included", [329, 216.75, 622, 136.5]],
-  ["search row", [331, 218.75, 618, 56]],
-  ["esc", [898, 236.25, 35, 20]],
-  ["nothing matches", [331, 280.75, 618, 34]],
-  ["foot", [331, 320.75, 618, 30.5]],
+  ["the box, frame included", [329, 232, 622, 106]],
+  ["search row", [331, 234, 618, 56]],
+  ["esc", [898, 249.5, 37, 24]],
+  ["nothing matches", [331, 296, 618, 34]],
   ["backdrop, left", [0, 0, 329, 760]],
   ["backdrop, right", [951, 0, 329, 760]],
-  ["backdrop, over the box", [329, 0, 622, 216.75]],
-  ["backdrop, under the box", [329, 353.25, 622, 406.75]]
+  ["backdrop, over the box", [329, 0, 622, 232]],
+  ["backdrop, under the box", [329, 338, 622, 422]]
 ]

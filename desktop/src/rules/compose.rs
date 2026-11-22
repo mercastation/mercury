@@ -92,8 +92,9 @@ pub use crate::data::Priority as Level;
 /// The four, in the order the menu lists them (`PRIORITIES` in `renderer/src/priority.ts`).
 pub const LEVELS: [Level; 4] = [Level::Urgent, Level::High, Level::Medium, Level::Low];
 
-/// What a new thread starts on: no level, so the app's small model picks one.
-pub const AGENT_DECIDES: &str = "Agent Decides";
+/// What a new thread starts on: no level, so the app's small model picks one. In sentence case,
+/// as every other choice on the box is (`AGENT_DECIDES` in `renderer/src/priority.ts`).
+pub const AGENT_DECIDES: &str = "Agent decides";
 
 pub fn level_word(level: Level) -> &'static str {
     match level {
@@ -982,7 +983,7 @@ mod tests {
     fn a_card_sends_its_level_as_a_number_and_agent_decides_as_none() {
         assert_eq!(sent_priority(None), 0.0);
         assert_eq!(LEVELS.map(|level| sent_priority(Some(level))), [9.0, 7.0, 5.0, 2.0]);
-        assert_eq!(choice_label(None), "Agent Decides");
+        assert_eq!(choice_label(None), "Agent decides");
         assert_eq!(choice_label(Some(Level::Medium)), "Medium");
     }
 

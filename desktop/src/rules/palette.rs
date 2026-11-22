@@ -94,7 +94,7 @@ pub const REOPEN_KEYWORDS: &str = "unmark undo undone not done open again bring 
 /// second, after New project. It is offered only once this window can start a thread.
 pub fn new_thread_row() -> Row {
     let mut row = Row::command("new-thread", "New thread", Does::NewThread).found_by("task compose write message ask start").on_key("N");
-    row.hint = Some("ask an agent for something".to_string());
+    row.hint = Some("ask an agent".to_string());
     row
 }
 
@@ -426,25 +426,129 @@ pub fn empty_line(query: &str) -> String {
     format!("Nothing matches \u{201c}{shown}\u{201d}.")
 }
 
-/// What a row with no mark of its own wears (`NO_GLYPH`).
-pub const NO_GLYPH: &str = "·";
+/// What a row nobody has drawn yet wears: always the same one (`PLAIN_ICON`).
+pub const PLAIN_ICON: &str = "chevron";
 
-/// The small mark at the head of a row: a character set in the mono face, not a drawn icon.
-/// One that can also be an emoji carries U+FE0E, which asks for its plain form (`glyphFor`).
-/// These are the web's marks for the rows this window has.
-pub fn glyph_for(id: &str) -> &'static str {
-    match id {
-        "new-thread" => "✎",
-        "view-home" | "view-inbox" | "view-progress" | "view-later" | "view-done" | "files-all" => "→",
-        "done" => "□",
-        "reopen" => "↶",
-        "reply" => "↩\u{fe0e}",
-        "unsnooze" => "↑",
-        "snooze" => "◷",
-        "open" => "↵",
-        _ if id.starts_with("thread-") => "›",
-        _ => NO_GLYPH,
+/// The drawing each row wears by its id (`BY_ID` in `renderer/src/palette-glyphs.ts`).
+const BY_ID: &[(&str, &str)] = &[
+    ("new-project", "plus"),
+    ("new-thread", "compose"),
+    ("record-meeting", "record"),
+    ("stop-recording", "stop"),
+    ("filter", "filter"),
+    ("clear-filter", "clear"),
+    ("end-tutorial", "clear"),
+    ("projects-page", "folder"),
+    ("search", "search"),
+    ("all-threads", "search"),
+    ("view-home", "home"),
+    ("view-inbox", "inbox"),
+    ("view-progress", "progress"),
+    ("view-later", "later"),
+    ("view-done", "done"),
+    ("view-groups", "hash"),
+    ("view-teammates", "team"),
+    ("view-connections", "link"),
+    ("new-teammate", "add-person"),
+    ("update", "download"),
+    ("update-move", "move"),
+    ("update-check", "refresh"),
+    ("stale", "refresh"),
+    ("resume-stopped", "play"),
+    ("standing", "instructions"),
+    ("usage", "gauge"),
+    ("settings", "settings"),
+    ("shortcuts", "keyboard"),
+    ("keyhints", "keyboard"),
+    ("flip-view", "board"),
+    ("import-agents", "download"),
+    ("tutorial", "help"),
+    ("first-run", "refresh"),
+    ("demo", "spark"),
+    ("remote-control", "swap"),
+    ("open-terminal", "terminal"),
+    ("approve", "check"),
+    ("run-now", "run"),
+    ("done", "done"),
+    ("close-task", "closed"),
+    ("reopen", "reopen"),
+    ("send-back", "reopen"),
+    ("reply", "reply"),
+    ("resume-any", "refresh"),
+    ("try-again", "refresh"),
+    ("resume", "refresh"),
+    ("redeliver", "refresh"),
+    ("read", "read"),
+    ("unread", "unread"),
+    ("snooze", "later"),
+    ("unsnooze", "inbox"),
+    ("move-refused", "move"),
+    ("stop", "stop"),
+    ("open", "open"),
+    ("see-team", "team"),
+    ("see-people", "add-person"),
+    ("see-private", "lock"),
+    ("pin", "pin"),
+    ("rename", "rename"),
+    ("summary", "text"),
+    ("code", "code"),
+    ("place", "cloud"),
+    ("end-repeat", "stop-repeat"),
+    ("add-people", "add-person"),
+    ("shipped", "shipped"),
+    ("team-list-shipped", "shipped"),
+    ("decide", "flag"),
+    ("wait-stop", "wait"),
+];
+
+/// And by the start of its id, the longest first, so `teammate-pause-` is read before
+/// `teammate-` (`BY_PREFIX`).
+const BY_PREFIX: &[(&str, &str)] = &[
+    ("teammate-pause-", "pause"),
+    ("teammate-", "person"),
+    ("chat-person-", "person"),
+    ("chat-", "hash"),
+    ("thread-", "thread"),
+    ("card-", "thread"),
+    ("line-", "text"),
+    ("files-", "file"),
+    ("file-", "file"),
+    ("comment-", "comment"),
+    ("decision-", "flag"),
+    ("team-list-", "flag"),
+    ("priority-urgent", "priority-urgent"),
+    ("priority-high", "priority-high"),
+    ("priority-medium", "priority-medium"),
+    ("priority-", "priority-low"),
+    ("rank-", "top"),
+    ("move-", "move"),
+    ("give-", "give"),
+    ("take-back", "reopen"),
+    ("route-", "give"),
+    ("model-", "spark"),
+    ("group-", "hash"),
+    ("cloud-", "cloud"),
+    ("theme-", "theme"),
+    ("wait-", "wait"),
+];
+
+/// Every name a row can wear, for the drawings to be checked against.
+#[cfg(test)]
+pub fn icon_names() -> Vec<&'static str> {
+    BY_ID.iter().chain(BY_PREFIX).map(|(_, name)| *name).chain([PLAIN_ICON, "pause", "play"]).collect()
+}
+
+/// The line drawing at the head of a row, by the web's name for it (`iconFor`): one id for both
+/// ways of a toggle, so the label says which way it goes.
+pub fn icon_for(id: &str, label: &str) -> &'static str {
+    let starts = |words: &str| label.get(..words.len()).is_some_and(|head| head.eq_ignore_ascii_case(words));
+    if id == "pause" {
+        return if starts("unpause") { "play" } else { "pause" };
     }
+    if id.starts_with("teammate-pause-") && starts("resume") {
+        return "play";
+    }
+    BY_ID.iter().find(|(of, _)| *of == id).or_else(|| BY_PREFIX.iter().find(|(start, _)| id.starts_with(start))).map_or(PLAIN_ICON, |(_, name)| name)
 }
 
 #[cfg(test)]
@@ -487,8 +591,8 @@ mod tests {
         assert_eq!(rows[0].hint.as_deref(), Some("every file you can see"));
         assert_eq!(typed("pictures", &rows).len(), 3);
         assert_eq!(typed("files mobile", &rows), ["files-project-Mobile"]);
-        assert_eq!(glyph_for("files-all"), "→");
-        assert_eq!(glyph_for("files-project-Mobile"), NO_GLYPH);
+        assert_eq!(icon_for("files-all", "Go to Files"), "file");
+        assert_eq!(icon_for("files-project-Mobile", "Files in Mobile"), "file");
         assert_eq!(rows[2].does, Does::Files(Some("Mobile".to_string())));
     }
 
@@ -728,8 +832,8 @@ mod tests {
         // Dimmed once finished, and only then.
         assert!(checkout.done && !rows[1].done);
         assert_eq!(checkout.does, Does::Open(("w-1".to_string(), "shop".to_string())));
-        // A found thread wears the thread's mark, whatever its project and id.
-        assert_eq!(glyph_for(&checkout.id), "›");
+        // A found thread wears the thread's drawing, whatever its project and id.
+        assert_eq!(icon_for(&checkout.id, &checkout.label), "thread");
         assert_eq!(rows[1].hint.as_deref(), Some("Mobile · 3 hr"));
         // A day old or more it gives its date, and a project nobody named is its slug.
         assert_eq!(rows[2].hint.as_deref(), Some("gone · Nov 16"));
@@ -781,13 +885,21 @@ mod tests {
     }
 
     #[test]
-    fn every_row_this_window_draws_has_the_webs_mark() {
-        for row in commands(Some(&open_thread()), false, NOW, true) {
-            assert_ne!(glyph_for(&row.id), NO_GLYPH, "{}", row.id);
+    fn every_row_this_window_draws_has_the_webs_drawing() {
+        for row in commands(Some(&open_thread()), false, NOW, true).iter().chain(&page_rows()).chain(&file_rows(&["Mobile".to_string()])) {
+            assert_ne!(icon_for(&row.id, &row.label), PLAIN_ICON, "{}", row.id);
         }
-        assert_eq!(glyph_for("reopen"), "↶");
-        assert_eq!(glyph_for("unsnooze"), "↑");
-        assert_eq!(glyph_for("thread-shop-w-1"), "›");
-        assert_eq!(glyph_for("something-else"), NO_GLYPH);
+        assert_eq!(icon_for("new-thread", "New thread"), "compose");
+        assert_eq!(icon_for("reopen", "Reopen"), "reopen");
+        assert_eq!(icon_for("unsnooze", "Back to Inbox"), "inbox");
+        assert_eq!(icon_for("thread-shop-w-1", "Fix the export"), "thread");
+        assert_eq!(icon_for("something-else", "Something else"), PLAIN_ICON);
+        // The longest start wins, and a toggle's label says which way it goes.
+        assert_eq!(icon_for("teammate-pause-ada", "Pause Ada"), "pause");
+        assert_eq!(icon_for("teammate-pause-ada", "Resume Ada"), "play");
+        assert_eq!(icon_for("teammate-ada", "Ada"), "person");
+        assert_eq!(icon_for("pause", "Unpause agents"), "play");
+        assert_eq!(icon_for("priority-urgent", "Urgent"), "priority-urgent");
+        assert_eq!(icon_for("priority-low", "Low"), "priority-low");
     }
 }

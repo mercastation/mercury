@@ -49,6 +49,16 @@ pub fn team_has_others(snap: &Snapshot) -> bool {
     !list(part(snap, "teammates"), "list").is_empty() || people || !list(team, "teamMates").is_empty()
 }
 
+/// How many rows Home's team card has (`homeTeam` in `renderer/src/App.tsx`): each person of the
+/// team besides the person, and each of their own agent teammates. Whether three or fewer is
+/// what decides that Home's two cards fit their rows.
+pub fn team_rows(snap: &Snapshot) -> usize {
+    let team = part(snap, "team");
+    let mine = team.and_then(|t| t.get("me")).and_then(Value::as_object).and_then(|m| text(m, "id"));
+    let people = list(team, "people").iter().filter(|p| p.get("id").and_then(Value::as_str) != mine).count();
+    people + list(part(snap, "teammates"), "list").len()
+}
+
 /// The first word of a person's name, else of their email (`firstName` in `renderer/src/team/company.ts`).
 fn first_name(person: &Map<String, Value>) -> &str {
     text(person, "name").or_else(|| text(person, "email")).unwrap_or("Someone").split_whitespace().next().unwrap_or("Someone")
