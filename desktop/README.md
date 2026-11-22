@@ -13,6 +13,14 @@ project, model, effort and level picked in its menus ("Starting a thread", below
 dropped on it, picked with its paper clip or pasted into it ("Files in a new thread"). A reply
 carries pictures and files the same three ways ("Files in a reply").
 
+Answering a thread and stopping its agent are the web window's whole ("Answering a thread and
+stopping its agent", below): Stop stands where Send is while a thread is under way and its box
+is empty; a reply or a picked option is on the page from the press, saying where it is; Z takes
+it back whole inside three seconds, and after that withdraws it and stops the run it started,
+asking first once it is half a minute old; an option that throws the change away asks first; the
+first close of a thread whose agent waits on an answer says what it costs; and each box keeps its
+words, files and model across a restart, as the web window's does.
+
 What can be chosen in a conversation is chosen as in the web window ("Choosing in a
 conversation", below): the model and level its next reply runs on, from the reply box's chip or
 the model named on the folded box; the priority the next reply sets and what it may do, from the
@@ -679,7 +687,9 @@ The keys are the web window's (`src/keys.rs`, from the keydown handler in `rende
 | The box, the card | Esc | Closes the open menu; then lets go of the box, or closes the card, keeping the words |
 | A chip of the box | ↓, ↑ | Opens its menu (after Esc left the keyboard on it) |
 | A menu of the box | ↓, ↑, Enter | Walks its rows around both ends and picks the one lit |
-| Anywhere | Z | Takes back the last thing done |
+| Anywhere | Z | Takes back the last thing done; past half a minute it asks first, and a second Z inside eight seconds does it |
+| A conversation | a letter none of the above | Goes into the reply box, after its words, and opens it; E and L just after the screen changed wait a moment for a word |
+| The question before a discard | 1, 2, ↓, ↑, Enter, Esc | Answers it, walks it, answers the lit one; Esc keeps the change |
 | Anywhere | ⌘K | Opens the command bar, and closes it again |
 | The command bar | ↓, ↑, Enter, Esc | Walks its rows and runs the one lit; Esc closes it |
 | Anywhere | ⌘C | Turns the cloud on, or asks before turning it off; Copy instead while words are selected, a box has the keys or something stands over the page |
@@ -699,9 +709,14 @@ menu and where it runs are written on their own channels ("Choosing in a convers
 
 What is done waits three seconds before it is written, as in the web window (`deferCommit`): it
 shows at once, a line says so with Z and Undo beside it, and Z inside that time takes it back
-whole, because nothing was written. After a close is written, Z opens the thread again as it
-was, blocked if it was blocked, so no run starts. If the engine refuses a write, its own reason
-is said in one line and what was refused is put back.
+whole, because nothing was written. Once written it goes on Z's pile, newest last (`undoStack`):
+a close, by opening the thread again as it was, blocked if it was blocked, so no run starts; a
+reply or a pick, by stopping the run it started and withdrawing it; a thread put off or brought
+back, by its moments as they were; a thread sent from the box, by closing it. Past half a minute Z
+names what it would undo and only a second Z inside eight seconds does it, any other key saying
+no (`undo-window.ts`). Each Z on a thread leaves one line in it, drawn as the person's own act. If
+the engine refuses a write, its own reason is said in one line and what was refused is put back;
+a refused Z keeps its place on the pile.
 
 Later is the one thing not held back, as in the web window (`snoozeUntil`, `unsnooze`): L opens
 the picker (`src/later.rs`), which offers the web window's moments and reads a time typed in
@@ -736,6 +751,102 @@ A script is a list of events (`{"t": 0.5, "type": "key", "name": "e"}`, `"type":
 `thread-options-reply`, `thread-done-held`, `inbox-done-held` and the four `thread-later*` are the
 web window in each of these states; a fixture says what its picture had open (`replying`,
 `option`, `closed`, `later`, `laterRefused`).
+
+## Answering a thread and stopping its agent
+
+Everything the web window does when a person answers a thread or stops its agent, line by line,
+is `docs/parity-answering.md`, each line ticked with how it was checked. The code is `src/answer.rs`
+(its rules `src/rules/answering.rs`) and `src/drafts.rs`.
+
+- **Stop.** In the opened box of a thread In progress (the tab's own rule, `stoppable`), Stop
+  stands in Send's place, its caret with it, while the box holds no words and no files: a square
+  and "Stop" in the dim ink inside the strong line, the wash and the text's ink under the pointer,
+  the square alone in a box under 460 points. Its title says whether a run is up. A press puts the
+  caret back in the box, writes what is held for its three seconds first, then `zero:stop-session`,
+  and once the engine has it says "Agent stopped. Back in your inbox. Reply to redirect it." or,
+  with nothing started, "Stopped before it started. …". The person stays on the thread, following
+  it: Escape then goes to Needs you, the row picked. The command bar has the same row, "Stop Agent
+  (Moves to Inbox)" or "Stop Task (Moves to Inbox)", after the thread's rows. Nothing else stops a
+  run in the web window either: no key, not the thread's menu, not the working line.
+- **What was sent, at once.** A reply is on the page from the press as the person's message, its
+  head saying "Sending… press Z to undo" in the time's place, its words a little fainter; a pick is
+  the act its written copy will be ("Picked" and the option). One written copy takes the place of
+  one drawn copy, oldest first, and the drawn one goes ten seconds after it is written. On a thread
+  at rest the reply is held three seconds, its row In progress meanwhile, and the strip's line names
+  the thread ("Sent → Storefront", a pick "Sent “Ship it” to …") with the time left to open it. On a
+  thread a run is on, no line is said: after the three seconds the head says "Sending…", or, on
+  Claude Code, "Waiting for its current step" with Send now, which writes `zero:send-now` and says
+  "Sending now…". Refused, the drawn copy goes and the words come back after what the box holds now,
+  the box open, with the engine's words; elsewhere a line names the thread.
+- **Where it leaves the person.** A reply from a thread opened from Needs you on the Inbox moves on
+  to the next thread waiting (not one opened from Home or come back to with O), and a pick does
+  unless its words promise more or a run is up. Moved on, the line stands in the next thread's
+  strip instead: a dot, "Sent to" and the thread, O Back, Z Undo, and a ring that runs out over five
+  seconds, stopped while the pointer is on it. A number pressed, or an option pressed with the
+  pointer where it was, in the moment after the app moved the person is not taken, and a line says
+  it was meant for the thread before; so is a press on the options just after they moved under a
+  still pointer.
+- **Z after it is written.** A reply: the reminder or moment it lifted put back, then
+  `zero:stop-session` with `withdraw`, then the answer withdrawn with the status it found; its
+  words, files and model go back in the box unless the box holds something newer, and "Reply
+  withdrawn, back in your inbox · your message is back in the reply box". A pick: the stop, the
+  withdrawal, "Option 1 withdrawn, back in your inbox". A reply already with a running agent
+  cannot be taken back: Z says so and opens the conversation.
+- **The question before a discard.** An option that throws the change away asks "Discard the
+  change?" where the options stood, inside the strip's frame: 1 Discard it, 2 Keep it
+  (recommended). Its keys are the numbers, the arrows, Enter on the lit one and Escape; 1 sends the
+  option as any pick, 2 and Escape leave the offer standing.
+- **The waiting agent's warning.** The first E ever on a thread whose agent waits on an answer
+  only says "This agent is waiting on your answer, and marking it done leaves it stuck. Press
+  again to go ahead."; the first L ever opens the Later picker with the same lesson inside it. One
+  marker for both keys, kept with the drafts.
+- **Drafts.** Each box's words, files and model are written down as they change, beside the note
+  about the app's door, and a thread whose box holds a draft opens with the box open on it. A
+  reply sent is written down until it lands; one a quit or a crash lost is looked for in its
+  thread at the next launch, three times over two minutes, and put back in its box with "Your reply
+  didn’t send. It’s back in the box." What is held when the window closes is written before it goes.
+- **The box and the options.** A letter typed on an open thread with the box folded goes into it; a
+  press on nothing in the page folds an empty box; a press outside one of the box's menus that lands
+  on an option or on Stop goes on to it; a choice is one line in the strip, whole while the keys are
+  on it, and whole in a card over the strip while the pointer rests on it when it is cut short.
+
+The scenes (`tools/scenes/`): `thread-working-reply` (Stop), `thread-reply-sending`,
+`thread-pick-sending`, `thread-working-sending`, `thread-working-waiting`, `thread-working-handed`,
+`thread-working-refused`, `thread-reply-moved-on`, `thread-discard-ask`, `thread-done-toast`,
+`thread-later-warned`, `thread-pick-undone` and `thread-option-peek`. A fixture says what was done
+before the picture (`replySent`, `handedOver`, `refusedWith`, `keysAfter`, `from`). `thread.mjs`
+takes `hang` (the page's writes never answer, where the harness refuses them) and `runEngine`. At
+1280 by 760, 2x, dark, whole window, before this and now:
+
+| Scene | Before | Now | Where it differs |
+|---|---|---|---|
+| `thread-working-reply` | 0.47 | 0.37 | Stop itself 0.77 |
+| `thread-reply-sending` | 6.52 | 0.35 | the strip's line 0.81, its clock |
+| `thread-working-sending` | 4.49 | 0.42 | |
+| `thread-working-waiting` | 4.53 | 0.41 | the head 2.0, glyph edges |
+| `thread-working-handed` | 4.46 | 0.50 | |
+| `thread-working-refused` | 5.55 | 0.41 | |
+| `thread-reply-moved-on` | 4.83 | 0.94 | the line 1.14, its ring; the page under it is the harness's (it answers only one thread) |
+| `thread-discard-ask` | 1.21 | 0.37 | the question 0.35 |
+| `thread-done-toast` | 4.94 | 0.71 | |
+| `thread-later-warned` | 24.13 | 0.26 | |
+| `thread-option-peek` | | 0.56 | the card 0.79 |
+
+`thread-pick-sending` and `thread-pick-undone` stand where they stood: the web window lands on the
+top of the answer the act follows, this window on the page's top (see what still differs); the act
+line itself lands on the web's to a hundredth of a point. The screens before this did not move:
+`thread`, `thread-folded`, `thread-options`, `thread-option-picked`, `thread-options-reply`,
+`thread-reply`, `thread-reply-typed`, `thread-working`, `thread-done-held` and `thread-later`.
+
+Against a scratch engine (above), twin threads waiting on an agent's three options, this window
+acting on one and the web window's own payloads sent by hand to the other, wrote the same ledger
+lines in the same order: a reply and its Z (`answer`, `status: open`; then `status: blocked` from
+the stop, `answer: (withdrawn)`, `status: blocked`); a pick and its Z (`Option 1: …`, `open`; the
+same three); the discard asked and answered 1 (`Option 2: Discard the change`, `open`); and Stop
+on a thread under way (`status: blocked`), the window saying "Stopped before it started" with the
+crumb back on the Inbox. A drafts file holding two replies written down as on their way, one in the
+thread's ledger and one not, came back as the first let go at the first look and the second in its
+box at the last.
 
 ## Choosing in a conversation
 
@@ -1295,7 +1406,7 @@ words (`ReplyFiles`).
 - **Where they stand**: in the same row, between the words and the bar, eight points under the
   words and flush on the bar's hairline, eighteen in from the box's edge (`.attach-row` in
   `.dock-card`); the line saying why one cannot go under it. Leaving the conversation keeps them
-  in its box, with its words, for the next visit. Folded, the box says what it holds: the words,
+  in its box, with its words, for the next visit, and so does a restart (`drafts.rs`). Folded, the box says what it holds: the words,
   on one line and dimmer, and the files counted beside them ("2 files", "1 image"), or the count
   alone where nothing was typed (`foldedReply`, ported as `src/rules/folded.rs` with its tests).
   Escape in a box holding words or files lets go of it and leaves it open, as the web window's
@@ -1374,7 +1485,8 @@ what this window does of each and why a row is left out:
   agent's first where this Mac offers it ("Sonnet 5.5 picks this up next"); Move to each other
   project, or Move to another project saying why it cannot, the move taken back by Z and the
   copy opened when it was moved from inside; Send back to agent on a blocked thread; Restart the
-  agent on a stopped one; Open (↵) from the Inbox; and the four levels, "(current)" after the one
+  agent on a stopped one; Stop Agent or Stop Task (Moves to Inbox) on a thread under way, which
+  stops it as Stop in its box does; Open (↵) from the Inbox; and the four levels, "(current)" after the one
   it shows, each written even when it is that one.
 - Then Projects… and Rank each project first, with where it stands; on a Mac set up for the cloud,
   Turn the cloud on or off (⌘C), off asking first and offered only to words that name the cloud,
@@ -2387,8 +2499,6 @@ release or a second login.
     thread, Share…, Add people and Ask or hand off… (teammates), Waits on… and Blocked by…, Mark as
     shipped, Stop repeating, Close task, Run now, View code changes and Demand. On a finished
     thread, where the web's menu holds only the first two, the dots say where they are.
-  - The model picked in the reply box lasts as long as the window. The web window keeps it in
-    its storage beside the draft (`saveDraftPick`), so it survives a restart.
   - Codex's own model is held as no model, and the web window holds it as an empty one: the reply
     sends `null` where the web's sends `""`, and the store writes both as `""`.
   - One row of a menu is lit, by the arrows or the pointer. The web window can light two, the
@@ -2460,27 +2570,33 @@ release or a second login.
     above the web window's, as every mention's does here.
 - **Files in a reply, where they still differ** (besides what is said of a new thread's files,
   which holds here too):
-  - A draft lasts as long as the window, its files with its words. The web window keeps both
-    across a restart, and opens a conversation whose box holds a draft with the box open; here
-    the box stays folded and says what it holds.
   - A voice note, a reply to a person and the slash commands are not here: the reply box takes
     pictures and files.
-  - A press on nothing in the page does not fold the box, where the web window's does.
-- **A reply shows in the conversation once it is written.** The web window draws it at once,
-  marked as sending. Here the box folds, the line says Sent, and the words appear three seconds
-  later with the engine's next answer.
-- **Z after a reply or a pick is written takes nothing back.** The web window withdraws it and
-  stops the run it started. Here Z works for the three seconds before, and after only for a close.
+- **Answering a thread and stopping its agent, where it still differs** (see "Answering a thread
+  and stopping its agent", and `docs/parity-answering.md` line by line):
+  - A press on another control of the page (a link, a run's fold, the strip's buttons) leaves an
+    empty open box open, where the web window folds it on that press too: Rune hands a press to
+    the control under it and to no observer of every press, so only a press on nothing in the page
+    folds it. For the same reason a press outside one of the box's menus goes on only to the box's
+    own controls, an option and Stop; the web window's lands anywhere. Where it lands, the option
+    is picked as the press goes down rather than as it comes up.
+  - Each window keeps its own drafts and its own once-ever warning: the web window's are in its
+    storage, which the door does not hand over, so a draft typed in one is not in the other's box,
+    and each window warns once.
+  - A stop the engine refuses is said ("Could not stop it: …"), and so is a pick it refuses ("Could
+    not send that option: …"); the web window's stop and pick throw and say nothing.
+  - A reply lost by a restart is looked for in its thread's ledger alone: the web window also
+    counts a reply the phone shows as waiting for the computer (`phoneWaiting`), a list this window
+    does not read.
+  - A thread whose answer is taller than the window, with something the person did after it, opens
+    on the page's top, where the web window lands on that answer's top (as for a conversation drawn
+    from the answer an agent works from, below).
+  - The ring of the line about a send is drawn in sixty steps.
+  - What is held when the window closes is written on the closing turn; a close that is not the
+    window's own (the process killed) loses it, as a crash loses the web window's.
 - **No card to allow or deny what an agent asks to run.** The web window draws one over the
   page, answered with ⌘1 and ⌘2. Here a line at the card's foot says an agent is waiting for a
   yes and where to give it. Where every project runs on full access no agent ever asks.
-- **No question before throwing work away.** An option that discards the change asks first in
-  the web window. Here it is not sent, and the line says to pick it there.
-- **No warning before closing a thread whose agent waits on an answer.** The web window gives it
-  once ever, on the first such E, and remembers for itself that it did: the first E there only
-  says so in the strip (`thread-done-toast`), where this window closes the thread and goes on
-  (4.94 of 255 between the two pictures); the second E is the close both draw
-  (`thread-done-held`).
 - **Several rows cannot be ticked**, so nothing is done to many threads at once.
 - **The rail has only what works here**: Search, Home, the Inbox, Files, Restart to update while
   a new version waits, Settings, the usage row and the person's own row. The web window's also
@@ -2522,7 +2638,7 @@ release or a second login.
     only closes the bar, the menu it opened being gone, and Clear filter because its filter is
     set only by the tutorial. Mark unread is left out because only the web window keeps what has
     been read and the app has no channel to set a thread back to unread; Mark read is here.
-  - Try again, Stop and View code changes are their own controls' to bring; Resume this agent and
+  - Stop is here; Try again and View code changes are their own controls' to bring; Resume this agent and
     Restart the agent already stand aside where Try again would stand for them.
   - It finds threads only, the best five, with no "See all" row, since this window has no search
     page. The web's bar also finds people and groups, repeating tasks, teammates' threads, and
@@ -2552,8 +2668,7 @@ release or a second login.
 - **The Later picker takes a moment, not a rhythm.** In the web window "every monday 9am" typed
   there makes the thread a repeating task, and its box says so in its hint. This window keeps
   no repeating tasks, so the phrase is "not a time" and the hint names only what is read. A
-  terminal agent's row cannot be put off here, and the one warning before putting off a thread
-  whose agent waits on an answer is not given, as before closing one.
+  terminal agent's row cannot be put off here.
 - **A person's photo is their two letters.**
 - **What the web window remembers only for itself is not known here**: an update card the person
   closed still shows its Restart row, and the Sign in row of someone who skipped signing in is
@@ -2576,8 +2691,8 @@ release or a second login.
     three of 255.
   - A conversation opens on one frame of the mark standing as under Reduce motion, before the line
     has said it is on screen.
-  - An option's words cut short by the strip open nowhere: the web window shows the whole option
-    in a card over the strip while the pointer is on it (`.opt-peek`, coming in over 0.13 s).
+  - The card that shows an option whole comes in on the spring the menus stand for the web
+    window's curve, and an option in it is its words, where the web window's draws its markdown.
   - The bar along a toast's foot is drawn anew every 33 ms rather than as a loop.
 - **What a run did, where it still differs:**
   - A line inside an opened fold does not open. The web window opens it onto the whole command
@@ -2597,8 +2712,6 @@ release or a second login.
     open; one that cannot be read says nothing of it, where the web window's says it could not.
     The command a step opens onto is set in Geist Mono, where the web window's is the system's
     monospace, which Rune's font slots do not offer beside Geist Mono.
-  - In the opened reply box of a thread In progress, the web window puts Stop where Send is
-    until something is typed. This window does not stop agents, so Send stays.
   - A conversation drawn from the answer its agent is working from lands at its foot, as an
     unfolded one does; the web window lands on the top of the last message when that message is
     taller than the window.
@@ -2659,6 +2772,12 @@ release or a second login.
   box's own, from `compose.rs`). `src/rules/reply_pick.rs`: what the box opens on, what a pick
   keeps and what the next reply writes. `src/strip.rs`: what the strip over a conversation
   opens, the thread's menu and the place panel, and what a pick there writes.
+- `src/answer.rs`: Stop, what was sent drawn from the press, Z's pile and its question, the lines
+  a Z leaves, the question before a discard, the waiting agent's warning, the thread followed, the
+  line in the strip about a send that moved the person on, replies a restart may have lost, and the
+  guards on a press or a number aimed at what stood there before. `src/rules/answering.rs`: their
+  rules and words. `src/drafts.rs`: what the reply boxes hold, written down across a restart.
+  `docs/parity-answering.md`: every behaviour of the web window's there, ticked.
 - `src/chips.rs`: the reply box's priority and mode chips, their menus, Shift+Tab, what a reply
   carries of them, the narrow bar's fold, and the little arrow that folds an agent's choices.
   `src/rules/reply_chips.rs`: each agent's modes and their words, the ring Shift+Tab walks, the

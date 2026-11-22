@@ -100,12 +100,46 @@ pub struct Message {
     pub same: bool,
     /// The first thing after a long conversation's missing middle, which gets its name back.
     pub resumed: bool,
+    /// The person's words sent this moment and not yet in the ledger, drawn from the press on:
+    /// what its head says in place of the time (`PendingSaid`).
+    pub sending: Option<Sending>,
 }
 
 impl Message {
     fn new(at: f64, mine: bool, text: String, field: Field) -> Message {
-        Message { at, mine, text, field, same: false, resumed: false }
+        Message { at, mine, text, field, same: false, resumed: false, sending: None }
     }
+}
+
+/// Where something the person sent is, as its head says it (`headFacts` in
+/// `renderer/src/components/Thread.tsx`): held three seconds and still taken back by Z, then on
+/// its way to the agent, or waiting on the step a Claude Code run is in, with Send now beside
+/// it, and sent now once that was pressed.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Sending {
+    Held,
+    OnItsWay,
+    WaitingOnTheStep,
+    SendingNow,
+}
+
+/// Something the person just sent, as `Talk::read_with` places it: when it was pressed, what it
+/// said ("Option 2: …" for a pick) and where it is.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Sent {
+    pub at: f64,
+    pub text: String,
+    pub sending: Sending,
+}
+
+/// A Z pressed on this thread, as one line of the person's own: `from` and `at` are when it
+/// started and finished, and the ledger lines it wrote between them fold under it (`UndoMark`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Undid {
+    pub from: f64,
+    pub at: f64,
+    pub words: String,
+    pub choice: Option<String>,
 }
 
 /// Something that happened, as one quiet line: a run picking the thread up, a rename, a pick.
@@ -722,7 +756,16 @@ impl Talk {
     /// happened, the ask first, the agent's last word held out of the stream while it is still
     /// the last word, and the middle of a long one left out unless `whole`. `saying` is the
     /// sentence a running agent is typing, which the log has not caught yet.
+    /// Kept for a reader that places nothing sent and no Z (the tests, the conversation's steps).
+    #[allow(dead_code)]
     pub fn read(lines: &[Line], sessions: &[TraceSession], saying: Option<&Saying>, whole: bool) -> Talk {
+        Talk::read_with(lines, sessions, saying, whole, &[], &[])
+    }
+
+    /// The same, with what the person has just sent and the ledger does not have yet (`sent`),
+    /// and the Zs pressed on the thread (`undone`), each placed where the web window places them
+    /// (`pending` and `undone` in `itemThread`).
+    pub fn read_with(lines: &[Line], sessions: &[TraceSession], saying: Option<&Saying>, whole: bool, sent: &[Sent], undone: &[Undid]) -> Talk {
         let events = events(lines);
         let runs = runs_by_pickup(&events, sessions);
         let mut placed: Vec<Placed> = Vec::new();
@@ -767,6 +810,12 @@ impl Talk {
                 work @ Said::Work(_) => placed.push(place(work, None)),
             }
         }
+        // A Z is one thing the person did, so it is one line: the lines its own undo wrote,
+        // stamped while it ran, fold under it (a withdrawn reply, a thread sent back).
+        for mark in undone {
+            placed.retain(|p| !matches!(&p.node, Said::Step(s) if s.mine && !s.answers && s.at >= mark.from && s.at <= mark.at));
+            placed.push(place(Said::Step(Step { at: mark.at, mine: true, verb: mark.words.clone(), words: mark.choice.clone().unwrap_or_default(), answers: false, pickup: false }), None));
+        }
         // The sentence being typed right now, unless the log already has the same words.
         if let Some(saying) = saying {
             let now = trace::said(&trace::without_hand_back(&saying.text));
@@ -774,6 +823,36 @@ impl Talk {
             let already = placed.iter().any(|p| p.node.message().is_some_and(|m| !m.mine && [&now, &kept].contains(&&trace::said(&m.text))));
             if !now.is_empty() && !already {
                 placed.push(Placed { node: Said::Message(Message::new(saying.at, false, now, Field::Run)), run: Some(saying.run), answer: false, answers: false });
+            }
+        }
+        // And what the person has just sent, which the ledger does not have yet. One written
+        // copy cancels one drawn copy, oldest first, and only a copy written at or after the
+        // press: "yes" sent twice into the same silence shows twice. A pick is drawn as the line
+        // its written copy will be, so nothing moves when the write lands.
+        let mut spent: Vec<usize> = Vec::new();
+        let mut mine: Vec<&Sent> = sent.iter().collect();
+        mine.sort_by(|a, b| a.at.total_cmp(&b.at));
+        for sent in mine {
+            let words = trace::said(&sent.text);
+            if words.is_empty() {
+                continue;
+            }
+            if let Some((verb, option)) = picked(&words) {
+                let landed = placed.iter().enumerate().position(|(n, p)| !spent.contains(&n) && matches!(&p.node, Said::Step(s) if s.mine && s.answers && s.at >= sent.at && s.verb == verb && s.words == option));
+                match landed {
+                    Some(n) => spent.push(n),
+                    None => placed.push(Placed { node: Said::Step(Step { at: sent.at, mine: true, verb, words: option, answers: true, pickup: false }), run: None, answer: false, answers: true }),
+                }
+                continue;
+            }
+            let landed = placed.iter().enumerate().position(|(n, p)| !spent.contains(&n) && p.node.message().is_some_and(|m| m.mine && m.at >= sent.at && trace::said(&m.text) == words));
+            match landed {
+                Some(n) => spent.push(n),
+                None => {
+                    let mut message = Message::new(sent.at, true, sent.text.clone(), Field::Answer);
+                    message.sending = Some(sent.sending);
+                    placed.push(Placed { node: Said::Message(message), run: None, answer: false, answers: false });
+                }
             }
         }
         // Tool-call scaffolding off every message before two of them are compared.

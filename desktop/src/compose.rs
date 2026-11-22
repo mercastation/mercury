@@ -773,9 +773,13 @@ pub fn reply_menu_layer(s: &State) -> Option<El> {
     let left = chrome::card_left(s);
     let (shell, fit) = placed_menu(s, menu, anchor, hang, (left, w - chrome::CARD[2]));
     let marks: Vec<(&'static str, [f32; 4])> = crate::reply::MARKS.into_iter().filter_map(|key| rune::memo::window_layout(key).map(|rect| (key, rect))).collect();
+    // And the page's own controls a press may have been aimed at: the options, Stop.
+    let page_marks = crate::answer::page_marks();
     let away = el().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).on_drag(move |s: &mut State, d: &mut Drag, tx: &mut Tx| {
         if d.phase == Phase::Down {
-            s.reply_pressed_away(d.window_point(), &marks, tx);
+            let at = d.window_point();
+            s.reply_pressed_away(at, &marks, tx);
+            s.press_lands_on_the_page(at, &page_marks, tx);
         }
     });
     let page_top = chrome::page_top(&s.view);
@@ -941,13 +945,14 @@ fn back_at(until: f64, now: f64) -> Option<String> {
 /// worker, and the box's words handed back (`noteNewTask` in `renderer/src/App.tsx`). The line
 /// is said once the engine has closed it, and says then where the words went.
 fn taking_back(id: &str, product: &str, title: &str, draft: write::Draft) -> write::Undo {
-    write::Undo {
-        said: rules::said_withdrawn(title, false),
-        writes: vec![(crate::rules::writes::ANSWER, rules::withdraw(product, id))],
-        sent: write::Sent::Withdraw { thread: format!("{product}/{id}"), title: title.to_string(), draft },
-        thread: (id.to_string(), product.to_string()),
-        opens: false,
-    }
+    write::Undo::plain(
+        rules::said_withdrawn(title, false),
+        "take back the task you just made".to_string(),
+        vec![(crate::rules::writes::ANSWER, rules::withdraw(product, id))],
+        write::Sent::Withdraw { thread: format!("{product}/{id}"), title: title.to_string(), draft },
+        (id.to_string(), product.to_string()),
+        false,
+    )
 }
 
 impl State {
@@ -1371,7 +1376,7 @@ impl State {
             self.say(rules::toast_parts(&line).0, false, tx);
             return;
         };
-        self.last = Some(taking_back(&row.id, &row.product, row.title.as_deref().unwrap_or_default(), draft));
+        self.undos.push(taking_back(&row.id, &row.product, row.title.as_deref().unwrap_or_default(), draft));
         // O pressed while it was on its way opens it now, if the person is still where they were.
         if self.compose.o_waits.take().is_some_and(|screen| screen == self.view) {
             self.toast = None;
@@ -1433,7 +1438,7 @@ impl State {
         }
         if !self.send_all(last.writes.clone(), last.sent.clone()) {
             // Not sent, so not undone: Z still has it.
-            self.last = Some(last);
+            self.undos.push(last);
         }
     }
 
@@ -1450,7 +1455,7 @@ impl State {
         };
         if let Some(why) = refusal {
             self.say(rules::could_not_undo(&why), false, tx);
-            self.last = Some(taking_back(&id, &product, &title, draft));
+            self.undos.push(taking_back(&id, &product, &title, draft));
             return;
         }
         // Out of Done from now on: a send taken back is not finished work, and nowhere for O to go.

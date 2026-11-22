@@ -253,8 +253,14 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
     let mut actions = row().ml(16.0).min_w(0.0).items_center();
     // The line about what was just done stands first in this group (`.toast-in-bar`), and the
     // thread's name gives way to it.
-    if let Some(line) = chrome::toast_in_bar(s) {
-        actions = actions.child(line.mr(16.0));
+    // Or, over a thread a send moved the person to, the line saying where it went (`SentLine`).
+    // Six points after the line, sixteen after the sent line, and the strip's ten after either
+    // where the arrows follow (`.toast-in-bar`, `.ts-top > .sent-line`, `.ts-top { gap }`).
+    let arrows = if at.is_some() { 10.0 } else { 0.0 };
+    if let Some(line) = crate::answer::sent_line(s) {
+        actions = actions.child(line.mr(16.0 + arrows));
+    } else if let Some(line) = chrome::toast_in_bar(s) {
+        actions = actions.child(line.mr(6.0 + arrows));
     }
     // The threads before and after it are those of Needs you, so a thread elsewhere has none
     // (`QueueNav` stands only on a thread with a place in that queue).
@@ -604,8 +610,18 @@ fn when(at: f64, now: f64) -> String {
 fn said_by(m: &Message, now: f64) -> El {
     let line = kept(22.4);
     let who = if m.mine { text("You").font(TextStyle::new(14.0, 600.0).lh(line)).color(ink()) } else { text("The agent").font(TextStyle::new(14.0, 400.0).lh(line)).color(dim()) };
-    // The three sit on one baseline: the smaller the type, the lower its box starts.
-    let mut head = row().h(line).items_start().gap(10.0).child(readable(who)).child(readable(text(when(m.at, now)).font(TextStyle::new(12.5, 400.0).lh(20.0).features("'tnum' 1")).color(muted())).mt(1.5));
+    // The three sit on one baseline: the smaller the type, the lower its box starts. What the
+    // person just sent says where it is in the time's place, in the dim ink, with Send now after
+    // it while it waits on the step its agent is in (`.msg-sending`, `.msg-now`).
+    let when = match m.sending {
+        Some(sending) => {
+            let (said, now_button) = crate::answer::head_words(sending);
+            let words = readable(text(said).font(TextStyle::new(12.5, 400.0).lh(20.0)).color(dim())).mt(1.5);
+            if now_button { row().gap(10.0).child(words).child(crate::answer::send_now().mt(1.5)) } else { words }
+        }
+        None => readable(text(when(m.at, now)).font(TextStyle::new(12.5, 400.0).lh(20.0).features("'tnum' 1")).color(muted())).mt(1.5),
+    };
+    let mut head = row().h(line).items_start().gap(10.0).child(readable(who)).child(when);
     if !m.mine && m.field == Field::Note {
         let tag = mono(11.0, 14.0);
         head = head.child(
@@ -651,7 +667,9 @@ fn typed_with_files(words: &str, m: &Measure, files: &Files) -> El {
 /// One message, and how much of what it holds reaches under it.
 fn message(msg: &Message, turn: (bool, bool), now: f64, m: &Measure, files: &Files) -> El {
     let (body, leak) = if msg.mine {
-        (typed_with_files(&msg.text, m, files), 0.0)
+        // Still on its way, its words a little fainter (`.msg.sending .msg-body`).
+        let body = typed_with_files(&msg.text, m, files);
+        (if msg.sending.is_some() { body.opacity(0.82) } else { body }, 0.0)
     } else {
         let (body, _, bottom) = markdown::stack(markdown::blocks(&msg.text, m.size, m.column, files), true);
         (body, bottom)
@@ -681,6 +699,66 @@ fn step(s: &Step) -> El {
         line = line.child(row().min_w(0.0).child(text(s.words.as_str()).font(font).color(muted()).truncate()));
     }
     line
+}
+
+/// Something the person did, as a point on a short timeline (`ActLine`, `.act-line`): a ring of
+/// seven points at the column's edge, filled for a pick; the words twenty points in, in the dim
+/// ink at 13 points, the option a pick or a Z names in the text's own; and the time in small
+/// mono capitals. `joined` draws the hairline up to the ring of the act just above.
+fn act_line(s: &Step, now: f64, joined: bool) -> El {
+    let (lead, choice, picked) = act_words(&s.verb, &s.words);
+    let ring = el().pin(Some(0.0), Some(6.5), None, None).size(7.0, 7.0).radius(3.5).fill(if picked { dim() } else { page() }).border(1.0, if picked { dim() } else { muted() }).border_layout();
+    let font = TextStyle::new(13.0, 400.0).lh(20.0);
+    let mut said = row().shrink().child(text(lead).font(font).color(dim()).truncate());
+    if let Some(choice) = choice {
+        said = said.child(row().shrink().child(text(format!(" {choice}")).font(font).color(ink()).truncate()));
+    }
+    let when = text(act_when(s.at, now)).font(mono(11.0, 20.0).tracking(0.44).features("'tnum' 1")).color(muted());
+    let mut line = row().items_start().gap(10.0).pl(20.0).min_w(0.0).child(ring).child(said).child(when);
+    if joined {
+        line = line.child(el().pin(Some(3.0), Some(-15.5), None, None).size(1.0, 22.0).fill(edge()));
+    }
+    line
+}
+
+/// The words of an act (`actWords`): a Z's own few words with the option it took back after
+/// them; "Picked" and the option; else the verb without its "You", and what it names.
+fn act_words(verb: &str, subject: &str) -> (String, Option<String>, bool) {
+    let subject = subject.trim();
+    if verb.starts_with("Undid") {
+        return (verb.to_string(), (!subject.is_empty()).then(|| subject.to_string()), false);
+    }
+    let picked = verb.strip_prefix("You picked option ").is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()));
+    let mut rest = if picked { "picked".to_string() } else { verb.strip_prefix("You ").unwrap_or(verb).replace("moved it to Later", "moved to Later") };
+    if !picked && !subject.is_empty() {
+        rest += &if subject.starts_with("was") { format!(", {subject}") } else { format!(" {subject}") };
+    }
+    let mut lead = rest.chars();
+    let lead = lead.next().map(|c| c.to_uppercase().collect::<String>() + lead.as_str()).unwrap_or_default();
+    (lead, picked.then(|| subject.to_string()), picked)
+}
+
+/// "TODAY 1:10PM", "THU 4:10PM", "SEP 27 4:00PM" (`actWhen`).
+fn act_when(at: f64, now: f64) -> String {
+    if at <= 0.0 {
+        return String::new();
+    }
+    const DAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    let t = LocalTime::at(at as i64);
+    let day_of = |ms: f64| {
+        let l = LocalTime::at(ms as i64);
+        ((ms / 1000.0) as i64 + i64::from(l.offset)).div_euclid(86_400)
+    };
+    let days = day_of(now) - day_of(at);
+    let day = match days {
+        ..=0 => "Today".to_string(),
+        1 => "Yesterday".to_string(),
+        2..=6 => DAYS[(day_of(at) + 4).rem_euclid(7) as usize].to_string(),
+        _ => format!("{} {}", MONTHS[(t.month as usize).clamp(1, 12) - 1], t.day),
+    };
+    let hour = if t.hour.is_multiple_of(12) { 12 } else { t.hour % 12 };
+    format!("{day} {hour}:{:02}{}", t.minute, if t.hour < 12 { "am" } else { "pm" }).to_uppercase()
 }
 
 /// `--state-stopped`: the one colour on a run's lines, and only where a tool said no.
@@ -770,7 +848,11 @@ fn room(above: Holds, here: Holds) -> f32 {
         (Msg | Same, Run | Step | Act) => 8.0,
         (Run | Step, Run) | (Run, Step) => 5.0,
         (Act, Run) | (Run, Act) => 14.0,
-        (Step | Act, Step | Act) => 5.0,
+        // Two acts nine apart, an act and a line of the app's fourteen (`.is-act + .is-act`,
+        // `.is-work + .is-act`).
+        (Act, Act) => 9.0,
+        (Step, Act) | (Act, Step) => 14.0,
+        (Step, Step) => 5.0,
     }
 }
 
@@ -835,7 +917,8 @@ fn conversation(s: &State, thread: &str, page: &Page, now: f64, m: &Measure, fil
             Said::Step(st) => {
                 name_above = ids[i].clone();
                 i += 1;
-                (step(st), if st.mine { Holds::Act } else { Holds::Step })
+                // The person's own act is a point on its timeline, joined to one right above.
+                if st.mine { (act_line(st, now, above == Some(Holds::Act)), Holds::Act) } else { (step(st), Holds::Step) }
             }
         };
         // Under the line for the missing middle, nothing is pulled closer.
@@ -1161,18 +1244,44 @@ fn read(s: &State, item: &Item, whole: bool, working: bool, saying: Option<&Sayi
     let thread = key(&item.product, &item.id);
     let answered = s.threads.get(&thread).or_else(|| s.fixture.get("threads").and_then(|t| t.get(&thread)));
     let from = answered.map_or_else(|| format!("the row at {:?}", item.updated_at), fingerprint);
-    let print = format!("{thread}|{from}|{whole}|{working}|{saying:?}");
+    // What the person has just sent and the Zs pressed here are placed among the lines too
+    // (`answer.rs`).
+    let sent = s.answering.sent_on(&thread, s.waits_on_the_step(item));
+    let undone = s.answering.undone_on(&thread);
+    let print = format!("{thread}|{from}|{whole}|{working}|{saying:?}|{sent:?}|{undone:?}");
     if let Some(talk) = READ.with(|last| last.borrow().as_ref().filter(|(p, _)| *p == print).map(|(_, t)| t.clone())) {
         return talk;
     }
     let (lines, sessions) = ledger(s, item);
-    let mut talk = Talk::read(&lines, &sessions, saying, whole);
+    let mut talk = Talk::read_with(&lines, &sessions, saying, whole, &sent, &undone);
     if working {
         talk.without_trailing_work();
+    }
+    // While the offer stands, the message it came from loses its list, which the strip over
+    // the reply box draws (`cleanMessage` in `Focus`). A message only holding the same words as
+    // an older offer keeps them: on a finished thread the list is the record.
+    if let Some(offered) = format::offer_is_live(item).then(|| format::offered(item)).flatten() {
+        let strip = |m: &mut Message| {
+            if !m.mine && js_trim(&m.text) == offered {
+                m.text = format::strip_options_section(&m.text);
+            }
+        };
+        talk.said.iter_mut().for_each(|e| {
+            if let Said::Message(m) = e {
+                strip(m);
+            }
+        });
+        if let Some(m) = talk.outcome.as_mut() {
+            strip(m);
+        }
     }
     let talk = std::rc::Rc::new(talk);
     READ.with(|last| *last.borrow_mut() = Some((print, talk.clone())));
     talk
+}
+
+fn js_trim(s: &str) -> &str {
+    crate::rules::js::trim(s)
 }
 
 /// Whether a fixture's picture was taken with this thread's earlier messages unfolded.
@@ -1276,6 +1385,13 @@ fn composer(s: &State, item: &Item, m: &Measure) -> El {
     // picker (`.dock-clip`). Send and its caret are two controls, as there (`.dock-send`,
     // `.dock-send-later`); the caret answers the pointer and opens nothing yet.
     let send = if compact { crate::chips::send_arrow(ready) } else if saving { home::send_sending() } else { home::send_main(ready) };
+    // While the thread is under way and the box holds nothing, Stop stands in Send's place,
+    // its caret with it; the first thing typed makes it Send again (`stop && !hasDraft`).
+    let send_pair = if s.stop_in_the_box(item) {
+        row().key(crate::chips::SEND_PAIR).child(crate::answer::stop_button(s, item, compact))
+    } else {
+        row().key(crate::chips::SEND_PAIR).child(send.key(reply::SEND).help("Send · ⌘↵").on_press_tx(|s: &mut State, tx| s.send_reply(tx))).child(home::send_caret().help("Send later").on_press_tx(|s: &mut State, tx| s.tell(SEND_LATER_NOT_HERE, tx)))
+    };
     let mode = crate::chips::offers_a_mode(item).then(|| crate::chips::mode_chip(s, item, compact, crate::chips::mode_folded()));
     let bar = row()
         .key(crate::chips::BAR)
@@ -1292,10 +1408,13 @@ fn composer(s: &State, item: &Item, m: &Measure) -> El {
         // The paper clip's square is 28 points, the chips' height (`.tc-icon`).
         .child(home::attach().size(28.0, 28.0).help("Attach files").on_background_press_tx(|s: &mut State, tx| s.pick_files(Holder::Reply, tx)))
         // Send carries the key a press away from the model menu lands on (`reply.rs`).
-        .child(row().key(crate::chips::SEND_PAIR).child(send.key(reply::SEND).help("Send · ⌘↵").on_press_tx(|s: &mut State, tx| s.send_reply(tx))).child(home::send_caret().help("Send later").on_press_tx(|s: &mut State, tx| s.tell(SEND_LATER_NOT_HERE, tx))));
+        .child(send_pair);
     // The thread moves to another agent with the next reply, and its session cannot follow it:
     // a note says so while that is true (`freshNote`, `.dock-card .compose-note`).
     let note = s.reply_fresh_note(item).map(|note| el().px(16.0).pb(10.0).child(label(&note, 12.0, 400.0, muted())));
+    // Pasted pictures past what a draft keeps still go, and the box says a close loses them
+    // (`tooBig`), before the note about a move.
+    let too_big = crate::drafts::too_big_note(s.kept_drafts.too_big).map(|note| el().px(16.0).pb(10.0).child(label(&note, 12.0, 400.0, muted())));
     // The files it carries, between the words and the notes (`.attach-row` in `.dock-card`):
     // eight points under the words, flush on the bar, and the line saying why one cannot go.
     let files = crate::attach::rows(s, Holder::Reply, |r| r.pt(8.0).px(18.0), |n| n.px(16.0).pb(10.0));
@@ -1316,14 +1435,45 @@ fn composer(s: &State, item: &Item, m: &Measure) -> El {
         .on_drop_files(|s: &mut State, files, _| s.attach_paths(Holder::Reply, files))
         .child(area.child(field.w_full()))
         .children(files)
+        .children(too_big)
         .children(note)
         .child(bar)
 }
 
 /// The agent's choices over the reply box (`.opt-strip`): each with its number, the one the
 /// arrows are on lit, and what Enter would do said beside it.
-fn options_strip(choices: &[Choice], on: Option<usize>, m: &Measure) -> El {
+fn options_strip(choices: &[Choice], on: Option<usize>, m: &Measure, peek: Option<usize>) -> El {
     let count = choices.len();
+    // A choice is one line here, cut short, two where the conversation is 560 points or less
+    // across, and whole while the keys are on it (`.one-choices .opt-text`).
+    let lines = |at: usize| if on == Some(at) { usize::MAX } else if m.column <= 560.0 { 2 } else { 1 };
+    // An option cut short shows whole in a card over the strip while the pointer is on it
+    // (`.opt-peek`, `optionIsClipped`): measured at the width its words have.
+    let aside_of = |at: usize, c: &Choice| if on == Some(at) { Some("↵ send") } else if c.recommended { Some("recommended") } else { None };
+    let clipped = |at: usize, c: &Choice| {
+        let aside = aside_of(at, c).map_or(0.0, |a| 8.0 + rune::text::measure(a, &[], TextStyle::new(11.5, 400.0), None).0);
+        let room = (m.column - 14.0 - 44.0 - 20.0 - 10.0 - aside).max(1.0);
+        rune::text::measure(&format::without_recommended(&c.text), &[], TextStyle::new(14.5, 400.0).lh(20.0), Some(room)).1 > 20.0 * lines(at).min(1000) as f32 + 1.0
+    };
+    let card = peek.and_then(|at| choices.get(at).filter(|c| clipped(at, c)).map(|c| (at, c))).map(|(_, c)| {
+        let tall = rune::memo::layout_size("options-strip").map_or(0.0, |[_, h]| h);
+        let comes_in = rune::Transition::offset(0.0, 4.0).combined(rune::Transition::scale(0.98)).combined(rune::Transition::opacity());
+        // Inside the strip's edge, eight points over it (`left: 0; right: 0; bottom: 100%`).
+        col()
+            .pin(Some(1.0), None, Some(1.0), Some(tall + 7.0))
+            .pt(12.0)
+            .px(16.0)
+            .pb(13.0)
+            .radius(10.0)
+            .fill(rgb(47, 45, 44))
+            .border(1.0, rule())
+            .border_layout()
+            .box_shadow(shadow(0.0, 24.0, 70.0, 0.0, rgba(0, 0, 0, 0.55), false))
+            .animated_changes()
+            .transition(rune::Transition::asymmetric(comes_in, rune::Transition::none()).springs(rune::SpringPair::new(rune::Spring::new(0.028, -0.66), rune::Spring::NONE)))
+            .child(pen(text(format!("OPTION {}, IN FULL", c.n)).font(TextStyle::new(10.5, 600.0).lh(15.75).tracking(0.84)).color(muted()), 10.5).mb(6.0))
+            .child(pen(text(format::without_recommended(&c.text)).font(TextStyle::new(14.0, 400.0).lh(21.0)).color(ink()).wrap(), 14.0))
+    });
     let rows = choices.iter().enumerate().map(|(at, c)| {
         let lit = on == Some(at);
         let tone = if lit { ink() } else { dim() };
@@ -1337,9 +1487,18 @@ fn options_strip(choices: &[Choice], on: Option<usize>, m: &Measure) -> El {
             .pr(44.0)
             .gap(10.0)
             .cursor(rune::Cursor::Pointer)
-            .on_press_tx(move |s: &mut State, tx| s.pick_option(at, tx))
+            // A press is aimed at the place it lands: not taken when the options moved under the
+            // pointer, or the app moved the person here, a moment before (`answer.rs`).
+            .on_press_tx(move |s: &mut State, tx| s.click_option(at, tx))
+            .on_hover_change(move |s: &mut State, over, _| {
+                if over {
+                    s.answering.peek = Some(at);
+                } else if s.answering.peek == Some(at) {
+                    s.answering.peek = None;
+                }
+            })
             .child(number)
-            .child(pen(text(words).font(TextStyle::new(14.5, 400.0).lh(20.0)).color(tone).group_color(ink()).wrap().max_lines(2), 14.5));
+            .child(row().shrink().child(pen(text(words).font(TextStyle::new(14.5, 400.0).lh(20.0)).color(tone).group_color(ink()).wrap().max_lines(lines(at)), 14.5)));
         // The lit one keeps its stronger wash under the pointer; any other is washed, its words
         // the text's own colour (`.opt-row:hover`, which `.opt-row.selected` comes after).
         line = if lit { line.fill(white(0.08)) } else { line.hover_group().hover(crate::feel::wash()) };
@@ -1351,10 +1510,23 @@ fn options_strip(choices: &[Choice], on: Option<usize>, m: &Measure) -> El {
         }
     });
     el().w(m.column)
+        .key("options-strip")
+        // Where the strip stands while the pointer is on it, and where the pointer is, so a
+        // press can be told from one aimed at what stood there before (`stripUnderThePointer`).
+        .on_pointer_move_local(|s: &mut State, p, _| {
+            s.answering.strip = Some(p.window_y - p.y);
+            s.answering.pointer = Some((p.window_x, p.window_y));
+        })
+        .on_hover_change(|s: &mut State, over, _| {
+            if !over {
+                s.answering.strip = None;
+            }
+        })
         .child(col().w(m.column).radius(10.0).clip_rounded(10.0).border(1.0, edge()).border_layout().children(rows))
         // The little arrow that folds the choices away, washed under the pointer, its mark the
         // text's own colour (`ChoicesFold`, `.one-choices-fold:hover`).
         .child(row().pin(None, Some(6.0), Some(8.0), None).size(24.0, 24.0).radius(6.0).center().hover_group().hover(crate::feel::wash()).cursor(rune::Cursor::Pointer).key("choices-fold").label("Fold the choices").child(icon(&icons::DOWN, 14.0).color(muted()).group_color(ink())).on_press(|s: &mut State| crate::chips::toggle_choices(s)))
+        .children(card)
 }
 
 /// The dock at the conversation's foot (`.focus-dock`): the choices the agent's newest answer
@@ -1365,8 +1537,17 @@ fn dock(s: &State, item: &Item, m: &Measure) -> El {
     // An answer on its way has spent the offer, though the engine has not heard it yet. Folded
     // away, the choices show only while one is picked out with the keys
     // (`.one-choices-folded:not(:has(.opt-row.selected))`).
-    if !choices.is_empty() && !s.answer_waits(item) && (s.option.is_some() || !crate::chips::choices_folded(s, item)) {
-        inner = inner.child(options_strip(&choices, s.option, m).mb(10.0));
+    // While the question before a discard is up, it stands where the options stood and they go.
+    if !choices.is_empty() && !s.answer_waits(item) && s.discard_asked().is_none() && (s.option.is_some() || !crate::chips::choices_folded(s, item)) {
+        // The strip moving four points or more under a pointer resting on it is noticed here,
+        // as the page is drawn, and a press in the next moment is not taken.
+        if let (Some(rested), Some([_, top, _, _])) = (s.answering.strip, rune::memo::window_layout("options-strip")) {
+            let seen = s.answering.strip_moved.get().map_or(rested, |(at, _)| at);
+            if (top - seen).abs() >= crate::rules::answering::MOVED_PX {
+                s.answering.strip_moved.set(Some((top, s.at)));
+            }
+        }
+        inner = inner.child(options_strip(&choices, s.option, m, s.answering.peek).mb(10.0));
     }
     inner = inner.child(if s.replying { composer(s, item, m) } else { reply_box(s, item, m).cursor(rune::Cursor::Text).on_press_tx(|s: &mut State, tx| s.open_reply(tx)) });
     el().pl(m.indent).pr(m.right).pb(m.foot).child(inner)
@@ -1453,7 +1634,7 @@ pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
     }
     // What the person did after the answer, under it and in order.
     if !talk.after.is_empty() {
-        blocks.push(markdown::block(22.0, 0.0, col().gap(9.0).children(talk.after.iter().map(step))));
+        blocks.push(markdown::block(22.0, 0.0, col().gap(9.0).children(talk.after.iter().enumerate().map(|(at, act)| act_line(act, s.now, at > 0)))));
     }
     // And whether anything is happening, under the last message and over the reply box.
     let asking = s.snap.rest.get("approvals").and_then(Value::as_array).is_some_and(|a| a.iter().any(|a| a.get("item").and_then(Value::as_str) == Some(id)));
@@ -1470,6 +1651,10 @@ pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
         let under = if s.reading.live_open.as_deref() == Some(run.as_str()) { 0.0 } else { 2.0 };
         blocks.push(markdown::block(14.0, under, live_line(s, &thread, run, &line, &steps, &m, still)));
     }
+    // The question before throwing the change away, at the conversation's foot (`closeAskStrip`).
+    if let Some(strip) = crate::answer::discard_strip(s, m.column) {
+        blocks.push(markdown::block(22.0, 6.0, strip));
+    }
     let (body, _, under) = markdown::stack(blocks, false);
     // A browser scrolls a page only as far as a whole device pixel, whatever its lines add up
     // to, so the foot of a long conversation rests on one (1211.61 points scroll to 1211.5 on a
@@ -1485,9 +1670,19 @@ pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
         .key(if unfolded { "thread-whole" } else { "thread-newest" })
         .grow(1.0)
         .min_h(0.0)
-        .scroll(ScrollSpec { stick_bottom: unfolded || (working && page.alone.is_none()) })
+        // So does one the person has just sent words to: they are the newest thing said, where
+        // the person looks. A pick is an act, not a message, and moves nothing.
+        .scroll(ScrollSpec { stick_bottom: unfolded || (working && page.alone.is_none()) || s.answering.sending.iter().any(|d| d.thread == thread && !d.text.starts_with("Option ")) })
         .child(el().pt(28.0).pl(m.indent).pr(m.right).pb(40.0 + under + whole).child(body.key("thread-said").w(m.column).selection_group(true)));
-    col().w(page_w).h(page_h).child(reading).child(dock(s, item, &m))
+    // A press on nothing in the page folds an open box that holds nothing, on Escape's own rule:
+    // a draft holds it open (`DockComposer`'s `mousedown` away).
+    col().w(page_w).h(page_h).on_background_press(|s: &mut State| {
+        if s.replying && s.reply.text.trim().is_empty() && s.reply_files.open.is_empty() {
+            s.fold_reply();
+        }
+    })
+    .child(reading)
+    .child(dock(s, item, &m))
 }
 
 #[cfg(test)]

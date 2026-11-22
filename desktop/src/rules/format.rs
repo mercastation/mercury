@@ -79,6 +79,43 @@ fn asks_right_before(lines: &[&str], start: usize) -> bool {
 
 struct Headless {
     options: Vec<Choice>,
+    /// The lines the list stands on, from `start` up to `end`.
+    start: usize,
+    end: usize,
+}
+
+/// A message without its list of options, which the strip over the reply box draws while the
+/// offer stands (`stripOptionsSection`): the "## Options" section, or a list with no heading
+/// that closes the message.
+pub fn strip_options_section(body: &str) -> String {
+    let lines: Vec<&str> = body.split('\n').collect();
+    if !lines.iter().any(|l| is_options_heading(l)) {
+        return match headless_options(&lines) {
+            Some(list) => lines[..list.start].iter().chain(&lines[list.end..]).copied().collect::<Vec<_>>().join("\n"),
+            None => body.to_string(),
+        };
+    }
+    let mut out = Vec::new();
+    let mut in_options = false;
+    for line in lines {
+        if HEADING.test(line) {
+            in_options = OPTION_WORD.test(line);
+        } else if in_options && !js::trim(line).is_empty() && !NUMBERED_LINE.test(line) {
+            in_options = false;
+        }
+        if !in_options {
+            out.push(line);
+        }
+    }
+    out.join("\n")
+}
+
+re!(NUMBERED_LINE, r"^\s*\d+[.)]\s", "");
+
+/// The field the live offer came from, as written: the message that loses its list while the
+/// strip draws it (`offered` in `Focus`).
+pub fn offered(item: &Item) -> Option<&str> {
+    field(item, options_from(item)).map(js::trim).filter(|o| !o.is_empty())
 }
 
 fn headless_options(lines: &[&str]) -> Option<Headless> {
@@ -116,7 +153,7 @@ fn headless_options(lines: &[&str]) -> Option<Headless> {
     if !options.iter().any(|o| o.recommended) && !asks_right_before(lines, start) {
         return None;
     }
-    Some(Headless { options })
+    Some(Headless { options, start, end })
 }
 
 /// Which field a pick lives in: whatever the pane is leading with, the result, else the

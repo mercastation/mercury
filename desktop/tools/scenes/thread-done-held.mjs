@@ -10,6 +10,7 @@ export const go = (h) => open(h, {
     await press(h, 'e', 'KeyE', 69);
     await h.wait(400);
     await press(h, 'e', 'KeyE', 69);
-    return { closed: true };
+    // E twice: the first is the once-ever warning's, and the window is told to press it twice.
+    return { closed: 2 };
   },
 });

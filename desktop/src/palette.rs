@@ -201,7 +201,13 @@ fn own_lines(s: &State, threads: Vec<rules::Row>) -> Vec<Line> {
         key_hints: s.picks.get().key_hints.unwrap_or(true),
         starts_threads: starts_a_thread().is_some(),
     };
-    let commands = rules::commands(&facts, under_the_keys(s));
+    let under = under_the_keys(s);
+    let mut commands = rules::commands(&facts, under);
+    // Stop, on a thread under way: after the thread's rows, before Open and the places.
+    if let Some((item, _)) = under.filter(|(item, _)| s.stoppable_now(item)) {
+        let at = commands.iter().position(|r| r.id == "open" || r.id == "view-home").unwrap_or(commands.len());
+        commands.insert(at, rules::stop_row(s.run_on(item), (item.id.clone(), item.product.clone())));
+    }
     let listed = rules::listed(commands, threads, query);
     let keys = rules::row_keys(&listed.rows);
     let headings: Vec<Option<String>> = (0..listed.rows.len()).map(|at| listed.label_over(at).map(str::to_string)).collect();
@@ -283,16 +289,33 @@ impl State {
         let thread = thread_of(item);
         let inside = self.is_open(&thread);
         let next = next_after(self, &thread);
+        // An answer as a picked option is: drawn from the press on, and once written on Z's
+        // pile, where Z stops the agent and takes the approval back (`approveWith`'s `pushUndo`).
+        let key = format!("{}/{}", item.product, item.id);
+        let drawn = self.answering.draw(&key, self.moment(), &approval.answer());
+        let mark = write::Mark::of(rules::APPROVAL_UNDID, None);
+        let answer = write::Answer {
+            drawn,
+            running: false,
+            undo: rules::approval_withdrawn(item),
+            undo_said: rules::APPROVAL_WITHDRAWN.to_string(),
+            undoes: rules::APPROVAL_UNDOES.to_string(),
+            mark: mark.clone(),
+            moved_on: inside,
+            in_flight: 0.0,
+        };
         self.hold(
             write::Held {
                 channel: writes::ANSWER,
                 payload: rules::approve(item, &approval),
-                sent: write::Sent::Pick { thread: format!("{}/{}", item.product, item.id) },
+                sent: write::Sent::Pick { thread: key, answer },
                 said: approval.said(item, &self.project_name(item)),
                 at: tx.clock() + writes::UNDO_GRACE_MS / 1000.0,
                 thread: thread_of(item),
                 from_inside: inside,
                 closes: None,
+                then: Vec::new(),
+                mark: Some(mark),
             },
             tx,
         );
@@ -531,6 +554,7 @@ fn run(s: &mut State, does: Does, tx: &mut Tx) {
                 s.pointed.row = None;
             }
         }
+        Does::Stop((id, product)) => s.stop_agent(&id, &product),
         Does::Nothing => {}
     }
 }
@@ -559,7 +583,9 @@ pub(crate) fn landed(s: &mut State, landed: write::Landed, tx: &mut Tx) {
             if let Some(why) = refusal() {
                 return s.tell(&format!("Not reopened: {why}"), tx);
             }
-            s.last = Some(write::Undo { said: again, writes: vec![rules::done_again(&thread)], sent: write::Sent::Palette(Wrote::Quiet), thread, opens: true });
+            // On Z's pile, with what Z asks once it is half a minute old (`reopenDone`'s `undoes`).
+            let undoes = format!("mark “{}” done again", again.strip_prefix("Done again: ").unwrap_or(&again));
+            s.undos.push(write::Undo::plain(again, undoes, vec![rules::done_again(&thread)], write::Sent::Palette(Wrote::Quiet), thread, true));
             let (line, undo) = crate::rules::compose::toast_parts(&said);
             s.say(line, undo, tx);
         }
@@ -587,7 +613,7 @@ pub(crate) fn landed(s: &mut State, landed: write::Landed, tx: &mut Tx) {
             };
             let copy = (made.get("id").and_then(Value::as_str).unwrap_or("").to_string(), made.get("product").and_then(Value::as_str).unwrap_or(&to).to_string());
             // Z puts it back where it was: the copy is closed and the thread opened again.
-            s.last = Some(write::Undo { said: format!("Back in {from}"), writes: rules::move_back(made, &to, &thread), sent: write::Sent::Palette(Wrote::Quiet), thread: thread.clone(), opens: true });
+            s.undos.push(write::Undo::plain(format!("Back in {from}"), format!("put it back in {from}"), rules::move_back(made, &to, &thread), write::Sent::Palette(Wrote::Quiet), thread.clone(), true));
             // Left on the old row, now closed, the person would reopen it and have two.
             if s.is_open(&thread) {
                 s.palette.opens_when_listed = Some((copy.clone(), crate::clock()));

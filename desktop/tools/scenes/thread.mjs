@@ -252,7 +252,10 @@ function conversation(item, found, waiting = false, said = SHIPPED, runs = null,
 // notes on them, which the list of the thread's files counts.
 // `dress` changes the thread's row before the page opens (a label, a status), and `fromTab`
 // names the Inbox's tab the thread is then opened from.
-export async function open(h, { unfold, found = FOUND, shipped = SHIPPED, files = null, waiting = false, then = null, runs = null, reply = REPLY, marks = null, dress = null, fromTab = null }) {
+// `hang` leaves every reply the page writes on its way for ever, as an engine that has not
+// answered yet would: the harness's own bridge refuses writes at once. `runEngine` names the
+// coding agent the run that is up says it is on.
+export async function open(h, { unfold, found = FOUND, shipped = SHIPPED, files = null, waiting = false, then = null, runs = null, reply = REPLY, marks = null, dress = null, fromTab = null, hang = false, runEngine = null }) {
   const snapshot = await h.evaluate('window.__SNAP__');
   // The Inbox opens on its first row; the snapshot's first thread is not always that one.
   await toInbox(h);
@@ -267,6 +270,7 @@ export async function open(h, { unfold, found = FOUND, shipped = SHIPPED, files 
   if (marks) row.artifacts = marks;
   if (dress) dress(row);
   snapshot.items[at] = row;
+  if (session && runEngine) session.engine = runEngine;
   if (session) snapshot.supervisor.running = [session];
   if (planted) {
     const project = snapshot.products.find((p) => p.slug === row.product);
@@ -299,6 +303,7 @@ export async function open(h, { unfold, found = FOUND, shipped = SHIPPED, files 
         compactionStatus: answer('zero:compaction-status', null),
         // Which pictures a folder holds is the one thing a page cannot see for itself.
         ...(window.__FOLDER_PICTURES__ ? { folderPictures: window.__FOLDER_PICTURES__ } : {}),
+        ...(${hang} ? { answer: () => new Promise(() => {}) } : {}),
       };
       window.__UNANSWERED__ = [];
       window.zero = new Proxy(bridge, {

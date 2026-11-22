@@ -12,11 +12,13 @@
 
 #![forbid(unsafe_code)]
 
+mod answer;
 mod attach;
 mod chips;
 mod chrome;
 mod compose;
 mod data;
+mod drafts;
 mod feel;
 mod files;
 mod files_page;
@@ -143,9 +145,22 @@ pub struct State {
     outbox: write::Outbox,
     /// One line about something sent that the engine did not take, until the next thing is done.
     pub refused: Option<String>,
-    /// What was done and waits three seconds to be written, and the last close written.
+    /// What was done and waits three seconds to be written, and the pile of what Z still takes
+    /// back once written, newest last (`undoStack`).
     held: Option<write::Held>,
-    last: Option<write::Undo>,
+    pub(crate) undos: Vec<write::Undo>,
+    /// What answering a thread and stopping its agent keep (`answer.rs`).
+    pub answering: answer::Answering,
+    /// The threads opened with O from the line about them: a reply there keeps the person on
+    /// them (`openedWithO`).
+    pub(crate) came_back: HashSet<String>,
+    /// Where the reply boxes' drafts are written down, across a restart (`drafts.rs`).
+    pub(crate) kept_drafts: drafts::Store,
+    /// What a test's window would have written, in order.
+    #[cfg(test)]
+    pub(crate) tried: Vec<writes::Write>,
+    #[cfg(test)]
+    pub(crate) pretend_sent: bool,
     /// The line about it.
     pub toast: Option<write::Toast>,
     /// The thread the last line about one named, and when that line went up on the window's
@@ -233,6 +248,8 @@ impl State {
         self.reply = TextEdit::new("");
         self.option = None;
         self.refused = None;
+        // The question before a discard belongs to the thread it was asked on.
+        self.answering.discard = None;
     }
     fn take_the_reply_out(&mut self) {
         if let View::Thread { id, product } = &self.view {
@@ -240,6 +257,13 @@ impl State {
             self.reply_files.take_out(&key);
             if let Some(words) = self.drafts.get(&key) {
                 self.reply = TextEdit::new(words.clone());
+            }
+            // A draft is a conversation in progress: the thread opens with its box open on it,
+            // the caret at its end (`hasDraft` in `renderer/src/App.tsx`).
+            if !self.reply.text.trim().is_empty() || !self.reply_files.open.is_empty() {
+                self.replying = true;
+                self.reply.focused = true;
+                self.answering.focus_reply = true;
             }
         }
         self.come_back_to_the_pane();
@@ -272,6 +296,18 @@ impl State {
     /// The same, where a write may be made of what the engine answered the one before it.
     pub(crate) fn send_steps(&mut self, steps: Vec<write::Step>, sent: write::Sent) -> bool {
         self.refused = None;
+        // A test reads what would have gone, in order, from a window that has nobody to send to.
+        #[cfg(test)]
+        {
+            self.tried.extend(steps.iter().filter_map(|step| match step {
+                write::Step::Write(write) | write::Step::Linked(write) => Some(write.clone()),
+                write::Step::Save { .. } => None,
+            }));
+            // And one that stands in for a door says it went, its answer handed in by the test.
+            if self.pretend_sent {
+                return true;
+            }
+        }
         let Source::Door(door) = &self.source else {
             return false;
         };
@@ -284,7 +320,7 @@ impl State {
     /// One line about what was just done, for as long as the web window keeps its own up.
     fn say(&mut self, line: String, undo: bool, tx: &Tx) {
         let since = tx.clock();
-        self.toast = Some(write::Toast { line, undo, since, until: since + writes::TOAST_MS / 1000.0, goes: None });
+        self.toast = Some(write::Toast { line, undo, since, until: since + writes::TOAST_MS / 1000.0, goes: None, sent: None });
     }
     /// A line about one thread, as `(id, product)`: it stays up longer, names the thread, and
     /// O opens it. The promise of Z on the line's end becomes the key drawn beside it.
@@ -292,7 +328,7 @@ impl State {
         let (line, undo) = rules::compose::toast_parts(line);
         let since = tx.clock();
         self.last_toast = Some((goes.clone(), since));
-        self.toast = Some(write::Toast { line, undo, since, until: since + rules::compose::TOAST_GOES_MS / 1000.0, goes: Some(goes) });
+        self.toast = Some(write::Toast { line, undo, since, until: since + rules::compose::TOAST_GOES_MS / 1000.0, goes: Some(goes), sent: None });
     }
     /// A line that only tells: nothing was done, so there is nothing for Z.
     pub fn tell(&mut self, line: &str, tx: &Tx) {
@@ -311,7 +347,25 @@ impl State {
     /// waiting before is written at once.
     fn hold(&mut self, held: write::Held, tx: &Tx) {
         self.write_what_waits();
-        self.say(held.said.clone(), true, tx);
+        // An answer names its thread, for O, and the line goes over the reply box of the thread
+        // it moved the person to; one handed to a run already up says nothing, as its message
+        // on the page says it (`answerWith`). Anything else is a plain line.
+        match &held.sent {
+            write::Sent::Reply { answer, .. } if answer.running => {}
+            write::Sent::Reply { .. } | write::Sent::Pick { .. } => {
+                let (line, undo) = rules::compose::toast_parts(&format!("{} · press Z to undo", held.said));
+                let since = tx.clock();
+                let goes = held.thread.clone();
+                self.last_toast = Some((goes.clone(), since));
+                let says = rules::answering::sent_line_says(&held.said).to_string();
+                self.toast = Some(write::Toast { line, undo, since, until: since + rules::compose::TOAST_GOES_MS / 1000.0, goes: Some(goes), sent: Some(says) });
+                // Out of Needs you now, In progress while it is held: the write can wait, the
+                // lists cannot.
+                self.answering.holding.insert(held.thread.0.clone(), false);
+                self.refresh();
+            }
+            _ => self.say(held.said.clone(), true, tx),
+        }
         if let Some(item) = &held.closes {
             // Out of the lists now; the write can wait, the list cannot.
             self.hidden.insert(item.id.clone());
@@ -325,14 +379,23 @@ impl State {
         let Some(held) = self.held.take() else {
             return;
         };
-        self.last = held.closes.as_ref().map(|item| write::Undo {
-            said: format!("Reopened: {}", writes::clip_to_sentence(item.title.as_deref().unwrap_or(""), 48)),
-            writes: vec![(writes::ANSWER, writes::reopen_as_it_was(item))],
-            sent: write::Sent::Reopen { thread: format!("{}/{}", held.thread.1, held.thread.0) },
-            thread: held.thread.clone(),
-            opens: true,
-        });
-        self.send(held.channel, held.payload, held.sent);
+        if let Some(item) = held.closes.as_ref() {
+            let title = writes::clip_to_sentence(item.title.as_deref().unwrap_or(""), 48);
+            let thread = format!("{}/{}", held.thread.1, held.thread.0);
+            let mut undo = write::Undo::plain(format!("Reopened: {title}"), format!("reopen “{title}”"), vec![(writes::ANSWER, writes::reopen_as_it_was(item))], write::Sent::TakenBack { thread }, held.thread.clone(), true);
+            undo.mark = Some(write::Mark::of(rules::answering::UNDID_CLOSING, None));
+            self.undos.push(undo);
+        }
+        // A reply to a run already up is handed over now, and Z no longer takes it back.
+        if let write::Sent::Reply { answer, .. } = &held.sent {
+            if answer.running {
+                let answer = answer.clone();
+                self.hand_over(&answer, &held.thread);
+            }
+        }
+        let mut writes = vec![(held.channel, held.payload)];
+        writes.extend(held.then);
+        self.send_all(writes, held.sent);
     }
     /// Z: takes back what is still waiting, whole; else the last thing this window wrote that
     /// can be taken back, a close or a thread sent.
@@ -340,50 +403,44 @@ impl State {
         if let Some(held) = self.held.take() {
             // What is taken back is no longer somewhere for O to go.
             self.last_toast = None;
+            self.answering.asked = None;
             if let Some(item) = &held.closes {
                 self.hidden.remove(&item.id);
-                self.refresh();
             }
             let (id, product) = held.thread.clone();
-            let (words, pick, files) = match &held.sent {
-                write::Sent::Reply { words, pick, files, .. } => (Some(words.clone()), pick.clone(), files.clone()),
-                _ => (None, None, Vec::new()),
+            self.answering.holding.remove(&id);
+            let thread = format!("{product}/{id}");
+            if let write::Sent::Reply { answer, .. } = &held.sent {
+                self.in_flight_landed(&thread, answer.in_flight);
+            }
+            let (back, drawn) = match &held.sent {
+                write::Sent::Reply { words, pick, files, answer, .. } => (Some(write::GivenBack { words: words.clone(), pick: pick.clone(), files: files.clone() }), Some(answer.drawn)),
+                write::Sent::Pick { answer, .. } => (None, Some(answer.drawn)),
+                _ => (None, None),
             };
-            // Back on the thread it was done from, when it was done from inside one.
-            if held.from_inside || words.is_some() {
+            // The copy drawn in the conversation goes with it.
+            if let Some(drawn) = drawn {
+                self.answering.let_go(drawn);
+            }
+            // Nothing reached the ledger, so this line is the only trace in the thread.
+            if let Some(mark) = &held.mark {
+                let now = self.moment();
+                self.answering.leave_mark(&thread, mark, now, now);
+            }
+            self.refresh();
+            // Back on the thread it was done from, when it was done from inside one; the words
+            // go back in its box unless the box holds something newer (`wordsBackInTheBox`).
+            let restored = back.map(|back| self.give_back(&thread, back)).unwrap_or(false);
+            if held.from_inside || restored {
                 self.step_to_thread(&id, &product);
             }
-            // The model it went with goes back in the box with the words (`wordsBackInTheBox`).
-            if let Some(pick) = pick {
-                self.reply_picks.insert(format!("{product}/{id}"), pick);
-            }
-            if let Some(words) = &words {
-                self.reply = TextEdit::new(words.clone());
-                // And the files it carried, as the box held them (`SentDraft`).
-                self.reply_files.put_back(&format!("{product}/{id}"), true, files);
+            if restored {
                 self.open_reply(tx);
             }
-            self.say(writes::said_undone(&held.said, words.is_some()), false, tx);
+            self.say(writes::said_undone(&held.said, restored), false, tx);
             return;
         }
-        if let Some(last) = self.last.take() {
-            // A thread sent from the box is taken back its own way (`compose.rs`).
-            if matches!(last.sent, write::Sent::Withdraw { .. }) {
-                return self.withdraw(last, tx);
-            }
-            let (id, product) = last.thread.clone();
-            if self.send_all(last.writes, last.sent) {
-                self.last_toast = None;
-                self.say(last.said, false, tx);
-                // What it puts back in front of the person is opened, so Z is seen to have
-                // done something (`brings` in `renderer/src/App.tsx`).
-                if last.opens {
-                    self.open_thread(&id, &product);
-                }
-            }
-            return;
-        }
-        self.say(writes::NOTHING_TO_UNDO.to_string(), false, tx);
+        self.undo_from_the_pile(tx);
     }
     /// The clock for something done this instant. A fixture has its own.
     fn moment(&self) -> f64 {
@@ -414,6 +471,11 @@ impl State {
         // It stands over the page alone.
         self.close_thread_menus();
         self.later = later::Picker::open_on(Some((id.to_string(), product.to_string())), "");
+        // The first L ever on a thread whose agent waits on the person says what it costs,
+        // inside the picker (`openSnooze`).
+        if let Some(item) = self.item(id, product).cloned() {
+            self.warns_first(&item, false, tx);
+        }
         tx.focus_when_shown("later", false);
     }
     pub fn close_later(&mut self) {
@@ -480,6 +542,43 @@ impl State {
         let Some((product, id)) = landed.sent.thread().split_once('/').map(|(product, id)| (product.to_string(), id.to_string())) else {
             return;
         };
+        // A stop is said once the engine has it; a reply or a pick written goes on Z's pile, its
+        // drawn copy standing a while longer (`answer.rs`).
+        match &landed.sent {
+            write::Sent::Stop { running, .. } => {
+                self.say(rules::answering::stopped_line(*running).to_string(), false, tx);
+                self.refresh();
+                return;
+            }
+            write::Sent::SendNow { .. } => return,
+            write::Sent::Reply { answer, words, pick, files, .. } => {
+                self.drawn_landed(answer.drawn);
+                self.in_flight_landed(landed.sent.thread(), answer.in_flight);
+                if let Some(held) = self.answering.holding.get_mut(&id) {
+                    *held = true;
+                }
+                if !answer.running {
+                    let mut undo = write::Undo::plain(answer.undo_said.clone(), answer.undoes.clone(), answer.undo.clone(), write::Sent::TakenBack { thread: landed.sent.thread().to_string() }, (id.clone(), product.clone()), false);
+                    undo.mark = Some(answer.mark.clone());
+                    undo.back = Some(write::GivenBack { words: words.clone(), pick: pick.clone(), files: files.clone() });
+                    self.undos.push(undo);
+                }
+                self.refresh();
+                return;
+            }
+            write::Sent::Pick { answer, .. } => {
+                self.drawn_landed(answer.drawn);
+                if let Some(held) = self.answering.holding.get_mut(&id) {
+                    *held = true;
+                }
+                let mut undo = write::Undo::plain(answer.undo_said.clone(), answer.undoes.clone(), answer.undo.clone(), write::Sent::TakenBack { thread: landed.sent.thread().to_string() }, (id.clone(), product.clone()), true);
+                undo.mark = Some(answer.mark.clone());
+                self.undos.push(undo);
+                self.refresh();
+                return;
+            }
+            _ => {}
+        }
         // A level picked in the strip's menu is said once it stands (`retag`); a place picked in
         // its panel says nothing the panel does not show (`strip.rs`).
         match &landed.sent {
@@ -508,22 +607,19 @@ impl State {
                         mine.insert("snoozedUntil".to_string(), wrote.clone());
                     }
                 }
-                let undo = write::Undo {
-                    said: writes::BACK_IN_YOUR_INBOX.to_string(),
-                    writes: vec![undo],
-                    sent: write::Sent::TakenBack { thread },
-                    thread: (id.clone(), product.clone()),
-                    opens: true,
-                };
+                let mut undo = write::Undo::plain(writes::BACK_IN_YOUR_INBOX.to_string(), "undo moving it to Later".to_string(), vec![undo], write::Sent::TakenBack { thread }, (id.clone(), product.clone()), true);
+                undo.mark = Some(write::Mark::of("Undid moving it to Later", None));
                 (said, undo)
             }
             write::Sent::Back { thread, said, undo } => {
-                let undo = write::Undo { said: writes::RETURNED_TO_LATER.to_string(), writes: undo, sent: write::Sent::TakenBack { thread }, thread: (id.clone(), product.clone()), opens: false };
+                let started = said == "Started";
+                let mut undo = write::Undo::plain(writes::RETURNED_TO_LATER.to_string(), "put it back in Later".to_string(), undo, write::Sent::TakenBack { thread }, (id.clone(), product.clone()), false);
+                undo.mark = Some(write::Mark::of(if started { "Undid starting it" } else { "Undid bringing it back" }, None));
                 (said.to_string(), undo)
             }
             _ => return,
         };
-        self.last = Some(undo);
+        self.undos.push(undo);
         self.say(said, true, tx);
         self.refresh();
         // The thread has left the list the person was reading it from, so they are back on it.
@@ -569,7 +665,10 @@ impl State {
     pub(crate) fn hold_reply(&mut self, item: &data::Item, words: String, links: &str, pick: Option<rules::reply_pick::ReplyPick>, said: rules::reply_chips::Said, files: Vec<attach::Attached>, tx: &mut Tx) {
         let thread = format!("{}/{}", item.product, item.id);
         let message = [words.as_str(), links].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join("\n\n");
-        let mut payload = writes::reply(item, &message);
+        // A reply to a run already up goes to that run: it opens nothing and lifts nothing, and
+        // once handed over nothing takes it back (`isRunning` in `answerWith`).
+        let running = self.run_on(item);
+        let mut payload = if running { serde_json::json!({ "product": item.product, "id": item.id, "answer": message }) } else { writes::reply(item, &message) };
         if let Some(fields) = payload.as_object_mut() {
             fields.extend(said.fields());
             if let Some(pick) = &pick {
@@ -585,19 +684,51 @@ impl State {
             self.reply = TextEdit::new("");
             self.replying = false;
         }
+        // On the page from the press on, as the person's own message, saying it is on its way;
+        // and written down until it lands, so a restart cannot lose it (`markReplyInFlight`).
+        let drawn = self.answering.draw(&thread, self.moment(), &message);
+        let in_flight = self.mark_in_flight(&thread, &words, &message, &files);
+        let around = if running { rules::answering::Around { after: Vec::new(), undo_first: Vec::new() } } else { rules::answering::around_a_reply(item, self.moment()) };
+        let mut undo = around.undo_first;
+        undo.extend(rules::answering::withdraw(item, true));
+        // Where the person goes: on to the next thread waiting while Needs you is being cleared,
+        // else they stay, following the thread (`stay`, `replyMovesOn`).
+        let moves_on = here && !running && self.reply_moves_on(item);
+        let next = moves_on.then(|| self.next_after(item)).flatten();
+        if here && !moves_on {
+            self.answering.following = Some((item.id.clone(), item.product.clone()));
+        }
+        let answer = write::Answer {
+            drawn,
+            running,
+            undo,
+            undo_said: rules::answering::REPLY_WITHDRAWN.to_string(),
+            undoes: rules::answering::REPLY_UNDOES.to_string(),
+            mark: write::Mark::of(rules::answering::UNDID_REPLY, None),
+            moved_on: moves_on,
+            in_flight,
+        };
         self.hold(
             write::Held {
                 channel: writes::ANSWER,
                 payload,
-                sent: write::Sent::Reply { thread, words, pick, files },
+                sent: write::Sent::Reply { thread, words, pick, files, answer },
                 said: writes::said_sent(&self.project_name(item)),
                 at: tx.clock() + writes::UNDO_GRACE_MS / 1000.0,
                 thread: (item.id.clone(), item.product.clone()),
                 from_inside: true,
                 closes: None,
+                then: around.after,
+                // Taken back inside the three seconds, a reply to a run leaves no line in the
+                // thread; one to a thread at rest does (`undid` in `deferCommit`).
+                mark: (!running).then(|| write::Mark::of(rules::answering::UNDID_REPLY, None)),
             },
             tx,
         );
+        if moves_on {
+            let now = tx.clock();
+            self.move_on_to(next, now);
+        }
     }
     /// Picks one of the options the open thread offers, by its place in the list: most are sent
     /// as a reply, and a few close the thread or open the box instead (`rules/writes.rs`).
@@ -608,27 +739,14 @@ impl State {
         let Some(choice) = thread::live_options(&item).into_iter().nth(at) else {
             return;
         };
-        let thread = format!("{}/{}", item.product, item.id);
         self.option = None;
         match writes::pick(&choice) {
-            writes::Pick::Reply(words) => self.hold(
-                write::Held {
-                    channel: writes::ANSWER,
-                    payload: writes::reply(&item, &words),
-                    sent: write::Sent::Pick { thread },
-                    said: writes::said_sent(&self.project_name(&item)),
-                    at: tx.clock() + writes::UNDO_GRACE_MS / 1000.0,
-                    thread: (item.id.clone(), item.product.clone()),
-                    from_inside: true,
-                    closes: None,
-                },
-                tx,
-            ),
-            writes::Pick::Close => self.close(&item.id, &item.product, false, tx),
-            writes::Pick::CloseUnshipped => self.close(&item.id, &item.product, true, tx),
-            // The web window asks before throwing work away. This window has no such question
-            // yet, so it sends nothing rather than discard on one key.
-            writes::Pick::AsksFirst => self.refused = Some("Throwing the work away asks first. Pick it in Mercury's own window.".to_string()),
+            writes::Pick::Reply(_) => self.send_pick(&item, &choice, tx),
+            // The agent's own "Close this task", picked, is its answer: no warning stands before it.
+            writes::Pick::Close => self.close_now(&item.id, &item.product, false, tx),
+            writes::Pick::CloseUnshipped => self.close_now(&item.id, &item.product, true, tx),
+            // Throwing the work away asks first, where the options stood (`discardAsk`).
+            writes::Pick::AsksFirst => self.ask_before_discarding(&item, choice),
             writes::Pick::NeedsWords(words) => {
                 if self.reply.text.trim().is_empty() {
                     self.reply = TextEdit::new(words);
@@ -637,11 +755,66 @@ impl State {
             }
         }
     }
+    /// A picked option sent as a reply: "Option 2: …", drawn at once as the line its written
+    /// copy will be, held three seconds, and once written on Z's pile. It moves the person on
+    /// unless its words promise more or a run is up (`pickOption`, `pickStaysPut`).
+    pub(crate) fn send_pick(&mut self, item: &data::Item, choice: &rules::format::Choice, tx: &mut Tx) {
+        let thread = format!("{}/{}", item.product, item.id);
+        let words = writes::option_words(choice);
+        let drawn = self.answering.draw(&thread, self.moment(), &words);
+        let live = self.run_on(item) || self.snap.supervisor.rest.get("starting").and_then(Value::as_array).is_some_and(|s| s.iter().any(|id| id.as_str() == Some(&item.id)));
+        let here = self.open_item().is_some_and(|open| open.id == item.id && open.product == item.product);
+        let moves_on = here && self.reply_moves_on(item) && !rules::answering::pick_stays_put(&choice.text, live);
+        let next = moves_on.then(|| self.next_after(item)).flatten();
+        let option = rules::format::without_recommended(&choice.text);
+        let mark = write::Mark::of(rules::answering::UNDID_PICKING, Some(option));
+        let answer = write::Answer {
+            drawn,
+            running: false,
+            undo: rules::answering::withdraw(item, false),
+            undo_said: rules::answering::pick_withdrawn(choice.n),
+            undoes: rules::answering::pick_undoes(choice.n),
+            mark: mark.clone(),
+            moved_on: moves_on,
+            in_flight: 0.0,
+        };
+        self.hold(
+            write::Held {
+                channel: writes::ANSWER,
+                payload: writes::reply(item, &words),
+                sent: write::Sent::Pick { thread, answer },
+                said: rules::answering::pick_sent_words(&choice.text, &rules::title::row_title(item)),
+                at: tx.clock() + writes::UNDO_GRACE_MS / 1000.0,
+                thread: (item.id.clone(), item.product.clone()),
+                from_inside: true,
+                closes: None,
+                then: Vec::new(),
+                mark: Some(mark),
+            },
+            tx,
+        );
+        if moves_on {
+            let now = tx.clock();
+            self.move_on_to(next, now);
+        }
+    }
     /// Marks a thread done (E, or the button). It leaves the lists at once and is written in
     /// three seconds; from inside it, the person goes on to the next thread that needs them,
     /// as J would take them. The engine refuses a close that would strand work off main unless
-    /// `unshipped` says it is meant, and its refusal is said in its own words.
+    /// `unshipped` says it is meant, and its refusal is said in its own words. The first close
+    /// ever of a thread whose agent waits on the person is held, and a line says what it costs
+    /// (`nudgeOnStopped`).
     pub fn close(&mut self, id: &str, product: &str, unshipped: bool, tx: &mut Tx) {
+        let Some(item) = self.snap.items.iter().find(|i| i.id == id && i.product == product).cloned() else {
+            return;
+        };
+        if self.warns_first(&item, true, tx) {
+            return;
+        }
+        self.close_now(id, product, unshipped, tx);
+    }
+    /// The close itself, with no warning before it.
+    pub(crate) fn close_now(&mut self, id: &str, product: &str, unshipped: bool, tx: &mut Tx) {
         let Some(item) = self.snap.items.iter().find(|i| i.id == id && i.product == product).cloned() else {
             return;
         };
@@ -663,14 +836,14 @@ impl State {
                 thread: (id.to_string(), product.to_string()),
                 from_inside: inside,
                 closes: Some(item),
+                then: Vec::new(),
+                mark: Some(write::Mark::of(rules::answering::UNDID_CLOSING, None)),
             },
             tx,
         );
         if inside {
-            match next {
-                Some((id, product)) => self.step_to_thread(&id, &product),
-                None => self.leave_thread(),
-            }
+            let now = tx.clock();
+            self.move_on_to(next, now);
         }
     }
     /// The open thread, closed.
@@ -700,36 +873,65 @@ impl State {
             write::Sent::Cloud | write::Sent::Moved { .. } | write::Sent::SignIn => return self.cloud_landed(landed, tx),
             write::Sent::Carry { .. } => return self.carried(landed, tx),
             write::Sent::Palette(_) => return palette::landed(self, landed, tx),
+            // Z's own writes: said once the engine has them, or put back on the pile.
+            write::Sent::TakenBack { .. } => return self.undo_landed(landed, tx),
             _ => {}
         }
         let Some(why) = landed.refusal() else {
             self.took(landed, tx);
             return;
         };
-        // A close the engine did not make puts the row back in its list.
+        // A close the engine did not make puts the row back in its list, and Z no longer has it.
         if let write::Sent::Close { thread } = &landed.sent {
-            if let Some((_, id)) = thread.split_once('/') {
+            if let Some((product, id)) = thread.split_once('/') {
                 self.hidden.remove(id);
-                self.last = None;
+                let (id, product) = (id.to_string(), product.to_string());
+                self.undos.retain(|u| !(u.thread == (id.clone(), product.clone()) && u.mark.as_ref().is_some_and(|m| m.words == rules::answering::UNDID_CLOSING)));
                 self.refresh();
             }
         }
-        // The words go back in the box; the model they carried does not, as in the web window,
-        // whose refused reply comes back by its words alone (`restoreFailedDraft`).
-        if let write::Sent::Reply { thread, words, files, .. } = &landed.sent {
-            let here = matches!(&self.view, View::Thread { id, product } if &format!("{product}/{id}") == thread);
-            if here && self.reply.text.trim().is_empty() {
-                self.reply = TextEdit::new(words.clone());
-                self.replying = true;
-            } else {
-                self.drafts.entry(thread.clone()).or_insert_with(|| words.clone());
+        // A reply that did not get through: its drawn copy goes, the words and files come back
+        // after whatever the box holds now, and the box opens where the person still is, with
+        // the engine's words; elsewhere a line names the thread (`putBack`, `restoreFailedDraft`).
+        // The model it carried does not come back.
+        if let Some((_, id)) = landed.sent.thread().split_once('/') {
+            self.answering.holding.remove(id);
+        }
+        if let write::Sent::Reply { thread, words, files, answer, .. } = &landed.sent {
+            self.answering.let_go(answer.drawn);
+            self.in_flight_landed(thread, answer.in_flight);
+            if answer.running {
+                // Its hand-over never happened, so Z goes back to whatever came before it.
+                if let Some(at) = self.undos.iter().rposition(|u| u.writes.is_empty() && format!("{}/{}", u.thread.1, u.thread.0) == *thread) {
+                    self.undos.remove(at);
+                }
             }
-            // The files it carried come back with the words (`restoreFailedDraft`).
-            self.reply_files.put_back(thread, here, files.clone());
+            let here = matches!(&self.view, View::Thread { id, product } if &format!("{product}/{id}") == thread);
+            self.put_back_failed(thread, words, files.clone());
+            self.refresh();
+            if here {
+                self.replying = true;
+                self.reply.focused = true;
+                tx.focus_when_shown("reply", false);
+                let said = if why.trim().is_empty() { rules::answering::COULD_NOT_SEND.to_string() } else { why };
+                self.say(said, false, tx);
+            } else if let Some((product, id)) = thread.split_once('/') {
+                self.say_about(rules::answering::DID_NOT_REACH, (id.to_string(), product.to_string()), tx);
+            }
+            return;
+        }
+        if let write::Sent::Pick { answer, .. } = &landed.sent {
+            self.answering.let_go(answer.drawn);
+            self.refresh();
         }
         self.refused = Some(match landed.sent {
-            write::Sent::Reply { .. } => format!("Could not send: {why} Your message is back in the reply box."),
+            write::Sent::Reply { .. } => return,
             write::Sent::Pick { .. } => format!("Could not send that option: {why}"),
+            write::Sent::Stop { .. } => format!("Could not stop it: {why}"),
+            write::Sent::SendNow { .. } => {
+                self.answering.cutting.remove(landed.sent.thread());
+                return;
+            }
             write::Sent::Close { .. } => format!("Could not mark it done: {why}"),
             write::Sent::Reopen { .. } => format!("Could not reopen it: {why}"),
             write::Sent::Later { .. } => format!("Could not move it to Later: {why}"),
@@ -759,6 +961,10 @@ impl State {
     /// From one conversation straight to another: Escape still goes back to where the first
     /// was opened from, not through every thread walked on the way.
     pub fn step_to_thread(&mut self, id: &str, product: &str) {
+        // Another thread is no longer the one followed (`stillFollowing`).
+        if self.answering.following.as_ref().is_some_and(|(i, p)| i != id || p != product) {
+            self.answering.following = None;
+        }
         self.put_the_reply_away();
         self.view = View::Thread { id: id.to_string(), product: product.to_string() };
         self.take_the_reply_out();
@@ -812,7 +1018,24 @@ impl State {
         ((self.size.0 - chrome::card_left(self) - chrome::CARD[2]).max(1.0), (self.size.1 - chrome::page_top(&self.view) - chrome::CARD[3]).max(1.0))
     }
     fn refresh(&mut self) {
-        self.lists = rules::lists_sorted(&self.snap, self.now, &self.local, self.picks.get().display.sort);
+        // An answer held for Z, or written and not yet read back, has already gone as far as the
+        // lists are concerned: out of Needs you, and In progress as a run being started
+        // (`holdRow`, `startingIds`).
+        let holding: Vec<String> = self.answering.holding.keys().cloned().collect();
+        self.lists = if holding.is_empty() {
+            rules::lists_sorted(&self.snap, self.now, &self.local, self.picks.get().display.sort)
+        } else {
+            let mut snap = self.snap.clone();
+            for field in ["starting", "queued"] {
+                let list = snap.supervisor.rest.entry(field.to_string()).or_insert_with(|| Value::Array(Vec::new()));
+                if let Value::Array(ids) = list {
+                    ids.extend(holding.iter().map(|id| Value::String(id.clone())));
+                }
+            }
+            let mut lists = rules::lists_sorted(&snap, self.now, &self.local, self.picks.get().display.sort);
+            lists.needs.retain(|r| !holding.contains(&r.id));
+            lists
+        };
         // A thread closed here stays out of the lists until the engine tells the close back:
         // done, and by the person's hand. An agent's own "done" is what Needs you shows them.
         let snap = &self.snap;
@@ -912,6 +1135,11 @@ fn init_from(args: &[String]) -> State {
         Source::Door(door) => picks::Kept::at(picks::file(args, door.note())),
         _ => picks::Kept::default(),
     };
+    // And what the reply boxes held, the same way.
+    let (kept_drafts, drafts_kept, draft_files) = drafts::Store::at(match &source {
+        Source::Door(door) => drafts::file(args, door.note()),
+        _ => drafts::file(args, None),
+    });
     // A headless picture has its size before the first frame; a window reports its own.
     let size = rune::tooling::headless_run().map_or(DEFAULT_SIZE, |run| run.size());
     let mut s = State {
@@ -959,7 +1187,14 @@ fn init_from(args: &[String]) -> State {
         outbox: write::Outbox::default(),
         refused: None,
         held: None,
-        last: None,
+        undos: Vec::new(),
+        answering: answer::Answering::default(),
+        came_back: HashSet::new(),
+        kept_drafts,
+        #[cfg(test)]
+        tried: Vec::new(),
+        #[cfg(test)]
+        pretend_sent: false,
         toast: None,
         last_toast: None,
         hidden: HashSet::new(),
@@ -981,6 +1216,7 @@ fn init_from(args: &[String]) -> State {
     // The first skies and a fixture are in place before the first frame, so a picture is whole.
     let first = paint_skies(s.card_size());
     s.hang(first);
+    s.take_up_drafts(drafts_kept, draft_files);
     if let Source::Fixture(path) = &s.source {
         match source::read_fixture(path) {
             Ok(fixture) => {
@@ -1098,8 +1334,11 @@ fn init_from(args: &[String]) -> State {
 /// here once the window has its clock, on the open thread or on the Inbox's picked row. One
 /// taken just after a thread was sent hands over what the page was answered (`sent`).
 fn press_what_the_picture_pressed(s: &mut State, tx: &mut Tx) {
-    if s.fixture.remove("closed").is_some() {
-        keys::close_under_the_keys(s, tx);
+    // E, as many times as the picture's page had it pressed (`true` is once).
+    if let Some(closed) = s.fixture.remove("closed") {
+        for _ in 0..closed.as_u64().unwrap_or(1) {
+            keys::close_under_the_keys(s, tx);
+        }
     }
     if let Some(sent) = s.fixture.remove("sent") {
         s.picture_sent(&sent, tx);
@@ -1110,6 +1349,9 @@ fn press_what_the_picture_pressed(s: &mut State, tx: &mut Tx) {
         s.compose.words = TextEdit::new(words.as_str().unwrap_or_default());
         s.send_thread(tx);
     }
+    // And one taken a moment after a reply was sent from the open thread's box (`replySent`),
+    // and after the next keys pressed there (`answer::picture`).
+    crate::answer::picture(s, tx);
     // One taken with a menu of that box open says which (`menu`).
     if let Some(which) = s.fixture.remove("menu") {
         s.picture_menu(which.as_str().unwrap_or_default(), tx);
@@ -1160,6 +1402,8 @@ fn setup(s: &mut State, wake: Waker) {
     s.settings.wake_with(wake.clone());
     s.pictures.set_waker(wake.clone());
     s.files.set_waker(wake.clone());
+    // The replies the last window never saw land are looked for (`answer.rs`).
+    s.look_for_unsent(wake.clone());
     if let Source::Door(door) = s.source.clone() {
         front::tell_the_app(door.clone());
         source::follow_door(door, s.mailbox.clone(), move || wake());
@@ -1210,6 +1454,8 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
         if let Some(snapshot) = m.snapshot.take() {
             s.snap = snapshot;
             stale = true;
+            // An answer written before this reading is in it: the lists say where it is now.
+            s.answering.holding.retain(|_, landed| !*landed);
         }
         if let Some(local) = m.local.take() {
             arrived = Some(local);
@@ -1241,6 +1487,15 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
     }
     // A thread moved from the command bar opens as its copy once the lists have it.
     changed |= palette::tend(s);
+    // What was sent and has long been written lets go of its drawn copy; what the boxes hold is
+    // written down; and a thread opened onto a draft gets its caret (`answer.rs`, `drafts.rs`).
+    changed |= s.tend_answering(tx);
+    changed |= s.tend_unsent(tx);
+    s.tend_keys(tx);
+    s.keep_drafts();
+    if std::mem::take(&mut s.answering.focus_reply) && s.replying {
+        tx.focus_when_shown("reply", false);
+    }
     // A picture the engine has turned for the box a thread is started in.
     changed |= s.land_staged();
     // The Files place's list, read again as the store changes, and a tile's file opening.
@@ -1452,7 +1707,9 @@ fn main() {
         ..AppSpec::new("Mercury", DEFAULT_SIZE, init, view)
     };
     // The web app sets `-webkit-font-smoothing: antialiased`; `Off` is that rendering.
-    let app = App::new(spec).font_smoothing(FontSmoothing::Off).on_focus(front::focus_changed);
+    // What waits its three seconds is written before the window goes, and the boxes are written
+    // down (`pagehide` in `renderer/src/App.tsx`).
+    let app = App::new(spec).font_smoothing(FontSmoothing::Off).on_focus(front::focus_changed).on_close(answer::on_close);
     // The desktop app's banner and tray bring this window forward from another thread.
     front::reach(app.handle());
     app.run();

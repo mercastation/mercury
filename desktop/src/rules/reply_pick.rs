@@ -17,7 +17,8 @@ use crate::data::{Item, Snapshot};
 use crate::rules::compose::{self, Engines, Models, Pick};
 
 /// A model and a level as the reply box holds them, `None` being the agent's own (`ReplyPick`).
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct ReplyPick {
     pub model: Option<String>,
     pub effort: Option<String>,

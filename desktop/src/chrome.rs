@@ -483,6 +483,61 @@ fn toast_clock(toast: &crate::write::Toast, at: f64, width: f32) -> El {
 /// (`.toast.toast-in-bar`): framed, at most 520 points, cut short with dots.
 pub fn toast_in_bar(s: &State) -> Option<El> {
     let toast = s.toast.as_ref()?;
+    // A send that moved the person to another thread is said over that thread's reply box.
+    if crate::answer::sent_line(s).is_some() {
+        return None;
+    }
+    // A line about one thread names it, then says what went where, its keys after, and the time
+    // left to open it running out along its foot (`.toast-goes.toast-in-bar`).
+    if let (Some(_), Some(title)) = (&toast.goes, s.toast_title()) {
+        let wide = rune::memo::layout_size("toast-in-bar").map_or(0.0, |[w, _]| w);
+        // Three columns, twelve apart, in at most 520 points less the frame and its padding:
+        // the keys at their width, and the title and the line sharing what is left equally, each
+        // no wider than its words (`grid-template-columns: minmax(0, auto) minmax(0, auto) auto`).
+        let font = TextStyle::new(12.5, 400.0);
+        let measure = |s: &str, style: TextStyle| rune::text::measure(s, &[], style, None).0;
+        let opens = toast.goes.as_ref().is_some_and(|(id, product)| !matches!(&s.view, View::Thread { id: open, product: of } if open == id && of == product));
+        let cap = |k: &str| 10.0 + measure(k, TextStyle::new(10.5, 600.0));
+        let key = |k: &str, w: &str| cap(k) + 5.0 + measure(w, TextStyle::new(12.0, 400.0));
+        let keys = [opens.then(|| key("O", "Open")), toast.undo.then(|| key("Z", "Undo"))].into_iter().flatten().collect::<Vec<f32>>();
+        let keys_w = keys.iter().sum::<f32>() + 12.0 * keys.len().saturating_sub(1) as f32;
+        let room = (520.0 - 22.0 - 24.0 - keys_w).max(0.0);
+        let (tw, lw) = (measure(&title, font), measure(&toast.line, font));
+        let (tw, lw) = if tw + lw <= room {
+            (tw, lw)
+        } else if tw < room / 2.0 {
+            (tw, room - tw)
+        } else if lw < room / 2.0 {
+            (room - lw, lw)
+        } else {
+            (room / 2.0, room / 2.0)
+        };
+        let mut line = row()
+            .key("toast-in-bar")
+            .max_w(520.0)
+            .min_w(0.0)
+            .items_center()
+            .gap(12.0)
+            .pt(4.0)
+            .pr(8.0)
+            .pb(5.0)
+            .pl(12.0)
+            .radius(10.0)
+            .border(1.0, edge())
+            .border_layout()
+            .cursor(rune::Cursor::Pointer)
+            .on_press(|s: &mut State| {
+                s.open_what_the_line_names();
+            })
+            .child(row().w(tw).child(pen(text(title).font(TextStyle::new(12.5, 400.0).lh(17.5)).color(ink()).truncate(), 12.5)))
+            .child(row().w(lw).child(pen(text(toast.line.as_str()).font(TextStyle::new(12.5, 400.0).lh(16.25)).color(muted()).truncate(), 12.5)))
+            // The keys' column stands, and its gap with it, when it holds nothing.
+            .child(toast_keys(s, toast).unwrap_or_else(el));
+        if wide > 0.0 {
+            line = line.child(toast_clock(toast, s.at, wide - 2.0));
+        }
+        return Some(line);
+    }
     let mut line = row()
         .max_w(520.0)
         .min_w(0.0)

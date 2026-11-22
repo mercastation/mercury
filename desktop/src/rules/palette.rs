@@ -53,6 +53,8 @@ pub enum Does {
     Back(Thread),
     /// The Files place: All files, or one project's page.
     Files(Option<String>),
+    /// Stops its agent, which moves it to Needs you.
+    Stop(Thread),
     /// Approves what the agent asks, held three seconds (`resolve`).
     Approve(Thread),
     /// Pushes it ahead of the queue (`runNow`).
@@ -424,7 +426,8 @@ pub fn priority_rows(item: &Item, snap: &Snapshot) -> Vec<Row> {
 /// Left out: Remote control and Open terminal (no such panels here), Close task, Mark unread
 /// (only the web window keeps what has been read, and nothing sets it back), the team's rows,
 /// Rename (no box to rename in), Stop repeating (repeating tasks are not read here) and Add
-/// people. Try again, Stop and View code changes are their own controls' to bring.
+/// people. Stop is added by the bar where the thread is under way (`stop_row`), which these
+/// rules cannot tell; Try again and View code changes are their own controls' to bring.
 pub fn thread_commands(f: &Facts, item: &Item, open: bool) -> Vec<Row> {
     let thread = || (item.id.clone(), item.product.clone());
     let agent = item.truthy("agent");
@@ -602,6 +605,16 @@ pub fn key_hints_row(on: bool) -> Row {
     Row::command("keyhints", if on { "Turn off keyboard shortcut hints" } else { "Turn on keyboard shortcut hints" }, Does::KeyHints(!on)).found_by("keys keyboard shortcut hints").hinted("shown when you point")
 }
 
+/// Stopping the thread under the keys while it is under way (`stop` in `itemCommands`): "Stop
+/// Agent" while a run is up, else "Stop Task" with what is true of it as its hint. It stands
+/// after the rows above and before Open, where the web's stands after its Move rows.
+pub fn stop_row(running: bool, thread: Thread) -> Row {
+    let (label, hint) = super::answering::stop_row_words(running);
+    let mut row = Row::command("stop", label, Does::Stop(thread));
+    row.hint = hint.map(str::to_string);
+    row
+}
+
 /// Every row the bar has before anything is typed, in the web's order: starting a thread,
 /// then what acts on the thread under the keys, so every key can be searched for, then the
 /// Projects page and the projects, the cloud, the places, Files, updates, the agents,
@@ -642,6 +655,20 @@ fn with(item: &Item, field: &str, value: Value) -> Value {
 pub fn approve(item: &Item, approval: &Approval) -> Value {
     with(item, "answer", json!(approval.answer()))
 }
+
+/// What Z writes once an approval is written: its agent stopped, then the answer taken back
+/// and the thread open again (`approveWith`'s `pushUndo` in `renderer/src/App.tsx`).
+pub fn approval_withdrawn(item: &Item) -> Vec<Write> {
+    vec![
+        (super::answering::STOP, json!({ "product": item.product, "id": item.id })),
+        (super::writes::ANSWER, json!({ "product": item.product, "id": item.id, "answer": "(withdrawn)", "status": "open" })),
+    ]
+}
+/// What that Z says, what it asks once the approval is half a minute old, and the line it
+/// leaves in the thread.
+pub const APPROVAL_WITHDRAWN: &str = "Approval withdrawn, back in your inbox";
+pub const APPROVAL_UNDOES: &str = "take back that approval and stop the agent";
+pub const APPROVAL_UNDID: &str = "Undid your approval";
 
 /// Reopen, from the bar: the thread opened again with nothing said, which Z marks done again
 /// (`reopenDone`).
