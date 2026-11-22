@@ -880,6 +880,76 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    /// A row as the web's picture records it and as this window draws it, for the two to be held
+    /// side by side: a heading, a thread, or a command's drawing, words and key or hint.
+    fn said_web(row: &Pictured) -> String {
+        match row {
+            Pictured::Heading(words) => format!("## {words}"),
+            Pictured::Thread => "(a thread)".to_string(),
+            Pictured::Command { icon, label, hint, cap } => format!("{icon} · {label} · {}", cap.clone().or_else(|| hint.clone()).unwrap_or_default()),
+        }
+    }
+
+    fn said_own(lines: &[Line]) -> Vec<String> {
+        let mut out = Vec::new();
+        for line in lines {
+            if let Some(words) = &line.heading {
+                out.push(format!("## {words}"));
+            }
+            out.push(if line.key.starts_with("thread-") { "(a thread)".to_string() } else { format!("{} · {} · {}", line.icon, line.label, line.cap.clone().or_else(|| line.hint.clone()).unwrap_or_default()) });
+        }
+        out
+    }
+
+    /// The two lists aligned on what they share, in order: ` ` both, `-` the web's alone, `+`
+    /// this window's alone.
+    fn aligned(web: &[String], own: &[String]) -> Vec<(char, String)> {
+        let (n, m) = (web.len(), own.len());
+        let mut best = vec![vec![0usize; m + 1]; n + 1];
+        for i in (0..n).rev() {
+            for j in (0..m).rev() {
+                best[i][j] = if web[i] == own[j] { best[i + 1][j + 1] + 1 } else { best[i + 1][j].max(best[i][j + 1]) };
+            }
+        }
+        let (mut i, mut j, mut out) = (0, 0, Vec::new());
+        while i < n || j < m {
+            if i < n && j < m && web[i] == own[j] {
+                out.push((' ', web[i].clone()));
+                (i, j) = (i + 1, j + 1);
+            } else if j < m && (i == n || best[i][j + 1] >= best[i + 1][j]) {
+                out.push(('+', own[j].clone()));
+                j += 1;
+            } else {
+                out.push(('-', web[i].clone()));
+                i += 1;
+            }
+        }
+        out
+    }
+
+    /// `MERCURY_PALETTE="<fixture> [--view inbox|--thread|--tab progress]; <next>…" cargo test
+    /// the_rows_are_the_webs -- --ignored --nocapture`: this window's own rows for a picture's
+    /// inbox and words beside the rows the web window drew (`paletteRows`), aligned row by row.
+    #[test]
+    #[ignore]
+    fn the_rows_are_the_webs() {
+        let spec = std::env::var("MERCURY_PALETTE").expect("MERCURY_PALETTE names the fixtures");
+        for one in spec.split(';').map(str::trim).filter(|s| !s.is_empty()) {
+            let mut words = one.split_whitespace().map(str::to_string);
+            let path = words.next().unwrap();
+            let args: Vec<String> = ["--fixture".to_string(), path.clone()].into_iter().chain(words).collect();
+            let s = crate::init_from(&args);
+            let web: Vec<String> = s.palette.pictured.as_ref().expect("the fixture has the web's rows").iter().map(said_web).collect();
+            let own = said_own(&own_lines(&s, threads(&s)));
+            let rows = aligned(&web, &own);
+            let both = rows.iter().filter(|(mark, _)| *mark == ' ').count();
+            println!("\n{path}: \"{}\": the web's {} rows, this window's {}, {both} the same in the same order", s.palette.words.text, web.len(), own.len());
+            for (mark, row) in rows {
+                println!("  {mark} {row}");
+            }
+        }
+    }
+
     fn found(id: &str, title: &str) -> rules::Row {
         let item: Item = serde_json::from_value(json!({ "id": id, "product": "shop", "status": "open", "title": title, "updatedAt": 1 })).unwrap();
         rules::thread_row(&item, title.to_string(), "Storefront", 2.0)
