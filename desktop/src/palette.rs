@@ -213,10 +213,13 @@ impl State {
         if !self.fixed_clock {
             self.now = crate::clock();
         }
-        // Fresh each time, as the web window mounts its box anew: empty, the first row lit.
+        // Fresh each time, as the web window mounts its box anew: empty, the first row lit, the
+        // list at its top. Rune would otherwise carry out again the last request to bring a lit
+        // row into view, which outlives the list it was made for.
         self.palette = Bar { open: true, index: std::mem::take(&mut self.palette.index), ..Bar::closed() };
         self.palette.words.focused = true;
         tx.focus_when_shown("palette", false);
+        tx.scroll_to_y("palette-list", 0.0);
     }
 
     pub fn close_palette(&mut self) {
@@ -477,7 +480,9 @@ pub fn view(s: &State) -> Option<El> {
         rows = rows.child(line_row(line, lit == Some(at), query));
         tall += height(line);
     }
-    let list = el().key("palette-list").h(tall.min(LIST_CAP)).scroll(ScrollSpec { stick_bottom: false }).child(rows);
+    // A column: a plain box is a row, which stretches the rows to its own height, and then
+    // there is nothing left over to scroll to.
+    let list = col().key("palette-list").h(tall.min(LIST_CAP)).scroll(ScrollSpec { stick_bottom: false }).child(rows);
 
     // What the keys do, said once at the foot.
     let keys = |keys: &str, does: &str| text(format!("{keys} {does}")).font(capitals(9.5, 1.14)).color(quiet()).spans(vec![Span::new(0, keys.len()).color(muted())]);
