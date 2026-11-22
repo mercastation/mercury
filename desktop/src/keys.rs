@@ -4,7 +4,9 @@
 //! J and K (or the arrows) walk a list and Enter opens the row they are on; Tab turns the
 //! Inbox's tabs. Inside a conversation Escape goes back, J and K go on to the next thread or
 //! back to the one before, the arrows walk the agent's options and Enter or a number sends
-//! one, R opens the reply box and E marks the thread done. Z takes back the last thing done.
+//! one, R opens the reply box and E marks the thread done. N starts a thread: in Home's box, or
+//! in the New thread card anywhere else, which then has every key (`compose::key`). Z takes
+//! back the last thing done.
 
 use rune::edit::Key;
 use rune::{KeyEvent, Tx};

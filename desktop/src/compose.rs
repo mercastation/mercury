@@ -778,11 +778,12 @@ impl State {
     }
 
     /// Puts the caret back in the words where it was: after a pick, and for a letter typed
-    /// with the keyboard on a chip.
-    fn caret_in_the_words(&mut self, tx: &mut Tx) {
+    /// with the keyboard on a chip. Through the words' own `focused`, which Rune honours the
+    /// moment the field is drawn: an ask that waits for the field (`focus_when_shown`) outlived
+    /// the send after it and put the caret back in the emptied box, where the next Z was typed.
+    fn caret_in_the_words(&mut self, _: &mut Tx) {
         self.compose.on_chip = None;
         self.compose.words.focused = true;
-        tx.focus_when_shown(FIELD, false);
     }
 
     /// Puts the caret in the box, at the end of what it holds (N on Home, or a letter typed
