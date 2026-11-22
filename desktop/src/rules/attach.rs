@@ -54,6 +54,12 @@ pub fn too_big_to_send(bytes: u64) -> bool {
     bytes > MAX_SENT_BYTES
 }
 
+/// What the chip of a file too big to go says in its title (`overTheLimit` in
+/// `shared/carried-files.mts`).
+pub fn over_the_limit(bytes: u64) -> String {
+    format!("{} is over the {MAX_SENT_WORDS} a message can send. Send a smaller copy, or share a link.", size_words(bytes))
+}
+
 re!(PICTURE_NAME, r"\.(png|jpe?g|gif|webp)$", "i");
 
 /// A name the window draws as a picture, and the engine links as one (`isImageName`).
@@ -220,6 +226,10 @@ mod tests {
         assert_eq!(attach_problem(&[file("film-60mb.mp4", Some(5 * MB_U), Some("film-60mb.mp4 could not be attached: The disk is full."))]).as_deref(), Some("film-60mb.mp4 could not be attached: The disk is full."));
         // Exactly 1 GB goes, a byte more does not, and one that failed is said first.
         assert!(!too_big_to_send(1 << 30) && too_big_to_send((1 << 30) + 1));
+        // The chip's title (tests/team-a-film-up-to-1-gb-goes-to-a-teammate-and-plays.test.mts,
+        // tests/team-a-file-over-10-mb-goes-in-parts-and-opens-whole.test.mts).
+        assert_eq!(over_the_limit((1.5 * GB) as u64), "1.5 GB is over the 1 GB a message can send. Send a smaller copy, or share a link.");
+        assert_eq!(over_the_limit(1300 * MB_U), "1.3 GB is over the 1 GB a message can send. Send a smaller copy, or share a link.");
         let both = [file("raw.mov", Some((1 << 30) + 1), None), file("cut.mp4", None, Some("cut.mp4 could not be attached: no."))];
         assert_eq!(attach_problem(&both).as_deref(), Some("cut.mp4 could not be attached: no."));
         assert!(!files_ready(&both, false));

@@ -219,8 +219,11 @@ fn picture(at: usize, a: &Attached, thumb: &Thumb) -> El {
         .hover_group()
         .child(crate::feel::edge_lit(6.0, muted(), true))
         .cursor(rune::Cursor::Pointer)
+        .help("Remove")
         .on_background_press_tx(move |s: &mut State, tx| s.remove_attached(at, tx));
-    el().size(wide, THUMB_TALL).radius(6.0).border(1.0, edge()).child(drawn).child(remove)
+    // Its title is its name, and the ×'s says what it does (`title` on `.attach-thumb` and
+    // `.attach-remove`).
+    el().size(wide, THUMB_TALL).radius(6.0).border(1.0, edge()).help(a.file.name.as_str()).child(drawn).child(remove)
 }
 
 /// Any other file (`.attach-chip`): its name, its size quieter and in figures that line up,
@@ -245,7 +248,10 @@ fn chip(at: usize, a: &Attached) -> El {
         line = line.child(words(&format!(" {}", rules::size_words(size)), figures(12.0, 400.0), muted()));
     }
     line = line.child(words(" ×", sans(12.0, 400.0), if over { ink() } else { dim() }).group_color(ink()));
-    let chip = frame(line, if over { muted() } else { edge() }).cursor(rune::Cursor::Pointer).on_background_press_tx(move |s: &mut State, tx| s.remove_attached(at, tx));
+    // Its title says why one cannot go, and of any other that a press takes it out.
+    let size = file.size.unwrap_or(0);
+    let title = file.failed.clone().unwrap_or_else(|| if rules::too_big_to_send(size) { rules::over_the_limit(size) } else { "Remove".to_string() });
+    let chip = frame(line, if over { muted() } else { edge() }).cursor(rune::Cursor::Pointer).help(title).on_background_press_tx(move |s: &mut State, tx| s.remove_attached(at, tx));
     if over { chip } else { lit(chip) }
 }
 
