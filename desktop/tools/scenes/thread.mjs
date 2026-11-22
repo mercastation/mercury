@@ -8,6 +8,7 @@
 // conversation, and hands the same answers back for the fixture file, where the native window
 // reads them. `docs/thread-data.md` says what each channel is asked and answers.
 import { go as toInbox } from './inbox.mjs';
+import { plant, standIn } from '../pictures.mjs';
 
 const MIN = 60_000;
 
@@ -53,7 +54,7 @@ The fix is on main as \`a41c9e2\` and every checkout test passes. The 37 refunds
 
 // The ledger a thread like this leaves behind, one line per write, and the row those lines
 // fold into (shared/work-items.mts): the newest value of each field, and who wrote it when.
-function conversation(item, found, waiting = false) {
+function conversation(item, found, waiting = false, said = SHIPPED) {
   const [asked, checked, replied, shipped] = [item.createdAt, item.createdAt + 38 * MIN, item.updatedAt - 17 * MIN, item.updatedAt];
   const { id, title } = item;
   // `waiting`: the thread as it stood when the agent's first answer came back, its options
@@ -80,10 +81,10 @@ function conversation(item, found, waiting = false) {
     { id, ts: checked, source: 'agent', epoch: 1, patch: { status: 'blocked', note: found } },
     { id, ts: replied, source: 'founder', patch: { answer: REPLY, status: 'open' } },
     { id, ts: replied + MIN, source: 'agent', epoch: 2, claim: { holder: 'mcp-40131', leaseUntil: replied + 31 * MIN }, patch: { status: 'claimed' } },
-    { id, ts: shipped, source: 'agent', epoch: 2, patch: { status: 'done', result: SHIPPED } },
+    { id, ts: shipped, source: 'agent', epoch: 2, patch: { status: 'done', result: said } },
   ];
   const row = {
-    ...item, body: ASK, note: found, answer: REPLY, result: SHIPPED,
+    ...item, body: ASK, note: found, answer: REPLY, result: said,
     wrote: {
       title: { ts: asked, source: 'founder' }, body: { ts: asked, source: 'founder' },
       note: { ts: checked, source: 'agent' }, answer: { ts: replied, source: 'founder' },
@@ -98,7 +99,13 @@ function conversation(item, found, waiting = false) {
 // wants other markdown in it.
 // `waiting` leaves the thread at that first answer, waiting on the person. `then` is what a
 // scene does once the thread is open (a key, some typing), before the picture.
-export async function open(h, { unfold, found = FOUND, waiting = false, then = null }) {
+// `shipped` is the agent's last answer. `files` plants an invented project folder for a scene
+// whose words name files (`../pictures.mjs`): the thread's project is moved into it, the
+// page's pictures are answered from it, and `found` and `shipped` may then be functions of
+// what was planted (`{ dir, repo, thread }`), for words that hold a full path.
+// `files.arriving` leaves every picture on its way for ever, and `files.large` plants ten
+// screenshots besides, for a measurement.
+export async function open(h, { unfold, found = FOUND, shipped = SHIPPED, files = null, waiting = false, then = null }) {
   const snapshot = await h.evaluate('window.__SNAP__');
   // The Inbox opens on its first row; the snapshot's first thread is not always that one.
   await toInbox(h);
@@ -107,8 +114,15 @@ export async function open(h, { unfold, found = FOUND, waiting = false, then = n
   const first = await h.evaluate(`document.querySelector('.list .row.selected')?.dataset.itemId ?? ''`);
   const at = snapshot.items.findIndex((i) => i.id === first || `${i.product}/${i.id}` === first);
   if (at < 0) throw new Error('thread scene: the Inbox\'s first row is not in the snapshot');
-  const { row, lines } = conversation(snapshot.items[at], found, waiting);
+  const planted = files ? plant({ thread: snapshot.items[at].id, large: !!files.large }) : null;
+  const words = (text) => (typeof text === 'function' ? text(planted) : text);
+  const { row, lines } = conversation(snapshot.items[at], words(found), waiting, words(shipped));
   snapshot.items[at] = row;
+  if (planted) {
+    const project = snapshot.products.find((p) => p.slug === row.product);
+    project.dir = planted.dir;
+    project.repoPath = planted.repo;
+  }
   // Keyed as the page asks: product and id. Each answer is under its channel's name.
   const threads = {
     [`${row.product}/${row.id}`]: {
@@ -120,6 +134,7 @@ export async function open(h, { unfold, found = FOUND, waiting = false, then = n
   };
   // On every load from here on: the snapshot with the conversation's row in it, the four
   // answers, and a note of anything else the page asks the bridge for and does not find.
+  if (planted) await h.call('Page.addScriptToEvaluateOnNewDocument', { source: standIn(planted, { arriving: !!files.arriving }) });
   await h.call('Page.addScriptToEvaluateOnNewDocument', {
     source: `(() => {
       window.__SNAP__ = ${JSON.stringify(snapshot)};
@@ -131,6 +146,8 @@ export async function open(h, { unfold, found = FOUND, waiting = false, then = n
         sessionTrace: answer('zero:session-trace', { ok: true, sessions: [] }),
         codeChange: answer('zero:code-change', { ok: false, error: 'no change was recorded for this thread' }),
         compactionStatus: answer('zero:compaction-status', null),
+        // Which pictures a folder holds is the one thing a page cannot see for itself.
+        ...(window.__FOLDER_PICTURES__ ? { folderPictures: window.__FOLDER_PICTURES__ } : {}),
       };
       window.__UNANSWERED__ = [];
       window.zero = new Proxy(bridge, {
@@ -159,7 +176,8 @@ export async function open(h, { unfold, found = FOUND, waiting = false, then = n
   if (unanswered.length) console.error('thread scene: the page asked the bridge for', unanswered.join(', '), 'and got nothing');
   // `unfolded` tells the native window the same thing the click above told the page.
   // And whatever `then` did, for the native window to do the same.
-  return { snapshot, threads, unfolded: unfold ? Object.keys(threads) : [], ...did };
+  // `arriving` says that no picture had come when the photograph was taken.
+  return { snapshot, threads, unfolded: unfold ? Object.keys(threads) : [], ...(files?.arriving ? { arriving: true } : {}), ...did };
 }
 
 export const go = (h) => open(h, { unfold: true });

@@ -7,10 +7,11 @@
 //!   mercury --door-file <path>                              (a JSON file with `port` and `token`)
 //!
 //! With the door, one thread listens to the engine's event stream and another asks for the
-//! snapshot again when the stream says something changed, and every two seconds besides,
-//! because not every engine that opens this door pushes. The desktop app's door moves each time
-//! the app starts, and its note is read again when the one in hand stops answering. Nothing
-//! here writes: phase 1 only reads.
+//! snapshot again when the stream says something changed. It also asks unprompted: every five
+//! seconds of an engine that has shown it tells, and every two of one that has not, because
+//! not every engine that opens this door pushes. The desktop app's door moves each time the
+//! app starts, and its note is read again when the one in hand stops answering. What the
+//! window writes goes out through `write.rs`; nothing here does.
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -97,6 +98,12 @@ pub type Mailbox = Arc<Mutex<Arrived>>;
 
 /// How long the window goes without asking when nothing has told it to.
 const ASK_EVERY: Duration = Duration::from_secs(2);
+/// The same, of an engine that says when its inbox changes. It still asks, and twice as often
+/// as the web window does behind the same pushes, because the engine does not say everything:
+/// its store hears of a change from a watch on its folders, which misses some (two new threads
+/// of three went unsaid on a scratch engine, 2026-11-21), and what the web window keeps for
+/// itself (which threads were read in it) is never pushed at all.
+const ASK_WHEN_TOLD: Duration = Duration::from_secs(5);
 
 fn flag(args: &[String], name: &str) -> Option<String> {
     args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned()
@@ -178,23 +185,31 @@ fn fingerprint(snapshot: &Value, keeps: &Option<Local>) -> u64 {
 /// Keeps `mailbox` current from the door and calls `wake` each time something new lands.
 pub fn follow_door(door: Door, mailbox: Mailbox, wake: impl Fn() + Send + 'static) {
     let told = Arc::new(AtomicBool::new(true));
+    // Whether the stream in hand has ever said anything. An engine that tells is asked far
+    // less often; one that only keeps its stream open is asked as before.
+    let tells = Arc::new(AtomicBool::new(false));
     // The engine's pushes. A line of data is one; anything else is a heartbeat. When the stream
     // cannot open or drops, wait a moment and start over, at whatever door there is by then:
     // the asking below carries on meanwhile.
     {
-        let (door, told) = (door.clone(), told.clone());
+        let (door, told, tells) = (door.clone(), told.clone(), tells.clone());
         std::thread::spawn(move || {
             loop {
                 let stream = door.now().and_then(|(url, token)| ureq::get(&format!("{url}/events?token={token}&device=mercury-desktop")).call().ok());
                 if let Some(stream) = stream {
                     for line in BufReader::new(stream.into_reader()).lines() {
                         match line {
-                            Ok(line) if line.starts_with("data:") => told.store(true, Ordering::Relaxed),
+                            Ok(line) if line.starts_with("data:") => {
+                                tells.store(true, Ordering::Relaxed);
+                                told.store(true, Ordering::Relaxed);
+                            }
                             Ok(_) => {}
                             Err(_) => break,
                         }
                     }
                 }
+                // The next engine at this door has to show that it tells, too.
+                tells.store(false, Ordering::Relaxed);
                 std::thread::sleep(Duration::from_secs(2));
             }
         });
@@ -208,7 +223,8 @@ pub fn follow_door(door: Door, mailbox: Mailbox, wake: impl Fn() + Send + 'stati
             // Pushes come in bursts while an agent works; a short pause lets one read cover them.
             std::thread::sleep(Duration::from_millis(200));
             let asked_for = door.soon.swap(false, Ordering::Relaxed);
-            if !told.swap(false, Ordering::Relaxed) && !asked_for && asked.elapsed() < ASK_EVERY {
+            let every = if tells.load(Ordering::Relaxed) { ASK_WHEN_TOLD } else { ASK_EVERY };
+            if !told.swap(false, Ordering::Relaxed) && !asked_for && asked.elapsed() < every {
                 continue;
             }
             asked = Instant::now();

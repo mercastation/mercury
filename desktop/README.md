@@ -9,6 +9,10 @@ from the same snapshot the web window gets and are kept current while the engine
 conversation can be answered, by typing or by picking one of its agent's options, marked done and
 opened again, and the keys walk the lists (see "What the keys do, and what it writes").
 
+A file an agent names in a conversation is not left as its path: a picture is drawn in place, any
+other file is a mention that opens it, and a folder on a line of its own shows its newest pictures
+("The files a message names", below).
+
 The Inbox is its head strip (the title, New thread, the cloud button on a Mac set up for the cloud
 or offered it, the display button), its tabs (Needs you, In progress, Later while something is in
 it, Done) and the open tab's threads as a table. A row is its title with what follows it (an aside,
@@ -24,6 +28,7 @@ cargo run -- --fixture shots/home-fixture.json --snap shots/home.png --size 1280
 cargo run -- --fixture shots/inbox-fixture.json --view inbox --snap shots/inbox.png --size 1280x760 --scale 2
 cargo run -- --fixture shots/inbox-later-kinds-fixture.json --view inbox --tab later --snap shots/inbox-later-kinds.png --size 1280x760 --scale 2
 cargo run -- --fixture shots/thread-fixture.json --thread --snap shots/thread.png --size 1280x760 --scale 2
+cargo run -- --fixture shots/thread-pictures-fixture.json --thread --snap shots/thread-pictures.png --size 1280x760 --scale 2
 cargo run -- --fixture shots/home-fixture.json --tree shots/home-tree.json --size 1280x760 --scale 2
 ```
 
@@ -52,7 +57,13 @@ The app opens a new door, on another port and with another key, each time it sta
 reads the note again when the door it has stops answering, so it carries on by itself after the
 app restarts, and one opened before the app finds the door once there is one.
 
-The app's door does not push yet, so the window asks every two seconds. Measured on a 99-thread
+The app tells the window when its inbox changed, on the door's event stream, with the one word
+it tells its own window (`zero:changed`, never what changed: `tellTheDoorToo` in
+`main/local-door.mts`), and the window then reads the snapshot again at once. It still asks
+unprompted every five seconds, because the engine does not say everything: its store learns of
+a change from a watch on its folders, which misses some, and which threads were read in the web
+window is never pushed. An app from before this (or any engine that keeps the stream open and
+says nothing on it) is asked every two seconds, as it always was; measured on a 99-thread
 inbox, that costs the app about 2% of one core and the reader next to nothing.
 
 ## Compare a screen with the real one
@@ -69,6 +80,21 @@ written from those numbers, not by eye, and drawn from that same fixture. A scen
 `tools/scenes/` that takes the page from Home to the screen to photograph: `inbox`, its three other
 tabs (`inbox-progress`, `inbox-later`, `inbox-done`), `thread` (a whole conversation),
 `thread-folded` (as it first opens) and `thread-more` (the rest of the markdown).
+
+A conversation that names files needs files. `tools/pictures.mjs` plants an invented project
+folder in the system's temporary folder (flat pictures of several shapes, a folder of rounds, a
+page, a note, a sheet), a scene moves its thread's project into it (`files` in `thread.mjs`'s
+`open`), and the page's pictures are answered from it. The native window reads the same files
+off the disk. Each planting starts the folder again, so these scenes are photographed one after
+another, never two at once: `thread-pictures` (a picture named bare in a sentence, as a markdown
+image, as a link), `thread-pictures-ways` (in a code span, by its full path, found beside the
+code), `thread-pictures-row` (three in one sentence), `thread-pictures-large` (wider than the
+column, taller than the window), `thread-pictures-missing`, `thread-pictures-arriving` (the place
+held before one comes), `thread-pictures-said` (inside an unfolded conversation), `thread-links`
+(one file of each kind that is not a picture), `thread-links-beside` (a design page and a note
+on a line of its own), `thread-links-media` (a film and a sound, which the web window plays and
+this one names), `thread-folder` and `thread-folder-quiet` (a folder on a line of its own), and
+`thread-pictures-many` (ten screenshots, for the memory measurement).
 
 The invented inbox has almost nothing switched on: nothing in Later, no cloud, no team. So some
 scenes add to it. A scene of Home dresses the inbox before the page opens (`dress`): `home-team`
@@ -117,6 +143,27 @@ of 915 points, Project at 785). The first tab and `inbox-later-kinds`:
 
 And on one person's real inbox, read through the door, with teammates, a cloud, a recorder and a
 sign-in all on: Home 0.86, the Inbox's four tabs 0.14 to 0.25, a conversation 0.47.
+
+A conversation that names files, whole window, at the three sizes. The web window's head strip
+grows a files button with a count when a thread names files, which this window does not draw
+yet: the strip alone is 0.86 with it against 0.54 without.
+
+| Scene | 1280 by 760 | 1600 by 1000 | 900 by 760 |
+|---|---|---|---|
+| `thread-pictures` | 0.35 | 0.32 | 0.49 |
+| `thread-pictures-ways` | 0.38 | 0.33 | 0.54 |
+| `thread-pictures-row` | 0.35 | 0.29 | 0.50 |
+| `thread-pictures-large` | 0.25 | 0.18 | 0.36 |
+| `thread-pictures-missing` | 0.46 | 0.36 | 0.66 |
+| `thread-pictures-arriving` | 0.41 | 0.40 | 0.58 |
+| `thread-pictures-said` | 0.25 | 0.38 | 0.36 |
+| `thread-links` | 0.68 | 0.62 | 0.96 |
+| `thread-folder` | 0.36 | 0.36 | 0.49 |
+| `thread-folder-quiet` | 0.34 | 0.28 | 0.48 |
+
+Inside the answer alone, at 1280 by 760: 0.07 where it is only pictures (`thread-pictures-large`),
+0.29 to 0.67 where sentences name them, and 1.23 for `thread-links`, whose ten mentions each
+carry an underline two points higher than the web window's (see what still differs).
 
 ## What a press does, frame by frame
 
@@ -196,6 +243,84 @@ A script is a list of events (`{"t": 0.5, "type": "key", "name": "e"}`, `"type":
 web window in each of these states; a fixture says what its picture had open (`replying`,
 `option`, `closed`, `later`, `laterRefused`).
 
+## The files a message names
+
+The web window does not leave a file an agent names as text, and neither does this one. A
+message is read in the web window's three steps, each a rule ported from its TypeScript
+(`src/rules/paths.rs`, `mentions.rs`, `roots.rs`; `src/markdown.rs` runs them):
+
+1. Every path typed into a sentence becomes a link or a picture: a short path, a quoted name,
+   a full path into the project's folder or the thread's own checkout, a folder on a line of its
+   own, `localhost:3000` (`renderer/src/artifact-paths.ts`).
+2. What draws moves under the sentence that names it, which keeps its name: one picture large,
+   several in a row 240 points tall (`renderer/src/media-row.ts`).
+3. Each link is drawn as the web window's mention, the icon of its kind and the name it goes
+   by (`renderer/src/mentions.ts`), and a code span that is a source file or a path is one too.
+
+A picture is looked for where the web window looks (`pictureRoots`): the folders the message
+names, the thread's designs folder, the worker's checkout, the project's folder with its designs
+and attachments, the code folder. It is drawn at the web window's size: its own up to 760 points
+wide and the window's height less 320, with its name under it. One that is nowhere says
+`missing image:` and its path. A folder on a line of its own is its name, how many pictures it
+holds, its six newest three across and a line for the rest, or only its name in a conversation
+that draws pictures of its own.
+
+Pressing a mention, a picture or a folder opens it with the system (`open`), through
+`files::open_with_system`, the one place to change when files open inside this window. A file
+macOS would run is shown in Finder instead, as the web app does (`main/opens-a-program.mts`).
+
+### How a picture is read
+
+Off the disk, by this window, never through the engine's door and never on the frame
+(`src/pictures.rs`). The page asks for a picture by the places it may be in and the size it will
+be drawn at, and draws a place for it. A worker thread finds the file, decodes it, shrinks it to
+that size in device pixels and wakes the window, which draws the page again with the picture in
+it. A still picture (`--snap`) cannot wait, so there the asking does the reading.
+
+- **A copy is the size it is drawn at.** A 2880 by 1800 screenshot is 20 MB decoded and 4.7 MB as
+  the copy a 1280 by 760 window draws (1402 by 876 pixels on a 2x screen). The web window keeps
+  its copies the column's width whatever height they are drawn at.
+- **All copies together stay under 64 MiB** (`BUDGET`): eleven screenshots or more at the
+  column's width, which is more than a long answer holds. What has been asked for and not read
+  yet counts too, so a page of thirty screenshots reads the first eleven and then only what
+  comes on screen. Past the budget, the copies that left the screen longest ago are let go and
+  read again when they come back; what is on screen is always held. A still picture reads
+  everything its one frame asks for.
+- **Leaving a conversation lets go of every copy.** Each picture's size is remembered (of the
+  last few thousand), so a conversation opened again holds every picture's exact place from the
+  first frame. A copy made for a smaller window is made again when the picture is drawn a tenth
+  larger; one made for a larger window is kept until the conversation closes.
+- **A file that changes on disk is read again**, and a missing one is looked for again: the
+  worker looks at each file's size and date every two seconds while the conversation is open.
+
+Before a picture has ever been read its size is not known, and the page holds what the web
+window holds: four to three across the column, no taller than the window allows. When the
+picture lands, the words under it move once to their place, as they do in the web window.
+Filmed frame by frame (`--script` with a key that opens the thread, `--strip`), a conversation
+with three small pictures draws that held place for one frame and is whole and still from the
+second; one that opens at its foot keeps its last words where they are throughout. A folder
+draws three held places until it has been listed, then its pictures as each is read.
+
+Measured, each a headless still at 1280 by 760, 2x, in the debug build
+(`/usr/bin/time -l ./target/debug/mercury --fixture shots/<scene>-fixture.json --thread --snap …`).
+Photograph `thread-pictures-many` last before measuring: any other scene that plants the folder
+starts it again without the ten screenshots, and the measurement then reads none.
+
+| Conversation | Most memory resident | Peak footprint |
+|---|---|---|
+| `thread`, no pictures | 135 MB | 312 MB |
+| `thread-pictures`, three small ones | 135 MB | 313 MB |
+| `thread-pictures-many`, ten 2880 by 1800 screenshots | 238 MB | 423 MB |
+
+So ten screenshots cost about 100 MB at their worst moment: 47 MB of copies, what the ones on
+screen take again in Rune's own atlas of what it draws, and the one screenshot being decoded and
+shrunk, which is let go before the next is read. The 135 MB under them is the headless run
+itself. A still reads all ten at once; a window was not measured.
+Reading one such screenshot takes 49 ms in the release build and 2.2 s in the debug build
+(`cargo test --release -- --ignored --nocapture a_screenshot_is_read_in`), so a debug window
+fills in a page of screenshots slowly. `MERCURY_PICTURES=1` prints what is held each time it
+changes.
+
 ## The same rows as the web window
 
 Which threads are in which list, in which order and with which words is decided by rules ported
@@ -232,8 +357,30 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
 - **Large text sits a fraction of a pixel differently**, which shows only in a difference map.
 - **A long conversation can sit a pixel higher**, in a tall window: the heights of its parts add
   up a sliver apart.
-- **A file named in a message is its path.** The web window draws a picture in place and makes a
-  page, a document or a film a link; here they are the words the agent wrote.
+- **A file named in a message, where it still differs:**
+  - A film or a sound is its name, which opens it. The web window plays it in place.
+  - A page, a sheet or a note opens with the system. The web window opens it in a pane beside
+    the conversation, and its rules open a design page or a note on a line of its own there by
+    themselves (`message-artifacts.ts`). The reference page has no engine to find a file
+    with, so that pane was never photographed (`thread-links-beside` draws the same in both).
+  - The head strip has no files button. The web window's counts the files a thread names.
+  - A mention's underline sits where the font puts it, two points higher than the web window's
+    (`text-underline-offset: 4px`), and runs under the space before a line break. Rune's span
+    has an underline and no offset. The same was already true of a link.
+  - A picture not found under any root is missing. The web window then asks the app, which
+    also hunts the project's folders for a file of that name.
+  - A picture on the web (`https://…`) or pasted as `data:` is a mention, not drawn: this window
+    reads pictures from the disk only. An `.svg` and an `.avif` are not decoded and say missing;
+    an animated picture shows its first frame.
+  - The place held for a picture on its way, and a missing picture's mark, do not change under
+    the pointer, and the place does not shimmer.
+  - A conversation opened unfolded lands on its foot. The web window lands on the top of the
+    last answer when that answer is taller than the window, which pictures make it.
+  - What only a conversation between people has is not drawn: tiles under a message
+    (`MessageFiles`), how a file reached a teammate, a voice note. Nor a thread or a connection
+    named as a link, which stays a link.
+  - With more pictures than the budget holds, one less than half on screen may hold its place
+    until more of it shows: Rune reports an element on screen from half of it.
 - **The team's card has no rows.** With teammates, Home's second card is the team's week; it says
   so when nobody else is on the team and is bare otherwise, until the Team page is drawn.
 - **The composer's chips are drawn, not chosen.** The model always reads Opus 5.5, To always
@@ -297,6 +444,11 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
   `src/markdown.rs` draws an agent's words.
 - `src/later.rs`: the Later picker. `src/rules/later.rs` reads the time typed into it, on the
   calendar `src/rules/calendar.rs` keeps.
+- `src/files.rs`: the files those words name, drawn, and the one function that opens one.
+  `src/pictures.rs`: the pictures, read off the disk on a worker and kept small.
+  `src/rules/paths.rs`, `mentions.rs`, `roots.rs`: which words name a file, what kind it is and
+  what it is called, and where it is looked for.
+- `tools/pictures.mjs`: the invented project folder the scenes that name files are drawn from.
 - `tools/install-mac.sh`: builds the app and puts it in `~/Applications` as "Mercury Native".
 - `src/sky.rs`: the dithered sky, ported from `renderer/src/home/sky.ts` with the same seed.
 - `src/icons.rs`: the icons, with the web app's own paths and strokes.

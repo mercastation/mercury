@@ -1584,6 +1584,7 @@ name = "mercury-desktop"
 version = "0.0.1"
 dependencies = [
  "fancy-regex",
+ "image",
  "pulldown-cmark",
  "regex",
  "rune",

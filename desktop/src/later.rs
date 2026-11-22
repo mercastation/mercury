@@ -151,7 +151,8 @@ pub fn view(s: &State) -> Option<El> {
         .box_shadow(shadow(0.0, 24.0, 70.0, 0.0, rgba(0, 0, 0, 0.55), false))
         .modal_tx(true, |s: &mut State, _| s.close_later())
         .child(el().pt(14.0).px(18.0).pb(2.0).child(pen(label("Later", 15.5, 600.0, ink()), 15.5)))
-        .child(el().px(18.0).pb(10.0).child(pen(label(&crate::rules::title::row_title(item), 13.0, 400.0, dim()), 13.0)))
+        // A long name takes the lines it needs, as a block of text does in the web window.
+        .child(el().px(18.0).pb(10.0).child(pen(label(&crate::rules::title::row_title(item), 13.0, 400.0, dim()).wrap().max_w(width - 38.0), 13.0)))
         .child(ask)
         .child(list);
     // `--scrim` over the whole window, as this look has it.
