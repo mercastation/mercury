@@ -60,6 +60,8 @@ pub struct Reading {
     /// The conversation, by `product/id`, whose last read of its runs' logs failed: the working
     /// line's steps say so until a read lands (`historyError`).
     history_failed: Option<String>,
+    /// A read of the open conversation's log landed since its working line was opened.
+    history_read_since_open: bool,
     /// The lines of what a run ran that were opened, and how far (`open` in `Thread.tsx`), by
     /// `product/id|line>name`; one folded back by hand is kept as shut. And those whose command
     /// the column cut, which open onto it.
@@ -576,6 +578,7 @@ impl State {
             if self.reading.history_failed.as_deref().is_some_and(|thread| run.starts_with(&format!("{thread}|"))) {
                 self.reading.history_failed = None;
             }
+            self.reading.history_read_since_open = false;
             self.ask_for_the_open_thread(true);
         }
     }
@@ -585,6 +588,9 @@ impl State {
         if ok {
             if self.reading.history_failed.as_deref() == Some(thread) {
                 self.reading.history_failed = None;
+            }
+            if self.thread_on_screen().as_deref() == Some(thread) {
+                self.reading.history_read_since_open = true;
             }
         } else {
             self.reading.history_failed = Some(thread.to_string());
@@ -1359,12 +1365,17 @@ fn live_steps(s: &State, run: &str, steps: &live::Steps) -> El {
     // The run's log read for them did not come back: said under whatever was read before it,
     // until a read lands (`historyError`). With nothing at all to list, that there is nothing.
     let unread = s.reading.history_failed.as_deref().is_some_and(|thread| run.starts_with(&format!("{thread}|")));
-    let said = |words_said: &str| row().h(28.0).items_center().child(readable(text(words_said).font(words).color(dim())));
+    // With no read of the log landed since the line opened, the steps it finished are not known,
+    // and only the calls running now are listed (`setHistory([])` on opening).
+    let finished_unknown = unread && !s.reading.history_read_since_open;
+    let steps = if finished_unknown { live::Steps { earlier: 0, rows: steps.rows[steps.rows.len() - steps.running..].to_vec(), running: steps.running } } else { steps.clone() };
+    let out = if finished_unknown { col().pt(8.0) } else { out };
+    let said = |words_said: &str| readable(text(words_said).font(words).color(dim()));
     if steps.rows.is_empty() {
         return out.child(said(if unread { live::HISTORY_UNREAD } else { live::NO_COMMANDS }));
     }
     let failed = unread.then(|| said(live::HISTORY_UNREAD));
-    let out = live_step_rows(s, run, steps, out);
+    let out = live_step_rows(s, run, &steps, out);
     out.children(failed)
 }
 
@@ -1391,7 +1402,11 @@ fn live_step_rows(s: &State, run: &str, steps: &live::Steps, mut out: El) -> El 
             });
         let mut item = col().child(head);
         if open {
-            let command = readable(text(step.detail.as_str()).font(TextStyle::new(12.0, 400.0).family(rune::Family::SystemMono).lh(19.2)).color(dim()).wrap_anywhere());
+            // Chromium sets the system's monospace at its own advance, 0.6 of the size; Rune sets
+            // it 0.217 points a letter wider at 12 points, which `'trak' 0` does not take back,
+            // so the letters are drawn that much closer.
+            let face = TextStyle::new(12.0, 400.0).family(rune::Family::SystemMono).lh(19.2).tracking(-0.217);
+            let command = readable(text(step.detail.as_str()).font(face).color(dim()).wrap_anywhere());
             item = item.child(el().ml(21.0).mt(4.0).mb(10.0).px(14.0).py(12.0).radius(6.0).fill(rgba(40, 38, 37, 0.9)).border(1.0, edge()).border_layout().child(command));
         }
         out = out.child(item);

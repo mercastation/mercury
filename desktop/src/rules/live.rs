@@ -593,6 +593,8 @@ pub struct StepRow {
 pub struct Steps {
     pub earlier: usize,
     pub rows: Vec<StepRow>,
+    /// How many of the rows, at their foot, are calls running now.
+    pub running: usize,
 }
 
 /// The steps of `history` not still running: each call in `running` takes the newest step
@@ -629,7 +631,7 @@ pub fn steps(history: &[Took], running: &[Activity]) -> Steps {
         })
         .collect();
     rows.extend(running.iter().map(|a| StepRow { label: a.label.clone(), detail: a.detail.clone() }));
-    Steps { earlier: finished.len() - recent.len(), rows }
+    Steps { earlier: finished.len() - recent.len(), rows, running: running.len() }
 }
 
 /// The line over the rows for the finished steps not listed.
@@ -1108,6 +1110,7 @@ mod tests {
         assert_eq!(earlier_steps(3), "3 earlier steps since it last said something");
         assert_eq!(earlier_steps(1), "1 earlier step since it last said something");
         assert_eq!(steps(&[took(0.0, "ran", "git status", "")], &[]).rows[0].detail, "git status");
-        assert_eq!(steps(&[], &[]), Steps { earlier: 0, rows: vec![] });
+        assert_eq!(steps(&[], &[]), Steps { earlier: 0, rows: vec![], running: 0 });
+        assert_eq!(shown.running, 1);
     }
 }
