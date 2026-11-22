@@ -756,6 +756,8 @@ impl Talk {
     /// happened, the ask first, the agent's last word held out of the stream while it is still
     /// the last word, and the middle of a long one left out unless `whole`. `saying` is the
     /// sentence a running agent is typing, which the log has not caught yet.
+    /// Kept for a reader that places nothing sent and no Z (the tests, the conversation's steps).
+    #[allow(dead_code)]
     pub fn read(lines: &[Line], sessions: &[TraceSession], saying: Option<&Saying>, whole: bool) -> Talk {
         Talk::read_with(lines, sessions, saying, whole, &[], &[])
     }

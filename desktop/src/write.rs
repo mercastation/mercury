@@ -152,6 +152,9 @@ pub struct Answer {
     /// Whether the line about it named a thread the person was moved on from, so a grace Z
     /// opens that thread again.
     pub moved_on: bool,
+    /// Its stamp among the replies written down as on their way (`drafts::InFlight`), 0 for a
+    /// pick, which is not written down.
+    pub in_flight: f64,
 }
 
 /// What the box to start a thread in held when Send was pressed: the words, the files, and the

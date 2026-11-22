@@ -216,8 +216,13 @@ pub const SENT_LINE_MS: f64 = 5_000.0;
 pub const PICK_SETTLES_MS: f64 = 800.0;
 pub const AIMED_AT_THE_THREAD_YOU_LEFT: &str = "That number was for the thread you just left. Press it again to answer this one.";
 pub const THE_OPTIONS_MOVED: &str = "The options moved under your pointer. Click the one you want again.";
-/// How far the options must move under the pointer to count (`MOVED_PX`).
+/// How far the options must move under the pointer to count, and the pointer to have moved for a
+/// press to be the person's own (`MOVED_PX`).
 pub const MOVED_PX: f32 = 4.0;
+/// A pointer that has not moved since the app put a thread under it is still aimed at the one
+/// before for this long (`STILL_POINTER_MS`).
+pub const STILL_POINTER_MS: f64 = 10_000.0;
+pub const CLICK_FOR_THE_THREAD_YOU_LEFT: &str = "That click was for the thread you just left. Click again to answer this one.";
 
 /* ------------------------------ the question before a discard ------------------------------ */
 

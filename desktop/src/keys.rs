@@ -33,6 +33,10 @@ fn next_tab(s: &State, back: bool) -> crate::data::Tab {
 /// only lets go of it while it holds words or files, which hold it open (`held` in
 /// `DockComposer`'s keys): the next Escape is the page's, which folds it.
 pub fn in_the_reply(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
+    // R held down after it opened the box does not type itself into it (`heldKeyThatOpenedTheBox`).
+    if matches!(&e.key, Key::Text(t) if t.eq_ignore_ascii_case("r")) && tx.key_repeat() && s.reply.text.is_empty() {
+        return true;
+    }
     if e.key == Key::Enter && e.mods.cmd {
         s.send_reply(tx);
         return true;
@@ -294,6 +298,14 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
             // the numbers, the arrows, Enter and Escape (`closeAskOwnsKey`).
             if s.discard_key(e, tx) {
                 return true;
+            }
+            // A letter typed with no box under the keys goes into the thread's box, unless it is
+            // one of the thread's own keys (`keyOnAnOpenThread`).
+            if s.letter_on_an_open_thread(e, tx) {
+                return true;
+            }
+            if letter == "e" || letter == "j" || letter == "k" {
+                s.answering.moved_by_key_at = Some(s.at);
             }
             // Escape is one step back: the steps the working line unfolded onto, the open reply
             // box, then the conversation, onto the tab the strip names (`putAwayTheNewest`,

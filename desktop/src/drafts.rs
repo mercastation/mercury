@@ -36,6 +36,9 @@ pub struct InFlight {
     pub words: String,
     pub body: String,
     pub at: f64,
+    /// The files the box held, which come back with the words.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<KeptFile>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -328,7 +331,7 @@ mod tests {
 
     #[test]
     fn a_reply_reached_its_thread_when_an_answer_there_carries_its_words() {
-        let reply = InFlight { words: "Ship it.".to_string(), body: "Ship it.\n\n[a.pdf](attachments/a.pdf)".to_string(), at: 1.0 };
+        let reply = InFlight { words: "Ship it.".to_string(), body: "Ship it.\n\n[a.pdf](attachments/a.pdf)".to_string(), at: 1.0, files: Vec::new() };
         assert!(landed_in(&reply, &["Ship  it.".to_string()]));
         assert!(!landed_in(&reply, &["Hold it.".to_string()]));
         assert_eq!(back_in_the_box(1), "Your reply didn’t send. It’s back in the box.");

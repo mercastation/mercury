@@ -75,10 +75,15 @@ pub struct Answering {
     /// The thread the app last put the person on by itself, and when on the window's clock: a
     /// number pressed within 0.8 s of that was meant for the thread before (`pickLandsHere`).
     pub arrived: Option<(String, f64)>,
-    /// The option strip's top while the pointer is on it, and when it last moved under a still
-    /// pointer, on the window's clock (`stripUnderThePointer`).
+    /// The option strip's top while the pointer is on it, as the pointer last found it, and the
+    /// top it was last seen at with when it moved there under a pointer that had not moved, on
+    /// the window's clock (`stripUnderThePointer`): noticed as the page is drawn.
     pub strip: Option<f32>,
-    pub strip_moved_at: Option<f64>,
+    pub strip_moved: std::cell::Cell<Option<(f32, f64)>>,
+    /// Where the pointer last was over the conversation, in window points, and where it was
+    /// when the app last moved the person onto a thread (`pointer`, `arrived.from`).
+    pub pointer: Option<(f32, f32)>,
+    pub arrived_from: Option<(f32, f32)>,
     /// Whether the once-ever warning about a waiting agent has been given (`zero.stoppedWarned`).
     pub warned: bool,
     /// The replies sent and not yet written, by thread, written down so a restart cannot lose
@@ -96,6 +101,19 @@ pub struct Answering {
     /// The line over the thread a send moved the person to, while it stands: its own clock,
     /// which stops while the pointer is on it (`SentLine`).
     pub sent_line: Option<SentClock>,
+    /// What the screen is, and when it last changed by itself rather than by E, J or K, and when
+    /// one of those last moved it, on the window's clock (`screenChangedAt`, `movedByKeyAt`).
+    pub screen: String,
+    pub screen_changed_at: Option<f64>,
+    pub moved_by_key_at: Option<f64>,
+    /// When a letter was last typed into the box from the page, and E or L held a moment to see
+    /// whether a word follows (`typedIntoBoxAt`, `waitingKey`): the letter, its thread, and when.
+    pub typed_at: Option<f64>,
+    pub waiting_key: Option<(String, String, f64)>,
+    /// What the looks for replies a restart may have lost found, by thread: the stamps that
+    /// landed, and the replies never found, to go back in their boxes.
+    #[allow(clippy::type_complexity)]
+    pub unsent: std::sync::Arc<std::sync::Mutex<Vec<(String, Vec<f64>, Vec<crate::drafts::InFlight>)>>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -111,6 +129,11 @@ pub struct SentClock {
 
 /// The kept marks: the newest 300.
 const MAX_UNDO_MARKS: usize = 300;
+
+/// Keys go into the box for a second after the last one typed into it from the page, and E or
+/// L wait this long for a letter after them (`STILL_TYPING_MS`, `WORD_FOLLOWS_MS`).
+const STILL_TYPING_MS: f64 = 1000.0;
+const WORD_FOLLOWS_MS: f64 = 350.0;
 
 fn key(item: &Item) -> String {
     format!("{}/{}", item.product, item.id)
@@ -308,6 +331,106 @@ impl State {
         })
     }
 
+    /* -------------------------------- a reply on its way -------------------------------- */
+
+    /// Writes a reply down as on its way, so a restart cannot lose it, and returns its stamp
+    /// (`markReplyInFlight`). Pictures past the budget are the first thing given up: the words
+    /// are what must survive.
+    pub(crate) fn mark_in_flight(&mut self, thread: &str, words: &str, body: &str, files: &[crate::attach::Attached]) -> f64 {
+        let list = self.answering.in_flight.entry(thread.to_string()).or_default();
+        let mut at = write::wall_clock();
+        while list.iter().any(|r| r.at == at) {
+            at += 1.0;
+        }
+        let (files, _) = crate::drafts::within_budget(files.iter().map(crate::drafts::KeptFile::of).collect());
+        list.push(crate::drafts::InFlight { words: words.to_string(), body: body.to_string(), at, files });
+        at
+    }
+
+    /// The reply stamped `at` was written, refused back into the box, or taken back (`replyLanded`).
+    pub(crate) fn in_flight_landed(&mut self, thread: &str, at: f64) {
+        if let Some(list) = self.answering.in_flight.get_mut(thread) {
+            list.retain(|r| r.at != at);
+            if list.is_empty() {
+                self.answering.in_flight.remove(thread);
+            }
+        }
+    }
+
+    /// At launch, the replies the last window wrote down and never saw land are looked for in
+    /// their threads, off the main thread: three times, at once and then thirty and ninety
+    /// seconds on, after the hold and five seconds more, so a write still on its way can land
+    /// first. One never found goes back in its box (`bringBackWhenSure`).
+    pub(crate) fn look_for_unsent(&mut self, wake: rune::Waker) {
+        let crate::source::Source::Door(door) = self.source.clone() else { return };
+        let owed: Vec<(String, Vec<crate::drafts::InFlight>)> = self.answering.in_flight.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        if owed.is_empty() {
+            return;
+        }
+        let found = self.answering.unsent.clone();
+        std::thread::spawn(move || {
+            for (thread, replies) in owed {
+                let Some((product, id)) = thread.split_once('/').map(|(p, i)| (p.to_string(), i.to_string())) else { continue };
+                let newest = replies.iter().map(|r| r.at).fold(0.0, f64::max);
+                let wait = newest + crate::rules::writes::UNDO_GRACE_MS + 5000.0 - write::wall_clock();
+                if wait > 0.0 {
+                    std::thread::sleep(std::time::Duration::from_millis(wait as u64));
+                }
+                let mut left = replies;
+                for (n, pause) in crate::drafts::UNSENT_CHECKS_MS.iter().enumerate() {
+                    if *pause > 0.0 {
+                        std::thread::sleep(std::time::Duration::from_millis(*pause as u64));
+                    }
+                    let read = door.now().and_then(|(url, token)| crate::source::call(&url, &token, "zero:item-history", &serde_json::json!({ "product": product, "id": id })).ok());
+                    let answers: Option<Vec<String>> = read.as_ref().filter(|r| r.get("ok") != Some(&serde_json::Value::Bool(false))).map(|r| {
+                        r.get("lines").and_then(serde_json::Value::as_array).into_iter().flatten().filter_map(|l| l.get("patch").and_then(|p| p.get("answer")).and_then(serde_json::Value::as_str).map(str::to_string)).collect()
+                    });
+                    let last = n + 1 == crate::drafts::UNSENT_CHECKS_MS.len();
+                    let Some(answers) = answers else {
+                        if last {
+                            found.lock().unwrap().push((thread.clone(), left.iter().map(|r| r.at).collect(), left.clone()));
+                        }
+                        continue;
+                    };
+                    let (landed, still): (Vec<_>, Vec<_>) = left.into_iter().partition(|r| crate::drafts::landed_in(r, &answers));
+                    found.lock().unwrap().push((thread.clone(), landed.iter().map(|r| r.at).collect(), if last { still.clone() } else { Vec::new() }));
+                    left = still;
+                    if left.is_empty() || last {
+                        break;
+                    }
+                }
+                wake();
+            }
+        });
+    }
+
+    /// What the looks found: landed replies let go; those never found back in their boxes,
+    /// after what each box holds, and a line naming the thread.
+    pub(crate) fn tend_unsent(&mut self, tx: &mut Tx) -> bool {
+        let found: Vec<_> = std::mem::take(&mut *self.answering.unsent.lock().unwrap());
+        let mut changed = false;
+        for (thread, done, back) in found {
+            let still: Vec<f64> = self.answering.in_flight.get(&thread).map(|l| l.iter().map(|r| r.at).collect()).unwrap_or_default();
+            for at in done {
+                self.in_flight_landed(&thread, at);
+            }
+            // Only what is still written down: a send made since is this window's own.
+            let back: Vec<_> = back.into_iter().filter(|r| still.contains(&r.at)).collect();
+            if back.is_empty() {
+                continue;
+            }
+            for r in &back {
+                let files = r.files.iter().filter_map(crate::drafts::attached).collect();
+                self.put_back_failed(&thread, &r.words, files);
+            }
+            if let Some((product, id)) = thread.split_once('/') {
+                self.say_about(&crate::drafts::back_in_the_box(back.len()), (id.to_string(), product.to_string()), tx);
+            }
+            changed = true;
+        }
+        changed
+    }
+
     /* ------------------------------------- Z's pile ------------------------------------- */
 
     /// Z with nothing held: the newest thing on the pile, at once while it is under half a
@@ -477,9 +600,36 @@ impl State {
             Some((id, product)) => {
                 self.step_to_thread(&id, &product);
                 self.answering.arrived = Some((format!("{product}/{id}"), at));
+                self.answering.arrived_from = self.answering.pointer;
             }
             None => self.leave_thread(),
         }
+    }
+
+    /// A press on one of the open thread's options. Not when the options moved under a still
+    /// pointer a moment ago, nor on a thread the app just put under the pointer: the press was
+    /// aimed at what stood there before, and a line says so (`pickByClick`, `clickAimedHere`).
+    pub(crate) fn click_option(&mut self, at: usize, tx: &mut Tx) {
+        if self.answering.strip_moved.get().is_some_and(|(_, when)| (self.at - when) * 1000.0 < rules::PICK_SETTLES_MS) {
+            self.answering.strip_moved.set(None);
+            self.tell(rules::THE_OPTIONS_MOVED, tx);
+            return;
+        }
+        let here = self.open_item().map(|i| format!("{}/{}", i.product, i.id));
+        if let Some((on, when)) = self.answering.arrived.clone().filter(|(on, _)| Some(on) == here.as_ref()) {
+            let since = (self.at - when) * 1000.0;
+            let still = match (self.answering.arrived_from, self.answering.pointer) {
+                (Some((x0, y0)), Some((x, y))) => since < rules::STILL_POINTER_MS && (x - x0).hypot(y - y0) <= rules::MOVED_PX,
+                _ => false,
+            };
+            if since < rules::PICK_SETTLES_MS || still {
+                let _ = on;
+                self.answering.arrived_from = None;
+                self.tell(rules::CLICK_FOR_THE_THREAD_YOU_LEFT, tx);
+                return;
+            }
+        }
+        self.pick_option(at, tx);
     }
 
     /* --------------------------- the question before a discard --------------------------- */
@@ -547,6 +697,98 @@ impl State {
         }
     }
 
+    /* ------------------------------- typing on an open thread ------------------------------- */
+
+    /// What a letter typed on an open thread with no box under the keys means
+    /// (`keyOnAnOpenThread`): the thread's own keys (J K R N Z O G S, a number while options
+    /// stand) are its shortcuts; E and L are too, unless the screen has just changed, when they
+    /// wait a moment for a letter after them, or go to the box when the app put the person here;
+    /// any other letter, and every letter for a second after one went there, goes into the box.
+    /// True when the key was taken here.
+    pub(crate) fn letter_on_an_open_thread(&mut self, e: &rune::KeyEvent, tx: &mut Tx) -> bool {
+        let rune::edit::Key::Text(typed) = &e.key else { return false };
+        let Some(item) = self.open_item().cloned() else { return false };
+        let thread = key(&item);
+        let printable = typed.chars().count() == 1 && typed != " ";
+        // A letter after E or L held: both go into the box, a word being typed.
+        if let Some((held, on, _)) = self.answering.waiting_key.clone() {
+            if tx.key_repeat() && held.eq_ignore_ascii_case(typed) {
+                return true;
+            }
+            self.answering.waiting_key = None;
+            if typed.chars().count() == 1 && !tx.key_repeat() && on == thread {
+                self.type_into_the_box(&format!("{held}{typed}"), tx);
+                return true;
+            }
+        }
+        let still_typing = self.answering.typed_at.is_some_and(|at| (self.at - at) * 1000.0 < STILL_TYPING_MS);
+        if still_typing && typed.chars().count() == 1 {
+            self.type_into_the_box(typed, tx);
+            return true;
+        }
+        if !printable {
+            return false;
+        }
+        let letter = typed.to_lowercase();
+        if ["j", "k", "r", "n", "z", "o", "g", "s"].contains(&letter.as_str()) {
+            return false;
+        }
+        let just_changed = self.answering.screen_changed_at.is_some_and(|at| (self.at - at) * 1000.0 < rules::PICK_SETTLES_MS);
+        let moved_you = self.answering.arrived.as_ref().is_some_and(|(on, at)| *on == thread && (self.at - at) * 1000.0 < rules::PICK_SETTLES_MS);
+        if letter == "e" || letter == "l" {
+            if !just_changed {
+                return false;
+            }
+            if moved_you {
+                self.type_into_the_box(typed, tx);
+            } else {
+                self.answering.waiting_key = Some((typed.clone(), thread, self.at));
+                tx.wake_after(std::time::Duration::from_millis(WORD_FOLLOWS_MS as u64 + 1));
+            }
+            return true;
+        }
+        let has_options = !crate::thread::live_options(&item).is_empty();
+        if letter.len() == 1 && letter.chars().all(|c| ('1'..='9').contains(&c)) && has_options {
+            return false;
+        }
+        self.type_into_the_box(typed, tx);
+        true
+    }
+
+    /// Words typed on the page go after the box's words, and the box opens with the caret at their
+    /// end (`typeIntoTheBox`).
+    fn type_into_the_box(&mut self, words: &str, tx: &mut Tx) {
+        self.answering.typed_at = Some(self.at);
+        let text = format!("{}{words}", self.reply.text);
+        self.reply = rune::TextEdit::new(text);
+        self.open_reply(tx);
+    }
+
+    /// E or L held a moment for a word, with none after it: it does what it does
+    /// (`actAfterTheWait`). And the screen's changes are noticed for the next key.
+    pub(crate) fn tend_keys(&mut self, tx: &mut Tx) {
+        let screen = format!("{:?}|{}|{}|{}|{:?}", self.view, self.later.on.is_some(), self.palette.open, self.compose.card, self.settings.open);
+        if screen != self.answering.screen {
+            self.answering.screen = screen;
+            if self.answering.moved_by_key_at.is_none_or(|at| (self.at - at) * 1000.0 > 1500.0) {
+                self.answering.screen_changed_at = Some(self.at);
+            }
+        }
+        let Some((held, on, at)) = self.answering.waiting_key.clone() else { return };
+        if (self.at - at) * 1000.0 < WORD_FOLLOWS_MS {
+            return;
+        }
+        self.answering.waiting_key = None;
+        if self.open_item().is_none_or(|item| key(item) != on) {
+            return;
+        }
+        if held.eq_ignore_ascii_case("e") {
+            crate::keys::close_under_the_keys(self, tx);
+        } else if let Some(item) = self.open_item().cloned() {
+            self.open_later(&item.id, &item.product, tx);
+        }
+    }
+
     /* ------------------------------ the waiting agent's warning ------------------------------ */
 
     /// The first E or L ever on a thread whose agent waits on the person: E is held and the
@@ -567,6 +809,24 @@ impl State {
         self.later.warning = Some(rules::stopped_warning(false));
         false
     }
+}
+
+/// The window is going: what waits its three seconds is written now, on this thread, before it
+/// goes, as the web window writes what it holds when its page goes (`pagehide`, `onWriteHeld`);
+/// a reply written so lands, and every box is written down.
+pub fn on_close(s: &mut State, _tx: &mut Tx) {
+    if let (Some(held), crate::source::Source::Door(door)) = (s.held.take(), &s.source) {
+        if let Some((url, token)) = door.now() {
+            let mut writes = vec![(held.channel, held.payload.clone())];
+            writes.extend(held.then.clone());
+            let ok = writes.iter().all(|(channel, payload)| crate::source::call_waiting(&url, &token, channel, payload, std::time::Duration::from_secs(5)).is_ok());
+            if let (true, write::Sent::Reply { thread, answer, .. }) = (ok, &held.sent) {
+                let (thread, at) = (thread.clone(), answer.in_flight);
+                s.in_flight_landed(&thread, at);
+            }
+        }
+    }
+    s.keep_drafts();
 }
 
 /// What a picture's fixture says was done before it was taken: a reply sent from the open
@@ -602,6 +862,40 @@ pub fn picture(s: &mut State, tx: &mut Tx) {
             };
             crate::keys::pressed(s, &rune::KeyEvent { key, mods: rune::Mods::default() }, tx);
         }
+    }
+}
+
+/// Where the page's own controls stood as a menu of the reply box was drawn over them: the
+/// agent's options, and Stop. A press outside the menu that lands on one of them goes on to it,
+/// as the web window's press does after the menu closes.
+#[derive(Clone, Debug, Default)]
+pub struct PageMarks {
+    options: Vec<[f32; 4]>,
+    stop: Option<[f32; 4]>,
+}
+
+/// Read as the page is drawn.
+pub fn page_marks() -> PageMarks {
+    let options = (0..).map_while(|at| rune::memo::window_layout(&format!("option-{at}"))).collect();
+    PageMarks { options, stop: rune::memo::window_layout("dock-stop") }
+}
+
+impl State {
+    /// A press outside an open menu of the box, after the menu closed: on an option it picks it,
+    /// on Stop it stops. True when it landed on one.
+    pub(crate) fn press_lands_on_the_page(&mut self, at: [f32; 2], marks: &PageMarks, tx: &mut Tx) -> bool {
+        let inside = |[x, y, w, h]: [f32; 4]| at[0] >= x && at[0] < x + w && at[1] >= y && at[1] < y + h;
+        if let Some(option) = marks.options.iter().position(|rect| inside(*rect)) {
+            self.click_option(option, tx);
+            return true;
+        }
+        if marks.stop.is_some_and(inside) {
+            if let Some(item) = self.open_item().cloned() {
+                self.stop_agent(&item.id, &item.product);
+            }
+            return true;
+        }
+        false
     }
 }
 
@@ -1043,6 +1337,8 @@ mod tests {
     #[test]
     fn the_first_close_ever_of_a_waiting_agent_is_held_and_says_what_it_costs() {
         let mut rt = asking("warned", &["--thread"]);
+        // Past the moment in which E, just after the screen changed, waits for a word.
+        run(&mut rt, 1.0);
         key(&mut rt, Key::Text("e".into()));
         assert!(rt.state.held.is_none(), "the press did not land");
         assert_eq!(sent_line(&rt).as_deref(), Some("This agent is waiting on your answer, and marking it done leaves it stuck. Press again to go ahead."));
@@ -1054,10 +1350,12 @@ mod tests {
     #[test]
     fn the_warning_given_on_l_is_the_same_once_and_opens_the_picker_with_it() {
         let mut rt = asking("warned-later", &["--thread"]);
+        run(&mut rt, 1.0);
         key(&mut rt, Key::Text("l".into()));
         assert!(rt.state.later.on.is_some());
         assert_eq!(rt.state.later.warning.as_deref(), Some("This agent is waiting on your answer, and putting it off leaves it stuck."));
         key(&mut rt, Key::Escape);
+        run(&mut rt, 1.0);
         // Said once for both keys.
         key(&mut rt, Key::Text("e".into()));
         assert!(rt.state.held.is_some());
@@ -1065,7 +1363,7 @@ mod tests {
 
     #[test]
     fn a_reply_from_needs_you_moves_on_and_one_from_elsewhere_stays_and_follows_the_thread() {
-        let mut rt = window("moves-on", &["--view", "inbox"]);
+        let mut rt = asking("moves-on", &["--view", "inbox"]);
         key(&mut rt, Key::Enter);
         let first = rt.state.open_item().map(|i| i.id.clone()).unwrap();
         key(&mut rt, Key::Text("r".into()));
@@ -1089,6 +1387,68 @@ mod tests {
         assert_eq!(rt.state.answering.following, Some((row.id.clone(), row.product.clone())));
         key(&mut rt, Key::Escape);
         assert_eq!((rt.state.view.clone(), rt.state.inbox_tab), (View::Inbox, crate::data::Tab::Needs));
+    }
+
+    #[test]
+    fn a_letter_typed_on_an_open_thread_goes_into_its_box_and_its_own_keys_stay_its_own() {
+        let mut rt = asking("typed", &["--thread"]);
+        run(&mut rt, 1.0);
+        key(&mut rt, Key::Text("W".into()));
+        assert!(rt.state.replying, "the box opened");
+        assert_eq!(rt.state.reply.text, "W");
+        // The thread's own keys are not typed: 1 picks while options stand.
+        let mut rt = asking("typed-keys", &["--thread"]);
+        run(&mut rt, 1.0);
+        key(&mut rt, Key::Text("1".into()));
+        assert!(rt.state.held.is_some() && rt.state.reply.text.is_empty());
+        // Right after the screen changed, E waits a moment: a letter after it types both.
+        let mut rt = asking("typed-e", &["--thread"]);
+        key(&mut rt, Key::Text("e".into()));
+        assert!(rt.state.held.is_none() && rt.state.answering.waiting_key.is_some());
+        key(&mut rt, Key::Text("x".into()));
+        assert_eq!(rt.state.reply.text, "ex");
+        // With none after it, it does what it does once the moment is over.
+        let mut rt = asking("typed-e-alone", &["--thread"]);
+        rt.state.answering.warned = true;
+        key(&mut rt, Key::Text("e".into()));
+        run(&mut rt, 0.5);
+        assert!(rt.state.held.as_ref().is_some_and(|h| h.closes.is_some()), "E closed it after the wait");
+    }
+
+    #[test]
+    fn a_press_on_nothing_folds_an_empty_box_and_a_draft_holds_it_open() {
+        let mut rt = window("fold-away", &["--thread"]);
+        run(&mut rt, 1.0);
+        key(&mut rt, Key::Text("r".into()));
+        assert!(rt.state.replying);
+        // Far right of the column, on the page and on nothing.
+        press(&mut rt, 1180.0, 300.0);
+        assert!(!rt.state.replying, "folded");
+        key(&mut rt, Key::Text("r".into()));
+        typed(&mut rt, "Half a thought");
+        press(&mut rt, 1180.0, 300.0);
+        assert!(rt.state.replying, "a draft holds it open");
+    }
+
+    #[test]
+    fn a_click_on_a_thread_the_app_just_put_under_a_still_pointer_is_not_taken() {
+        let mut rt = asking("click-guard", &["--thread"]);
+        let thread = rt.state.open_item().map(|i| format!("{}/{}", i.product, i.id)).unwrap();
+        // The app put the person here a moment ago, the pointer where it was then.
+        rt.state.answering.pointer = Some((600.0, 600.0));
+        rt.update(|s, _| {
+            s.answering.arrived = Some((thread.clone(), s.at));
+            s.answering.arrived_from = Some((600.0, 600.0));
+        });
+        rt.update(|s, tx| s.click_option(0, tx));
+        assert_eq!(sent_line(&rt).as_deref(), Some(rules::CLICK_FOR_THE_THREAD_YOU_LEFT));
+        assert!(rt.state.held.is_none());
+        // Inside the next 0.8 s it is still not taken; past them, the next click is the person's own.
+        rt.update(|s, tx| s.click_option(0, tx));
+        assert!(rt.state.held.is_none());
+        run(&mut rt, 1.0);
+        rt.update(|s, tx| s.click_option(0, tx));
+        assert!(rt.state.held.is_some());
     }
 
     #[test]

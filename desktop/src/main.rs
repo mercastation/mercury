@@ -410,6 +410,9 @@ impl State {
             let (id, product) = held.thread.clone();
             self.answering.holding.remove(&id);
             let thread = format!("{product}/{id}");
+            if let write::Sent::Reply { answer, .. } = &held.sent {
+                self.in_flight_landed(&thread, answer.in_flight);
+            }
             let (back, drawn) = match &held.sent {
                 write::Sent::Reply { words, pick, files, answer, .. } => (Some(write::GivenBack { words: words.clone(), pick: pick.clone(), files: files.clone() }), Some(answer.drawn)),
                 write::Sent::Pick { answer, .. } => (None, Some(answer.drawn)),
@@ -550,6 +553,7 @@ impl State {
             write::Sent::SendNow { .. } => return,
             write::Sent::Reply { answer, words, pick, files, .. } => {
                 self.drawn_landed(answer.drawn);
+                self.in_flight_landed(landed.sent.thread(), answer.in_flight);
                 if let Some(held) = self.answering.holding.get_mut(&id) {
                     *held = true;
                 }
@@ -680,8 +684,10 @@ impl State {
             self.reply = TextEdit::new("");
             self.replying = false;
         }
-        // On the page from the press on, as the person's own message, saying it is on its way.
+        // On the page from the press on, as the person's own message, saying it is on its way;
+        // and written down until it lands, so a restart cannot lose it (`markReplyInFlight`).
         let drawn = self.answering.draw(&thread, self.moment(), &message);
+        let in_flight = self.mark_in_flight(&thread, &words, &message, &files);
         let around = if running { rules::answering::Around { after: Vec::new(), undo_first: Vec::new() } } else { rules::answering::around_a_reply(item, self.moment()) };
         let mut undo = around.undo_first;
         undo.extend(rules::answering::withdraw(item, true));
@@ -700,6 +706,7 @@ impl State {
             undoes: rules::answering::REPLY_UNDOES.to_string(),
             mark: write::Mark::of(rules::answering::UNDID_REPLY, None),
             moved_on: moves_on,
+            in_flight,
         };
         self.hold(
             write::Held {
@@ -769,6 +776,7 @@ impl State {
             undoes: rules::answering::pick_undoes(choice.n),
             mark: mark.clone(),
             moved_on: moves_on,
+            in_flight: 0.0,
         };
         self.hold(
             write::Held {
@@ -890,6 +898,7 @@ impl State {
         }
         if let write::Sent::Reply { thread, words, files, answer, .. } = &landed.sent {
             self.answering.let_go(answer.drawn);
+            self.in_flight_landed(thread, answer.in_flight);
             if answer.running {
                 // Its hand-over never happened, so Z goes back to whatever came before it.
                 if let Some(at) = self.undos.iter().rposition(|u| u.writes.is_empty() && format!("{}/{}", u.thread.1, u.thread.0) == *thread) {
@@ -1389,6 +1398,8 @@ fn setup(s: &mut State, wake: Waker) {
     s.settings.wake_with(wake.clone());
     s.pictures.set_waker(wake.clone());
     s.files.set_waker(wake.clone());
+    // The replies the last window never saw land are looked for (`answer.rs`).
+    s.look_for_unsent(wake.clone());
     if let Source::Door(door) = s.source.clone() {
         front::tell_the_app(door.clone());
         source::follow_door(door, s.mailbox.clone(), move || wake());
@@ -1473,6 +1484,8 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
     // What was sent and has long been written lets go of its drawn copy; what the boxes hold is
     // written down; and a thread opened onto a draft gets its caret (`answer.rs`, `drafts.rs`).
     changed |= s.tend_answering(tx);
+    changed |= s.tend_unsent(tx);
+    s.tend_keys(tx);
     s.keep_drafts();
     if std::mem::take(&mut s.answering.focus_reply) && s.replying {
         tx.focus_when_shown("reply", false);
@@ -1688,7 +1701,9 @@ fn main() {
         ..AppSpec::new("Mercury", DEFAULT_SIZE, init, view)
     };
     // The web app sets `-webkit-font-smoothing: antialiased`; `Off` is that rendering.
-    let app = App::new(spec).font_smoothing(FontSmoothing::Off).on_focus(front::focus_changed);
+    // What waits its three seconds is written before the window goes, and the boxes are written
+    // down (`pagehide` in `renderer/src/App.tsx`).
+    let app = App::new(spec).font_smoothing(FontSmoothing::Off).on_focus(front::focus_changed).on_close(answer::on_close);
     // The desktop app's banner and tray bring this window forward from another thread.
     front::reach(app.handle());
     app.run();

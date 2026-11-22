@@ -447,10 +447,18 @@ pub fn layer(s: &State) -> Option<El> {
             Chip::Mode => "What this message may do",
         });
     let marks: Vec<(&'static str, [f32; 4])> = [PRIORITY, MODE, crate::reply::CHIP, crate::reply::SEND, crate::reply::FIELD].into_iter().filter_map(|key| rune::memo::window_layout(key).map(|rect| (key, rect))).collect();
+    // And the page's own controls a press may have been aimed at: the options, Stop.
+    let page_marks = crate::answer::page_marks();
     let press_away = |e: El, marks: Vec<(&'static str, [f32; 4])>| {
+        let page_marks = page_marks.clone();
         e.on_drag(move |s: &mut State, d: &mut Drag, tx: &mut Tx| {
             if d.phase == Phase::Down {
-                pressed_away(s, d.window_point(), &marks, tx);
+                let at = d.window_point();
+                let open = s.chips.menu.is_some();
+                pressed_away(s, at, &marks, tx);
+                if open && s.chips.menu.is_none() {
+                    s.press_lands_on_the_page(at, &page_marks, tx);
+                }
             }
         })
     };

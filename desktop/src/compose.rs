@@ -773,9 +773,13 @@ pub fn reply_menu_layer(s: &State) -> Option<El> {
     let left = chrome::card_left(s);
     let (shell, fit) = placed_menu(s, menu, anchor, hang, (left, w - chrome::CARD[2]));
     let marks: Vec<(&'static str, [f32; 4])> = crate::reply::MARKS.into_iter().filter_map(|key| rune::memo::window_layout(key).map(|rect| (key, rect))).collect();
+    // And the page's own controls a press may have been aimed at: the options, Stop.
+    let page_marks = crate::answer::page_marks();
     let away = el().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).on_drag(move |s: &mut State, d: &mut Drag, tx: &mut Tx| {
         if d.phase == Phase::Down {
-            s.reply_pressed_away(d.window_point(), &marks, tx);
+            let at = d.window_point();
+            s.reply_pressed_away(at, &marks, tx);
+            s.press_lands_on_the_page(at, &page_marks, tx);
         }
     });
     let page_top = chrome::page_top(&s.view);

@@ -1392,7 +1392,9 @@ fn options_strip(choices: &[Choice], on: Option<usize>, m: &Measure) -> El {
             .pr(44.0)
             .gap(10.0)
             .cursor(rune::Cursor::Pointer)
-            .on_press_tx(move |s: &mut State, tx| s.pick_option(at, tx))
+            // A press is aimed at the place it lands: not taken when the options moved under the
+            // pointer, or the app moved the person here, a moment before (`answer.rs`).
+            .on_press_tx(move |s: &mut State, tx| s.click_option(at, tx))
             .child(number)
             .child(pen(text(words).font(TextStyle::new(14.5, 400.0).lh(20.0)).color(tone).group_color(ink()).wrap().max_lines(2), 14.5));
         // The lit one keeps its stronger wash under the pointer; any other is washed, its words
@@ -1406,6 +1408,18 @@ fn options_strip(choices: &[Choice], on: Option<usize>, m: &Measure) -> El {
         }
     });
     el().w(m.column)
+        .key("options-strip")
+        // Where the strip stands while the pointer is on it, and where the pointer is, so a
+        // press can be told from one aimed at what stood there before (`stripUnderThePointer`).
+        .on_pointer_move_local(|s: &mut State, p, _| {
+            s.answering.strip = Some(p.window_y - p.y);
+            s.answering.pointer = Some((p.window_x, p.window_y));
+        })
+        .on_hover_change(|s: &mut State, over, _| {
+            if !over {
+                s.answering.strip = None;
+            }
+        })
         .child(col().w(m.column).radius(10.0).clip_rounded(10.0).border(1.0, edge()).border_layout().children(rows))
         // The little arrow that folds the choices away, washed under the pointer, its mark the
         // text's own colour (`ChoicesFold`, `.one-choices-fold:hover`).
@@ -1422,6 +1436,14 @@ fn dock(s: &State, item: &Item, m: &Measure) -> El {
     // (`.one-choices-folded:not(:has(.opt-row.selected))`).
     // While the question before a discard is up, it stands where the options stood and they go.
     if !choices.is_empty() && !s.answer_waits(item) && s.discard_asked().is_none() && (s.option.is_some() || !crate::chips::choices_folded(s, item)) {
+        // The strip moving four points or more under a pointer resting on it is noticed here,
+        // as the page is drawn, and a press in the next moment is not taken.
+        if let (Some(rested), Some([_, top, _, _])) = (s.answering.strip, rune::memo::window_layout("options-strip")) {
+            let seen = s.answering.strip_moved.get().map_or(rested, |(at, _)| at);
+            if (top - seen).abs() >= crate::rules::answering::MOVED_PX {
+                s.answering.strip_moved.set(Some((top, s.at)));
+            }
+        }
         inner = inner.child(options_strip(&choices, s.option, m).mb(10.0));
     }
     inner = inner.child(if s.replying { composer(s, item, m) } else { reply_box(s, item, m).cursor(rune::Cursor::Text).on_press_tx(|s: &mut State, tx| s.open_reply(tx)) });
@@ -1548,7 +1570,15 @@ pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
         // So does one the person has just sent something to: their words are where they look.
         .scroll(ScrollSpec { stick_bottom: unfolded || (working && page.alone.is_none()) || s.answering.sending.iter().any(|d| d.thread == thread) })
         .child(el().pt(28.0).pl(m.indent).pr(m.right).pb(40.0 + under + whole).child(body.key("thread-said").w(m.column).selection_group(true)));
-    col().w(page_w).h(page_h).child(reading).child(dock(s, item, &m))
+    // A press on nothing in the page folds an open box that holds nothing, on Escape's own rule:
+    // a draft holds it open (`DockComposer`'s `mousedown` away).
+    col().w(page_w).h(page_h).on_background_press(|s: &mut State| {
+        if s.replying && s.reply.text.trim().is_empty() && s.reply_files.open.is_empty() {
+            s.fold_reply();
+        }
+    })
+    .child(reading)
+    .child(dock(s, item, &m))
 }
 
 #[cfg(test)]
