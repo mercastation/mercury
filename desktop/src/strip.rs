@@ -145,6 +145,14 @@ impl State {
         self.close_reply_menu();
     }
 
+    /// The conversation is left: what its strip had open closes, and a place picked in its panel
+    /// is no longer drawn over the engine's, as the web window's strip is made anew for the next
+    /// thread (`key` on `ThreadMenu` in `Focus.tsx`).
+    pub fn leave_the_strip(&mut self) {
+        self.close_thread_menus();
+        self.strip.picked = None;
+    }
+
     fn open_over(&mut self, over: Over) {
         let Some(item) = self.open_item() else {
             return;

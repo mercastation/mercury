@@ -178,7 +178,7 @@ impl State {
     /// model picked in it, wait for the next visit.
     fn put_the_reply_away(&mut self) {
         self.close_files();
-        self.close_thread_menus();
+        self.leave_the_strip();
         if let View::Thread { id, product } = &self.view {
             let key = format!("{product}/{id}");
             if self.reply.text.trim().is_empty() {
