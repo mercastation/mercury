@@ -134,6 +134,8 @@ pub struct State {
     pub compose: compose::Composer,
     /// The rail, folded or opened by the pointer resting on it (`chrome.rs`).
     pub rail: chrome::Rail,
+    /// The control the pointer is on, for a look under it Rune's own hover cannot draw (`feel.rs`).
+    pub pointed: feel::Pointed,
     /// The models this Mac's coding agents offer, as the engine's settings say; the ones the
     /// app was built with until it has.
     pub models: rules::compose::Models,
@@ -825,6 +827,7 @@ fn init_from(args: &[String]) -> State {
         palette: palette::Bar::closed(),
         compose: compose::Composer::default(),
         rail: chrome::Rail::default(),
+        pointed: feel::Pointed::default(),
         models: rules::compose::Models::built(),
         reading_models: Latest::default(),
         picks,

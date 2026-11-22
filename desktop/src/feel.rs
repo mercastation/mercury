@@ -20,6 +20,63 @@ pub fn answers(e: El) -> El {
     e.on_hover(|_: &mut State| {})
 }
 
+/// What the pointer is on, where the window has to know.
+#[derive(Default)]
+pub struct Pointed {
+    /// The control under it, for the few whose look under the pointer Rune's own hover cannot
+    /// draw: one that gives up a fill and a blur for another, say. Such a control says so with
+    /// `pointed`, and its builder reads it back with `is`.
+    key: Option<&'static str>,
+    /// The Inbox's row the pointer moved onto, as `(product, id)`, which Enter, E and L act on
+    /// in place of the picked row while it is there (`pointed` in `renderer/src/App.tsx`).
+    /// Moving onto a row is what takes it, never a row moving under a still pointer, and the
+    /// keys that walk the list take it back (`takesTheListBack` in `renderer/src/keys.ts`).
+    pub row: Option<(String, String)>,
+}
+
+impl Pointed {
+    pub fn is(&self, key: &str) -> bool {
+        self.key == Some(key)
+    }
+    pub fn is_row(&self, product: &str, id: &str) -> bool {
+        self.row.as_ref().is_some_and(|(p, i)| p == product && i == id)
+    }
+}
+
+/// Keeps `key` as what the pointer is on while it is on `e`, its children included.
+pub fn pointed(e: El, key: &'static str) -> El {
+    e.on_hover_change(move |s: &mut State, inside, tx| {
+        if inside {
+            s.pointed.key = Some(key);
+        } else if s.pointed.is(key) {
+            s.pointed.key = None;
+        } else {
+            tx.live_only();
+        }
+    })
+}
+
+/// An Inbox row that takes the keys from the pointer moving onto it, and gives them back when
+/// the pointer leaves it (`onMouseMove`, `onMouseLeave` in `renderer/src/components/List.tsx`).
+pub fn pointed_row(e: El, product: &str, id: &str) -> El {
+    let (p, i) = (product.to_string(), id.to_string());
+    let (q, j) = (p.clone(), i.clone());
+    e.on_pointer_move_local(move |s: &mut State, _, tx| {
+        if s.pointed.is_row(&p, &i) {
+            tx.live_only();
+        } else {
+            s.pointed.row = Some((p.clone(), i.clone()));
+        }
+    })
+    .on_hover_change(move |s: &mut State, inside, tx| {
+        if !inside && s.pointed.is_row(&q, &j) {
+            s.pointed.row = None;
+        } else {
+            tx.live_only();
+        }
+    })
+}
+
 /// A control's one point edge drawn as a layer of its own, over the edge it has, point for point.
 /// `laid_out` is whether the control's edge takes room in its layout (`border_layout`), which
 /// puts the control's inside, where this layer is pinned, a point in from it.
@@ -41,9 +98,16 @@ pub fn edges(radius: f32, rest: Color, lit: Color, laid_out: bool) -> [El; 2] {
     [edge(radius, rest, laid_out).group_opacity(1.0, 0.0), edge(radius, lit, laid_out).group_opacity(0.0, 1.0)]
 }
 
-/// `--wash`: what a quiet control's ground turns under the pointer.
+/// `--wash`, `--film-strong` and `--wash-strong`: what a control's ground turns under the
+/// pointer, by how much it stands out at rest.
 pub fn wash() -> Color {
     white(0.04)
+}
+pub fn film() -> Color {
+    white(0.07)
+}
+pub fn wash_strong() -> Color {
+    white(0.08)
 }
 
 #[cfg(test)]

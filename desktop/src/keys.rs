@@ -56,9 +56,12 @@ pub fn in_the_box(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
     false
 }
 
-/// The Inbox's picked row, as `(id, product)`.
+/// The Inbox's row the keys act on, as `(id, product)`: the one the pointer moved onto while it
+/// is still there and still in the list, else the picked one (`pointed` in `App.tsx`).
 fn picked_row(s: &State) -> Option<(String, String)> {
-    s.lists.under(s.inbox_tab).get(s.picked).map(|r| (r.id.clone(), r.product.clone()))
+    let rows = s.lists.under(s.inbox_tab);
+    let pointed = rows.iter().find(|r| s.pointed.is_row(&r.product, &r.id));
+    pointed.or_else(|| rows.get(s.picked)).map(|r| (r.id.clone(), r.product.clone()))
 }
 
 /// E: marks done the thread the keys are on. That is the open conversation, or the Inbox's
@@ -135,6 +138,10 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
         Key::Text(t) => t.to_lowercase(),
         _ => String::new(),
     };
+    // The hand is back on the keys, so the pointer stops holding a row (`takesTheListBack`).
+    if matches!(e.key, Key::Down | Key::Up | Key::Escape | Key::Tab) || letter == "j" || letter == "k" {
+        s.pointed.row = None;
+    }
     // Z takes back the last thing done, wherever the person is by then.
     if letter == "z" {
         s.undo(tx);
@@ -197,10 +204,7 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
                 s.show_tab(tab);
                 return true;
             }
-            let (len, on) = {
-                let rows = s.lists.under(s.inbox_tab);
-                (rows.len(), rows.get(s.picked).map(|r| (r.id.clone(), r.product.clone())))
-            };
+            let (len, on) = (s.lists.under(s.inbox_tab).len(), picked_row(s));
             if len == 0 {
                 return false;
             }

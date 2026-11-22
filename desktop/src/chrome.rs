@@ -501,8 +501,11 @@ pub fn back_forward(s: &State) -> El {
     if let View::Thread { id, product } = &s.view {
         return crate::thread::head(s, id, product);
     }
+    // An arrow with somewhere to go takes `--film-strong` under the pointer; one with nowhere
+    // keeps the arrow pointer and no look (`.back-forward button:disabled`).
     let arrow = |glyph: &'static Icon, live: bool| {
-        row().size(26.0, 26.0).radius(6.0).center().opacity(if live { 1.0 } else { 0.45 }).child(icon(glyph, 15.0).color(if live { ink() } else { muted() }))
+        let e = row().size(26.0, 26.0).radius(6.0).center().opacity(if live { 1.0 } else { 0.45 }).child(icon(glyph, 15.0).color(if live { ink() } else { muted() }));
+        if live { e.hover(crate::feel::film()).cursor(rune::Cursor::Pointer) } else { e }
     };
     // 44 points into the card (`.gt-inset .topbar`), wherever the rail has put the card.
     let arrows = row().absolute(card_left(s) + 44.0, 58.5).gap(2.0).child(arrow(&icons::BACK, !s.history.is_empty()).on_press(|s: &mut State| s.back())).child(arrow(&icons::FORWARD, false));
