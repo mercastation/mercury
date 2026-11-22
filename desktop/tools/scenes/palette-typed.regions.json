@@ -1,0 +1,12 @@
+[
+  ["the box, frame included", [329, 148.5, 622, 273]],
+  ["search row", [331, 150.5, 618, 56]],
+  ["esc", [898, 168, 35, 20]],
+  ["lit row", [331, 212.5, 618, 38]],
+  ["threads section", [331, 250.5, 618, 132.5]],
+  ["foot", [331, 389, 618, 30.5]],
+  ["backdrop, left", [0, 0, 329, 760]],
+  ["backdrop, right", [951, 0, 329, 760]],
+  ["backdrop, over the box", [329, 0, 622, 148.5]],
+  ["backdrop, under the box", [329, 421.5, 622, 338.5]]
+]
