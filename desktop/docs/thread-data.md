@@ -79,6 +79,33 @@ from another app always opens folded) and `wrote.status.source` (who closed it),
 `answer` and `result` with their `wrote.<field>.ts` still make a conversation of up to four
 messages, which is what `thread::ledger` falls back to.
 
+## The files a conversation names
+
+The web window asks the engine for every file: a picture on the app's own picture scheme
+(`renderer/src/picture.ts`, served by `main/img-scheme.mts`), where a link's file really is
+(`zero:open-artifact` with `mode: "resolve"`), and which pictures a folder holds
+(`zero:folder-pictures`). The native window is on the same Mac as the files and asks the engine
+for none of that. It reads them itself, from what the snapshot already says:
+
+- Each product's `dir`, its own folder, and `repoPath`, its code folder. A short path a message
+  names is looked for under them in the web window's order (`pictureRoots` in
+  `renderer/src/message-folders.ts`, ported in `src/rules/roots.rs`): the folders the thread's own
+  words name, `<dir>/designs/<thread id>`, `<repoPath>/.claude/worktrees/<thread id>`, `<dir>`,
+  `<dir>/designs`, `<dir>/attachments`, `<repoPath>`, `<repoPath>/designs`.
+- The row's `result`, `note`, `body` and `answer`, which are the words those folders are read
+  out of, and which say whether the conversation draws pictures of its own.
+
+A full path is that file and nothing else. A folder's pictures are listed off the disk, one level
+deep, newest first (`main/folder-pictures.mts`). `src/files.rs` builds the places and
+`src/pictures.rs` reads them, on a worker thread.
+
+What the engine's finder does besides and this window does not: it hunts the project's folders
+for a file by its name when no root has it, reads a file off a thread's branch when its checkout
+is gone, and knows a teammate's file that has not arrived yet.
+
+A fixture may say `"arriving": true`: its picture was taken before any picture had come, and the
+native window then reads none either, so both draw the place a picture is held.
+
 ## Keeping it current
 
 The web window reads the first three again when the row's `updatedAt` changes, and, while an
@@ -103,7 +130,8 @@ picture and writes the same answers into the fixture file, keyed by channel, and
 ```
 
 `unfolded` lists the threads whose earlier messages the page was showing when its picture
-was taken. For the live path, keep the answers of the open thread beside the snapshot in the
+was taken. A scene that names files moves its thread's product into a planted folder, so the
+snapshot's `dir` and `repoPath` for that product point there (`tools/pictures.mjs`). For the live path, keep the answers of the open thread beside the snapshot in the
 same shape and have `thread::ledger` read them from there.
 
 ## What opening a thread does not do here
