@@ -276,9 +276,11 @@ words can be selected and where a press moves the window, and its scripts say wh
 pointer resting. This window does the same, read off the web window the way its screens were.
 `src/feel.rs` holds what several screens share; each screen draws its own controls' looks.
 
-- **The rail opens.** The pointer resting on the rail for 140 ms opens it from 38 points to 202,
+- **The rail opens.** 140 ms after the pointer moves onto the rail it opens from 38 points to 202,
   the whole sidebar with its words, and leaving it folds it at once (`hoverAt` in
-  `WorkspaceNavigation.tsx`): a pointer passing over it on its way somewhere opens nothing. It
+  `WorkspaceNavigation.tsx`): a pointer passing over it on its way somewhere is gone before then,
+  and a pointer that did not move opens nothing, so a rail uncovered under a pointer standing
+  still (by the command bar closing, say) stays folded until it moves (`pointerMoved`). It
   eases open over 0.24 s (`cubic-bezier(.22,.61,.36,1)`) and shut over 0.2 s
   (`cubic-bezier(.4,0,.2,1)`); the words come in 0.08 s later over 0.14 s and go over 0.06 s, and
   Search's line and Inbox's dot cross over 0.14 s and 0.1 s (`team/rooms/rooms.css`), each frame
@@ -312,14 +314,17 @@ pointer resting. This window does the same, read off the web window the way its 
   in the Later picker), and the arrow everywhere else. The Inbox's row under the pointer is the
   one Enter, E and L act on, its title faintly underlined, until J, K, the arrows, Escape or Tab
   take the list back (`pointed` in `renderer/src/App.tsx`).
-- **Key hints.** 700 ms after the pointer comes onto New thread, a tab, a row or the cloud on the
+- **Key hints.** 700 ms after the pointer moves onto New thread, a tab, a row or the cloud on the
   Inbox, or onto a conversation's Inbox arrow, its crumb, J and K's arrows, Done, the Files button,
   the place button or ⋯, a plate under it names its keys and what they do, in the web window's words
   (`HINTS` in `renderer/src/hint-plate.ts`): seven points under the control, or over it near the
   window's foot, lined up with its left, its right or its middle as the web window lines each up,
   kept eight points inside the window, on the window's glass with a cap per key. It goes the moment
-  the pointer leaves or a key is pressed, and none comes while the command bar, the New thread
-  card, the Later picker or the reply box has the keys (`hintsOn`).
+  the pointer leaves or a key is pressed, and comes back after the pointer's next move; none comes
+  while the command bar, the New thread card, the Later picker or the reply box has the keys
+  (`hintsOn`). A pointer that moved, as the web window listens for `mousemove` and not
+  `mouseover`: a row that comes under a pointer standing still, as the next one does when E
+  closes the one under it, claims no plate.
 - **Titles.** What the web window says in a `title` this one says with Rune's `help`: Back's "Back
   to Home (⌘[)" and the rest, New thread's "New thread (N)", the cloud's question, "View and
   filters", each rail place, the box's chips, clip, Send and caret, a conversation's whole name, a
@@ -426,13 +431,14 @@ thread, `thread-folded`, `thread-later`, `thread-options`, `thread-steps`, `thre
 `compose-card-attached`, `palette` and `palette-typed` are drawn to the same pixel as before.
 
 Tests hold the rest to the web window on an invented inbox (`src/feel.rs`): the rail opens 140 ms
-after the pointer rests on it and folds when it leaves, whole under Reduce motion; a hint comes
-after 700 ms, hangs where the
-web window's does and goes with the pointer or a key; the row under the pointer takes Enter until
-J walks the list; ⌘[ goes where Back's title says; the bands move the window and their buttons
-keep their presses; and a right press on an address, a picture's name, a picture named short and
-one named whole opens the web window's menu for it, each item putting on the clipboard what the
-web window's does.
+after the pointer moves onto it and folds when it leaves, whole under Reduce motion, and stays
+folded under the command bar and when the bar closes over a pointer standing still; a hint comes
+700 ms after the pointer moved onto its control, hangs where the web window's does, goes with the
+pointer or a key, comes back on the next move, and is claimed by no row that slides under a still
+pointer; the row under the pointer takes Enter until J walks the list; ⌘[ goes where Back's title
+says; the bands move the window and their buttons keep their presses; and a right press on an
+address, a picture's name, a picture named short and one named whole opens the web window's menu
+for it, each item putting on the clipboard what the web window's does.
 
 ### What only a screen can show
 
@@ -453,6 +459,8 @@ does not reach:
 - `El::cursor` shows only over something that takes the pointer, so a control this window does not
   do anything with yet takes it with a handler that does nothing (`feel::answers`).
 - An element has one `on_hover`, and a key hint's wait is a layer of its own around its control.
+  Rune's `hover_delays` waits on a pointer however it came to be there, so the rail's wait and a
+  hint's start from the pointer's own moves (`on_pointer_move_local`) and are kept in the state.
 - Rune's hover fades out over 0.1 s unless the root says otherwise, and almost none of the web
   window's `:hover` rules fades, so the root lands every hover at once. There is no transition per
   property, so the rail's easing is drawn frame by frame from the poll (`chrome::Rail`), and the
@@ -987,9 +995,6 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
     over 0.2 s (`components/mention.css`).
   - Search's line in the open rail brightens at once under the pointer, where the web window's
     eases over 0.14 s.
-  - The rail opens for a pointer resting on it however it came to be there, so one uncovered
-    under a still pointer (by the command bar closing over it, say) opens here; the web window's
-    waits for the pointer to move (`pointerMoved` in `sidebar-shrinks.ts`).
   - The open rail's update card, which the web window draws while a new version waits
     (`home-update-rail-open`, the rail 1.97 of 255), is its Restart row here, and the usage row
     opens no panel of its figures under the pointer.
@@ -998,10 +1003,6 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
   - With the list of a thread's files or a box's menu open, the page under it shows the arrow: the
     layer that catches a press outside them covers the page.
   - A key hint is not taken away when the page scrolls under the pointer, as the web window's is.
-    It waits on a pointer however it came to be on the control, where the web window's waits only
-    on one that moved (`mousemove`, not `mouseover`); and once a key has taken it away it comes
-    back only when the pointer leaves the control and comes onto it again, where the web window's
-    comes back after the pointer's next move.
   - A right press's menu opens as the button comes up, where the web window's, as any Mac app's,
     opens as it goes down, so pressing, moving onto an item and letting go picks nothing here.
     Words selected before a right press on a link are not offered as Copy above the link's items,
