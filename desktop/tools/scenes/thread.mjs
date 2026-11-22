@@ -252,7 +252,10 @@ function conversation(item, found, waiting = false, said = SHIPPED, runs = null,
 // notes on them, which the list of the thread's files counts.
 // `dress` changes the thread's row before the page opens (a label, a status), and `fromTab`
 // names the Inbox's tab the thread is then opened from.
-export async function open(h, { unfold, found = FOUND, shipped = SHIPPED, files = null, waiting = false, then = null, runs = null, reply = REPLY, marks = null, dress = null, fromTab = null }) {
+// `change` is the code the thread's run changed, a function of what was planted and of the row
+// (`changeFor` in ./change.mjs): the page's reads of the change and of its files are answered
+// from it, and the fixture carries the same (`codeChanges`).
+export async function open(h, { unfold, found = FOUND, shipped = SHIPPED, files = null, waiting = false, then = null, runs = null, reply = REPLY, marks = null, dress = null, fromTab = null, change = null }) {
   const snapshot = await h.evaluate('window.__SNAP__');
   // The Inbox opens on its first row; the snapshot's first thread is not always that one.
   await toInbox(h);
@@ -275,11 +278,12 @@ export async function open(h, { unfold, found = FOUND, shipped = SHIPPED, files 
   }
   // Keyed as the page asks: product and id. Each answer is under its channel's name. The logs
   // are answered whole, with no stamps, which the page takes as they come (`traceReader`).
+  const changed = change ? change(planted, row) : null;
   const threads = {
     [`${row.product}/${row.id}`]: {
       'zero:item-history': { ok: true, lines },
       'zero:session-trace': { ok: true, sessions },
-      'zero:code-change': { ok: false, error: 'no change was recorded for this thread' },
+      'zero:code-change': changed ? changed.summary : { ok: false, error: 'no change was recorded for this thread' },
       'zero:compaction-status': null,
     },
   };
@@ -291,11 +295,18 @@ export async function open(h, { unfold, found = FOUND, shipped = SHIPPED, files 
       window.__SNAP__ = ${JSON.stringify(snapshot)};
       const threads = ${JSON.stringify(threads)};
       const answer = (channel, fallback) => async (p) => threads[p?.product + '/' + p?.id]?.[channel] ?? fallback;
+      // A change is asked for by its path, its rows left out for a summary.
+      const change = ${JSON.stringify(changed)};
+      const none = { ok: false, error: 'no change was recorded for this thread' };
+      const changeAnswer = async (p) => (!change || p?.src !== change.src ? none : p.summary ? change.summary : change.pending ? new Promise(() => {}) : change.whole);
       const bridge = {
         ...window.zero,
         itemHistory: answer('zero:item-history', { ok: true, lines: [] }),
         sessionTrace: answer('zero:session-trace', { ok: true, sessions: [] }),
-        codeChange: answer('zero:code-change', { ok: false, error: 'no change was recorded for this thread' }),
+        codeChange: change ? changeAnswer : answer('zero:code-change', none),
+        ...(change ? { codeFile: async (p) => change.files[p?.path] ?? { ok: false, error: 'That file is not part of this change.' } } : {}),
+        // The pane finds the change file as the app's finder does, in the project's runs/.
+        ...(change ? { openArtifact: ((was) => async (p) => (p?.src === change.src ? { ok: true, opened: change.file } : was ? was(p) : { ok: false, error: 'That file could not be found.' }))(window.zero?.openArtifact) } : {}),
         compactionStatus: answer('zero:compaction-status', null),
         // Which pictures a folder holds is the one thing a page cannot see for itself.
         ...(window.__FOLDER_PICTURES__ ? { folderPictures: window.__FOLDER_PICTURES__ } : {}),
@@ -332,7 +343,7 @@ export async function open(h, { unfold, found = FOUND, shipped = SHIPPED, files 
   // And whatever `then` did, for the native window to do the same.
   // `arriving` says that no picture had come when the photograph was taken.
   // `thread` is the one open, for a picture of a thread that is not the first in Needs you.
-  return { snapshot, threads, unfolded: unfold ? Object.keys(threads) : [], ...(files?.arriving ? { arriving: true } : {}), ...(session || fromTab ? { thread: row.id } : {}), ...did };
+  return { snapshot, threads, unfolded: unfold ? Object.keys(threads) : [], ...(files?.arriving ? { arriving: true } : {}), ...(session || fromTab ? { thread: row.id } : {}), ...(changed ? { codeChanges: { [changed.src]: changed.pending ? null : changed.whole } } : {}), ...did };
 }
 
 // Presses the folded line of the run at `index` among those on the page (`.did-run-head`), and
