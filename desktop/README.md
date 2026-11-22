@@ -212,7 +212,9 @@ model menu coming in, for a film (`thread-reply-model-opening`).
 The invented inbox has almost nothing switched on: nothing in Later, no cloud, no team. So some
 scenes add to it. A scene of Home dresses the inbox before the page opens (`dress`): `home-team`
 is Home for someone with teammates, a meeting recorder, a reading of usage and an account signed
-in, and `home-update` is Home while a new version waits for a restart. A scene of the Inbox hands
+in, `home-update` is Home while a new version waits for a restart, `home-few` is Home with two
+threads that need the person and none in progress, and `home-working` is Home while an agent works
+on a thread. A scene of the Inbox hands
 the changed snapshot on in the fixture: `inbox-later-kinds` is the Later tab with one thread of
 each kind it holds, and `inbox-cloud`, `-off`, `-count`, `-named`, `-again` and `-adding` are the
 states of the cloud button.
@@ -233,7 +235,7 @@ At 1280 by 760, 2x, dark, against the web renderer on the same data:
 
 | Screen | Mean difference, of 255 | Similarity |
 |---|---|---|
-| Home | 0.85 | 0.996 |
+| Home | 0.86 | 0.995 |
 | Inbox | 0.24 | 0.998 |
 | Inbox, the Later tab (`inbox-later-kinds`) | 0.27 | 0.998 |
 | Inbox, each state of the cloud button | 0.24 | 0.998 |
@@ -244,6 +246,21 @@ Text lands where the browser puts it to a hundredth of a point.
 One size proves one size: Home was right at 1280 by 760 and wrong in a taller window until it
 was compared there. Home and a conversation are compared at 900 by 760, 1600 by 1000 and 1920 by
 1200 as well, and stay between 0.25 and 1.0 of 255.
+
+Home was measured again against the web window's newer look, which gave its rows the agent's
+face, its tags the line's own words and its box a shorter bar (`home-few`: three rows or fewer,
+the two cards only as tall as their rows; `home-working`: a thread in progress, its face with
+the green dot):
+
+| Scene | 1280 by 760 | 900 by 760 | 1600 by 1000 |
+|---|---|---|---|
+| `home` | 0.86 | 1.00 | 0.69 |
+| `home-typed` | 0.91 | 1.08 | 0.73 |
+| `home-few` | 0.82 | 1.13 | 0.58 |
+| `home-working` | 0.87 | | |
+
+At 900 by 760 `home` is 1.10 on the card and 0.50 on the rail, which has fewer places and a
+shorter foot than the web window's (see what still differs).
 
 The Inbox holds at other window sizes too, where its table gives up columns (Priority at a table
 of 915 points, Project at 785). The first tab and `inbox-later-kinds`:
@@ -285,27 +302,34 @@ The command bar is photographed open over the Inbox: `palette` (its box empty), 
 ("check": a command, then the threads the word found) and `palette-none` (words nothing
 answers). The web window's bar offers far more commands than this one can do, so the two are
 only alike when this window draws the same commands. Each of these scenes reads the rows its
-page drew and hands them on in the fixture (`paletteRows`: a heading, a command with its mark,
-name, hint and key, or only the place of a thread), with the words typed (`palette`). Given
-them, this window draws the web's commands as they were, pressing them does nothing, and where
-the web listed a thread it lists the next one its own search found for the same words, so the
-threads section measures the search as well as the drawing. Without `paletteRows` it draws its
-own rows, as it does live. Each scene names its parts (`tools/scenes/palette*.regions.json`).
+page drew and hands them on in the fixture (`paletteRows`: a heading, a command with the name of
+its drawing, its name, hint and key, or only the place of a thread), with the words typed
+(`palette`). The page draws a row's drawing from its paths, so the scene names it by matching
+them against the web's own table (`ICONS` in `renderer/src/palette-glyphs.ts`, read from the
+checkout photographed). Given them, this window draws the web's commands as they were, pressing
+them does nothing, and where the web listed a thread it lists the next one its own search found
+for the same words, so the threads section measures the search as well as the drawing. Without
+`paletteRows` it draws its own rows, as it does live. Each scene names its parts
+(`tools/scenes/palette*.regions.json`).
+
+Measured against the web window's newer bar, whose rows lead with line drawings, whose lit row
+is a wash with no accent down its edge, whose Esc is a key's cap and which has no foot:
 
 | Part, at 1280 by 760 | `palette` | `palette-typed` | `palette-none` |
 |---|---|---|---|
-| Whole window | 0.15 | 0.14 | 0.13 |
-| The box, its frame included | 0.22 | 0.28 | 0.39 |
-| Search row | 0.67 | 0.45 | 0.67 |
-| Esc | 0.03 | 0.03 | 0.03 |
-| The lit row | 0.32 | 0.56 | |
+| Whole window | 0.20 | 0.20 | 0.19 |
+| The box, its frame included | 0.21 | 0.29 | 0.48 |
+| Search row | 0.70 | 0.62 | 0.70 |
+| Esc | 0.44 | 6.39 | 0.44 |
+| The lit row | 0.18 | 0.27 | |
 | The rows under it, the threads found, the line saying nothing matches | 0.12 | 0.18 | 0.30 |
-| Foot | 0.15 | 0.15 | 0.15 |
-| The backdrop around the box | 0.09 to 0.14 | 0.08 to 0.13 | 0.07 to 0.12 |
+| The backdrop around the box | 0.12 to 0.26 | 0.11 to 0.26 | 0.11 to 0.25 |
 
-The empty bar is 0.17 at 900 by 760 and 0.11 at 1600 by 1000, its parts as at 1280. What is
-left is the caret (see what still differs) and glyphs, the placeholder's among them, landing
-within half a device pixel of the browser's.
+The backdrop is the Inbox under the scrim, whose rows have changed in the web window too (their
+harness marks); the box itself is where it was. The empty bar is 0.20 at 900 by 760 and 0.14 at
+1600 by 1000, its parts as at 1280. What is left is the caret (see what still differs), glyphs,
+the placeholder's among them, landing within half a device pixel of the browser's, and Esc in
+`palette-typed`, whose box stands on a quarter point: its word lands a device pixel lower there.
 
 A conversation with its runs' logs, at 1280 by 760, whole window and the area the runs changed
 (each scene's own `.regions.json`). The text-dense areas of the earlier scenes sit between 1.1 and
@@ -362,22 +386,25 @@ pointer resting. This window does the same, read off the web window the way its 
   still (by the command bar closing, say) stays folded until it moves (`pointerMoved`). It
   eases open over 0.24 s (`cubic-bezier(.22,.61,.36,1)`) and shut over 0.2 s
   (`cubic-bezier(.4,0,.2,1)`); the words come in 0.08 s later over 0.14 s and go over 0.06 s, and
-  Search's line and Inbox's dot cross over 0.14 s and 0.1 s (`team/rooms/rooms.css`), each frame
-  drawn while it moves. The card moves over with it, 44 points past its edge, rather than being
-  covered, and the skies stay painted for the folded card and pinned to its right edge, so the rail
-  uncovers them rather than painting them again (`sky-follows-the-card.ts`). Open, it says what
-  the web window's says: each place's word, Inbox's count in its accent where the dot was, the
-  team's name, Search with ⌘K, the foot's rows, the usage row naming the agent read last and its
-  headline figure, and the person's name over their email. Its places wash under the pointer.
+  Inbox's dot crosses over 0.1 s (`team/rooms/rooms.css`), each frame drawn while it moves.
+  Search has no line under it any more, so nothing of it crosses (`.workspace-find`). The card
+  moves over with it, 44 points past its edge, rather than being covered, and the skies stay
+  painted for the folded card and pinned to its right edge, so the rail uncovers them rather than
+  painting them again (`sky-follows-the-card.ts`). Open, it says what the web window's says: each
+  place's word, Inbox's count in the dim ink where the dot was, the team's name, Search with ⌘K,
+  the foot's rows, the usage row naming the agent read last and its headline figure, and the
+  person's name over their email. Its places, Search among them, wash under the pointer.
   Under the system's Reduce motion it opens and folds whole, as the same stylesheet's
   `prefers-reduced-motion` block takes every one of those transitions away.
 - **Under the pointer.** Every control these screens draw takes the web window's look while the
   pointer is on it and gives it up the moment the pointer leaves. The web window's `:hover` rules
   have no transition unless one says so, and almost none does, so the root lands every hover at
   once both ways (`hover_motion_within` in `src/main.rs`; Rune's own hover fades out over 0.1 s).
-  The two that ease, a mention and Search's line, land at once here too. On Home: the
+  The two that eased there, a mention and Search's line, no longer do, and Search's line is
+  gone. On Home: the
   two doors, the rows (a Needs you row under the pointer becomes the row the keys act on), the
-  cards' links, the box's chips, paper clip, Send and its caret. On the Inbox: New thread, the
+  cards' links, the box's chips, paper clip, Send and its caret, and on a team's Home To's face and
+  a level nobody picked, which washes as a square. On the Inbox: New thread, the
   cloud and the display button give up their dark glass for the wash, back and forward brighten
   while they have somewhere to go, the tabs, and the rows. Over a conversation: the strip's arrows,
   the crumb, the thread's name, Done or Reopen, the Files button, the place button and ⋯; the line
@@ -459,8 +486,8 @@ Under the pointer, the control, at 1280 by 760, 2x; at rest, the same box with n
 
 | Control | Under the pointer | At rest |
 |---|---|---|
-| Home: a door, a card's link | 6.04, 5.92 | 5.44, 5.35 |
-| Home: a row, the box's chip, clip, Send's caret | 1.11, 2.94, 2.78, 1.61 | 1.39, 2.74, 2.24, 1.34 |
+| Home: a door, a card's link | 6.00, 6.15 | 5.40, 5.58 |
+| Home: a row, the box's chip, clip, Send's caret | 1.21, 3.34, 2.82, 1.41 | 1.42, 3.14, 2.21, 1.38 |
 | Home: a file's chip, a picture's × | 0.43, 7.34 | 0.30, 5.08 |
 | Inbox: back, display, New thread, a tab, a row | 0.01, 0.39, 1.63, 2.23, 0.33 | 0.00, 0.25, 1.46, 1.67, 0.33 |
 | Conversation: Inbox, back, crumb, name | 0.32, 0.42, 1.01, 2.74 | 0.01, 0.12, 1.15, 2.15 |
@@ -470,7 +497,7 @@ Under the pointer, the control, at 1280 by 760, 2x; at rest, the same box with n
 | Conversation: a picture, a folder's picture, a folder's name | 0.15, 0.33, 2.76 | 0.14, 0.33, 1.92 |
 | The folded reply box, its model | 0.70, 4.14 | 0.70, 3.28 |
 | The opened reply box: a chip, clip, Send, caret | 1.63, 1.62, 1.25, 0.37 | 1.22, 1.09, 1.20, 0.27 |
-| The New thread card: its model, a chip, Send | 0.73, 1.41, 2.89 | 0.73, 1.23, 2.10 |
+| The New thread card: its model, a chip, Send | 0.73, 1.41, 3.16 | 0.73, 1.23, 2.35 |
 
 The mention is what still differs most: its mark does not brighten with it (see what still
 differs). The plates, with a point around each: New thread 2.67, a tab 2.51, a row 2.17, Done 1.89,
@@ -480,21 +507,25 @@ window's comes 700 ms after (`HINT_WAIT`). New thread
 was measured before its title was: since, a headless picture draws Rune's own stand-in for the
 title from 0.5 s, over the plate (36.89), where a Mac window leaves the title to AppKit and its wait.
 
-Measured before the rail lost the buttons nothing here did (see what still differs), so against a
-rail that still had Demands, Connections and Files under the Inbox:
-the rail open, the pointer on Demands: the whole window 0.90 at 1280 by 760, 0.94 at 900 by 760
-and 0.71 at 1600 by 1000, the rail itself 0.21, 0.22 and 0.17, and Demands 0.57, 0.58 and 0.55.
-Over the Inbox 0.26 and a conversation 0.41. With teammates, a recorder and a sign-in (`home-team-
-rail-open`) 0.99, the rail 0.55; while an update waits (`home-update-rail-open`) 1.21, the rail
-1.97, as the update's card is not drawn open (see what still differs).
+The rail open, the pointer resting where the web window's rail has Demands (Files here): its
+places under the Inbox and its foot are the web window's own and more (see what still differs),
+so the rail is held to the web window's where the two draw the same, the team's name, Search,
+Home and the Inbox with its count. Against the newer look, whose Search has no line under it and
+whose count is in the dim ink, that part is 0.44 at 1280 by 760, 0.47 at 900 by 760 and 0.43 at
+1600 by 1000 (0.62, 0.65 and 0.60 before it followed), the same over the Inbox and a
+conversation; the whole rail is 1.01, 1.03 and 0.81, and Home with the rail open 0.99, 1.06 and
+0.76. With teammates, a recorder and a sign-in (`home-team-rail-open`) the whole window is 1.12,
+the rail 1.61 (the web window's has Chats and Record meeting); while an update waits
+(`home-update-rail-open`) 1.33, the rail 3.39, as the update's card is not drawn open (see what
+still differs).
 
 The pointer's shape, points that match the web window's of all the points in each scene:
 
 | Scene | Arrow | Pointing hand | I-beam | Magnifier |
 |---|---|---|---|---|
-| `home`, `home-attached` | 50 of 50, 56 of 56 | 78 of 78, 76 of 76 | 2 of 2, 1 of 1 | |
+| `home`, `home-attached` | 51 of 51, 51 of 51 | 80 of 88, 83 of 91 | 2 of 2, 1 of 1 | |
 | `inbox` | 29 of 29 | 171 of 172 | | |
-| `compose-card`, `palette` | 186 of 186, 204 of 204 | 17 of 17, 65 of 65 | 19 of 19, 2 of 2 | |
+| `compose-card`, `palette` | 193 of 193, 215 of 215 | 19 of 19, 73 of 73 | 19 of 19, 3 of 3 | |
 | `thread`, `thread-reply` | 33 of 41, 34 of 38 | 35 of 35, 47 of 47 | 15 of 15, 10 of 10 | |
 | `thread-options`, `thread-steps` | 37 of 41, 28 of 34 | 62 of 72, 42 of 42 | 24 of 24, 23 of 23 | |
 | `thread-pictures`, `thread-folder` | 35 of 37, 29 of 30 | 46 of 50, 41 of 41 | 11 of 11, 11 of 11 | 9 of 9, 25 of 25 |
@@ -502,8 +533,12 @@ The pointer's shape, points that match the web window's of all the points in eac
 | `thread-files-open` | 40 of 40 | 23 of 71 | 0 of 10 | 0 of 3 |
 
 What is left: the I-beam over the end of a line past its last word, every mention's mark, the
-sorting headers of a table in a message, the Inbox's box that ticks every row (not drawn), and the
-page under the open list of files, which shows the arrow. Each is in what still differs. Where the
+sorting headers of a table in a message, the Inbox's box that ticks every row (not drawn), the
+page under the open list of files, which shows the arrow, and on Home the rail's places and foot
+rows the web window has and this one leaves out (eight points). On the New thread card the marks
+To and the model hang beside their words take the pointer, as part of their buttons; only the
+corners of To's round face differ, which Chromium finds as a circle. Each is in what still
+differs. Where the
 46 `*-hover-*` and `*-hint-*` scenes rest the pointer, its shape is the web window's at every one:
 the pointing hand, the I-beam over a conversation's name and the folded reply box, the magnifier
 over a picture and a folder's, and the arrow over Send with nothing to send.
@@ -891,21 +926,29 @@ composer either in Home's slot or in a dialog (`ThreadComposer.tsx`, `drawnIn` i
 - **On Home** it is open under the greeting (`src/compose.rs`, `inline`). N, a press on it, or a
   letter that is none of the list's own keys puts the caret in it.
 - **Anywhere else** N, and New thread on the Inbox's strip, open it as the **New thread card**
-  over the page: the page veiled and blurred a little, the card 680 points wide a tenth above the
+  over the page: the page darkened under the command bar's own scrim, no longer blurred under a
+  brown veil of its own (`.modal-backdrop.tc-veil`), the card 680 points wide a tenth above the
   middle, its head saying who the thread is to (where someone besides the agent could get it) and
-  on which model, then the words, then its bar. While the card is up Home's slot is empty, as in
-  the web window. The empty Inbox has no box of its own here, so N opens the card there too.
+  on which model, each named in the card's own faint type, then the words, then its bar. While
+  the card is up Home's slot is empty, as in the web window. The empty Inbox has no box of its own
+  here, so N opens the card there too.
 
 Both hold the same words and picks: whatever was typed on Home is in the card, and the other way
 round. Escape, or a press outside the card, closes it and keeps every word.
 
-Under the words: the model (a chip on the page, the head's Model on the card), the project and the
-level, the paper clip, and Send with the caret beside it. Each opens the web window's menu, built
-from its measurements: the models used lately, each with its agent where there are two, then
-every model in a column for each agent, and how hard it thinks at the foot; the projects in the
-person's order with New project last; Agent Decides and the four levels; and under the caret, Add
-it to Later. On the page every menu drops under its chip; on the card the model's drops from its
-word and the others rise out of the bar. A menu is kept inside the window as the web window keeps
+Under the words: the model (a chip on the page, the head's Model on the card), each led by its
+agent's mark (Claude's in its own orange, `EngineLogo`), the project and the level, the paper clip,
+and Send with the caret beside it, which dims with Send while there is nothing to send. Send, the
+caret and the clip are the chips' 28 points, so the bar is one line of them, six points apart. On
+a team's Home, where the thread could go to someone besides the agent, the box's bar is the quiet
+one (`quietBar`): To is the agent's face alone, the model and the project follow, then the room
+left, then a level nobody picked as its mark alone, the clip and Send, four points apart. On the
+card To and the model's word carry their mark beside them, part of the button. Each opens the
+web window's menu, built from its measurements: the models used lately, each with its agent where
+there are two, then every model in a column for each agent, and how hard it thinks at the foot;
+the projects in the person's order with New project last; Agent decides and the four levels; and
+under the caret, Add it to Later. On the page every menu drops under its chip; on the card the
+model's drops from its word and the others rise out of the bar. A menu is kept inside the window as the web window keeps
 it (`fitMenu`), opens with the keys on what is picked, and is walked by the pointer and by ↓, ↑
 and Enter around both ends. Escape closes it and leaves the keyboard on its chip, where an arrow
 opens it again and a letter goes to the words. A press outside it closes it on the way down and
@@ -914,12 +957,15 @@ Send sends.
 
 Send, or ⌘Return, writes the thread at once, one `zero:compose` as the web window's
 (`api.compose`): the project, the title and body split out of the words by the web window's rule
-(`splitMessage`), `kind: directive`, the level as a number (nought for Agent Decides), the Claude
+(`splitMessage`), `kind: directive`, the level as a number (nought for Agent decides), the Claude
 model always (another agent's only when moved off its default), the agent where this Mac offers
 more than one, the effort only when one was picked, and `start: later` when Later was. The box
 empties at once and the card closes; a line says where it is going, then names the thread with O
 to open it and Z to take it back, which closes it and stops its agent unless the agent has
-already answered. Z hands the words back and opens the card on them. A send the engine refuses
+already answered. O still opens that thread for two minutes after the line has gone, unless Z took
+something back since (`opensTheLastToast`, `O_STILL_OPENS_MS`): it is usually pressed within half
+a minute of a send and sometimes after a minute or more. Z hands the words back and opens the card
+on them. A send the engine refuses
 puts every word and pick back and opens the card on them, unless something else is over the page
 by then, when the line says where the words are. Alone on the Inbox the tab moves to where the
 thread lands.
@@ -937,27 +983,29 @@ invented Codex models), `home-sending` (between Send and the answer), `home-sent
 names the new thread), and the card N opens on the Inbox: `compose-card`, with its menus
 `compose-card-model` and `compose-card-priority`, and `compose-card-team` (To over Model). The
 card scenes are drawn with `--view inbox`. Each has its regions (`tools/scenes/*.regions.json`).
-At 1280 by 760, 2x:
+`home-team` is Home's box with its quiet bar. At 1280 by 760, 2x, against the web window's newer
+look:
 
 | Scene | Whole window | Where it changed |
 |---|---|---|
-| `home-typed` | 0.90 | the box 2.48 (Home's own box is 2.15: see the glass below) |
-| `home-menu-project` | 0.77 | the menu 0.27 |
-| `home-menu-priority` | 0.76 | the menu 0.29 |
-| `home-menu-model` | 0.72 | the menu 0.23 |
-| `home-menu-models` | 0.70 | the menu 0.16 |
-| `home-menu-model-engines` | 0.72 | the menu 0.29 |
-| `home-menu-models-engines` | 0.63 | the menu 0.15 |
-| `home-sending` | 0.85 | the line 0.86 |
-| `home-sent` | 0.84 | the line 0.35 |
-| `compose-card` | 0.22 | the card 0.29 |
-| `compose-card-model` | 0.20 | the card 0.15, the menu 0.22 |
-| `compose-card-priority` | 0.22 | the card 0.27, the menu 0.30 |
-| `compose-card-team` | 0.20 | the card 0.16 |
+| `home-typed` | 0.91 | the box 2.43 (Home's own box is 2.03: see the glass below) |
+| `home-team` | 0.91 | the box 2.01, its bar 2.09 |
+| `home-menu-project` | 0.78 | the menu 0.27 |
+| `home-menu-priority` | 0.77 | the menu 0.28 |
+| `home-menu-model` | 0.74 | the menu 0.23 |
+| `home-menu-models` | 0.72 | the menu 0.16 |
+| `home-menu-model-engines` | 0.75 | the menu 0.29 |
+| `home-menu-models-engines` | 0.66 | the menu 0.15 |
+| `home-sending` | 0.87 | the line 0.86 |
+| `home-sent` | 0.85 | the line 0.35 |
+| `compose-card` | 0.21 | the card 0.28 |
+| `compose-card-model` | 0.19 | the card 0.15, the menu 0.22 |
+| `compose-card-priority` | 0.21 | the card 0.24, the menu 0.30 |
+| `compose-card-team` | 0.19 | the card 0.14 |
 
-At 900 by 760 the menus are 0.23 to 0.29 and the card 0.27 (whole windows 0.84 to 0.91 for Home
-with a menu, 0.23 to 0.25 for the card); at 1600 by 1000 the menus are 0.23 to 0.29 and the card
-0.29 (whole windows 0.56 to 0.61, and 0.15 to 0.16).
+Before following the newer look, Home with its box was 2.9 to 3.1 against it and the card 11.0
+to 11.6, most of that the veil. At 900 by 760 `home-menu-model` is 0.86 and the card 0.21; at
+1600 by 1000, 0.58 and 0.15.
 
 Filmed at 60 frames a second, the card and a send each land whole on the frame after the press and
 stay still, and a menu comes in over six frames as the web window's does (`tc-in`, "What moves on
@@ -1027,20 +1075,23 @@ found.
 
 At 1280 by 760, 2x: the whole window; the box on Home or the card; the attachment row
 (`.attach-row`, which on Home is mostly the box's glass, two of 255 apart everywhere, see the
-glass below); and the files alone.
+glass below); and the files alone. Against the web window's newer look, whose box is four points
+shorter (its bar one line of 28 point controls), so Home gives the box its room at other heights
+(`give_way`'s test holds the new ones):
 
 | Scene | Whole window | Box or card | Attachment row | The files |
 |---|---|---|---|---|
-| `home-attached` | 0.88 | 2.42 | 1.84 | 0.30 |
-| `home-attached-picture` | 0.84 | 1.99 | 1.57 | 0.44 |
-| `home-attached-too-big` | 0.93 | 2.62 | 1.88 | 1.25, and 2.35 the line saying why |
-| `compose-card-attached` | 0.23 | 0.25 | 0.12 | 0.38 |
+| `home-attached` | 0.91 | 2.44 | 1.85 | 0.35 |
+| `home-attached-picture` | 0.82 | 1.75 | 1.57 | 0.46 |
+| `home-attached-too-big` | 0.91 | 2.33 | 1.90 | 1.29, and 2.32 the line saying why |
+| `compose-card-attached` | 0.22 | 0.24 | 0.12 | 0.38 |
 
-At 900 by 760 the three on Home are 0.93 to 1.05 whole (Home with words and no file is 1.08
-there), their rows 1.25 to 1.44 and their files 0.29 to 0.44, the lit chip 1.23; at 1600 by
-1000, 0.72 to 0.76 whole (0.71 with no file), rows 1.66 to 1.73, files 0.30 to 0.45, the lit
-chip 1.25. The card is 0.26 and 0.17 whole, its row 0.12 and its files 0.38 at both. The web window's caret was between blinks when
-`home-attached-picture` was photographed, and this window draws its caret.
+Measured against the older look, at 900 by 760 the three on Home were 0.93 to 1.05 whole (Home
+with words and no file 1.08 there, and 1.08 again against the newer), their rows 1.25 to 1.44 and
+their files 0.29 to 0.44, the lit chip 1.23; at 1600 by 1000, 0.72 to 0.76 whole (0.71 with no
+file, 0.73 against the newer), rows 1.66 to 1.73, files 0.30 to 0.45, the lit chip 1.25. The card
+was 0.26 and 0.17 whole, its row 0.12 and its files 0.38 at both. The web window's caret was
+between blinks when `home-attached-picture` was photographed, and this window draws its caret.
 
 `thread-reply-attached` is 0.83 whole. Its reply's parts stand where the web window's do to a
 hundredth of a point, measured from the reply's head; the whole conversation sits half a point
@@ -1134,8 +1185,14 @@ press the row pressed, the bar closing first; Escape, the Esc button or a press 
 and runs nothing. It stands over the page alone: opening it closes the Later picker and folds the
 reply box, keeping its words.
 
-A row is there only when this window does what it says, through the code its own key or button
-already runs, under the web row's own name, mark and key:
+A row leads with the web row's own line drawing, 16 points in the faint ink and in the text's own
+ink on the lit row, which is a wash with no accent down its edge; Esc is a key's cap, as a row's
+key is, and nothing stands under the list, where a foot once said what the arrows and Return do.
+The drawings are the web window's, path for path (`src/palette/marks.rs`, from `ICONS` in
+`renderer/src/palette-glyphs.ts`), and which row wears which is its rule, by the row's id and the
+start of it (`icon_for`, from `iconFor`). A row is there only when this window does what it says,
+through the code its own key or button already runs, under the web row's own name, drawing and
+key:
 
 - On the thread under the keys (the open conversation, else the Inbox's picked row; Home has
   none), in the web's order: Mark done (E), or Reopen on a finished thread; Reply (R), which
@@ -1761,11 +1818,12 @@ release or a second login.
     brighten (`a.mention:hover .mention-icon`): Rune's link covers words and not a mark set among
     them. And a mention's look lands at once, where the web window's eases in over 0.12 s and out
     over 0.2 s (`components/mention.css`).
-  - Search's line in the open rail brightens at once under the pointer, where the web window's
-    eases over 0.14 s.
   - The open rail's update card, which the web window draws while a new version waits
-    (`home-update-rail-open`, the rail 1.97 of 255), is its Restart row here, and the usage row
-    opens no panel of its figures under the pointer.
+    (`home-update-rail-open`, the rail 3.39 of 255), is its Restart row here, and the usage row
+    opens no panel of its figures under the pointer and takes the arrow, where the web window's
+    takes the pointing hand.
+  - To's face on the New thread card takes the pointer over its whole square; the web window's
+    is round, and Chromium finds its corners as the field's.
   - A table in a message does not sort: its headers are words, where the web window's take the
     pointing hand. The Inbox's head has no box that ticks every row.
   - With the list of a thread's files or a box's menu open, the page under it shows the arrow: the
@@ -1849,7 +1907,12 @@ release or a second login.
     character rather than the web window's chevron.
   - The search box is drawn with Rune's caret.
 - **The team's card has no rows.** With teammates, Home's second card is the team's week; it says
-  so when nobody else is on the team and is bare otherwise, until the Team page is drawn.
+  so when nobody else is on the team and is bare otherwise, until the Team page is drawn. Its rows
+  are still counted, each person of the team and each agent teammate of one's own, so the two
+  cards fit three rows or fewer as the web window's do.
+- **Every row on Home wears the agent's face.** The web window gives a thread a teammate sent
+  their initials or photo, and one an agent teammate is on that teammate's face; this window does
+  not tell who sent a thread, so every row is an agent's.
 - **Choosing in a conversation, where it still differs.** Ported is what is used day to day: the
   model and level of the next reply, Later, and where a thread runs. Left out is what this window
   cannot do and what goes unused, a thread's name, project, pin, waits, demand and shipped mark,
@@ -1884,9 +1947,11 @@ release or a second login.
   - The command bar still offers none of these: its rows for a thread's model, its priority and
     where it runs stay the web window's.
 - **Starting a thread, where it still differs:**
-  - Out of reach here, and drawn where the web window draws them: To (it says Agent and opens no
-    menu), @-names in the words, recording, a demand, the branch a thread starts from, who sees
-    it, and the tutorial's suggestions.
+  - Out of reach here: To (the agent's face on a team's Home and Agent on the card, and it opens
+    no menu), @-names in the words, recording, a demand, the branch a thread starts from, who sees
+    it, and the tutorial's suggestions. Of these To is drawn, where the web window draws it; who
+    sees it, which a team's quiet bar puts before the level, is not, nor is a subject typed into
+    that bar's own mark, nor a thread to a person or an agent teammate with its own short bar.
   - The caret's menu offers Add it to Later and nothing with a clock in it: no Tomorrow morning,
     no Monday morning, no time typed in words, no repeating task, which the web window's menu
     lists under it.
@@ -2127,8 +2192,9 @@ release or a second login.
   box says of one that cannot, and how they are saved and linked. `src/rules/folded.rs`: what the
   folded reply box says it holds. `src/rules/typed.rs`: the lines the app wrote into a person's
   message for its files, which a conversation draws.
-- `src/palette.rs`: the command bar ⌘K opens. `src/rules/palette.rs` decides what it offers and
-  in which order; `src/rules/search.rs` finds a thread by its words.
+- `src/palette.rs`: the command bar ⌘K opens, and `src/palette/marks.rs` the line drawings its
+  rows lead with. `src/rules/palette.rs` decides what it offers, in which order and which drawing
+  each row wears; `src/rules/search.rs` finds a thread by its words.
 - `src/head.rs`: what the Inbox's head strip opens, View and filters and the cloud's menu, ⌘C and
   its question, and what each pick does. `src/rules/display.rs`: what View and filters keeps and
   in which order, laid over the lists (`display::show`); `src/rules/cloud.rs`: the cloud button,
