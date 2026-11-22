@@ -236,6 +236,11 @@ export function supabaseBackend(client: SupabaseClient, { schema = 'public' }: {
       return must<boolean>(await client.rpc('i_have_multiplayer'), 'asking whether this team has multiplayer') === true;
     },
 
+    async teamPays() {
+      await myId();
+      return must<boolean>(await client.rpc('my_team_pays'), 'asking whether your team has Pro') === true;
+    },
+
     async acceptInvite(teamId: string) {
       await myId();
       must(await client.rpc('accept_invite', { p_team: teamId }), 'joining the team');
@@ -383,14 +388,16 @@ export function supabaseBackend(client: SupabaseClient, { schema = 'public' }: {
     },
 
     // YOUR CARDS: one per thread worth showing the team (shared/thread-cards.mts).
-    // Upserted whole, and any card of yours the Mac no longer lists is removed,
-    // so a thread made private or finished yesterday leaves the board. A card
-    // not marked visible never goes up at all, whatever the Mac handed over.
-    async putCards(teamId: string, all: CardToPut[]) {
+    // The ones in `changed` are upserted whole (all of them without it), and
+    // any card of yours the Mac no longer lists is removed, so a thread made
+    // private or finished yesterday leaves the board. A card not marked
+    // visible never goes up at all, whatever the Mac handed over.
+    async putCards(teamId: string, all: CardToPut[], changed?: ReadonlySet<string>) {
       const me = await myId();
       const cards = all.filter((c) => c.visible === true);
-      if (cards.length) {
-        const rows = cards.map((c) => ({
+      const writing = changed ? cards.filter((c) => changed.has(c.threadId)) : cards;
+      if (writing.length) {
+        const rows = writing.map((c) => ({
           person_id: me, team_id: teamId, thread_id: c.threadId, visible: !!c.visible,
           // WHO IT REACHES: the chosen people, or no list at all for the whole
           // team (w-41ff964775). The read rule on the table does the enforcing.
