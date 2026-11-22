@@ -1169,6 +1169,22 @@ mod tests {
     }
 
     #[test]
+    fn the_command_bar_stops_a_thread_under_way_and_says_whether_anything_had_started() {
+        let mut rt = working("stop-bar");
+        key(&mut rt, Key::Escape);
+        rt.key(cmd(Key::Command('k')));
+        rt.frame(1.0 / 60.0);
+        rt.update(|s, _| s.palette.words = rune::TextEdit::new("stop"));
+        rt.frame(1.0 / 60.0);
+        assert!(rt.elements().iter().any(|e| e.text.as_deref() == Some("Stop Agent (Moves to Inbox)")), "the row, with a run up");
+        rt.key(KeyEvent { key: Key::Enter, mods: Mods::default() });
+        rt.frame(1.0 / 60.0);
+        assert_eq!(rt.state.tried.last(), Some(&(rules::STOP, json!({ "product": "storefront", "id": "w-feel0" }))));
+        // With nothing started on it, the row says so in its hint.
+        assert_eq!(crate::rules::palette::stop_row(false, ("w".into(), "p".into())).hint.as_deref(), Some("nothing has started on it yet"));
+    }
+
+    #[test]
     fn a_reply_still_held_is_written_before_the_stop() {
         let mut rt = working("stop-held");
         typed(&mut rt, "Also check the refunds.");
@@ -1285,7 +1301,8 @@ mod tests {
         key(&mut rt, Key::Text("1".into()));
         let item = rt.state.open_item().cloned().unwrap();
         // Drawn at once as the pick it is, and said as what went where.
-        assert!(rt.elements().iter().any(|e| e.text.as_deref() == Some("You picked option 1")));
+        assert!(rt.elements().iter().any(|e| e.text.as_deref() == Some("Picked")));
+        assert!(rt.elements().iter().any(|e| e.text.as_deref() == Some(" Ship it")));
         assert_eq!(sent_line(&rt).as_deref(), Some(format!("Sent “Ship it” to {}", item.title.clone().unwrap()).as_str()));
         let held = rt.state.held.as_ref().unwrap();
         assert_eq!(held.payload, json!({ "product": "storefront", "id": item.id, "answer": "Option 1: Ship it", "status": "open" }));

@@ -701,6 +701,66 @@ fn step(s: &Step) -> El {
     line
 }
 
+/// Something the person did, as a point on a short timeline (`ActLine`, `.act-line`): a ring of
+/// seven points at the column's edge, filled for a pick; the words twenty points in, in the dim
+/// ink at 13 points, the option a pick or a Z names in the text's own; and the time in small
+/// mono capitals. `joined` draws the hairline up to the ring of the act just above.
+fn act_line(s: &Step, now: f64, joined: bool) -> El {
+    let (lead, choice, picked) = act_words(&s.verb, &s.words);
+    let ring = el().pin(Some(0.0), Some(6.5), None, None).size(7.0, 7.0).radius(3.5).fill(if picked { dim() } else { page() }).border(1.0, if picked { dim() } else { muted() }).border_layout();
+    let font = TextStyle::new(13.0, 400.0).lh(20.0);
+    let mut said = row().shrink().child(text(lead).font(font).color(dim()).truncate());
+    if let Some(choice) = choice {
+        said = said.child(row().shrink().child(text(format!(" {choice}")).font(font).color(ink()).truncate()));
+    }
+    let when = text(act_when(s.at, now)).font(mono(11.0, 20.0).tracking(0.44).features("'tnum' 1")).color(muted());
+    let mut line = row().items_start().gap(10.0).pl(20.0).min_w(0.0).child(ring).child(said).child(when);
+    if joined {
+        line = line.child(el().pin(Some(3.0), Some(-15.5), None, None).size(1.0, 22.0).fill(edge()));
+    }
+    line
+}
+
+/// The words of an act (`actWords`): a Z's own few words with the option it took back after
+/// them; "Picked" and the option; else the verb without its "You", and what it names.
+fn act_words(verb: &str, subject: &str) -> (String, Option<String>, bool) {
+    let subject = subject.trim();
+    if verb.starts_with("Undid") {
+        return (verb.to_string(), (!subject.is_empty()).then(|| subject.to_string()), false);
+    }
+    let picked = verb.strip_prefix("You picked option ").is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()));
+    let mut rest = if picked { "picked".to_string() } else { verb.strip_prefix("You ").unwrap_or(verb).replace("moved it to Later", "moved to Later") };
+    if !picked && !subject.is_empty() {
+        rest += &if subject.starts_with("was") { format!(", {subject}") } else { format!(" {subject}") };
+    }
+    let mut lead = rest.chars();
+    let lead = lead.next().map(|c| c.to_uppercase().collect::<String>() + lead.as_str()).unwrap_or_default();
+    (lead, picked.then(|| subject.to_string()), picked)
+}
+
+/// "TODAY 1:10PM", "THU 4:10PM", "SEP 27 4:00PM" (`actWhen`).
+fn act_when(at: f64, now: f64) -> String {
+    if at <= 0.0 {
+        return String::new();
+    }
+    const DAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    let t = LocalTime::at(at as i64);
+    let day_of = |ms: f64| {
+        let l = LocalTime::at(ms as i64);
+        ((ms / 1000.0) as i64 + i64::from(l.offset)).div_euclid(86_400)
+    };
+    let days = day_of(now) - day_of(at);
+    let day = match days {
+        ..=0 => "Today".to_string(),
+        1 => "Yesterday".to_string(),
+        2..=6 => DAYS[(day_of(at) + 4).rem_euclid(7) as usize].to_string(),
+        _ => format!("{} {}", MONTHS[(t.month as usize).clamp(1, 12) - 1], t.day),
+    };
+    let hour = if t.hour.is_multiple_of(12) { 12 } else { t.hour % 12 };
+    format!("{day} {hour}:{:02}{}", t.minute, if t.hour < 12 { "am" } else { "pm" }).to_uppercase()
+}
+
 /// `--state-stopped`: the one colour on a run's lines, and only where a tool said no.
 fn stopped() -> rune::Color {
     rgb(224, 138, 108)
@@ -788,7 +848,11 @@ fn room(above: Holds, here: Holds) -> f32 {
         (Msg | Same, Run | Step | Act) => 8.0,
         (Run | Step, Run) | (Run, Step) => 5.0,
         (Act, Run) | (Run, Act) => 14.0,
-        (Step | Act, Step | Act) => 5.0,
+        // Two acts nine apart, an act and a line of the app's fourteen (`.is-act + .is-act`,
+        // `.is-work + .is-act`).
+        (Act, Act) => 9.0,
+        (Step, Act) | (Act, Step) => 14.0,
+        (Step, Step) => 5.0,
     }
 }
 
@@ -853,7 +917,8 @@ fn conversation(s: &State, thread: &str, page: &Page, now: f64, m: &Measure, fil
             Said::Step(st) => {
                 name_above = ids[i].clone();
                 i += 1;
-                (step(st), if st.mine { Holds::Act } else { Holds::Step })
+                // The person's own act is a point on its timeline, joined to one right above.
+                if st.mine { (act_line(st, now, above == Some(Holds::Act)), Holds::Act) } else { (step(st), Holds::Step) }
             }
         };
         // Under the line for the missing middle, nothing is pulled closer.
@@ -1569,7 +1634,7 @@ pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
     }
     // What the person did after the answer, under it and in order.
     if !talk.after.is_empty() {
-        blocks.push(markdown::block(22.0, 0.0, col().gap(9.0).children(talk.after.iter().map(step))));
+        blocks.push(markdown::block(22.0, 0.0, col().gap(9.0).children(talk.after.iter().enumerate().map(|(at, act)| act_line(act, s.now, at > 0)))));
     }
     // And whether anything is happening, under the last message and over the reply box.
     let asking = s.snap.rest.get("approvals").and_then(Value::as_array).is_some_and(|a| a.iter().any(|a| a.get("item").and_then(Value::as_str) == Some(id)));
@@ -1605,8 +1670,9 @@ pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
         .key(if unfolded { "thread-whole" } else { "thread-newest" })
         .grow(1.0)
         .min_h(0.0)
-        // So does one the person has just sent something to: their words are where they look.
-        .scroll(ScrollSpec { stick_bottom: unfolded || (working && page.alone.is_none()) || s.answering.sending.iter().any(|d| d.thread == thread) })
+        // So does one the person has just sent words to: they are the newest thing said, where
+        // the person looks. A pick is an act, not a message, and moves nothing.
+        .scroll(ScrollSpec { stick_bottom: unfolded || (working && page.alone.is_none()) || s.answering.sending.iter().any(|d| d.thread == thread && !d.text.starts_with("Option ")) })
         .child(el().pt(28.0).pl(m.indent).pr(m.right).pb(40.0 + under + whole).child(body.key("thread-said").w(m.column).selection_group(true)));
     // A press on nothing in the page folds an open box that holds nothing, on Escape's own rule:
     // a draft holds it open (`DockComposer`'s `mousedown` away).
