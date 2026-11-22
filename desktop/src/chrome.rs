@@ -74,6 +74,8 @@ impl Fade {
 /// Open, it moves the card over rather than covering it.
 pub struct Rail {
     open: bool,
+    /// When it opens, 140 ms after the pointer moved onto it, and whether it then opens whole.
+    due: Option<(f64, bool)>,
     width: Fade,
     /// The words, the team's name, Inbox's count and the keys beside Search.
     words: Fade,
@@ -85,12 +87,12 @@ pub struct Rail {
 
 impl Default for Rail {
     fn default() -> Rail {
-        Rail { open: false, width: Fade::still(FOLDED), words: Fade::still(0.0), line: Fade::still(0.0), dot: Fade::still(1.0) }
+        Rail { open: false, due: None, width: Fade::still(FOLDED), words: Fade::still(0.0), line: Fade::still(0.0), dot: Fade::still(1.0) }
     }
 }
 
 impl Rail {
-    /// The pointer came to rest on the rail (140 ms after it moved onto it) or left it. The rules
+    /// The pointer's 140 ms on the rail are up, or it left the rail (`on`). The rules
     /// are `renderer/src/team/rooms/rooms.css`'s: the width eases open over 0.24 s and shut
     /// over 0.2 s; the words come in 0.08 s later over 0.14 s and go over 0.06 s; Search's line
     /// crosses in 0.14 s and Inbox's dot in 0.1 s, its `ease` both ways. Under the system's
@@ -124,8 +126,13 @@ impl Rail {
     }
 }
 
-/// The poll's part: while the rail opens or folds, each frame is drawn and asks for the next.
-pub fn rail_moves(s: &State, at: f64, tx: &mut Tx) -> bool {
+/// The poll's part: the rail opens once its 140 ms are up, and while it opens or folds each
+/// frame is drawn and asks for the next.
+pub fn rail_moves(s: &mut State, at: f64, tx: &mut Tx) -> bool {
+    if let Some((due, still)) = s.rail.due.filter(|&(due, _)| at >= due) {
+        s.rail.due = None;
+        s.rail.point(true, due, still);
+    }
     let moving = s.rail.moving(at);
     if moving {
         tx.wake_after(Duration::ZERO);
@@ -315,11 +322,24 @@ pub fn rail(s: &State, still: bool) -> El {
         .pin(Some(22.0), Some(50.0), None, Some(22.0))
         .w(wide)
         // It opens 140 ms after the pointer moves onto it and folds the moment it leaves
-        // (`hoverAt` in `WorkspaceNavigation.tsx`), a pointer passing over on its way somewhere
-        // else opening nothing.
-        .hover_delays(Duration::from_millis(140), Duration::ZERO)
+        // (`hoverAt` in `WorkspaceNavigation.tsx`): a pointer passing over on its way somewhere
+        // else is gone before then, and one that did not move opens nothing, so a rail uncovered
+        // under a pointer standing still stays folded (`pointerMoved` in `sidebar-shrinks.ts`).
+        .on_pointer_move_local(move |s: &mut State, _, tx| {
+            if s.rail.open || s.rail.due.is_some() {
+                tx.live_only();
+                return;
+            }
+            s.rail.due = Some((tx.clock() + 0.14, still));
+            tx.wake_after(Duration::from_millis(140));
+        })
         .on_hover_change(move |s: &mut State, inside, tx| {
-            s.rail.point(inside, tx.clock(), still);
+            if inside {
+                tx.live_only();
+                return;
+            }
+            s.rail.due = None;
+            s.rail.point(false, tx.clock(), still);
             tx.wake_after(Duration::ZERO);
         })
         .child(team)

@@ -1046,6 +1046,7 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
     // A picture the engine has turned for the box a thread is started in.
     changed |= s.land_staged();
     changed |= chrome::rail_moves(s, at, tx);
+    changed |= feel::hint_due(s, at);
     if let Some((key, answer)) = s.asking.take() {
         match answer {
             Ok(answer) => {

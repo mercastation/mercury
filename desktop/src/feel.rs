@@ -36,6 +36,8 @@ pub struct Pointed {
     pub row: Option<(String, String)>,
     /// The control whose key hint is drawn beside it, once the pointer has waited on it.
     pub hint: Option<Hint>,
+    /// The control the pointer moved onto, and when its plate is due.
+    waiting: Option<(Hint, f64)>,
 }
 
 impl Pointed {
@@ -107,24 +109,54 @@ fn caps_of(key: &str) -> Vec<String> {
     key.chars().map(|c| c.to_string()).collect()
 }
 
-/// The control `e`, carrying the hint `id` (`data-hint`): the pointer waiting on it 700 ms
-/// draws its plate beside it (`plate`), and the plate goes the moment the pointer leaves. The
-/// control is laid out under `key`, which the plate is hung from. The wait is a layer around
-/// the control, so a control that already follows the pointer keeps doing so.
+/// The control `e`, carrying the hint `id` (`data-hint`): 700 ms after the pointer moves onto
+/// it its plate is drawn beside it (`plate`), and the plate goes the moment the pointer leaves.
+/// A pointer that moved, as the web window listens for `mousemove` and not `mouseover`: a
+/// control drawn under a pointer standing still (the Inbox's rows after Tab) claims no plate,
+/// and one a key took away comes back after the pointer's next move. The control is laid out
+/// under `key`, which the plate is hung from. The wait is a layer around the control, so a
+/// control that already follows the pointer keeps doing so.
 pub fn hinted(e: El, id: &'static str, key: impl Into<String>, align: Align, words: Option<String>) -> El {
     let hint = Hint { id, key: key.into(), align, words };
     let control = e.key(hint.key.clone());
+    let left = hint.key.clone();
     // A column, so a control as wide as a list is as wide inside it as it was.
-    col().hover_delays(HINT_WAIT, Duration::ZERO).on_hover_change(move |s: &mut State, inside, tx| {
-        if inside {
-            s.pointed.hint = Some(hint.clone());
-        } else if s.pointed.hint.as_ref().is_some_and(|h| h.key == hint.key) {
-            s.pointed.hint = None;
-        } else {
-            tx.live_only();
-        }
-    })
-    .child(control)
+    col()
+        .on_pointer_move_local(move |s: &mut State, _, tx| {
+            let mine = |h: &Hint| h.key == hint.key;
+            if s.pointed.hint.as_ref().is_some_and(mine) || s.pointed.waiting.as_ref().is_some_and(|(h, _)| mine(h)) {
+                tx.live_only();
+                return;
+            }
+            s.pointed.waiting = Some((hint.clone(), tx.clock() + HINT_WAIT.as_secs_f64()));
+            tx.wake_after(HINT_WAIT);
+        })
+        .on_hover_change(move |s: &mut State, inside, tx| {
+            let mine = |h: &Hint| h.key == left;
+            if inside || !(s.pointed.hint.as_ref().is_some_and(mine) || s.pointed.waiting.as_ref().is_some_and(|(h, _)| mine(h))) {
+                tx.live_only();
+                return;
+            }
+            if s.pointed.hint.as_ref().is_some_and(mine) {
+                s.pointed.hint = None;
+            }
+            if s.pointed.waiting.as_ref().is_some_and(|(h, _)| mine(h)) {
+                s.pointed.waiting = None;
+            }
+        })
+        .child(control)
+}
+
+/// The poll's part: the plate the pointer has waited 700 ms for comes. A key pressed while it
+/// waits does not call it off, as the web window's keys take away only a plate already drawn.
+pub fn hint_due(s: &mut State, at: f64) -> bool {
+    let Some((hint, due)) = s.pointed.waiting.take() else { return false };
+    if at < due {
+        s.pointed.waiting = Some((hint, due));
+        return false;
+    }
+    s.pointed.hint = Some(hint);
+    true
 }
 
 /// The plate of the hint the pointer has waited on (`HintPlate`, `.hint-plate` in
@@ -383,6 +415,52 @@ mod tests {
         run(&mut rt, 0.3);
         assert_eq!(rt.state.rail.width(rt.state.at), 38.0);
         assert_eq!(chrome::card_left(&rt.state), 82.0);
+    }
+
+    #[test]
+    fn the_rail_opens_for_a_pointer_that_moved_onto_it_and_not_for_one_it_was_uncovered_under() {
+        let mut rt = window("rail-moved", &["--view", "inbox"]);
+        // Under the command bar the rail is out of reach, and stays folded.
+        rt.key(KeyEvent { key: Key::Command('k'), mods: Mods { cmd: true, ..Mods::default() } });
+        rt.frame(1.0 / 60.0);
+        assert!(rt.state.palette.open);
+        rt.pointer_move(41.0, 244.0);
+        run(&mut rt, 0.6);
+        assert_eq!(rt.state.rail.width(rt.state.at), 38.0, "under the bar");
+        // The bar closing leaves the pointer standing on it, which opens nothing (`pointerMoved`).
+        key(&mut rt, Key::Escape);
+        assert!(!rt.state.palette.open);
+        run(&mut rt, 0.6);
+        assert_eq!(rt.state.rail.width(rt.state.at), 38.0, "uncovered under a still pointer");
+        // The pointer's next move opens it.
+        rt.pointer_move(41.0, 245.0);
+        run(&mut rt, 0.6);
+        assert_eq!(rt.state.rail.width(rt.state.at), 202.0, "once the pointer moves");
+    }
+
+    #[test]
+    fn a_hint_waits_on_a_pointer_that_moved_and_comes_back_after_a_key_on_its_next_move() {
+        let mut rt = window("hint-moved", &["--view", "inbox"]);
+        rt.pointer_move(600.0, 221.0);
+        run(&mut rt, 0.8);
+        assert_eq!(rt.state.pointed.hint.as_ref().map(|h| h.id), Some("row"));
+        // A key takes the plate away, and the pointer standing still does not bring it back.
+        key(&mut rt, Key::Down);
+        run(&mut rt, 0.8);
+        assert!(rt.state.pointed.hint.is_none(), "not while the pointer stands still");
+        // Its next move does, 700 ms after.
+        rt.pointer_move(600.0, 222.0);
+        run(&mut rt, 0.6);
+        assert!(rt.state.pointed.hint.is_none(), "not before 700 ms");
+        run(&mut rt, 0.2);
+        assert_eq!(rt.state.pointed.hint.as_ref().map(|h| h.id), Some("row"));
+        // A row that comes under a pointer standing still, as the next one does when E closes
+        // the one under it, claims no plate.
+        let first = rt.state.lists.needs[0].id.clone();
+        key(&mut rt, Key::Text("e".into()));
+        assert!(rt.state.lists.needs.iter().all(|r| r.id != first), "E closed the row under the pointer");
+        run(&mut rt, 0.8);
+        assert!(rt.state.pointed.hint.is_none(), "the next row claims none");
     }
 
     #[test]
