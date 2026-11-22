@@ -264,6 +264,8 @@ impl State {
 thread_local! {
     /// The width each sheet's viewport is laid out at, from its last view.
     static ROOM: RefCell<HashMap<Where, f32>> = RefCell::new(HashMap::new());
+    /// Where each sheet's viewport stands in the window, as it last laid out.
+    static VIEWPORT: RefCell<HashMap<Where, [f32; 4]>> = RefCell::new(HashMap::new());
     /// The favicons read, by host: a picture, or none for a site the service does not know.
     static LOGOS: RefCell<HashMap<String, Option<Pixels>>> = RefCell::new(HashMap::new());
     static LOGOS_LANDED: std::sync::Arc<std::sync::Mutex<Vec<(String, Option<(u32, u32, Vec<u8>)>)>>> = Default::default();
@@ -350,9 +352,25 @@ fn drop_at(s: &State, sh: &Sheet, x: f32, y: f32, cols: bool) -> Option<Dropping
 
 /// The pointer's gestures on the grid, read as the web's one listener reads them.
 fn grid_drag(s: &mut State, w: Where, d: &mut Drag, tx: &mut Tx) {
+    gesture(s, w, d.phase, d.x, d.y, d.clicks, d.cancelled(), tx);
+}
+
+/// A gesture begun on a link's words in a cell, which take the pointing hand and so the
+/// pointer: handed on to the grid at the same point of it (`d.window_point()` less where the
+/// grid stands in the window, as it last laid out, and how far it is scrolled).
+fn link_drag(s: &mut State, w: Where, d: &mut Drag, tx: &mut Tx) {
+    let [wx, wy] = d.window_point();
+    let [vx, vy, _, _] = VIEWPORT.with(|v| v.borrow().get(&w).copied()).unwrap_or_default();
+    let at = scrolled(w);
+    gesture(s, w, d.phase, wx - vx + at.offset[0], wy - vy + at.offset[1], d.clicks, d.cancelled(), tx);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn gesture(s: &mut State, w: Where, phase: Phase, x: f32, y: f32, clicks: u32, cancelled: bool, tx: &mut Tx) {
     let Some(sh) = s.tables.get(w) else { return };
+    let d = Point { x, y, clicks, cancelled };
     let hit = hit_at(s, sh, d.x, d.y);
-    match d.phase {
+    match phase {
         Phase::Down => {
             let link = match hit {
                 Some(Hit::Cell(at)) => sh.row_at(at.r).and_then(|row| file::cell_link(sh.table(), row, at.c)).map(|l| l.href),
@@ -400,15 +418,23 @@ fn grid_drag(s: &mut State, w: Where, d: &mut Drag, tx: &mut Tx) {
             dragged_to(s, w, hit, drop);
         }
         Phase::Up => {
-            released(s, w, d.cancelled(), tx);
+            released(s, w, d.cancelled, tx);
             if d.clicks == 2
-                && !d.cancelled()
+                && !d.cancelled
                 && let Some(hit) = hit
             {
                 double_at(s, w, hit, tx);
             }
         }
     }
+}
+
+/// Where a gesture is on the grid, in the grid's own points.
+struct Point {
+    x: f32,
+    y: f32,
+    clicks: u32,
+    cancelled: bool,
 }
 
 /* ------------------------------ the view ------------------------------ */
@@ -475,7 +501,8 @@ fn bar(_s: &State, sh: &Sheet, inner: f32) -> El {
         .items_center()
         .border(1.0, rule())
         .border_layout()
-        .cursor(Cursor::Text)
+        // A label round its box: a press anywhere puts the caret in it, the I-beam only over it.
+        .cursor(Cursor::Default)
         .child(icon(&crate::icons::TABLE_SEARCH, 14.0).color(muted()))
         .child(search)
         .on_press(move |s: &mut State| {
@@ -605,6 +632,7 @@ fn grid(s: &State, sh: &Sheet, inner: f32, frame_h: f32) -> El {
         .size(inner, frame_h)
         .scroll_xy()
         .on_scroll_offset(move |at| super::heard(w, at))
+        .on_layout(move |_: &mut State, rect| VIEWPORT.with(|v| _ = v.borrow_mut().insert(w, rect)))
         .focusable(true)
         .on_key(move |s: &mut State, e: &KeyEvent, tx: &mut Tx| super::grid_key(s, w, e, tx))
         .child(content);
@@ -830,8 +858,10 @@ fn cell_body(s: &State, sh: &Sheet, cells: &file::Cells, c: usize, wide: f32) ->
         t = if wrapped { t.wrap().max_lines(3) } else { t.truncate() };
         let words = row().min_w(0.0).shrink().child(t);
         if link {
-            // Underlined under the pointer, three points under the words.
-            words.hover_group().child(el().absolute(0.0, 17.0).h(1.0).w_full().fill(if column.kind == Kind::Name { dim() } else { ink() }).group_opacity(0.0, 1.0))
+            // Underlined under the pointer, three points under the words, which take the pointing
+            // hand as a link's do (a press still picks the cell: ⌘ opens it).
+            let w = sh.at;
+            words.hover_group().cursor(Cursor::Pointer).child(el().absolute(0.0, 17.0).h(1.0).w_full().fill(if column.kind == Kind::Name { dim() } else { ink() }).group_opacity(0.0, 1.0)).on_drag(move |s: &mut State, d: &mut Drag, tx: &mut Tx| link_drag(s, w, d, tx))
         } else {
             words
         }
