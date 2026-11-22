@@ -79,14 +79,16 @@ pub fn tend(s: &mut State, now: f64, stale: bool) -> bool {
     // The command bar lists each project's page too, so it reads the list as well.
     let wanted = on_files || s.palette.open;
     s.files.stale |= stale && wanted;
-    if wanted && (s.files.list.is_none() || s.files.stale) && !s.files.reading.is_pending() && now - s.files.asked_at >= 2000.0 {
-        if let Source::Door(door) = &s.source
-            && let Some((url, token)) = door.now()
-        {
-            s.files.asked_at = now;
-            s.files.stale = false;
-            s.files.reading.request((url, token), |(url, token)| source::call(&url, &token, "zero:files-place", &serde_json::json!({})));
-        }
+    if wanted
+        && (s.files.list.is_none() || s.files.stale)
+        && !s.files.reading.is_pending()
+        && now - s.files.asked_at >= 2000.0
+        && let Source::Door(door) = &s.source
+        && let Some((url, token)) = door.now()
+    {
+        s.files.asked_at = now;
+        s.files.stale = false;
+        s.files.reading.request((url, token), |(url, token)| source::call(&url, &token, "zero:files-place", &serde_json::json!({})));
     }
     let mut changed = false;
     if let Some(Ok(answer)) = s.files.reading.take()

@@ -528,10 +528,10 @@ fn picture_stage(s: &State, open: &Open, stage: (f32, f32)) -> El {
     let fit = rules::picture_fit(natural, room);
     let laid = laid_picture(natural, fit, open.zoom, room);
     // Zoomed in, the copy is made again at the size it is drawn, up to the picture's own.
-    if open.zoom > 1.0 || fit.tall {
-        if let Look::Here(bigger) = look(Want::Within(s.pictures.pixels(laid.w), s.pictures.pixels(laid.h))) {
-            held = Some(bigger);
-        }
+    if (open.zoom > 1.0 || fit.tall)
+        && let Look::Here(bigger) = look(Want::Within(s.pictures.pixels(laid.w), s.pictures.pixels(laid.h)))
+    {
+        held = Some(bigger);
     }
     let [hairline, soft] = lift();
     let picture = el().absolute(laid.x, laid.y).size(laid.w, laid.h).radius(10.0).box_shadow(hairline).box_shadow(soft);

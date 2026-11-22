@@ -280,7 +280,7 @@ pub fn is_scratch(f: &Placed) -> bool {
 }
 
 /// The files that wait under one line, and the rest (`apartScratch`).
-pub fn apart_scratch<'a>(files: Vec<&'a Placed>) -> (Vec<&'a Placed>, Vec<&'a Placed>) {
+pub fn apart_scratch(files: Vec<&Placed>) -> (Vec<&Placed>, Vec<&Placed>) {
     files.into_iter().partition(|f| !is_scratch(f))
 }
 
