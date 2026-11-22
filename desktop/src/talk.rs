@@ -356,25 +356,25 @@ fn moved(at: f64) -> Work {
 }
 
 thread_local! {
-    /// Each run's lines as last read, by its start and how long its log was. A log only grows,
-    /// so while a run is going only its own log is read again; the web window keeps the same
-    /// per log (`notesOf` in `thread-history.ts`). Let go of past a few hundred.
-    static RUNS_READ: std::cell::RefCell<HashMap<(u64, usize), std::rc::Rc<Vec<Said>>>> = std::cell::RefCell::new(HashMap::new());
+    /// Each run's lines as last read, by its start, with how long its log was then. A log only
+    /// grows, so while a run is going only its own log is read again; the web window keeps the
+    /// same per log (`notesOf` in `thread-history.ts`). One reading per run, a hundred runs at most.
+    static RUNS_READ: std::cell::RefCell<HashMap<u64, (usize, std::rc::Rc<Vec<Said>>)>> = std::cell::RefCell::new(HashMap::new());
 }
 
-/// `run_nodes`, read once per log.
+/// `run_nodes`, read again only when the run's log has grown.
 fn run_nodes_once(session: &TraceSession) -> std::rc::Rc<Vec<Said>> {
-    let key = (session.started_at.to_bits(), session.text.len());
-    if let Some(read) = RUNS_READ.with(|memo| memo.borrow().get(&key).cloned()) {
+    let (key, length) = (session.started_at.to_bits(), session.text.len());
+    if let Some(read) = RUNS_READ.with(|memo| memo.borrow().get(&key).filter(|(l, _)| *l == length).map(|(_, read)| read.clone())) {
         return read;
     }
     let read = std::rc::Rc::new(run_nodes(session));
     RUNS_READ.with(|memo| {
         let mut memo = memo.borrow_mut();
-        if memo.len() > 300 {
+        if memo.len() >= 100 && !memo.contains_key(&key) {
             memo.clear();
         }
-        memo.insert(key, read.clone());
+        memo.insert(key, (length, read.clone()));
     });
     read
 }
