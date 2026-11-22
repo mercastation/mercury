@@ -226,22 +226,25 @@ Before a picture has ever been read its size is not known, and the page holds wh
 window holds: four to three across the column, no taller than the window allows. When the
 picture lands, the words under it move once to their place, as they do in the web window.
 Filmed frame by frame (`--script` with a key that opens the thread, `--strip`), a conversation
-with pictures draws that held place for two frames and is whole and still from the third; one
-that opens at its foot keeps its last words where they are throughout.
+with three small pictures draws that held place for one frame and is whole and still from the
+second; one that opens at its foot keeps its last words where they are throughout. A folder
+draws three held places until it has been listed, then its pictures as each is read.
 
 Measured, each a headless still at 1280 by 760, 2x, in the debug build
-(`/usr/bin/time -l ./target/debug/mercury --fixture shots/<scene>-fixture.json --thread --snap …`):
+(`/usr/bin/time -l ./target/debug/mercury --fixture shots/<scene>-fixture.json --thread --snap …`).
+Photograph `thread-pictures-many` last before measuring: any other scene that plants the folder
+starts it again without the ten screenshots, and the measurement then reads none.
 
 | Conversation | Most memory resident | Peak footprint |
 |---|---|---|
 | `thread`, no pictures | 135 MB | 312 MB |
 | `thread-pictures`, three small ones | 135 MB | 313 MB |
-| `thread-pictures-many`, ten 2880 by 1800 screenshots | 237 MB | 423 MB |
+| `thread-pictures-many`, ten 2880 by 1800 screenshots | 238 MB | 423 MB |
 
-So ten screenshots cost about 100 MB at their worst moment: 47 MB of copies, what the two on
-screen take once more to be drawn, and the one screenshot being decoded and shrunk, which is
-let go before the next is read. The 135 MB under them is the headless run itself. A still reads
-all ten at once; a window was not measured.
+So ten screenshots cost about 100 MB at their worst moment: 47 MB of copies, what the ones on
+screen take again in Rune's own atlas of what it draws, and the one screenshot being decoded and
+shrunk, which is let go before the next is read. The 135 MB under them is the headless run
+itself. A still reads all ten at once; a window was not measured.
 Reading one such screenshot takes 49 ms in the release build and 2.2 s in the debug build
 (`cargo test --release -- --ignored --nocapture a_screenshot_is_read_in`), so a debug window
 fills in a page of screenshots slowly. `MERCURY_PICTURES=1` prints what is held each time it

@@ -59,6 +59,10 @@ impl<'a> Files<'a> {
         let (dir, repo) = (named("dir"), named("repoPath"));
         let rest = |field: &str| item.rest.get(field).and_then(Value::as_str).unwrap_or("");
         let texts = [item.result.as_deref().unwrap_or(""), rest("note"), item.body.as_deref().unwrap_or(""), rest("answer")];
+        // The page says whose pictures it is about to ask for before it asks for any: the
+        // window's own turn may come after the first drawing of a conversation just opened,
+        // and must not take that for another conversation's and let go of what was asked.
+        s.pictures.keep(Some(&format!("{}/{}", item.product, item.id)));
         Files {
             folder: roots::task_folder(Some(&repo), Some(&item.id)),
             roots: roots::picture_roots(Some(&dir), Some(&repo), Some(&item.id), &texts),

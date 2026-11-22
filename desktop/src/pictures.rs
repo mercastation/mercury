@@ -507,7 +507,9 @@ impl Pictures {
         changed
     }
 
-    /// The conversation on screen, or none. Another one's pictures are let go.
+    /// The conversation on screen, or none. Another one's pictures are let go. The page calls
+    /// this before it asks for a conversation's first picture, and the window's turn calls it
+    /// with the same name, or with none once no conversation is open.
     pub fn keep(&self, owner: Option<&str>) {
         let mut shelf = self.shelf.lock().unwrap();
         if shelf.owner.as_deref() == owner {
@@ -634,9 +636,19 @@ mod tests {
         let places = vec![folder.join("round.png").to_string_lossy().to_string(), file.to_string_lossy().to_string()];
         let want = Want::Within(200, 200);
         let store = Pictures::new(2.0, false, false);
-        store.tend(Some("storefront/w-1"), 0.0);
+        // A conversation just opened is drawn before the window's turn hears of it: the page
+        // names it, asks, and the turn that follows keeps what was asked.
+        store.tend(None, 0.0);
+        store.keep(Some("storefront/w-1"));
         // Asking does not read: the page is told it is on its way, with no size yet.
         assert!(matches!(store.look(places.clone(), want), Look::Arriving(None)));
+        assert!(matches!(store.folder(vec![folder.join("designs").to_string_lossy().to_string()]), Listed::Asking));
+        let listed = (0..500).find_map(|_| {
+            store.tend(Some("storefront/w-1"), 0.0);
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            if let Listed::Here(listing) = store.folder(vec![folder.join("designs").to_string_lossy().to_string()]) { Some(listing) } else { None }
+        });
+        assert_eq!(listed.map(|l| (l.total, l.pictures)), Some((1, vec![places[1].clone()])));
         let Look::Here(held) = settled(&store, &places, want, "storefront/w-1", 0.0) else { panic!("the picture was not found") };
         assert_eq!((held.natural, held.pixels.size(), held.path.as_str()), ((400, 200), (200, 100), places[1].as_str()));
         assert_eq!(store.held(), (200 * 100 * 4, 1));
