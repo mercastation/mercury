@@ -144,11 +144,27 @@ fn parts_of(s: &str) -> Vec<String> {
     fold(s).split(|c: char| !c.is_alphanumeric()).filter(|p| !p.is_empty()).map(str::to_string).collect()
 }
 
+/// A pattern compiled once, the first time it is used: the page asks for them on every frame.
+macro_rules! once {
+    ($name:ident, $source:expr) => {
+        static $name: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new($source).expect("a fixed pattern"));
+    };
+}
+
+once!(MACHINE_NAME, r"(?i)^page-\d{4}-\d{2}-\d{2}T[\d-]+Z?(?:[-_ ]v\d+)?\.\w+$|^screen ?shot[ -]\d{4}-\d{2}-\d{2}\b.*\.\w+$|^(?:[0-9a-f]{12,}|\d{10,})\.\w+$");
+once!(SCRATCH_NAME, r"(?i)^page-\d{4}-\d{2}-\d{2}T[\d-]+Z?\.\w+$|(?:^|[-_ ])checks?\.\w+$|(?:^|[-_ ])contact[-_ ]?sheet\.\w+$");
+once!(LINK, r"!?\[([^\]]*)\]\([^)]*\)");
+once!(MARKS, r"(\*\*|__|`|~~)");
+once!(ENDS, r"^[*_]|[*_]$");
+once!(RULE, r"^[-*_]{3,}$");
+once!(HEAD, r"^(#{1,6})\s+(.*)$");
+once!(ITEM, r"^(?:[-*+]|\d+[.)])\s+(.*)$");
+once!(QUOTE, r"^>\s*");
+
 /// A page shot (`page-2026-10-31T17-42-40-037Z.png`), a Mac screenshot's name, a hash: a name
 /// no person chose (`MACHINE_NAME`).
 fn machine_name(name: &str) -> bool {
-    let re = regex::Regex::new(r"(?i)^page-\d{4}-\d{2}-\d{2}T[\d-]+Z?(?:[-_ ]v\d+)?\.\w+$|^screen ?shot[ -]\d{4}-\d{2}-\d{2}\b.*\.\w+$|^(?:[0-9a-f]{12,}|\d{10,})\.\w+$").expect("a fixed pattern");
-    re.is_match(name)
+    MACHINE_NAME.is_match(name)
 }
 
 /// What a tile calls a file: the name a person gave it, else its own name, unless no person
@@ -213,17 +229,11 @@ pub enum DocBlock {
 /// The top of a markdown file as a tile draws it: its title, headings, paragraphs and list
 /// items, tables and code left out, at most `most` blocks (`docBlocks`).
 pub fn doc_blocks(text: &str, most: usize) -> Vec<DocBlock> {
-    let link = regex::Regex::new(r"!?\[([^\]]*)\]\([^)]*\)").expect("a fixed pattern");
-    let marks = regex::Regex::new(r"(\*\*|__|`|~~)").expect("a fixed pattern");
-    let ends = regex::Regex::new(r"^[*_]|[*_]$").expect("a fixed pattern");
-    let rule = regex::Regex::new(r"^[-*_]{3,}$").expect("a fixed pattern");
-    let head = regex::Regex::new(r"^(#{1,6})\s+(.*)$").expect("a fixed pattern");
-    let item = regex::Regex::new(r"^(?:[-*+]|\d+[.)])\s+(.*)$").expect("a fixed pattern");
-    let quote = regex::Regex::new(r"^>\s*").expect("a fixed pattern");
+    let (rule, head, item, quote) = (&*RULE, &*HEAD, &*ITEM, &*QUOTE);
     let plain = |s: &str| {
-        let s = link.replace_all(s, "$1");
-        let s = marks.replace_all(&s, "");
-        ends.replace_all(&s, "").trim().to_string()
+        let s = LINK.replace_all(s, "$1");
+        let s = MARKS.replace_all(&s, "");
+        ENDS.replace_all(&s, "").trim().to_string()
     };
     let mut out: Vec<DocBlock> = Vec::new();
     let (mut fenced, mut gap) = (false, true);
@@ -266,8 +276,7 @@ pub fn version_word(f: &Placed) -> Option<String> {
 
 /// A picture an agent took to check its own work, that nobody is reviewing (`isScratch`).
 pub fn is_scratch(f: &Placed) -> bool {
-    let named = regex::Regex::new(r"(?i)^page-\d{4}-\d{2}-\d{2}T[\d-]+Z?\.\w+$|(?:^|[-_ ])checks?\.\w+$|(?:^|[-_ ])contact[-_ ]?sheet\.\w+$").expect("a fixed pattern");
-    f.kind.as_deref() == Some("image") && f.agent.is_some() && named.is_match(&f.name) && f.versions <= 1 && f.open == 0 && f.approved_by.is_empty() && (f.folder.is_none() || f.folder_follows)
+    f.kind.as_deref() == Some("image") && f.agent.is_some() && SCRATCH_NAME.is_match(&f.name) && f.versions <= 1 && f.open == 0 && f.approved_by.is_empty() && (f.folder.is_none() || f.folder_follows)
 }
 
 /// The files that wait under one line, and the rest (`apartScratch`).

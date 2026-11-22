@@ -1273,7 +1273,10 @@ On the person's own files, read through the running app's door and never written
 window photographed on the same list (`MERCURY_FILES`) and this window drawn on the door
 (`--view files`): the same three project cards, the same kinds, and the first sixty tiles in the
 same order with the same name and the same line, the web window's harness having no team to tell
-"Your agent" from another's.
+"Your agent" from another's. On that list of 168 files a release build draws the page first in
+83 ms, its pictures then landing from the worker (the ignored test `the_files_place_draws_in`,
+`MERCURY_FILES_PLACE=<a fixture with the list>`). A document's or a script's face is read once
+from the top of its file, and read again only when its versions or its size change.
 
 ## What a run did
 

@@ -107,6 +107,8 @@ pub struct Open {
     /// From Files: the name a person gave it, and where it was sent.
     title: Option<String>,
     sent_in: Vec<SentIn>,
+    /// What the thread called the version in hand, read once as it lands (`labelSaidFor`).
+    said_as: Option<String>,
 }
 
 /// The view, open or not.
@@ -204,7 +206,7 @@ impl Open {
         let families = thread_files::thread_files(&named, now);
         let at = rules::where_a_press_lands(&families, path, now)?;
         let latest = rules::latest_pictures_said(&lines);
-        let mut open = Open { from, lines, families, at, handed, latest, roots, found: None, words: None, zoom: 1.0, title: None, sent_in: Vec::new() };
+        let mut open = Open { from, lines, families, at, handed, latest, roots, found: None, words: None, zoom: 1.0, title: None, sent_in: Vec::new(), said_as: None };
         open.land();
         Some(open)
     }
@@ -222,6 +224,9 @@ impl Open {
     fn land(&mut self) {
         self.found = place_of(&self.roots, &self.version().path);
         self.zoom = 1.0;
+        let v = self.version();
+        let paths: Vec<&str> = std::iter::once(v.path.as_str()).chain(v.also.iter().map(String::as_str)).collect();
+        self.said_as = rules::label_said_for(&self.lines, &paths);
         let kind = self.kind();
         self.words = self.found.as_deref().filter(|_| matches!(kind, Some("markdown" | "code" | "table"))).and_then(|found| {
             use std::io::Read;
@@ -792,8 +797,7 @@ fn bar(s: &State, open: &Open) -> El {
     let family = open.family();
     let v = open.version();
     let name = open.title.clone().unwrap_or_else(|| rules::family_name(family));
-    let paths: Vec<&str> = std::iter::once(v.path.as_str()).chain(v.also.iter().map(String::as_str)).collect();
-    let said_as = rules::label_said_for(&open.lines, &paths).filter(|l| *l != name);
+    let said_as = open.said_as.clone().filter(|l| *l != name);
     let mut left = row()
         .gap(14.0)
         .items_center()

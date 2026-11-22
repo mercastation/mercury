@@ -780,6 +780,32 @@ mod tests {
         assert!(rt.state.viewer.open.is_some());
     }
 
+    /// How long the Files place takes to draw, and a frame after it, on the fixture
+    /// `MERCURY_FILES_PLACE` names (one with a `filesPlace` list): a measurement, run with
+    /// `MERCURY_FILES_PLACE=<fixture> cargo test --release -- --ignored --nocapture the_files_place_draws`.
+    #[test]
+    #[ignore]
+    fn the_files_place_draws_in() {
+        let Ok(path) = std::env::var("MERCURY_FILES_PLACE") else { return };
+        let s = crate::init_from(&["--fixture".to_string(), path, "--view".to_string(), "files".to_string()]);
+        let text = rune::text::TextSystem::new(crate::FONTS, ("Geist", "Geist Mono, ui-monospace"));
+        let mut rt = Runtime::with_text(s, crate::view, (1280.0, 760.0), rune::Env::new(true, 2.0), text);
+        rt.poll = Some(crate::poll);
+        let started = std::time::Instant::now();
+        rt.frame(0.0);
+        let first = started.elapsed();
+        let mut frames = Vec::new();
+        for _ in 0..30 {
+            let at = std::time::Instant::now();
+            // The pointer moving over the tiles draws the page again each frame.
+            rt.pointer_move(300.0 + frames.len() as f32 * 20.0, 400.0);
+            rt.frame(1.0 / 60.0);
+            frames.push(at.elapsed());
+        }
+        frames.sort();
+        println!("drawn first in {:?}; a frame with the pointer moving: half under {:?}, the slowest {:?}", first, frames[15], frames[29]);
+    }
+
     /// The web window's word for a pointer (`cursor`), as Rune names it.
     fn shape(css: &str) -> Option<Cursor> {
         Some(match css {
