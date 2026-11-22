@@ -1377,8 +1377,38 @@ fn composer(s: &State, item: &Item, m: &Measure) -> El {
 
 /// The agent's choices over the reply box (`.opt-strip`): each with its number, the one the
 /// arrows are on lit, and what Enter would do said beside it.
-fn options_strip(choices: &[Choice], on: Option<usize>, m: &Measure) -> El {
+fn options_strip(choices: &[Choice], on: Option<usize>, m: &Measure, peek: Option<usize>) -> El {
     let count = choices.len();
+    // A choice is one line here, cut short, two where the conversation is 560 points or less
+    // across, and whole while the keys are on it (`.one-choices .opt-text`).
+    let lines = |at: usize| if on == Some(at) { usize::MAX } else if m.column <= 560.0 { 2 } else { 1 };
+    // An option cut short shows whole in a card over the strip while the pointer is on it
+    // (`.opt-peek`, `optionIsClipped`): measured at the width its words have.
+    let aside_of = |at: usize, c: &Choice| if on == Some(at) { Some("↵ send") } else if c.recommended { Some("recommended") } else { None };
+    let clipped = |at: usize, c: &Choice| {
+        let aside = aside_of(at, c).map_or(0.0, |a| 8.0 + rune::text::measure(a, &[], TextStyle::new(11.5, 400.0), None).0);
+        let room = (m.column - 14.0 - 44.0 - 20.0 - 10.0 - aside).max(1.0);
+        rune::text::measure(&format::without_recommended(&c.text), &[], TextStyle::new(14.5, 400.0).lh(20.0), Some(room)).1 > 20.0 * lines(at).min(1000) as f32 + 1.0
+    };
+    let card = peek.and_then(|at| choices.get(at).filter(|c| clipped(at, c)).map(|c| (at, c))).map(|(_, c)| {
+        let tall = rune::memo::layout_size("options-strip").map_or(0.0, |[_, h]| h);
+        let comes_in = rune::Transition::offset(0.0, 4.0).combined(rune::Transition::scale(0.98)).combined(rune::Transition::opacity());
+        // Inside the strip's edge, eight points over it (`left: 0; right: 0; bottom: 100%`).
+        col()
+            .pin(Some(1.0), None, Some(1.0), Some(tall + 7.0))
+            .pt(12.0)
+            .px(16.0)
+            .pb(13.0)
+            .radius(10.0)
+            .fill(rgb(47, 45, 44))
+            .border(1.0, rule())
+            .border_layout()
+            .box_shadow(shadow(0.0, 24.0, 70.0, 0.0, rgba(0, 0, 0, 0.55), false))
+            .animated_changes()
+            .transition(rune::Transition::asymmetric(comes_in, rune::Transition::none()).springs(rune::SpringPair::new(rune::Spring::new(0.028, -0.66), rune::Spring::NONE)))
+            .child(pen(text(format!("OPTION {}, IN FULL", c.n)).font(TextStyle::new(10.5, 600.0).lh(15.75).tracking(0.84)).color(muted()), 10.5).mb(6.0))
+            .child(pen(text(format::without_recommended(&c.text)).font(TextStyle::new(14.0, 400.0).lh(21.0)).color(ink()).wrap(), 14.0))
+    });
     let rows = choices.iter().enumerate().map(|(at, c)| {
         let lit = on == Some(at);
         let tone = if lit { ink() } else { dim() };
@@ -1395,8 +1425,15 @@ fn options_strip(choices: &[Choice], on: Option<usize>, m: &Measure) -> El {
             // A press is aimed at the place it lands: not taken when the options moved under the
             // pointer, or the app moved the person here, a moment before (`answer.rs`).
             .on_press_tx(move |s: &mut State, tx| s.click_option(at, tx))
+            .on_hover_change(move |s: &mut State, over, _| {
+                if over {
+                    s.answering.peek = Some(at);
+                } else if s.answering.peek == Some(at) {
+                    s.answering.peek = None;
+                }
+            })
             .child(number)
-            .child(pen(text(words).font(TextStyle::new(14.5, 400.0).lh(20.0)).color(tone).group_color(ink()).wrap().max_lines(2), 14.5));
+            .child(row().shrink().child(pen(text(words).font(TextStyle::new(14.5, 400.0).lh(20.0)).color(tone).group_color(ink()).wrap().max_lines(lines(at)), 14.5)));
         // The lit one keeps its stronger wash under the pointer; any other is washed, its words
         // the text's own colour (`.opt-row:hover`, which `.opt-row.selected` comes after).
         line = if lit { line.fill(white(0.08)) } else { line.hover_group().hover(crate::feel::wash()) };
@@ -1424,6 +1461,7 @@ fn options_strip(choices: &[Choice], on: Option<usize>, m: &Measure) -> El {
         // The little arrow that folds the choices away, washed under the pointer, its mark the
         // text's own colour (`ChoicesFold`, `.one-choices-fold:hover`).
         .child(row().pin(None, Some(6.0), Some(8.0), None).size(24.0, 24.0).radius(6.0).center().hover_group().hover(crate::feel::wash()).cursor(rune::Cursor::Pointer).key("choices-fold").label("Fold the choices").child(icon(&icons::DOWN, 14.0).color(muted()).group_color(ink())).on_press(|s: &mut State| crate::chips::toggle_choices(s)))
+        .children(card)
 }
 
 /// The dock at the conversation's foot (`.focus-dock`): the choices the agent's newest answer
@@ -1444,7 +1482,7 @@ fn dock(s: &State, item: &Item, m: &Measure) -> El {
                 s.answering.strip_moved.set(Some((top, s.at)));
             }
         }
-        inner = inner.child(options_strip(&choices, s.option, m).mb(10.0));
+        inner = inner.child(options_strip(&choices, s.option, m, s.answering.peek).mb(10.0));
     }
     inner = inner.child(if s.replying { composer(s, item, m) } else { reply_box(s, item, m).cursor(rune::Cursor::Text).on_press_tx(|s: &mut State, tx| s.open_reply(tx)) });
     el().pl(m.indent).pr(m.right).pb(m.foot).child(inner)

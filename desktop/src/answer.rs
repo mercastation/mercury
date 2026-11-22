@@ -84,6 +84,9 @@ pub struct Answering {
     /// when the app last moved the person onto a thread (`pointer`, `arrived.from`).
     pub pointer: Option<(f32, f32)>,
     pub arrived_from: Option<(f32, f32)>,
+    /// The option the pointer is on, whose words show whole over the strip when they are cut
+    /// short (`peekOption`).
+    pub peek: Option<usize>,
     /// Whether the once-ever warning about a waiting agent has been given (`zero.stoppedWarned`).
     pub warned: bool,
     /// The replies sent and not yet written, by thread, written down so a restart cannot lose
@@ -420,6 +423,7 @@ impl State {
                 continue;
             }
             for r in &back {
+                self.in_flight_landed(&thread, r.at);
                 let files = r.files.iter().filter_map(crate::drafts::attached).collect();
                 self.put_back_failed(&thread, &r.words, files);
             }
@@ -1449,6 +1453,39 @@ mod tests {
         run(&mut rt, 1.0);
         rt.update(|s, tx| s.click_option(0, tx));
         assert!(rt.state.held.is_some());
+    }
+
+    #[test]
+    fn a_reply_a_restart_lost_comes_back_to_its_box_and_one_that_landed_is_let_go() {
+        let mut rt = window("unsent", &[]);
+        let row = rt.state.lists.needs[0].clone();
+        let thread = format!("{}/{}", row.product, row.id);
+        let lost = crate::drafts::InFlight { words: "Never landed".to_string(), body: "Never landed".to_string(), at: 1.0, files: Vec::new() };
+        let landed = crate::drafts::InFlight { words: "Go on.".to_string(), body: "Go on.".to_string(), at: 2.0, files: Vec::new() };
+        rt.state.answering.in_flight.insert(thread.clone(), vec![lost.clone(), landed]);
+        // The looks found the second in the thread and never the first.
+        rt.state.answering.unsent.lock().unwrap().push((thread.clone(), vec![2.0], vec![lost]));
+        rt.update(|s, tx| {
+            s.tend_unsent(tx);
+        });
+        assert!(rt.state.answering.in_flight.is_empty(), "both let go");
+        assert_eq!(rt.state.drafts.get(&thread).map(String::as_str), Some("Never landed"));
+        assert_eq!(sent_line(&rt).as_deref(), Some("Your reply didn’t send. It’s back in the box."));
+        assert!(rt.state.toast.as_ref().is_some_and(|t| t.goes == Some((row.id.clone(), row.product.clone()))));
+    }
+
+    #[test]
+    fn a_reply_sent_is_written_down_until_it_lands() {
+        let mut rt = window("in-flight", &["--thread"]);
+        key(&mut rt, Key::Text("r".into()));
+        typed(&mut rt, "Go on.");
+        rt.key(cmd(Key::Enter));
+        rt.frame(1.0 / 60.0);
+        let thread = rt.state.open_item().map(|i| format!("{}/{}", i.product, i.id)).unwrap();
+        assert_eq!(rt.state.answering.in_flight.get(&thread).map(|l| l[0].words.clone()), Some("Go on.".to_string()));
+        // Taken back inside the hold, it is no longer on its way.
+        key(&mut rt, Key::Text("z".into()));
+        assert!(rt.state.answering.in_flight.is_empty());
     }
 
     #[test]
