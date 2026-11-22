@@ -689,11 +689,13 @@ impl State {
             self.reading.live_open_at = None;
             self.reading.touched = None;
             self.reading.landing = None;
+            // The landing is timed on the window's clock, in milliseconds.
+            let since = tx.clock() * 1000.0;
             if let Some(thread) = &on {
                 let news = self.item_by_key(thread).map_or(0.0, arrived_at);
                 let kept = self.reading.left.iter().find(|(k, n, _)| k == thread && *n == news).map(|(_, _, top)| *top);
                 match kept {
-                    Some(top) => self.reading.landing = Some((thread.clone(), crate::clock(), top)),
+                    Some(top) => self.reading.landing = Some((thread.clone(), since, top)),
                     None => {
                         // Opened as new: nothing of an earlier visit stays unfolded.
                         let prefix = format!("{thread}|");
@@ -703,7 +705,7 @@ impl State {
                         r.whole.remove(thread);
                         r.runs_open.retain(|k| !k.starts_with(&prefix));
                         r.lines_open.retain(|k, _| !k.starts_with(&prefix));
-                        r.landing = Some((thread.clone(), crate::clock(), None));
+                        r.landing = Some((thread.clone(), since, None));
                     }
                 }
             }
@@ -711,7 +713,7 @@ impl State {
             changed = true;
         }
         let Some((thread, since, top)) = self.reading.landing.clone() else { return changed };
-        if on.as_deref() != Some(thread.as_str()) || self.reading.touched.is_some() || crate::clock() - since > LANDING_MS {
+        if on.as_deref() != Some(thread.as_str()) || self.reading.touched.is_some() || tx.clock() * 1000.0 - since > LANDING_MS {
             self.reading.landing = None;
             return changed;
         }
@@ -1864,7 +1866,7 @@ mod tests {
     use serde_json::json;
 
     use crate::State;
-    use crate::feel::tests::{key, press, run, window_dressed};
+    use crate::feel::tests::{key, press, rect_of, run, window_dressed};
 
     /// The invented inbox's first thread with an agent on it, five minutes into a run that is
     /// running the tests, opened.
@@ -1914,5 +1916,144 @@ mod tests {
         assert!(matches!(rt.state.view, crate::View::Thread { .. }));
         key(&mut rt, Key::Escape);
         assert!(!matches!(rt.state.view, crate::View::Thread { .. }));
+    }
+
+    /// The invented inbox's first thread, unfolded, with the log of the run that answered it: it
+    /// read the code history (eight lines came back) and searched for a name (two), then said
+    /// `said`, which is the answer, as long as it is.
+    fn with_a_run(name: &str, said: &str) -> Runtime<State> {
+        let said = said.to_string();
+        window_dressed(name, &["--thread", "w-feel0"], "/fixtures/storefront", &said.clone(), move |fixture| {
+            let item = fixture["snapshot"]["items"][0].clone();
+            let (asked, answered) = (item["createdAt"].as_f64().unwrap(), item["updatedAt"].as_f64().unwrap());
+            let start = asked + 60_000.0;
+            // A log's clock is UTC's.
+            let stamp = |ms: f64| {
+                let s = ((start + ms) / 1000.0) as i64;
+                format!("{:02}:{:02}:{:02}", (s / 3600) % 24, (s / 60) % 60, s % 60)
+            };
+            let mut log = vec!["# Invented thread number 0".to_string(), "# w-feel0 · spawned 2026-09-21T00:00:00.000Z".to_string(), String::new()];
+            log.push(format!("{}  [Bash] cd /fixtures/storefront && git log --oneline -8", stamp(5_000.0)));
+            log.push("#id toolu_2".to_string());
+            log.push("#out toolu_2 8".to_string());
+            log.extend((1..=8).map(|n| format!("#| a{n}b2c3 Change number {n}")));
+            log.push(format!("{}  [Grep] roundTax", stamp(9_000.0)));
+            log.push("#id toolu_3".to_string());
+            log.push("#out toolu_3 2".to_string());
+            log.push("#| src/tax.ts:12".to_string());
+            log.push("#| src/total.ts:40".to_string());
+            log.push(format!("{}  {}", stamp(answered - start - 2_000.0), said.lines().next().unwrap_or("")));
+            fixture["threads"] = json!({ "storefront/w-feel0": {
+                "zero:item-history": { "ok": true, "lines": [
+                    { "id": "w-feel0", "ts": asked, "source": "founder", "patch": { "title": item["title"], "body": item["body"], "status": "open", "kind": "directive", "labels": ["founder"] } },
+                    { "id": "w-feel0", "ts": asked + 60_000.0 + 1_000.0, "source": "agent", "epoch": 1, "claim": { "holder": "mcp-1" }, "patch": { "status": "claimed" } },
+                    { "id": "w-feel0", "ts": answered, "source": "agent", "epoch": 1, "patch": { "status": "done", "result": said } },
+                ] },
+                "zero:session-trace": { "ok": true, "sessions": [{ "startedAt": start, "text": log.join("\n") }] },
+            } });
+            fixture["unfolded"] = json!(["storefront/w-feel0"]);
+        })
+    }
+
+    fn fold_head(rt: &Runtime<State>) -> (f32, f32) {
+        let e = rt.elements().into_iter().find(|e| e.text.as_deref().is_some_and(|t| t.starts_with("Read the code history"))).expect("the fold's words");
+        (e.rect[0] + 4.0, e.rect[1] + e.rect[3] / 2.0)
+    }
+
+    fn line_of(rt: &Runtime<State>, words: &str) -> (f32, f32) {
+        let e = rt.elements().into_iter().find(|e| e.text.as_deref() == Some(words)).unwrap_or_else(|| panic!("no {words}"));
+        (e.rect[0] + 4.0, e.rect[1] + e.rect[3] / 2.0)
+    }
+
+    /// `tests/escape-closes-what-you-opened-before-the-thread.test.mts`, in the window.
+    #[test]
+    fn escape_folds_back_what_was_opened_on_this_visit_newest_first_and_then_leaves() {
+        let mut rt = with_a_run("escape-folds", "Done, and tested. Merge it?");
+        run(&mut rt, 0.1);
+        let (x, y) = fold_head(&rt);
+        press(&mut rt, x, y);
+        run(&mut rt, 0.1);
+        let (x, y) = line_of(&rt, "read the code history");
+        press(&mut rt, x, y);
+        run(&mut rt, 0.1);
+        // Open: the whole command, the first six lines, and the way to the rest.
+        let said: Vec<String> = rt.elements().iter().filter_map(|e| e.text.clone()).collect();
+        assert!(said.iter().any(|t| t == "cd /fixtures/storefront && git log --oneline -8"), "{said:?}");
+        assert!(said.iter().any(|t| t == "show all 8 lines"));
+        assert!(said.iter().any(|t| t.starts_with("a1b2c3 Change number 1") && t.contains("a6b2c3") && !t.contains("a7b2c3")));
+        let (x, y) = line_of(&rt, "show all 8 lines");
+        press(&mut rt, x, y);
+        run(&mut rt, 0.1);
+        assert!(rt.elements().iter().any(|e| e.text.as_deref().is_some_and(|t| t.contains("a8b2c3"))), "all eight once asked");
+        // One Escape folds everything opened on this visit, and stays; the next leaves.
+        key(&mut rt, Key::Escape);
+        assert!(rt.state.reading.runs_open.is_empty());
+        assert!(rt.state.reading.lines_open.values().all(|state| *state == super::SHUT));
+        assert!(matches!(rt.state.view, crate::View::Thread { .. }));
+        key(&mut rt, Key::Escape);
+        assert!(!matches!(rt.state.view, crate::View::Thread { .. }));
+    }
+
+    /// `tests/coming-back-to-a-thread-puts-you-where-you-were.test.mts`, in the window.
+    #[test]
+    fn a_fold_opened_is_there_again_on_coming_back_until_the_agent_answers_since() {
+        let mut rt = with_a_run("place-kept", "Done, and tested. Merge it?");
+        run(&mut rt, 0.1);
+        let (x, y) = fold_head(&rt);
+        press(&mut rt, x, y);
+        run(&mut rt, 0.1);
+        let thread = "storefront/w-feel0".to_string();
+        assert_eq!(rt.state.reading.runs_open.len(), 1);
+        // Away and back with nothing new: the fold is open, and it is not this visit's to fold.
+        rt.state.leave_thread();
+        run(&mut rt, 0.1);
+        rt.state.open_thread("w-feel0", "storefront");
+        run(&mut rt, 0.1);
+        assert_eq!(rt.state.reading.runs_open.len(), 1, "kept");
+        assert!(rt.state.reading.visit_at.is_none(), "a fold kept from before is no step of this visit");
+        assert!(rt.state.reading.left.iter().any(|(k, _, _)| *k == thread));
+        // Away, an answer arrives, and back: it opens as new.
+        rt.state.leave_thread();
+        run(&mut rt, 0.1);
+        let item = rt.state.snap.items.iter_mut().find(|i| i.id == "w-feel0").unwrap();
+        let later = item.updated_at.unwrap() + 60_000.0;
+        item.rest.insert("wrote".to_string(), json!({ "result": { "ts": later, "source": "agent" } }));
+        rt.state.open_thread("w-feel0", "storefront");
+        run(&mut rt, 0.1);
+        assert!(rt.state.reading.runs_open.is_empty(), "news since: opened as new");
+    }
+
+    /// `tests/opening-a-thread-lands-where-a-person-starts-reading.test.mts`, in the window: a last
+    /// message taller than the window lands 20 points over its top; one that fits, at the foot.
+    #[test]
+    fn a_conversation_lands_on_the_top_of_a_last_message_taller_than_the_window() {
+        let long = (0..80).map(|n| format!("Line {n} of a long answer.")).collect::<Vec<_>>().join("\n\n");
+        let mut rt = with_a_run("lands-tall", &long);
+        run(&mut rt, 0.5);
+        let message = rect_of(&rt, super::LAST_MESSAGE).expect("the last message");
+        let strip = crate::chrome::page_top(&rt.state.view);
+        assert!((message[1] - (strip + 20.0)).abs() < 1.5, "lands 20 points over its top: {message:?} under {strip}");
+        // It holds while the page settles, and lets go after 2.5 seconds.
+        assert!(rt.state.reading.landing.is_some());
+        run(&mut rt, 2.5);
+        assert!(rt.state.reading.landing.is_none(), "the landing ended after its time");
+        // Scrolled by the person, it is left there, and coming back with nothing new puts the
+        // conversation where they left it rather than landing again.
+        rt.wheel_xy(640.0, 400.0, 0.0, -300.0);
+        run(&mut rt, 0.5);
+        assert!(rt.state.reading.touched.is_some(), "the wheel is the person's hand");
+        let left_at = rect_of(&rt, super::LAST_MESSAGE).expect("the last message")[1];
+        assert!(left_at < message[1] - 100.0, "scrolled down: {left_at}");
+        rt.state.leave_thread();
+        run(&mut rt, 0.1);
+        rt.state.open_thread("w-feel0", "storefront");
+        run(&mut rt, 0.5);
+        let back_at = rect_of(&rt, super::LAST_MESSAGE).expect("the last message")[1];
+        assert!((back_at - left_at).abs() < 1.5, "back where it was left: {back_at} for {left_at}");
+        // A short one fits whole, and lands at its foot: its last message stands over the box.
+        let mut rt = with_a_run("lands-short", "Done, and tested. Merge it?");
+        run(&mut rt, 0.5);
+        let message = rect_of(&rt, super::LAST_MESSAGE).expect("the last message");
+        assert!(message[1] > strip + 20.0 && message[1] + message[3] < rt.state.size.1, "{message:?}");
     }
 }
