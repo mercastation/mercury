@@ -309,6 +309,13 @@ fn view(s: &State, _: &mut Cx<State>) -> El {
     let root = el().w_full()
         .h_full()
         .fill(theme::page())
+        // A press changes the page at once, as in the web window, whose pages, tabs, rows and
+        // rail have no transition of their own. Rune would otherwise carry what two pages share
+        // from its old place to its new one on a spring, fade the rest across and blend each
+        // colour over a few frames: a table's headings slid sideways under rows dissolving into
+        // others, and the highlight trailed the press. Both settings reach the whole window.
+        .instant_changes()
+        .motion(rune::Spring::NONE)
         .on_layout(resized)
         .child(chrome::backdrop(w, h))
         .child(chrome::card(s))

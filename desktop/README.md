@@ -116,6 +116,23 @@ of 915 points, Project at 785). The first tab and `inbox-later-kinds`:
 And on one person's real inbox, read through the door, with teammates, a cloud, a recorder and a
 sign-in all on: Home 0.86, the Inbox's four tabs 0.14 to 0.25, a conversation 0.47.
 
+## What a press does, frame by frame
+
+A still picture says nothing about what happens between two of them. Rune animates a press by
+default: what two pages share springs from its old place to its new one, the rest fades across,
+and colours blend over a few frames. The web window's pages, tabs, rows and rail have no
+transition, so the window's root lands every change at once (`instant_changes` and
+`Spring::NONE`, in `src/main.rs`). To see a press as it plays, script it and tile the frames:
+
+```sh
+echo '[{"t": 0.30, "type": "tap", "x": 292, "y": 133}]' > /tmp/tab.json   # the second tab
+cargo run -- --fixture shots/inbox-fixture.json --view inbox --script /tmp/tab.json \
+  --strip shots/tab-strip.png --start 0.28 --frames 12 --fps 30 --cols 2 --crop 82,104,1176,130 \
+  --size 1280x760 --scale 1
+```
+
+The frame after the press should be the new page whole, and every frame after it the same.
+
 ## The same rows as the web window
 
 Which threads are in which list, in which order and with which words is decided by rules ported
