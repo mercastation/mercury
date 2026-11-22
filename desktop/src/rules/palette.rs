@@ -75,11 +75,6 @@ impl Row {
         self.key = Some(key);
         self
     }
-
-    /// A thread the words found, which is drawn on two lines when it has a line to say.
-    pub fn is_thread(&self) -> bool {
-        self.id.starts_with("thread-")
-    }
 }
 
 /* --------------------------------- the rows offered --------------------------------- */
@@ -703,7 +698,8 @@ mod tests {
         // Dimmed once finished, and only then.
         assert!(checkout.done && !rows[1].done);
         assert_eq!(checkout.does, Does::Open(("w-1".to_string(), "shop".to_string())));
-        assert!(checkout.is_thread() && !page_rows()[0].is_thread());
+        // A found thread wears the thread's mark, whatever its project and id.
+        assert_eq!(glyph_for(&checkout.id), "›");
         assert_eq!(rows[1].hint.as_deref(), Some("Mobile · 3 hr"));
         // A day old or more it gives its date, and a project nobody named is its slug.
         assert_eq!(rows[2].hint.as_deref(), Some("gone · Nov 16"));

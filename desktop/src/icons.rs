@@ -164,3 +164,11 @@ stroked!(DONE, "m-done", "1.4", r#"<path d="m3 13 3.6 3.6L13.4 9"/><path d="m10.
 
 // Before a link in an agent's words.
 stroked!(LINK, "m-link", "1.6", r#"<path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/>"#);
+
+// The command bar's own magnifier, before its box (`PaletteBox` in `components/Palette.tsx`):
+// square ends and no round joins, unlike the rail's.
+pub static BAR_SEARCH: Icon = Icon {
+    name: "m-bar-search",
+    view: 16.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.6"/><path d="M10.4 10.4L14 14"/></g>"#,
+};

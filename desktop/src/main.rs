@@ -20,6 +20,7 @@ mod inbox;
 mod keys;
 mod later;
 mod markdown;
+mod palette;
 mod rules;
 mod sky;
 mod source;
@@ -115,6 +116,8 @@ pub struct State {
     hidden: HashSet<String>,
     /// The Later picker L opens.
     pub later: later::Picker,
+    /// The command bar ⌘K opens (`palette.rs`).
+    pub palette: palette::Bar,
 }
 
 impl State {
@@ -729,6 +732,7 @@ fn init() -> State {
         toast: None,
         hidden: HashSet::new(),
         later: later::Picker::closed(),
+        palette: palette::Bar::closed(),
     };
     // The first skies and a fixture are in place before the first frame, so a picture is whole.
     let first = paint_skies(s.card_size());
@@ -792,6 +796,8 @@ fn init() -> State {
             s.later.refused = s.fixture.get("laterRefused").and_then(Value::as_bool).unwrap_or(false);
         }
     }
+    // A picture taken with the command bar open (`palette` is what was typed into it).
+    s.palette.picture(&s.fixture);
     s
 }
 
@@ -928,6 +934,11 @@ fn view(s: &State, _: &mut Cx<State>) -> El {
     // The Later picker stands over everything, the line about the last thing done included.
     let root = match later::view(s) {
         Some(picker) => root.child(picker),
+        None => root,
+    };
+    // And the command bar, which never stands with it: opening one closes the other.
+    let root = match palette::view(s) {
+        Some(bar) => root.child(bar),
         None => root,
     };
     match chrome::notice(s) {

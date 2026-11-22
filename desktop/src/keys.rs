@@ -87,6 +87,10 @@ fn later_under_the_keys(s: &mut State, tx: &mut Tx) {
 
 /// True when the key was this window's. A chord is the system's, never one of these.
 pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
+    // ⌘K from anywhere, and every key while the command bar is open, are the bar's.
+    if crate::palette::took(s, e, tx) {
+        return true;
+    }
     if e.mods.cmd || e.mods.ctrl || e.mods.alt {
         return false;
     }
