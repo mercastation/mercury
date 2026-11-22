@@ -40,6 +40,7 @@ mod strip;
 mod talk;
 mod theme;
 mod thread;
+mod usage;
 mod viewer;
 mod write;
 
@@ -156,6 +157,8 @@ pub struct State {
     pub compose: compose::Composer,
     /// The rail, folded or opened by the pointer resting on it (`chrome.rs`).
     pub rail: chrome::Rail,
+    /// The card of the agents' limits its usage row opens (`usage.rs`).
+    pub usage_card: usage::Card,
     /// The control the pointer is on, for a look under it Rune's own hover cannot draw (`feel.rs`).
     pub pointed: feel::Pointed,
     /// The models this Mac's coding agents offer, as the engine's settings say; the ones the
@@ -949,6 +952,7 @@ fn init_from(args: &[String]) -> State {
         palette: palette::Bar::closed(),
         compose: compose::Composer::default(),
         rail: chrome::Rail::default(),
+        usage_card: usage::Card::default(),
         pointed: feel::Pointed::default(),
         models: rules::compose::Models::built(),
         reading_models: Latest::default(),
@@ -1207,6 +1211,7 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
     // What Settings' reads and writes were answered.
     changed |= settings::tend(s, tx);
     changed |= chrome::rail_moves(s, at, tx);
+    changed |= usage::tend(s, at, tx);
     changed |= feel::hint_due(s, at);
     if let Some((key, answer)) = s.asking.take() {
         match answer {
@@ -1292,6 +1297,8 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
                 .scroll(ScrollSpec { stick_bottom: false })
                 .child(page),
         );
+    // The card of the agents' limits, risen from the rail's usage row over the page.
+    let root = root.children(usage::layer(s));
     // The list a conversation's Files button opens, over the page and under everything else, and
     // what the rest of its strip opens; over the Inbox, what its strip opens.
     let root = root.children(thread::files_list(s)).children(strip::layer(s)).children(head::layer(s));

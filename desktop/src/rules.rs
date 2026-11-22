@@ -45,6 +45,7 @@ pub mod thread_files;
 pub mod title;
 pub mod trace;
 pub mod typed;
+pub mod usage;
 pub mod viewer;
 pub mod waits;
 pub mod window;
