@@ -45,6 +45,10 @@ pub struct Picks {
     /// newest hundred, as the web window keeps its own (`one.choicesFoldedOn`, `foldKey`).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub choices_folded: Vec<String>,
+    /// How much of the body a file beside a conversation takes, where a hand last dragged its
+    /// divider (`zero.docPane.split.v1`); none until one has.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub doc_split: Option<f32>,
 }
 
 /// The picks, and the file they are kept in when there is one.

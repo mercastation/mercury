@@ -29,6 +29,7 @@ mod keys;
 mod later;
 mod markdown;
 mod palette;
+mod pane;
 mod picks;
 mod pictures;
 mod reads;
@@ -38,6 +39,7 @@ mod settings;
 mod sky;
 mod source;
 mod strip;
+mod table;
 mod talk;
 mod theme;
 mod thread;
@@ -176,6 +178,8 @@ pub struct State {
     withdrawn: HashMap<String, f64>,
     /// A file opened big over the whole window (`viewer.rs`).
     pub viewer: viewer::Viewer,
+    /// A file opened beside the conversation (`pane.rs`).
+    pub pane: pane::Pane,
     /// The Files place's list and how it is narrowed (`files_page.rs`).
     pub files: files_page::Place,
     /// Settings, a screen over everything while it is open (`settings.rs`).
@@ -212,8 +216,10 @@ impl State {
     fn put_the_reply_away(&mut self) {
         self.leave_the_reading();
         self.leave_the_strip();
-        // A file open big belongs to the page it was opened over.
+        // A file open big belongs to the page it was opened over, and one beside a conversation
+        // to the conversation, which keeps it for when it is opened again.
         self.viewer.open = None;
+        self.leave_the_pane();
         if let View::Thread { id, product } = &self.view {
             let key = format!("{product}/{id}");
             self.reply_files.put_away(&key);
@@ -236,6 +242,7 @@ impl State {
                 self.reply = TextEdit::new(words.clone());
             }
         }
+        self.come_back_to_the_pane();
     }
     /// Opens the reply box with the caret in it (R, or a press on the box).
     pub fn open_reply(&mut self, tx: &mut Tx) {
@@ -966,6 +973,7 @@ fn init_from(args: &[String]) -> State {
         picks,
         withdrawn: HashMap::new(),
         viewer: viewer::Viewer::default(),
+        pane: pane::Pane::default(),
         files: files_page::Place::default(),
         settings: settings::Screen::default(),
     };
@@ -1111,6 +1119,8 @@ fn press_what_the_picture_pressed(s: &mut State, tx: &mut Tx) {
         s.open_files();
     }
     s.picture_live();
+    // A file beside the conversation, before one opened big over it.
+    pane::pictured(s);
     viewer::pictured(s);
     // And one taken after a model was picked in the reply box (`replyPick`), and after picks in
     // its priority and mode chips (`replyPicked`).
@@ -1234,6 +1244,8 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
     changed |= files_page::tend(s, clock(), stale);
     // What Settings' reads and writes were answered.
     changed |= settings::tend(s, tx);
+    // The file beside a conversation: opened by the newest answer, and read again as it changes.
+    changed |= pane::tend(s, clock(), tx);
     changed |= chrome::rail_moves(s, at, tx);
     changed |= usage::tend(s, at, tx);
     changed |= feel::hint_due(s, at);
@@ -1307,16 +1319,19 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
     let page = match &s.view {
         View::Home => home::view(s),
         View::Inbox => inbox::view(s),
-        View::Thread { id, product } => thread::view(s, id, product, cx.is_reduced_motion()),
+        // With a file beside it, the conversation narrowed and the file's pane on its right.
+        View::Thread { id, product } => pane::page(s, thread::view(s, id, product, cx.is_reduced_motion()), |wide| thread::dock_alone(s, id, product, wide)),
         View::Files { .. } => files_page::view(s),
     };
+    // A file that takes the whole card takes the strip's place too (`pane.rs`).
+    let (strip, top) = if pane::takes_the_card(s) { (pane::strip(s), chrome::CARD[1]) } else { (chrome::back_forward(s), chrome::page_top(&s.view)) };
     let root = root
         .child(chrome::card(s))
         .child(chrome::rail(s, cx.is_reduced_motion()))
-        .child(chrome::back_forward(s))
+        .child(strip)
         // The page scrolls inside the card, under its top strip.
         .child(
-            el().pin(Some(chrome::card_left(s)), Some(chrome::page_top(&s.view)), Some(chrome::CARD[2]), Some(chrome::CARD[3]))
+            el().pin(Some(chrome::card_left(s)), Some(top), Some(chrome::CARD[2]), Some(chrome::CARD[3]))
                 .clip_corners([0.0, 0.0, 6.0, 6.0])
                 .scroll(ScrollSpec { stick_bottom: false })
                 .child(page),

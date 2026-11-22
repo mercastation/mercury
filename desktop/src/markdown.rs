@@ -69,7 +69,9 @@ enum Node {
     Quote(Vec<Node>),
     Code(String),
     List(Option<u64>, Vec<Vec<Node>>),
-    Table(Vec<String>, Vec<Vec<String>>),
+    /// Its header's words, its rows' words, and its rows' cells as they were written, which a
+    /// document draws with their weights (`.doc-prose table`).
+    Table(Vec<String>, Vec<Vec<String>>, Vec<Vec<Vec<Inline>>>),
     Rule,
     /// What a sentence names that is drawn under it: one picture large, or, `true`, several
     /// in a row. The last says whether a paragraph's own margins stand around it.
@@ -417,24 +419,32 @@ fn nodes(it: &mut Events) -> Vec<Node> {
             }
             Tag::Table(_) => {
                 let cells = |it: &mut Events| {
-                    let mut row = Vec::new();
+                    let (mut row, mut rich) = (Vec::new(), Vec::new());
                     while let Some(Event::Start(Tag::TableCell)) = it.peek() {
                         it.next();
-                        row.push(plain(&inlines(it)).trim().to_string());
+                        let kids = inlines(it);
+                        row.push(plain(&kids).trim().to_string());
+                        rich.push(kids);
                         it.next();
                     }
-                    row
+                    (row, rich)
                 };
                 let mut head = Vec::new();
                 let mut rows = Vec::new();
+                let mut riches = Vec::new();
                 while let Some(Event::Start(part)) = it.peek() {
                     let heading = matches!(part, Tag::TableHead);
                     it.next();
-                    let row = cells(it);
+                    let (row, rich) = cells(it);
                     it.next();
-                    if heading { head = row } else { rows.push(row) }
+                    if heading {
+                        head = row
+                    } else {
+                        rows.push(row);
+                        riches.push(rich);
+                    }
                 }
-                out.push(Node::Table(head, rows));
+                out.push(Node::Table(head, rows, riches));
             }
             // Anything else (a block of HTML, a footnote, a definition list) is read as what it holds.
             _ => out.extend(nodes(it)),
@@ -747,6 +757,62 @@ fn table(head: &[String], rows: &[Vec<String>], p: Page) -> Block {
     Block::leaf(18.0, 18.0, row().scroll_x().child(col().child(heads).children(body)))
 }
 
+/// A table in a document (`.doc-prose table`): a frame rounded to ten points, the header on a
+/// quiet band in smaller, heavier, dimmer words, the first column heavier, each cell ten points
+/// over and under and fourteen in, a line over every row but the first and before every cell
+/// but the first. Its columns share the text's width as a browser's own table shares it: each
+/// as wide as its words on one line, and what is left over given out in the same shares; where
+/// they do not all fit on one line, each keeps its longest word and the rest is shared by how
+/// much more each would take.
+fn doc_table(head: &[String], rows: &[Vec<Vec<Inline>>], p: Page) -> Block {
+    let columns = head.len().max(rows.iter().map(Vec::len).max().unwrap_or(0));
+    // The page's tighter letters reach into the table too (`.doc-prose { letter-spacing: -0.003em }`).
+    let body = |c: usize| TextStyle::new(14.5, if c == 0 { 560.0 } else { 400.0 }).lh(21.75).features("'tnum' 1").tracking(-0.003 * 14.5);
+    let heading = TextStyle::new(13.0, 560.0).lh(19.5).features("'tnum' 1").tracking(-0.003 * 13.0);
+    let wide = |s: &str, style: TextStyle| rune::text::measure(s, &[], style, None).0;
+    // Fourteen in either side, and the line before every cell but the first.
+    let edge_x = |c: usize| if c == 0 { 28.0 } else { 29.0 };
+    let (mut least, mut most) = (vec![0.0f32; columns], vec![0.0f32; columns]);
+    // A cell's words are as wide as they are drawn: a strong one at the strong weight.
+    let strong = |kids: &[Inline]| kids.iter().any(|k| matches!(k, Inline::Strong(_)));
+    for c in 0..columns {
+        let mut said: Vec<(String, TextStyle)> = vec![(head.get(c).cloned().unwrap_or_default(), heading)];
+        said.extend(rows.iter().map(|r| {
+            let kids = r.get(c).map(Vec::as_slice).unwrap_or_default();
+            let style = if strong(kids) { TextStyle::new(14.5, 640.0).lh(21.75).features("'tnum' 1").tracking(-0.003 * 14.5) } else { body(c) };
+            (plain(kids).trim().to_string(), style)
+        }));
+        for (words, style) in said {
+            most[c] = most[c].max(wide(&words, style) + edge_x(c));
+            for word in words.split_whitespace() {
+                least[c] = least[c].max(wide(word, style) + edge_x(c));
+            }
+        }
+    }
+    let room = p.width - 2.0;
+    let (sum_most, sum_least) = (most.iter().sum::<f32>(), least.iter().sum::<f32>());
+    let widths: Vec<f32> = if sum_most <= room {
+        most.iter().map(|m| m + (room - sum_most) * m / sum_most.max(1.0)).collect()
+    } else if sum_least <= room {
+        let spread: f32 = (0..columns).map(|c| most[c] - least[c]).sum();
+        (0..columns).map(|c| least[c] + (room - sum_least) * (most[c] - least[c]) / spread.max(1.0)).collect()
+    } else {
+        least.clone()
+    };
+    let cell = |c: usize, first_row: bool| {
+        row().w(widths[c]).items_start().px(14.0).py(10.0).border_sides([if first_row { 0.0 } else { 1.0 }, 0.0, 0.0, if c == 0 { 0.0 } else { 1.0 }], edge()).border_layout()
+    };
+    let heads = row().fill(white(0.04)).children((0..columns).map(|c| cell(c, true).child(readable(text(head.get(c).cloned().unwrap_or_default()).font(heading).color(dim()).wrap()).w(widths[c] - edge_x(c)))));
+    let lines = rows.iter().map(|r| {
+        row().items_stretch().children((0..columns).map(|c| {
+            let kids = r.get(c).cloned().unwrap_or_default();
+            cell(c, false).child(words(&kids, body(c), Page { ink: ink(), ..p }).w(widths[c] - edge_x(c)))
+        }))
+    });
+    let frame = col().w(p.width).border(1.0, edge()).border_layout().radius(10.0).clip_rounded(10.0).child(heads).children(lines);
+    Block::leaf(20.3, 23.2, row().scroll_x().child(frame))
+}
+
 /// A document's words, as `.doc-prose` sets them.
 const DOC_SIZE: f32 = 16.0;
 
@@ -754,6 +820,9 @@ thread_local! {
     /// How many headings of the document being laid out have been laid: each is keyed by its
     /// place among them (`doc-heading-<n>`), which its outline scrolls to.
     static HEADINGS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// The document being laid out: the width of the page it scrolls in, and whether the pane's
+    /// editor holds it (`blocks_doc`).
+    static DOC_LOOK: std::cell::Cell<(f32, bool)> = const { std::cell::Cell::new((820.0, false)) };
 }
 
 /// The next heading's key.
@@ -769,18 +838,27 @@ fn heading_key() -> String {
 /// headings at weight 620 and drawn tight, each block's margins in its own ems.
 fn lay_doc(nodes: Vec<Node>, p: Page) -> Vec<Block> {
     let heading = |size: f32, line: f32, tracking: f32| TextStyle::new(size, 620.0).lh(kept(line * size)).tracking(tracking * size);
+    let (stage, editor) = DOC_LOOK.with(std::cell::Cell::get);
+    let (h1, h2) = ((0.05 * stage).clamp(26.0, 34.0), (0.034 * stage).clamp(20.0, 23.0));
+    // The pane's editor keeps the space after a line's last word on that line
+    // (`white-space: break-spaces` on `.ProseMirror`), so a word fits only with room for the
+    // space after it: its lines break one space short of the reader's.
+    let said = |r: &[Inline]| {
+        let words = lines(r, p.body(), p);
+        if editor { col().w(p.width).pr(rune::text::measure(" ", &[], p.body(), None).0).child(words) } else { words }
+    };
     nodes
         .into_iter()
         .map(|n| match n {
-            Node::Line(r) => Block::leaf(0.0, 0.0, lines(&r, p.body(), p)),
+            Node::Line(r) => Block::leaf(0.0, 0.0, said(&r)),
             // A picture alone in its paragraph is the paragraph (`p:has(> img:only-child)`), set
             // in the middle at the text's width with its own room around it.
             Node::Paragraph(r) => match r.as_slice() {
                 [Inline::Image { url, .. }] => Block::leaf(25.6, 25.6, files::doc_picture(p.files, url, p.width)),
-                _ => Block::leaf(0.0, p.size, lines(&r, p.body(), p)),
+                _ => Block::leaf(0.0, p.size, said(&r)),
             },
-            Node::Heading(1, r) => Block::leaf(0.0, 18.0, words(&r, heading(34.0, 1.18, -0.026), p).key(heading_key())),
-            Node::Heading(2, r) => Block::leaf(48.3, 11.5, words(&r, heading(23.0, 1.3, -0.016), p).key(heading_key())),
+            Node::Heading(1, r) => Block::leaf(0.0, 18.0, words(&r, heading(h1, 1.18, -0.026), p).key(heading_key())),
+            Node::Heading(2, r) => Block::leaf(2.1 * h2, 0.5 * h2, words(&r, heading(h2, 1.3, -0.016), p).key(heading_key())),
             Node::Heading(3, r) => Block::leaf(32.4, 6.3, words(&r, heading(18.0, 1.4, -0.008), p).key(heading_key())),
             Node::Heading(_, r) => Block::leaf(24.0, 4.8, words(&r, heading(16.0, 1.5, 0.0), p).key(heading_key())),
             // Quieter and a little larger, behind a line (`blockquote`); its last paragraph
@@ -800,9 +878,12 @@ fn lay_doc(nodes: Vec<Node>, p: Page) -> Vec<Block> {
                 Block::leaf(17.55, 20.25, block)
             }
             Node::List(start, items) => doc_list(start, items, p),
-            Node::Table(head, rows) => {
-                let mut laid = table(&head, &rows, p);
-                laid.own = [20.3, 23.2];
+            Node::Table(head, _, rows) => {
+                let mut laid = doc_table(&head, &rows, p);
+                // The editor's box around a table keeps the page's ems (`.tableWrapper`).
+                if editor {
+                    laid.own = [1.4 * p.size, 1.6 * p.size];
+                }
                 laid
             }
             Node::Rule => Block::leaf(38.4, 38.4, el().h(1.0).fill(edge())),
@@ -870,7 +951,7 @@ fn lay(nodes: Vec<Node>, p: Page) -> Vec<Block> {
             }
             Node::Code(code) => code_block(&code, p),
             Node::List(start, items) => list(start, items, p),
-            Node::Table(head, rows) => table(&head, &rows, p),
+            Node::Table(head, rows, _) => table(&head, &rows, p),
             // The browser's own rule, which the app leaves as it is: grey above and near white below.
             Node::Rule => Block::leaf(0.0, 0.0, col().child(el().h(1.0).fill(rgb(154, 154, 154))).child(el().h(1.0).fill(rgb(238, 238, 238)))),
         })
@@ -887,8 +968,14 @@ pub fn blocks(source: &str, size: f32, width: f32, files: &Files) -> Vec<Block> 
 /// A document opened big, as blocks `width` wide (`.doc-prose`, 16 points on lines of 1.72):
 /// read as the web window's reader reads it, its paths left as words and its links as links.
 /// `files` finds the pictures it names, beside it.
-pub fn blocks_doc(source: &str, width: f32, files: &Files) -> Vec<Block> {
+///
+/// `stage` is the width of the page it scrolls in, which its two largest headings follow
+/// (`clamp(26px, 5cqi, 34px)`, `clamp(20px, 3.4cqi, 23px)`), and `editor` says it is the pane's
+/// editor that holds it (`DocText`), which wraps a table in a box of its own with margins of the
+/// page's ems rather than the table's.
+pub fn blocks_doc(source: &str, width: f32, stage: f32, editor: bool, files: &Files) -> Vec<Block> {
     HEADINGS.with(|n| n.set(0));
+    DOC_LOOK.with(|l| l.set((stage, editor)));
     let mut events = Parser::new_ext(source, Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS).peekable();
     lay(nodes(&mut events), Page { size: DOC_SIZE, width, ink: ink(), weight: 400.0, leading: 1.72, depth: 0, files, doc: true })
 }

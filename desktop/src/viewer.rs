@@ -18,8 +18,8 @@
 //!   window does not have: what it is, and the button that opens it outside.
 //!
 //! Left out, as the person has never used them: comments down the right and the box to write
-//! one, Approve, Share and renaming. And the button that puts the file beside the conversation,
-//! as this window has no pane beside one.
+//! one, Approve, Share and renaming. Opened from a thread, its corner mark puts the file in the
+//! pane beside the conversation (`pane.rs`).
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -115,6 +115,9 @@ pub struct Open {
 #[derive(Default)]
 pub struct Viewer {
     pub open: Option<Open>,
+    /// The pointer is on a document's outline drawn as dashes, which opens it into its card of
+    /// contents (`.doc-outline:hover`), in the big view or the pane beside a conversation.
+    pub outline_open: bool,
 }
 
 /// Where the stage's scroller is: how far it has moved, how far it can, and what it shows.
@@ -143,15 +146,23 @@ const LONGEST_LINE: usize = 4000;
 const PIECE: usize = 200;
 
 /// Where a path is on this Mac: a whole path is itself, a short one is looked for under each root.
-fn place_of(roots: &[String], path: &str) -> Option<String> {
+pub(crate) fn place_of(roots: &[String], path: &str) -> Option<String> {
     let path = path.strip_prefix("file://").map(crate::rules::paths::decode_uri).unwrap_or_else(|| path.to_string());
     let rel = path.strip_prefix("./").unwrap_or(&path);
     let places: Vec<String> = if rel.starts_with('/') { vec![rel.to_string()] } else { roots.iter().map(|root| format!("{root}/{}", crate::rules::paths::decode_uri(rel))).collect() };
     places.into_iter().find(|p| std::path::Path::new(p).is_file())
 }
 
+/// A file's words, up to the most a file is read to, its bytes taken as UTF-8 where they can be.
+pub(crate) fn read_text(found: &str) -> Option<String> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    std::fs::File::open(found).ok()?.take(MOST_BYTES).read_to_end(&mut bytes).ok()?;
+    Some(String::from_utf8_lossy(&bytes).into_owned())
+}
+
 /// A script's or a table's lines, numbered and coloured, cut into pieces.
-fn code_of(text: &str, colour: bool) -> Code {
+pub(crate) fn code_of(text: &str, colour: bool) -> Code {
     let all: Vec<&str> = text.strip_suffix('\n').unwrap_or(text).split('\n').collect();
     let mut pieces = Vec::new();
     let mut widest = 0;
@@ -229,10 +240,7 @@ impl Open {
         self.said_as = rules::label_said_for(&self.lines, &paths);
         let kind = self.kind();
         self.words = self.found.as_deref().filter(|_| matches!(kind, Some("markdown" | "code" | "table"))).and_then(|found| {
-            use std::io::Read;
-            let mut bytes = Vec::new();
-            std::fs::File::open(found).ok()?.take(MOST_BYTES).read_to_end(&mut bytes).ok()?;
-            let text = String::from_utf8_lossy(&bytes);
+            let text = read_text(found)?;
             Some(match kind {
                 Some("markdown") => Words::Doc(Rc::from(text.as_ref())),
                 _ => Words::Code(Rc::new(code_of(&text, kind == Some("code")))),
@@ -643,16 +651,12 @@ fn doc_stage(s: &State, open: &Open, words: &Rc<str>, stage: (f32, f32)) -> El {
     let v = open.version();
     let held = s.pictures.held();
     // The byline says "today" until midnight.
-    let version = (v.id.clone(), v.path.clone(), stage.0.to_bits(), stage.1.to_bits(), held, (s.now / 86_400_000.0).floor() as i64);
+    let version = (v.id.clone(), v.path.clone(), stage.0.to_bits(), stage.1.to_bits(), held, (s.now / 86_400_000.0).floor() as i64, s.viewer.outline_open);
     rune::memo("viewer-doc", version, || doc_stage_built(s, open, words, stage))
 }
 
 fn doc_stage_built(s: &State, open: &Open, words: &Rc<str>, stage: (f32, f32)) -> El {
-    let (left, column, right, gap) = sheet(stage.0);
-    let narrow = stage.0 <= 600.0;
     let folder = open.found.as_deref().and_then(|f| f.rsplit_once('/')).map_or(String::new(), |(dir, _)| dir.to_string());
-    let files = Files::beside(s, &folder);
-    let (blocks, _, _) = markdown::stack(markdown::blocks_doc(words, column, &files), true);
     // Who shared it and when, over it (`bylineOf`), from the line that named the version.
     let v = open.version();
     let by = rules::shared_by(&open.lines, &v.path);
@@ -662,23 +666,43 @@ fn doc_stage_built(s: &State, open: &Open, words: &Rc<str>, stage: (f32, f32)) -
     if v.at > 0.0 {
         byline = format!("{byline} · {}", rules::when_shared(v.at, s.now));
     }
-    let byline = readable(text(byline).font(TextStyle::new(12.5, 400.0).lh(18.0)).color(muted()));
+    doc_page(s, words, &folder, byline, stage, STAGE_KEY, Some(heard), false)
+}
+
+/// A document laid out as a page to read on a stage `stage` across (`.doc-sheet`, which the big
+/// view's `DocStage` and the pane's `DocText` share): the line over it, its words in their
+/// column, and with three headings or more its outline beside them. `key` names its scroller,
+/// `heard` hears where it is, and `editor` says it is the pane's (`markdown::blocks_doc`).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn doc_page(s: &State, words: &str, folder: &str, byline: String, stage: (f32, f32), key: &'static str, heard: Option<fn(ScrollPos)>, editor: bool) -> El {
+    let (left, column, right, gap) = sheet(stage.0);
+    let narrow = stage.0 <= 600.0;
+    let files = Files::beside(s, folder);
+    let (blocks, _, _) = markdown::stack(markdown::blocks_doc(words, column, stage.0, editor, &files), true);
+    // Over the pane's editor the line is the page's, which no hand selects.
+    let byline = text(byline).font(TextStyle::new(12.5, 400.0).lh(18.0)).color(muted());
+    let byline = if editor { byline } else { readable(byline) };
     let (top, bottom) = if narrow { (24.0, 80.0) } else { (44.0, 120.0) };
     let page = col().pt(top).pb(bottom).pl(left + gap).w(left + gap + column).child(byline.mb(18.0)).child(blocks.w(column));
-    let scroller = col().key(STAGE_KEY).size(stage.0, stage.1).scroll(ScrollSpec { stick_bottom: false }).on_scroll_offset(heard).child(page);
-    let mut stage_el = el().size(stage.0, stage.1).child(scroller);
+    let scroller = col().key(key).size(stage.0, stage.1).scroll(ScrollSpec { stick_bottom: false });
+    let scroller = match heard {
+        Some(heard) => scroller.on_scroll_offset(heard),
+        None => scroller,
+    };
+    let mut stage_el = el().size(stage.0, stage.1).child(scroller.child(page));
     // Three headings or more have an outline beside the text.
     let entries = outline(&markdown::headings(words));
     if entries.len() >= 3 && !narrow {
         let x = left + gap + column + gap;
-        stage_el = stage_el.child(doc_outline(&entries, x, right, stage.0));
+        stage_el = stage_el.child(doc_outline(&entries, x, right, stage.0, s.viewer.outline_open));
     }
     stage_el
 }
 
 /// The headings beside a document (`DocOutline`): in the margin, with their words, where there
-/// is room for them, and as a column of short dashes at the margin's edge where there is not.
-fn doc_outline(entries: &[(usize, bool, String)], x: f32, room: f32, wide: f32) -> El {
+/// is room for them, and as a column of short dashes at the margin's edge where there is not,
+/// which the pointer opens (`outline_open`).
+fn doc_outline(entries: &[(usize, bool, String)], x: f32, room: f32, wide: f32, outline_open: bool) -> El {
     if wide > 1060.0 {
         let head = text("Contents").font(mono(10.5, 14.0).tracking(1.26)).text_case(TextCase::Uppercase).color(muted()).mb(10.0);
         let rows = entries.iter().map(|(at, sub, words)| {
@@ -699,11 +723,74 @@ fn doc_outline(entries: &[(usize, bool, String)], x: f32, room: f32, wide: f32) 
         });
         return col().absolute(x, 44.0).child(head).children(rows);
     }
-    let rows = entries.iter().map(|(_, sub, _)| row().w(18.0).h(7.0).justify_end().items_center().child(el().w(if *sub { 6.0 } else { 10.0 }).h(1.0).fill(rule())));
-    col().absolute(wide - 14.0 - 18.0, 44.0).children(rows)
+    // Under the pointer the dashes open into a card of the contents, over the margin and the
+    // text, each line a press to its heading; it closes when the pointer leaves it.
+    let hover = |e: El| {
+        e.on_hover_change(|s: &mut State, inside, _| {
+            if s.viewer.outline_open != inside {
+                s.viewer.outline_open = inside;
+            }
+        })
+    };
+    if outline_open {
+        let head = text("Contents").font(mono(10.5, 14.0).tracking(1.26)).text_case(TextCase::Uppercase).color(muted()).mb(10.0);
+        let rows = entries.iter().map(|(at, sub, words)| {
+            let dash = el().w(if *sub { 6.0 } else { 10.0 }).h(1.0).fill(rule());
+            let at = *at;
+            row()
+                .w(222.0)
+                .py(4.0)
+                .pl(if *sub { 14.0 } else { 0.0 })
+                .gap(10.0)
+                .items_center()
+                .hover_group()
+                .cursor(Cursor::Pointer)
+                .child(dash)
+                .child(row().min_w(0.0).child(text(words.as_str()).font(TextStyle::new(12.5, 400.0).lh(17.0)).color(muted()).group_color(dim()).truncate()))
+                .on_press_tx(move |_: &mut State, tx| tx.scroll_key_to(format!("doc-heading-{at}"), 32.0))
+        });
+        let card = col()
+            .w(250.0)
+            .px(14.0)
+            .py(12.0)
+            .radius(12.0)
+            .fill(rgb(0x36, 0x34, 0x31))
+            .border(1.0, edge())
+            .border_layout()
+            .box_shadow(shadow(0.0, 18.0, 50.0, 0.0, rgba(0, 0, 0, 0.35), false))
+            .child(head)
+            .children(rows);
+        return hover(col().absolute(wide - 14.0 + 6.0 - 250.0, 44.0 - 14.0).child(card));
+    }
+    // Each dash is its heading's button already, pressed before the card has come.
+    let rows = entries.iter().map(|(at, sub, _)| {
+        let at = *at;
+        row().w(18.0).h(7.0).justify_end().items_center().cursor(Cursor::Pointer).child(el().w(if *sub { 6.0 } else { 10.0 }).h(1.0).fill(rule())).on_press_tx(move |_: &mut State, tx| tx.scroll_key_to(format!("doc-heading-{at}"), 32.0))
+    });
+    hover(col().absolute(wide - 14.0 - 18.0, 44.0).children(rows))
 }
 
 /* ------------------------------ a script, a table ------------------------------ */
+
+/// A character of a script's lines across (`.code-file`, Geist Mono at 12.5).
+pub(crate) const CODE_ADVANCE: f32 = 0.6 * 12.5;
+
+/// A script's lines in their pieces, each its numbers in a column 56 points wide, 18 short of
+/// its edge, then its words coloured (`.code-file-line`, `.code-file-n`, `.code-file-text`).
+pub(crate) fn code_lines(code: &Code) -> impl Iterator<Item = El> + '_ {
+    let line = kept(1.65 * 12.5);
+    code.pieces.iter().map(move |(numbers, words, spans)| {
+        row()
+            .items_start()
+            .child(row().w(56.0).pr(18.0).justify_end().child(pen(text(numbers.as_str()).font(mono(12.5, line)).color(muted()), 12.5)))
+            .child(pen(readable(rich(words.as_str(), spans.clone()).font(mono(12.5, line)).color(ink())), 12.5).pr(32.0))
+    })
+}
+
+/// The widest of a script's lines, in characters.
+pub(crate) fn code_widest(code: &Code) -> usize {
+    code.widest
+}
 
 /// A script's stage, built again only when the version or the stage's size change.
 fn code_stage(open: &Open, code: &Rc<Code>, stage: (f32, f32)) -> El {
@@ -713,16 +800,9 @@ fn code_stage(open: &Open, code: &Rc<Code>, stage: (f32, f32)) -> El {
 
 fn code_stage_built(code: &Code, stage: (f32, f32)) -> El {
     // The sheet: at most 980 points, 52 in from either side, and as wide as its widest line.
-    let advance = 0.6 * 12.5;
-    let line = kept(1.65 * 12.5);
-    let words_wide = code.widest as f32 * advance + 32.0;
+    let words_wide = code.widest as f32 * CODE_ADVANCE + 32.0;
     let sheet_w = (980.0_f32.min(stage.0 - 104.0)).max(56.0 + words_wide + 2.0);
-    let pieces = code.pieces.iter().map(|(numbers, words, spans)| {
-        row()
-            .items_start()
-            .child(row().w(56.0).pr(18.0).justify_end().child(pen(text(numbers.as_str()).font(mono(12.5, line)).color(muted()), 12.5)))
-            .child(pen(readable(rich(words.as_str(), spans.clone()).font(mono(12.5, line)).color(ink())), 12.5).pr(32.0))
-    });
+    let pieces = code_lines(code);
     let sheet = col()
         .w(sheet_w)
         .pt(18.0)
@@ -829,8 +909,17 @@ fn bar(s: &State, open: &Open) -> El {
         }
         left = left.child(versions);
     }
-    let marks = row().gap(6.0).child(mark(&icons::FILE_OUTSIDE, "Open outside").on_press(|s: &mut State| s.open_outside())).child(mark(&icons::FILE_CLOSE, "Close (esc)").on_press(|s: &mut State| s.close_big()));
-    let marks = if open.found.is_some() { marks } else { row().gap(6.0).child(mark(&icons::FILE_CLOSE, "Close (esc)").on_press(|s: &mut State| s.close_big())) };
+    // Opened from a thread, the mark that puts the file's newest version in the pane beside the
+    // conversation instead (`onBeside`, a `FocusControl` drawn as focused), before the close mark.
+    let beside = matches!(open.from, From::Thread(..)).then(|| {
+        let newest = family.versions[family.versions.len() - 1].path.clone();
+        mark(&icons::PANE_BESIDE, "Move it to the side · Esc closes it").key("viewer-beside").on_press(move |s: &mut State| s.put_big_beside(&newest))
+    });
+    let mut marks = row().gap(6.0);
+    if open.found.is_some() {
+        marks = marks.child(mark(&icons::FILE_OUTSIDE, "Open outside").on_press(|s: &mut State| s.open_outside()));
+    }
+    let marks = marks.children(beside).child(mark(&icons::FILE_CLOSE, "Close (esc)").on_press(|s: &mut State| s.close_big()));
     row()
         .absolute(0.0, 0.0)
         .size(s.size.0, TOP)

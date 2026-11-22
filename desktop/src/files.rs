@@ -7,9 +7,9 @@
 //! in the folders the web window looks in (`rules/roots.rs`), under the project's own folder
 //! and its code folder, both of which the snapshot names. `pictures.rs` does the reading.
 //!
-//! Pressing a file opens it with the system, through `open_with_system` at the foot of this
-//! file. The web window opens it beside the conversation, which this window does not have yet.
-//! A right press on one opens the web window's menu for it (`link_menu`, `picture_menu`).
+//! Pressing a file opens it where the web window does (`open`): big over the window, beside the
+//! conversation (`pane.rs`), or with the system, through `open_with_system` at the foot of this
+//! file. A right press on one opens the web window's menu for it (`link_menu`, `picture_menu`).
 
 use rune::{ClipboardContent, ClipboardImage, Cursor, El, PointerEvent, PointerPress, PopupItem, PopupMenu, SurfaceFit, TextStyle, Tx, col, el, row, text};
 use serde_json::Value;
@@ -393,16 +393,11 @@ fn paths_base(file: &str) -> &str {
 }
 
 /// Opens what a link in a message points at (`openHref` in `Focus.tsx`): an address in the
-/// browser; a file the big view draws, big over the window (`viewer.rs`), unless ⌘ is held
-/// (`outside`), which as in a browser sends it out; anything else in the app that reads it.
+/// browser; a picture, a film, a PDF, a page or a deck big over the window (`viewer.rs`); a
+/// document, a table or a script in the pane beside the conversation (`pane.rs`); with ⌘ held
+/// (`outside`), as in a browser, any of them out; anything else in the app that reads it.
 pub fn open(s: &mut State, href: &str, outside: bool) {
-    if href.starts_with("http://") || href.starts_with("https://") || href.starts_with("mailto:") {
-        return open_with_system(href);
-    }
-    if !outside && crate::rules::viewer::opens_big(href) {
-        return s.open_big(href, None);
-    }
-    open_found(s, href)
+    crate::pane::open_link(s, href, outside)
 }
 
 /// Opens a file a message names in the app that reads it. A short path is looked for where the

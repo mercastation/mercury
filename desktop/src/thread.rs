@@ -79,13 +79,33 @@ struct Measure {
     size: f32,
     column: f32,
     indent: f32,
+    /// The room right of the column and under the reply box.
+    right: f32,
+    foot: f32,
+    /// The title's size and line, the room under it, and the newest answer's headline's size and
+    /// the room under it.
+    title: (f32, f32),
+    title_gap: f32,
+    headline: (f32, f32),
 }
 
 impl Measure {
     fn of(card: f32) -> Measure {
         let size = (0.0025 * card + 13.0).clamp(16.0, 18.0);
         let column = (size * 47.5).min(card - 96.0);
-        Measure { size, column, indent: ((card - column) * 0.35).max(32.0) }
+        Measure { size, column, indent: ((card - column) * 0.35).max(32.0), right: 32.0, foot: 24.0, title: (1.7 * size, 2.125 * size), title_gap: 8.0, headline: (kept(1.05 * size), 10.0) }
+    }
+    /// Beside a file (`[data-artifact-layout="beside"] .focus`): 44 points in, lined up with the
+    /// back arrow, 28 from the file, and the page's own sizes rather than the measure that grows
+    /// with the window (`.app:not(.doc-open)` in `one-thing-at-a-time.css`): a smaller title
+    /// where the conversation is 560 points or less (`@container talk`).
+    fn beside(wide: f32) -> Measure {
+        let title = if wide <= 560.0 { (21.0, 27.3) } else { (27.0, 33.75) };
+        Measure { size: 16.0, column: (wide - 72.0).max(1.0), indent: 44.0, right: 28.0, foot: 24.0, title, title_gap: 6.0, headline: (17.0, 8.0) }
+    }
+    /// Under a file that takes the whole card: the reply box twelve points in all round.
+    fn under_file(wide: f32) -> Measure {
+        Measure { size: 16.0, column: (wide - 24.0).max(1.0), indent: 12.0, right: 12.0, foot: 12.0, title: (27.2, 34.0), title_gap: 6.0, headline: (17.0, 8.0) }
     }
 }
 
@@ -258,10 +278,13 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
     // and the name stand (`.workspace-task-header { no-drag }`). It starts where the card does,
     // further right while the rail is open. It is the Inbox strip's 64 points, so the arrows do
     // not move between the two (`.workspace-task:has(.thread-crumb) > .topbar`).
+    // With a file beside the conversation its arrows stand sixteen points further in
+    // (`[data-artifact-layout="beside"] > .topbar` in `team/rooms/rooms.css`).
+    let beside = s.pane_placement() == Some(crate::rules::pane::Placement::Beside);
     row().absolute(chrome::card_left(s), chrome::CARD[1])
         .size(card_w, STRIP)
         .items_center()
-        .pl(20.0)
+        .pl(if beside { 36.0 } else { 20.0 })
         .pr(28.0)
         .border_sides([0.0, 0.0, 1.0, 0.0], edge())
         .border_layout()
@@ -367,9 +390,9 @@ fn files_button(count: usize, open: bool) -> El {
 }
 
 /// One file of the list: its kind, four letters at most in a small tile, its name, cut short
-/// with dots, and the notes on it. A press closes the list and opens the file big, as a mention
-/// opens it (`files::open`); the web window opens a document or a script beside the
-/// conversation instead, which this window does not have. `lit`: the pointer is on it.
+/// with dots, and the notes on it. A press closes the list and opens the file: big for what the
+/// big view looks at, beside the conversation for a document, a table or a script
+/// (`pane::open_listed`). `lit`: the pointer is on it.
 fn file_row(at: usize, file: &ThreadFile, lit: bool) -> El {
     let kind = row()
         .w(34.0)
@@ -403,7 +426,7 @@ fn file_row(at: usize, file: &ThreadFile, lit: bool) -> El {
     let src = file.src.clone();
     line.cursor(rune::Cursor::Pointer).help(format!("Open {}", file.name)).on_press(move |s: &mut State| {
         s.close_files();
-        crate::files::open(s, &src, false);
+        crate::pane::open_listed(s, &src);
     })
 }
 
@@ -1070,8 +1093,8 @@ fn answer_alone(answer: &Message, title: &str, m: &Measure, files: &Files) -> Ve
     let (headline, rest) = talk::headline(&answer.text);
     let mut blocks = markdown::blocks(rest, m.size, m.column, files);
     if let Some(words) = headline.filter(|h| !same(h, title)) {
-        let size = kept(1.05 * m.size);
-        blocks.insert(0, markdown::block(0.0, 10.0, readable(text(words).font(TextStyle::new(size, 600.0).lh(kept(1.45 * size))).color(ink()).wrap())));
+        let (size, under) = m.headline;
+        blocks.insert(0, markdown::block(0.0, under, readable(text(words).font(TextStyle::new(size, 600.0).lh(kept(1.45 * size))).color(ink()).wrap())));
     }
     blocks
 }
@@ -1343,7 +1366,15 @@ fn dock(s: &State, item: &Item, m: &Measure) -> El {
         inner = inner.child(options_strip(&choices, s.option, m).mb(10.0));
     }
     inner = inner.child(if s.replying { composer(s, item, m) } else { reply_box(s, item, m).cursor(rune::Cursor::Text).on_press_tx(|s: &mut State, tx| s.open_reply(tx)) });
-    el().pl(m.indent).pr(32.0).pb(24.0).child(inner)
+    el().pl(m.indent).pr(m.right).pb(m.foot).child(inner)
+}
+
+/// The reply box alone, `wide` across, under a file that takes the whole card (`pane.rs`).
+pub fn dock_alone(s: &State, id: &str, product: &str, wide: f32) -> El {
+    match item(s, id, product) {
+        Some(item) => dock(s, item, &Measure::under_file(wide)),
+        None => el(),
+    }
 }
 
 /// The choices a thread offers now, while the offer still stands (`liveOption` in `renderer/src/format.ts`).
@@ -1354,8 +1385,9 @@ pub fn live_options(item: &Item) -> Vec<Choice> {
 /// The conversation `product/id`. `still`: the system asks for reduced motion, and what loops
 /// in the web window stands still here as it does there.
 pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
-    let (page_w, page_h) = s.page_size();
-    let m = Measure::of(page_w);
+    // Beside a file, the conversation is what the file leaves of the page (`pane.rs`).
+    let (page_w, page_h) = s.conversation_size();
+    let m = if s.pane_placement() == Some(crate::rules::pane::Placement::Beside) { Measure::beside(page_w) } else { Measure::of(page_w) };
     let Some(item) = item(s, id, product) else {
         return row().w(page_w).pt(36.0).pl(m.indent).child(label("This conversation is not here any more.", 14.0, 400.0, muted()));
     };
@@ -1373,9 +1405,9 @@ pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
     // What the files this conversation names are read against: its project's own folders.
     let files = Files::of(s, item);
 
-    let mut summary = col().child(readable(text(title.as_str()).font(TextStyle::new(1.7 * m.size, 500.0).lh(2.125 * m.size).tracking(-0.0255 * m.size)).color(ink()).wrap()));
+    let mut summary = col().child(readable(text(title.as_str()).font(TextStyle::new(m.title.0, 500.0).lh(m.title.1).tracking(-0.015 * m.title.0)).color(ink()).wrap()));
     if let Some(words) = &page.toggle {
-        summary = summary.child(toggle(words, thread.clone(), &m).mt(8.0));
+        summary = summary.child(toggle(words, thread.clone(), &m).mt(m.title_gap));
     }
     // Under it, the summary the thread carries, or while an agent works what was asked.
     let problem = item.rest.get("problem").and_then(Value::as_str).filter(|p| !p.trim().is_empty());
@@ -1451,7 +1483,7 @@ pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
         .grow(1.0)
         .min_h(0.0)
         .scroll(ScrollSpec { stick_bottom: unfolded || (working && page.alone.is_none()) })
-        .child(el().pt(28.0).pl(m.indent).pr(32.0).pb(40.0 + under + whole).child(body.key("thread-said").w(m.column).selection_group(true)));
+        .child(el().pt(28.0).pl(m.indent).pr(m.right).pb(40.0 + under + whole).child(body.key("thread-said").w(m.column).selection_group(true)));
     col().w(page_w).h(page_h).child(reading).child(dock(s, item, &m))
 }
 

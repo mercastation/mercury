@@ -704,7 +704,7 @@ pub(crate) mod tests {
 
     /// The first point down a conversation, from under the line that shows its earlier messages
     /// to over its reply bar, where the pointer takes `shape`.
-    fn first(rt: &mut Runtime<State>, shape: Cursor) -> (f32, f32) {
+    pub(crate) fn first(rt: &mut Runtime<State>, shape: Cursor) -> (f32, f32) {
         let top = rt.find("thread-earlier").map_or(100, |(_, y)| (y + 12.0) as usize);
         for y in (top..600).step_by(2) {
             for x in (90..1200).step_by(3) {
@@ -741,7 +741,7 @@ pub(crate) mod tests {
     /// one picture, 40 by 30, at `shots/shot.png`, every picture read where it is asked for.
     /// Each test opens its own: a conversation's reading is kept for its row as last changed,
     /// for as long as the thread that drew it.
-    fn with_a_picture(name: &str, result: impl Fn(&str) -> String) -> (Runtime<State>, std::path::PathBuf) {
+    pub(crate) fn with_a_picture(name: &str, result: impl Fn(&str) -> String) -> (Runtime<State>, std::path::PathBuf) {
         let dir = std::env::temp_dir().join(format!("mercury-feel-{name}-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("shots")).expect("an invented project's folder");
         let shot = dir.join("shots/shot.png");
@@ -800,7 +800,7 @@ pub(crate) mod tests {
     }
 
     /// Where the element keyed `key` is drawn, in window points.
-    fn rect_of(rt: &Runtime<State>, key: &str) -> Option<[f32; 4]> {
+    pub(crate) fn rect_of(rt: &Runtime<State>, key: &str) -> Option<[f32; 4]> {
         rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key)).map(|e| e.rect)
     }
 
@@ -831,21 +831,24 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_mention_opens_its_file_big_and_with_command_held_with_the_system() {
+    fn a_mention_of_a_document_opens_it_beside_and_with_command_held_with_the_system() {
         let (mut rt, shot) = with_a_picture("big-mention", |_| "Read [the plan](notes/plan.md) first.".into());
         let notes = shot.parent().and_then(std::path::Path::parent).expect("its folder").join("notes");
         std::fs::create_dir_all(&notes).expect("a folder for the note");
         std::fs::write(notes.join("plan.md"), "# The plan\n\nRound each line.\n").expect("an invented note");
         let at = first(&mut rt, Cursor::Pointer);
         press(&mut rt, at.0, at.1);
-        let open = rt.state.viewer.open.as_ref().expect("a document opens big");
-        assert_eq!(open.kind(), Some("markdown"));
+        // A document is read beside the conversation, as in the web window (`whereAFileOpens`).
+        assert!(rt.state.viewer.open.is_none());
+        let doc = rt.state.beside().expect("a document opens beside the conversation");
+        assert_eq!(doc.kind(), crate::rules::pane::Kind::Markdown);
         key(&mut rt, Key::Escape);
+        assert!(rt.state.beside().is_none(), "Escape puts it down");
         // ⌘ held sends it out, as a browser opens a link in a new tab: nothing opens here.
         rt.physical_input(rune::PhysicalInput::Modifiers(Mods { cmd: true, ..Mods::default() }));
         press(&mut rt, at.0, at.1);
         rt.physical_input(rune::PhysicalInput::Modifiers(Mods::default()));
-        assert!(rt.state.viewer.open.is_none());
+        assert!(rt.state.viewer.open.is_none() && rt.state.beside().is_none());
         let _ = std::fs::remove_dir_all(shot.parent().and_then(std::path::Path::parent).expect("its folder"));
     }
 
