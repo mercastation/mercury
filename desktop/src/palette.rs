@@ -208,6 +208,7 @@ impl State {
     pub fn open_palette(&mut self, tx: &mut Tx) {
         self.close_later();
         self.fold_reply();
+        self.close_strip();
         // What a thread's row says of when it comes back is counted from this minute.
         if !self.fixed_clock {
             self.now = crate::clock();

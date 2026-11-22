@@ -134,7 +134,8 @@ pub fn rank_products<'a>(products: &'a [Product], order: &[String]) -> Vec<&'a P
     ranked
 }
 
-fn is_direct(p: &Product) -> bool {
+/// A project that only carries messages between two people (`isDirect`).
+pub fn is_direct(p: &Product) -> bool {
     p.rest.get("team").and_then(|team| team.get("direct")) == Some(&Value::Bool(true))
 }
 

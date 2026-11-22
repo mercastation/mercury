@@ -218,3 +218,11 @@ stroked!(
     "1.4",
     r#"<path d="M8 3.5h6l4 4V17a.5.5 0 0 1-.5.5H8a.5.5 0 0 1-.5-.5V4a.5.5 0 0 1 .5-.5z"/><path d="M14 3.5v4h4"/><path d="M5 7v12.5a1 1 0 0 0 1 1h9"/>"#
 );
+
+// The marks of the thread's own menu under the dots, square as every mark there is (`MARKS` in
+// `renderer/src/threads/ThreadMenu.tsx`), and the tick beside the level a thread is at.
+stroked!(MENU_TERMINAL, "m-menu-terminal", "1.4", r#"<rect x="3" y="4" width="18" height="16"/><path d="m7 9 3 3-3 3m6 0h4"/>"#);
+stroked!(MENU_LATER, "m-menu-later", "1.4", r#"<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>"#);
+stroked!(MENU_RENAME, "m-menu-rename", "1.4", r#"<path d="M4 20h4L19 9l-4-4L4 16z"/>"#);
+stroked!(MENU_MOVE, "m-menu-move", "1.4", r#"<path d="M3 12h13m-4-4 4 4-4 4"/><path d="M20 4v16"/>"#);
+stroked!(MENU_TICK, "m-menu-tick", "1.4", r#"<path d="m5 12.5 4.5 4.5L19 7.5"/>"#);

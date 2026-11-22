@@ -117,6 +117,11 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
     if let Some(taken) = crate::compose::key(s, e, tx) {
         return taken;
     }
+    // Then what stands open over a conversation: the strip's menu or panel, and the reply box's
+    // model menu. Each takes its own keys, Escape first, and lets the rest go on to the page.
+    if crate::strip::key(s, e, tx) == Some(true) || crate::reply::menu_key(s, e, tx) == Some(true) {
+        return true;
+    }
     if e.mods.cmd || e.mods.ctrl || e.mods.alt {
         return false;
     }
@@ -222,9 +227,10 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
             false
         }
         View::Thread { id, product } => {
-            // Escape is one step back: the open reply box first, then the conversation.
+            // Escape is one step back: the open reply box first, then the conversation, onto
+            // the tab the strip names (`closeThreadOntoItsTab`).
             if e.key == Key::Escape {
-                if s.replying { s.fold_reply() } else { s.leave_thread() }
+                if s.replying { s.fold_reply() } else { s.close_onto_its_tab() }
                 return true;
             }
             // The arrows walk the agent's options, Enter sends the one they are on, and a
