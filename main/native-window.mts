@@ -9,7 +9,6 @@
 // nativeInFront) or when the last event stream at the door hangs up: a window
 // that quit or crashed hangs up, and one that hung stops beating.
 
-import type { IpcHandler, PushListener } from './serve.mts';
 import { NATIVE_WORD_LASTS_MS, nativeInFront } from '../shared/notify-rules.mts';
 import type { NativeWord } from '../shared/notify-rules.mts';
 
@@ -17,10 +16,16 @@ import type { NativeWord } from '../shared/notify-rules.mts';
 export const NATIVE_WINDOW = 'zero:native-window';
 
 type Heard = 'focus' | 'blur';
+// `PushListener` and `IpcHandler` of main/serve.mts, named here rather than imported: the
+// banner and the tray load this file, and a window that is only a hub's client loads them
+// without reaching the back end behind serve.mts
+// (tests/a-window-can-be-a-client-of-a-hub-and-runs-no-agents).
+type PushListener = (message: { channel: string; args: unknown[] }) => void;
+type Handler = (event: { sender: unknown }, payload?: unknown) => unknown;
 
 export interface NativeWindow {
   /** Answers `NATIVE_WINDOW`. */
-  hear: IpcHandler;
+  hear: Handler;
   /** Its last word, or null once it stopped counting. */
   said(): NativeWord | null;
   /**

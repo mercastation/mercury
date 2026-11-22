@@ -1,7 +1,9 @@
 // A pretend app around main/notch-island.mts: one window, screens with and
 // without a notch, a cursor, a clock, the app's own window gaining and losing
-// focus, and the store of settings.
+// focus, and the store of settings. With `native`, a native window at the
+// local door too (main/native-window.mts).
 import { createNotchIsland } from '../../main/notch-island.mts';
+import { createNativeWindow } from '../../main/native-window.mts';
 
 // A 14" MacBook Pro at its default size (its notch a stand-in, near the real
 // one), and the 27" screen beside it as macOS described it on 2026-11-01.
@@ -16,12 +18,16 @@ export function fakeGlass(luma = null) {
   return { set: (win, rect, opts) => set.push({ rect, opts }), clear: () => {}, tone: () => 'light', luma: () => luma, laid: set };
 }
 
-export function notchIslandRig({ config = {}, focused = false, at = 1_000_000_000, displays = [LAPTOP, DELL], notches = { 1: LAPTOP_NOTCH }, glass = null } = {}) {
+export function notchIslandRig({ config = {}, focused = false, at = 1_000_000_000, displays = [LAPTOP, DELL], notches = { 1: LAPTOP_NOTCH }, glass = null, native = false } = {}) {
   const handlers = {};
   const removed = [];
   const timers = [];
   let timerId = 0;
   let clock = at;
+  const setTimer = (fn, ms) => { const id = ++timerId; timers.push({ id, fn, at: clock + ms }); return id; };
+  const clearTimer = (id) => { const i = timers.findIndex((t) => t.id === id); if (i >= 0) timers.splice(i, 1); };
+  const atTheDoor = new Set();
+  const nativeWindow = native ? createNativeWindow({ listeners: atTheDoor, now: () => clock, setTimer, clearTimer }) : null;
   const windows = [];
   // Every resize and every message to the page, in the order they happened.
   const events = [];
@@ -77,9 +83,9 @@ export function notchIslandRig({ config = {}, focused = false, at = 1_000_000_00
     glass,
     count: (name, props) => counted.push([name, props]),
     now: () => clock,
-    setTimer: (fn, ms) => { const id = ++timerId; timers.push({ id, fn, at: clock + ms }); return id; },
-    clearTimer: (id) => { const i = timers.findIndex((t) => t.id === id); if (i >= 0) timers.splice(i, 1); },
+    setTimer, clearTimer,
     mac: true,
+    nativeWindow,
   });
   const call = (ch, p) => handlers[ch](null, p);
   const advance = (ms) => {
@@ -108,9 +114,15 @@ export function notchIslandRig({ config = {}, focused = false, at = 1_000_000_00
   // The pointer on the island, resting long enough to mean it.
   const point = (ms = 300) => { const b = win().bounds; cursor.at = { x: b.x + b.width / 2, y: b.y + 10 }; call('notch-island:hover', { inside: true }); advance(ms); };
   const away = () => { cursor.at = { x: 5, y: 600 }; call('notch-island:hover', { inside: false }); };
+  // The native window says where it is, opens its event stream at the door, and hangs it up.
+  const nativeSays = (word) => nativeWindow.hear({ sender: null }, { focused: word });
+  const pushed = [];
+  const nativeListens = () => { atTheDoor.add((m) => pushed.push(m)); };
+  const nativeHangsUp = () => { atTheDoor.clear(); nativeWindow.hungUp(); };
   return {
     island, call, windows, win, lastState, hand, pageUp, leaveApp, enterApp, point, away, main, config, saved, counted,
     advance, timers, cursor, menus, removed, screenListeners, mainListeners, events, displays, SIZES, clock: () => clock,
+    nativeWindow, nativeSays, nativeListens, nativeHangsUp, pushed,
   };
 }
 

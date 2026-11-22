@@ -1,12 +1,18 @@
 // A pretend app around main/corner-tag.mts: windows, a screen, a clock, the
-// app's own window gaining and losing focus, and the store of settings.
+// app's own window gaining and losing focus, and the store of settings. With
+// `native`, a native window at the local door too (main/native-window.mts).
 import { createCornerTag } from '../../main/corner-tag.mts';
+import { createNativeWindow } from '../../main/native-window.mts';
 
-export function cornerTagRig({ config = {}, focused = false, at = 1_000_000_000, glass = null, told = () => [] } = {}) {
+export function cornerTagRig({ config = {}, focused = false, at = 1_000_000_000, glass = null, told = () => [], native = false } = {}) {
   const handlers = {};
   const timers = [];
   let timerId = 0;
   let clock = at;
+  const setTimer = (fn, ms) => { const id = ++timerId; timers.push({ id, fn, at: clock + ms }); return id; };
+  const clearTimer = (id) => { const i = timers.findIndex((t) => t.id === id); if (i >= 0) timers.splice(i, 1); };
+  const atTheDoor = new Set();
+  const nativeWindow = native ? createNativeWindow({ listeners: atTheDoor, now: () => clock, setTimer, clearTimer }) : null;
   const windows = [];
   class FakeWindow {
     constructor(opts) {
@@ -53,9 +59,8 @@ export function cornerTagRig({ config = {}, focused = false, at = 1_000_000_000,
     Menu: { buildFromTemplate: () => ({ popup: () => {} }) },
     config, saveConfig, mainWindow: main, load: (w, part) => { w.part = part; }, preload: '/p.cjs',
     now: () => clock,
-    setTimer: (fn, ms) => { const id = ++timerId; timers.push({ id, fn, at: clock + ms }); return id; },
-    clearTimer: (id) => { const i = timers.findIndex((t) => t.id === id); if (i >= 0) timers.splice(i, 1); },
-    mac: true, glass, told,
+    setTimer, clearTimer,
+    mac: true, glass, told, nativeWindow,
   });
   const call = (ch, p) => handlers[ch](null, p);
   const advance = (ms) => {
@@ -82,8 +87,13 @@ export function cornerTagRig({ config = {}, focused = false, at = 1_000_000_000,
   const enterApp = () => { main.focused = true; mainListeners.focus?.(); };
   // The page starts loading again, as ⌘R or a crash would make it.
   const reload = (part = 'tag') => win(part).heard['did-start-loading']?.();
+  // The native window says where it is, opens its event stream at the door, and hangs it up.
+  const nativeSays = (word) => nativeWindow.hear({ sender: null }, { focused: word });
+  const pushed = [];
+  const nativeListens = () => { atTheDoor.add((m) => pushed.push(m)); };
+  const nativeHangsUp = () => { atTheDoor.clear(); nativeWindow.hungUp(); };
   return {
     tag, call, windows, win, lastState, hand, pageUp, leaveApp, enterApp, reload, main, config, saved, advance,
-    timers, clock: () => clock,
+    timers, clock: () => clock, nativeWindow, nativeSays, nativeListens, nativeHangsUp, pushed,
   };
 }

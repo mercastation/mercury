@@ -34,6 +34,7 @@ import type { HideChoice, Rect } from '../shared/corner-tag.mts';
 import type { IslandAnchor } from '../shared/notch-island.mts';
 import { hiddenUntil, newSince, notDismissed, readyNow, tagScaleOn, tagShows, tagZoom, toneFromLuma, zoomStep, HIDE_CHOICES } from '../shared/corner-tag.mts';
 import { displayUnder, islandAnchor, islandBounds, OPEN_WIDTH } from '../shared/notch-island.mts';
+import { appInFront } from '../shared/notify-rules.mts';
 import { CLOSE_AFTER_MS, OPEN_AFTER_MS, TONE_EVERY_MS } from './corner-tag.mts';
 
 export { CLOSE_AFTER_MS, OPEN_AFTER_MS };
@@ -83,6 +84,8 @@ export function createNotchIsland({
   // What a notification has told you about since you were last at the app
   // (main/notify.mts), counted as new the way the corner tag counts it.
   told = () => [],
+  // The native window beside the app's own (main/native-window.mts). In front, it is the app.
+  nativeWindow = null,
   count = () => {}, now = () => Date.now(), setTimer = setTimeout, clearTimer = clearTimeout, mac = process.platform === 'darwin',
 }: NotchIslandDeps): NotchIsland {
   let win: BrowserWindow | null = null;
@@ -117,9 +120,10 @@ export function createNotchIsland({
   const alive = () => !!win && !win.isDestroyed();
   const visible = () => alive() && win!.isVisible();
   const send = (channel: string, payload: unknown) => { if (alive() && loaded) win!.webContents.send(channel, payload); };
-  const inApp = () => {
+  const ownFocused = () => {
     try { return !!mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused(); } catch { return false; }
   };
+  const inApp = () => appInFront({ window: ownFocused(), native: nativeWindow?.said() ?? null, now: now() });
   const shouldShow = () => tagShows({
     on: config.cornerTag, hiddenUntil: config.cornerTagHiddenUntil ?? 0, now: now(), inApp: inApp(), ready: fresh().length,
   });
@@ -506,6 +510,8 @@ export function createNotchIsland({
     for (const k of Object.keys(timers) as TimerKey[]) stop(k);
     if (alive()) win!.destroy();
     for (const ch of CHANNELS) { try { ipcMain.removeHandler?.(ch); } catch {} }
+    nativeWindow?.off('focus', onFocus);
+    nativeWindow?.off('blur', onBlur);
     try {
       screen.removeListener?.('display-added', reseat);
       screen.removeListener?.('display-removed', reseat);
@@ -520,6 +526,8 @@ export function createNotchIsland({
     mainWindow.on('blur', onBlur);
     mainWindow.on('closed', dispose);
   }
+  nativeWindow?.on('focus', onFocus);
+  nativeWindow?.on('blur', onBlur);
   try {
     screen.on('display-added', reseat);
     screen.on('display-removed', reseat);

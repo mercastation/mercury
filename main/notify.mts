@@ -15,8 +15,9 @@
 
 import path from 'node:path';
 import type { BrowserWindow, IpcMain, NativeImage, Notification as ElectronNotification, PowerMonitor } from 'electron';
-import { atTheApp, banner, shouldSpeak } from '../shared/notify-rules.mts';
+import { appInFront, atTheApp, banner, shouldSpeak } from '../shared/notify-rules.mts';
 import { NAME } from '../shared/product-name.mjs';
+import type { NativeWindow } from './native-window.mts';
 
 // THE MARK THE BANNER WEARS, and why it is a png and not the .icns every other
 // part of this repo uses.
@@ -65,9 +66,11 @@ export interface NotifierOptions {
   icon?: NativeImage | null;
   coalesceMs?: number;
   onChange?: () => void;
+  /** The native window beside this one (main/native-window.mts). In front, it is the app. */
+  nativeWindow?: NativeWindow | null;
 }
 
-export function createNotifier({ window, Notification, powerMonitor, icon = null, coalesceMs = COALESCE_MS, onChange = () => {} }: NotifierOptions) {
+export function createNotifier({ window, Notification, powerMonitor, icon = null, coalesceMs = COALESCE_MS, onChange = () => {}, nativeWindow = null }: NotifierOptions) {
   // Everything she has not seen since she last had the window, keyed by id so
   // a repeated push is idempotent. Insertion order is arrival order.
   const unseen = new Map<string, Arrival>();
@@ -85,9 +88,10 @@ export function createNotifier({ window, Notification, powerMonitor, icon = null
   const idleMs = () => {
     try { return powerMonitor.getSystemIdleTime() * 1000; } catch { return 0; }
   };
-  const focused = () => {
+  const ownFocused = () => {
     try { return !!window && !window.isDestroyed() && window.isFocused(); } catch { return false; }
   };
+  const focused = () => appInFront({ window: ownFocused(), native: nativeWindow?.said() ?? null, now: Date.now() });
 
   const takeDown = () => {
     if (!live) return;
@@ -224,9 +228,10 @@ export interface InstallNotifierOptions {
   nativeImage?: { createFromPath(p: string): NativeImage } | null;
   onArrivals?: (arrivals: Arrival[], needsYou: unknown[]) => void;
   onChange?: () => void;
+  nativeWindow?: NativeWindow | null;
 }
 
-export function installNotifier({ app, window, Notification, powerMonitor, ipcMain, nativeImage, openExternal = () => {}, onArrivals = () => {}, onChange = () => {} }: InstallNotifierOptions) {
+export function installNotifier({ app, window, Notification, powerMonitor, ipcMain, nativeImage, openExternal = () => {}, onArrivals = () => {}, onChange = () => {}, nativeWindow = null }: InstallNotifierOptions) {
   ipcMain.handle('zero:notify-settings', () => { void openExternal(NOTIFY_SETTINGS_URL); return null; });
   if (Notification.isSupported && !Notification.isSupported()) {
     ipcMain.handle('zero:notify', (_e, payload: NotifyPayload = {}) => { try { onArrivals(Array.isArray(payload.arrivals) ? payload.arrivals : [], needsYouOf(payload)); } catch {} });
@@ -238,12 +243,17 @@ export function installNotifier({ app, window, Notification, powerMonitor, ipcMa
   const icon = nativeImage
     ? markFor({ root: app.getAppPath(), createFromPath: (p: string) => nativeImage.createFromPath(p) })
     : null;
-  const notifier = createNotifier({ window, Notification, powerMonitor, icon, onChange });
+  const notifier = createNotifier({ window, Notification, powerMonitor, icon, onChange, nativeWindow });
   window.on('focus', () => notifier.seen());
+  nativeWindow?.on('focus', () => notifier.seen());
   // Unlocking with Agentbox already the front app never fires 'focus' (it never
   // lost it), so without this the banner that fired while the screen was
   // locked would sit in Notification Center after she is back at the row.
-  try { powerMonitor.on('unlock-screen', () => { if (window.isFocused()) notifier.seen(); }); } catch {}
+  try {
+    powerMonitor.on('unlock-screen', () => {
+      if (appInFront({ window: window.isFocused(), native: nativeWindow?.said() ?? null, now: Date.now() })) notifier.seen();
+    });
+  } catch {}
   ipcMain.handle('zero:notify-test', () => { notifier.sample(); return null; });
   ipcMain.handle('zero:notify', (_e, payload: NotifyPayload = {}) => {
     const arrivals = Array.isArray(payload.arrivals) ? payload.arrivals : [];

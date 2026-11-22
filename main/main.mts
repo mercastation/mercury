@@ -1221,11 +1221,13 @@ async function createWindow() {
   // A banner and the tray never disagree: whatever a banner told you about
   // while you were away is in the tray until you are back (w-93b3a1a796).
   let cornerTag: ReturnType<typeof createCornerTag> | ReturnType<typeof createNotchIsland> | null = null;
+  // The native window in front is the app too, for the banner and for the tray (shared/notify-rules.mts, appInFront).
   const notifier = installNotifier({
     app, window, Notification, powerMonitor, ipcMain, nativeImage,
     openExternal: (url: string) => shell.openExternal(url),
     onArrivals: (list, needsYou) => team?.phoneArrivals(list, needsYou),
     onChange: () => cornerTag?.refresh(),
+    nativeWindow,
   });
   // THE CORNER TAG (w-dafae58a23): what is ready for her, floating over
   // whatever app she is in. Its page is built beside the app's own, and comes
@@ -1243,6 +1245,7 @@ async function createWindow() {
     BrowserWindow, screen: electronScreen, ipcMain, Menu, powerMonitor, config, saveConfig, mainWindow: window,
     glass: loadLiquidGlass(),
     told: () => notifier.told(),
+    nativeWindow,
   };
   cornerTag = process.platform === 'darwin' ? createNotchIsland({
     ...trayCommon,

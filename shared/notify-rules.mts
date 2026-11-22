@@ -49,6 +49,14 @@ export function nativeInFront(word: NativeWord | null | undefined, now: number):
   return !!word?.focused && now - word.at < NATIVE_WORD_LASTS_MS;
 }
 
+// THE APP IS IN FRONT WHEN EITHER OF ITS WINDOWS IS. This is what the banner's
+// `focused` and the tray's "in the app" are both asked with: a person working
+// in the native window is not in another app, and a banner or an island over
+// the window they are using is the interruption this file exists to stop.
+export function appInFront({ window = false, native = null, now }: { window?: boolean; native?: NativeWord | null; now: number }): boolean {
+  return !!window || nativeInFront(native, now);
+}
+
 // THE PHONE'S RULE IS WIDER: she is at the computer, in any app, so the phone
 // says nothing. Someone in a browser on the laptop is not at the app, and the
 // desktop banner above is how she hears; buzzing the phone in her bag as well

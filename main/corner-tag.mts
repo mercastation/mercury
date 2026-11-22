@@ -39,9 +39,11 @@
 
 import type { BrowserWindow, IpcMain, Menu, PowerMonitor, Screen } from 'electron';
 import type { GlassOptions, LiquidGlass } from './liquid-glass.mts';
+import type { NativeWindow } from './native-window.mts';
 
 import type { Grip } from '../shared/corner-tag.mts';
 import { cardPlacement, cornerPlace, EDGE_SLACK, MARGIN, hiddenUntil, keepCorner, newSince, notDismissed, readyNow, restingSpot, spotFor, tagScaleOn, tagShows, tagZoom, toneFromLuma, zoomStep, GRIPS, HIDE_CHOICES } from '../shared/corner-tag.mts';
+import { appInFront } from '../shared/notify-rules.mts';
 
 // How long the pointer may be off both the tag and its list before the list
 // shuts: long enough to cross the gap between them, short enough to feel like
@@ -116,6 +118,8 @@ export interface CornerTagDeps {
   mac?: boolean;
   glass?: LiquidGlass | null;
   told?: () => { id: string; at: number }[];
+  /** The native window beside the app's own (main/native-window.mts). In front, it is the app. */
+  nativeWindow?: NativeWindow | null;
 }
 
 const HIDE_LABELS: Record<string, string> = { '5m': 'Hide for 5 minutes', '30m': 'Hide for 30 minutes', today: 'Hide for the rest of today' };
@@ -134,6 +138,7 @@ export function createCornerTag({
   // What a notification has told you about since you were last at the app,
   // [{ id, at }] (main/notify.mts). All of it counts as new.
   told = () => [],
+  nativeWindow = null,
 }: CornerTagDeps) {
   const wins: Record<Part, BrowserWindow | null> = { tag: null, card: null };
   const loaded = { tag: false, card: false };
@@ -196,9 +201,10 @@ export function createCornerTag({
     if (inset) return { x: r.x + inset.x, y: r.y + inset.y, width: inset.width, height: inset.height };
     return frame ? { x: r.x + frame, y: r.y + frame, width: r.width - 2 * frame, height: r.height - 2 * frame } : r;
   };
-  const inApp = () => {
+  const ownFocused = () => {
     try { return !!mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused(); } catch { return false; }
   };
+  const inApp = () => appInFront({ window: ownFocused(), native: nativeWindow?.said() ?? null, now: now() });
   const alive = (part: Part) => !!wins[part] && !wins[part]!.isDestroyed();
   const rounded = (r: Rect) => ({ x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) });
   const send = (part: Part, channel: string, payload?: unknown) => { if (alive(part) && loaded[part]) wins[part]!.webContents.send(channel, payload); };
@@ -815,6 +821,8 @@ export function createCornerTag({
     cancelOpen();
     for (const part of ['tag', 'card'] as const) if (alive(part)) wins[part]!.destroy();
     for (const ch of CHANNELS) { try { ipcMain.removeHandler?.(ch); } catch {} }
+    nativeWindow?.off('focus', onFocus);
+    nativeWindow?.off('blur', onBlur);
     try {
       screen.removeListener?.('display-added', reseat);
       screen.removeListener?.('display-removed', reseat);
@@ -829,6 +837,8 @@ export function createCornerTag({
     mainWindow.on('blur', onBlur);
     mainWindow.on('closed', dispose);
   }
+  nativeWindow?.on('focus', onFocus);
+  nativeWindow?.on('blur', onBlur);
   try {
     screen.on('display-added', reseat);
     screen.on('display-removed', reseat);
