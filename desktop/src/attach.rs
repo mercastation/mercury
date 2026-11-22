@@ -213,7 +213,11 @@ fn picture(at: usize, a: &Attached, thumb: &Thumb) -> El {
         .fill(rgb(40, 38, 37))
         .border(1.0, rule())
         .border_layout()
-        .child(text("×").font(TextStyle::new(12.0, 400.0).lh(12.0)).color(dim()))
+        // Under the pointer the × takes the text's own colour and its edge the faint one
+        // (`.attach-remove:hover`).
+        .child(text("×").font(TextStyle::new(12.0, 400.0).lh(12.0)).color(dim()).group_color(ink()))
+        .hover_group()
+        .child(crate::feel::edge_lit(6.0, muted(), true))
         .cursor(rune::Cursor::Pointer)
         .on_background_press_tx(move |s: &mut State, tx| s.remove_attached(at, tx));
     el().size(wide, THUMB_TALL).radius(6.0).border(1.0, edge()).child(drawn).child(remove)
@@ -227,18 +231,22 @@ fn chip(at: usize, a: &Attached) -> El {
     let over = file.failed.is_some() || rules::too_big_to_send(file.size.unwrap_or(0));
     let words = |s: &str, font: TextStyle, c: rune::Color| pen(text(s).font(font).color(c), 12.0);
     let frame = |line: El, edge_colour: rune::Color| row().h(CHIP_TALL).items_center().px(10.0).radius(6.0).fill(rgb(47, 45, 44)).border(1.0, edge_colour).border_layout().child(line);
+    // Under the pointer its words take the text's own colour and its edge the faint one, which
+    // is how one that cannot go already stands; its size keeps its own (`.attach-chip:hover`).
+    let lit = |frame: El| frame.hover_group().child(crate::feel::edge_lit(6.0, muted(), true));
     // On its way in it is its name alone, and nothing takes it out until it is in
     // (`.attach-coming`, whose bar runs along its foot as the pieces of a big file land; the
     // engine turning a picture says nothing of how far it got, so here it has none).
     if a.coming {
-        return frame(row().child(words(&format!("{} ", file.name), sans(12.0, 400.0), dim())), edge());
+        return lit(frame(row().child(words(&format!("{} ", file.name), sans(12.0, 400.0), dim()).group_color(ink())), edge()));
     }
-    let mut line = row().child(words(&file.name, sans(12.0, 400.0), if over { ink() } else { dim() }));
+    let mut line = row().child(words(&file.name, sans(12.0, 400.0), if over { ink() } else { dim() }).group_color(ink()));
     if let Some(size) = file.size.filter(|size| *size > 0 && !over) {
         line = line.child(words(&format!(" {}", rules::size_words(size)), figures(12.0, 400.0), muted()));
     }
-    line = line.child(words(" ×", sans(12.0, 400.0), if over { ink() } else { dim() }));
-    frame(line, if over { muted() } else { edge() }).cursor(rune::Cursor::Pointer).on_background_press_tx(move |s: &mut State, tx| s.remove_attached(at, tx))
+    line = line.child(words(" ×", sans(12.0, 400.0), if over { ink() } else { dim() }).group_color(ink()));
+    let chip = frame(line, if over { muted() } else { edge() }).cursor(rune::Cursor::Pointer).on_background_press_tx(move |s: &mut State, tx| s.remove_attached(at, tx));
+    if over { chip } else { lit(chip) }
 }
 
 /// What the box holds of files, as the place it is drawn in lays it out: the row
