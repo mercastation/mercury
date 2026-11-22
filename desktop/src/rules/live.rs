@@ -462,7 +462,10 @@ pub fn try_again_words(answer: Option<&Result<Value, String>>) -> String {
         Some(Ok(Value::Null)) => return "Try again did not reach the app.".to_string(),
         Some(Ok(r)) => r.clone(),
     };
-    let n = |k: &str| r.get(k).and_then(Value::as_f64).unwrap_or(0.0) > 0.0;
+    // Read as JavaScript reads it: the engine's answer carries the supervisor's own `queued`, a
+    // list, over the count of that name (`{ ...resumeItems(ids), ...status() }`), and a list is
+    // true even empty, so whatever did not start now reads as queued there, and here.
+    let n = |k: &str| truthy(r.get(k));
     if n("resumed") {
         return "Trying again now.".to_string();
     }
@@ -1006,6 +1009,10 @@ mod tests {
         assert_eq!(try_again_words(Some(&Err("the door did not answer".into()))), "It could not start: the door did not answer.");
         assert_eq!(try_again_words(Some(&Ok(json!({ "missing": 1 })))), "This thread is gone from this computer.");
         assert_eq!(try_again_words(Some(&Ok(json!({ "ok": true, "resumed": 0, "queued": 0, "working": 0, "missing": 0, "failed": 0 })))), "It cannot start on this computer: another computer runs it.");
+        // What the engine really answers (`zero:resume-items` on a scratch engine): its queue, a
+        // list, over the count, which reads as queued whenever nothing started now.
+        assert_eq!(try_again_words(Some(&Ok(json!({ "ok": true, "resumed": 1, "queued": [], "working": 0, "missing": 0, "failed": 0 })))), "Trying again now.");
+        assert_eq!(try_again_words(Some(&Ok(json!({ "ok": true, "resumed": 0, "queued": [], "working": 0, "missing": 1, "failed": 0 })))), "Queued.");
         assert_eq!(try_again(&"w-1"), json!({ "ids": ["w-1"] }));
         assert!(!can_try_again(&item(json!({ "id": "trouble" }))));
         assert!(!can_try_again(&item(json!({ "id": "update" }))));
