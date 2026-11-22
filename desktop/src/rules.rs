@@ -36,6 +36,7 @@ pub mod shipping;
 pub mod status;
 pub mod title;
 pub mod trace;
+pub mod typed;
 pub mod waits;
 pub mod window;
 pub mod work;

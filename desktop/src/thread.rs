@@ -240,10 +240,27 @@ fn typed(words: &str, m: &Measure) -> El {
     col().max_w(760.0).children(words.split('\n').map(|words| if words.is_empty() { el().h(line) } else { readable(text(words).font(font).color(ink()).wrap_anywhere()) }))
 }
 
+/// A person's message: their words as typed, and each picture or file the app attached to it
+/// drawn as what it is, as an agent's words would draw it (`rules/typed.rs`), ten points from
+/// what is around it (`.msg-body.typed .typed-embed`).
+fn typed_with_files(words: &str, m: &Measure, files: &Files) -> El {
+    let parts = crate::rules::typed::typed_parts(words);
+    if let [crate::rules::typed::Part::Text(words)] = parts.as_slice() {
+        return typed(words, m);
+    }
+    col().children(parts.iter().enumerate().map(|(at, part)| {
+        let drawn = match part {
+            crate::rules::typed::Part::Text(words) => typed(words, m),
+            crate::rules::typed::Part::Embed(line) => markdown::stack(markdown::blocks(line, m.size, m.column, files), true).0,
+        };
+        drawn.mt(if at == 0 { 0.0 } else { 10.0 })
+    }))
+}
+
 /// One message, and how much of what it holds reaches under it.
 fn message(msg: &Message, turn: (bool, bool), now: f64, m: &Measure, files: &Files) -> El {
     let (body, leak) = if msg.mine {
-        (typed(&msg.text, m), 0.0)
+        (typed_with_files(&msg.text, m, files), 0.0)
     } else {
         let (body, _, bottom) = markdown::stack(markdown::blocks(&msg.text, m.size, m.column, files), true);
         (body, bottom)
