@@ -126,18 +126,75 @@ fn word(said: &str, lit: bool) -> El {
     pen(label(said, 13.0, 400.0, if lit { ink() } else { dim() }).group_color(ink()), 13.0)
 }
 
-/// The priority chip: the level's bars and its word (`PriorityPicker variant="chip"`).
-pub fn priority_chip(s: &State, item: &Item) -> El {
-    let level = shown_level(s, item);
-    let open = s.chips.menu.is_some_and(|m| m.chip == Chip::Priority);
-    chip(s, Chip::Priority, vec![level_mark(Some(level)), word(level_word(level), open)], "Priority").label(format!("Priority: {}", level_word(level)))
+/// The reply bar and Send with its caret, which say how much room the chips have.
+pub const BAR: &str = "reply-bar";
+pub const SEND_PAIR: &str = "reply-send-pair";
+
+/// Whether the box is narrow enough for its chips to drop their words and marks
+/// (`@container reply (max-width: 460px)` on `.dock-card`, measured inside its edge).
+pub fn compact(card: f32) -> bool {
+    card - 2.0 <= 460.0
 }
 
-/// The mode chip: its shield and the mode the next reply runs in, title cased (`ModePicker chip`).
-pub fn mode_chip(s: &State, item: &Item) -> El {
+/// Whether the mode chip is folded out of sight, the first thing a narrow bar gives up: the three
+/// chips at their whole widths, with the gaps between, are wider than the room the bar leaves
+/// them beside the paper clip and Send (`chipsOverflow`, `modeFolded`). Read off the last
+/// layout, as the web window measures it; a folded chip is still laid out, unseen, so it can be
+/// measured back.
+pub fn mode_folded() -> bool {
+    let size = |key: &str| rune::memo::layout_size(key).map(|[w, _]| w);
+    let (Some(bar), Some(send), Some(priority), Some(mode), Some(model)) = (size(BAR), size(SEND_PAIR), size(PRIORITY), size(MODE), size(crate::reply::CHIP)) else {
+        return false;
+    };
+    // The bar's 16 points each side, the paper clip's square and the 8 points before each of it
+    // and Send (`.compose-sentence.dock-bar`).
+    let room = bar - 32.0 - 28.0 - 16.0 - send;
+    priority + mode + model + 16.0 > room + 0.5
+}
+
+/// Send in a compact bar: its arrow in a square of 32, the word and its key left to its title,
+/// as is "Sending…" (`.dock-bar .dock-send-pair > .dock-send` under 460 points). Faint and
+/// pressing nothing until there is something to send.
+pub fn send_arrow(ready: bool) -> El {
+    let send = row()
+        .key("send")
+        .size(32.0, 32.0)
+        .center()
+        .corners([6.0, 0.0, 0.0, 6.0])
+        .fill(rgba(239, 235, 231, 0.15))
+        .opacity(if ready { 1.0 } else { 0.45 })
+        .child(rune::icon(&icons::SEND_ARROW, 16.0).color(ink()).group_color(white(1.0)));
+    if ready { home::brightened(send).cursor(rune::Cursor::Pointer) } else { send.cursor(rune::Cursor::Default) }
+}
+
+/// The priority chip: the level's bars and its word, the bars alone in a compact bar
+/// (`PriorityPicker variant="chip"`, `.dock-chips .tc-chip-word`).
+pub fn priority_chip(s: &State, item: &Item, compact: bool) -> El {
+    let level = shown_level(s, item);
+    let open = s.chips.menu.is_some_and(|m| m.chip == Chip::Priority);
+    let mut kids = vec![level_mark(Some(level))];
+    if !compact {
+        kids.push(word(level_word(level), open));
+    }
+    chip(s, Chip::Priority, kids, "Priority").label(format!("Priority: {}", level_word(level)))
+}
+
+/// The mode chip: its shield and the mode the next reply runs in, title cased, the shield gone
+/// in a compact bar (`ModePicker chip`, `.dock-chips .mode-mark`). Folded out of a narrow bar it
+/// is still laid out where it stood, unseen and out of the pointer's way, so its width is known
+/// (`.dock-chips .mode-pick.folded`); Shift+Tab still changes the mode.
+pub fn mode_chip(s: &State, item: &Item, compact: bool, folded: bool) -> El {
     let open = s.chips.menu.is_some_and(|m| m.chip == Chip::Mode);
     let said = rules::chip_word(&running(s, item), claude(s, item));
-    chip(s, Chip::Mode, vec![icon_mark(), word(&said, open)], "What this message may do")
+    let mut kids = Vec::new();
+    if !compact {
+        kids.push(icon_mark());
+    }
+    kids.push(word(&said, open));
+    if folded {
+        return home::chip(kids).key(MODE).absolute(0.0, 0.0).opacity(0.0);
+    }
+    chip(s, Chip::Mode, kids, "What this message may do")
 }
 
 fn icon_mark() -> El {
@@ -354,6 +411,10 @@ fn menu_row(which: Chip, at: usize, words: &str, on: bool, lit: bool) -> El {
 /// closes it on the way down (`pressed_away`).
 pub fn layer(s: &State) -> Option<El> {
     let open = s.chips.menu?;
+    // A folded chip's menu is as unseen as the chip it hangs from.
+    if open.chip == Chip::Mode && mode_folded() {
+        return None;
+    }
     let item = s.open_item()?;
     let anchor = rune::memo::window_layout(open.chip.key())?;
     let rows = rows(s, item, open.chip);
@@ -486,6 +547,14 @@ mod tests {
         rt.key(KeyEvent { key: Key::Enter, mods: Mods { cmd: true, ..Mods::default() } });
         rt.frame(1.0 / 60.0);
         rt.state.held.as_ref().map(|h| h.payload.clone()).expect("the reply is held its three seconds")
+    }
+
+    #[test]
+    fn a_box_460_points_wide_inside_its_edge_is_compact() {
+        assert!(super::compact(462.0));
+        assert!(!super::compact(462.5));
+        // On a 1280 window the box is 760 points: the chips keep their words.
+        assert!(!super::compact(760.0));
     }
 
     #[test]

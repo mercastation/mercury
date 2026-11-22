@@ -1231,11 +1231,14 @@ fn composer(s: &State, item: &Item, m: &Measure) -> El {
     // The model, with its level where one will be sent (`.tc-chip-level`), brighter inside a
     // stronger edge while its menu is up (`.tc-chip.open`).
     let open = s.reply_menu.is_some();
+    // A box narrow enough drops the chips' marks and the level (`@container reply`).
+    let compact = crate::chips::compact(m.column);
     let (model, level_said) = s.reply_chip_words(item);
-    let said = level_said.map_or_else(|| model.clone(), |level| format!("{model} · {level}"));
+    let said = level_said.filter(|_| !compact).map_or_else(|| model.clone(), |level| format!("{model} · {level}"));
     // Led by the mark of the agent the reply goes to (`EngineLogo`, the box's `engineShown`).
     let (_, shown) = s.reply_engines(item);
-    let model_chip = home::chip(vec![engine_logo(&shown), pen(label(&said, 13.0, 400.0, if open { ink() } else { dim() }).group_color(ink()), 13.0)])
+    let said = pen(label(&said, 13.0, 400.0, if open { ink() } else { dim() }).group_color(ink()), 13.0);
+    let model_chip = home::chip(if compact { vec![said] } else { vec![engine_logo(&shown), said] })
         .key(reply::CHIP)
         .cursor(rune::Cursor::Pointer)
         .label("Which model this conversation runs on")
@@ -1246,23 +1249,24 @@ fn composer(s: &State, item: &Item, m: &Measure) -> El {
     // (`chips.rs`; no mode on a terminal agent's row). The paper clip opens the system's file
     // picker (`.dock-clip`). Send and its caret are two controls, as there (`.dock-send`,
     // `.dock-send-later`); the caret answers the pointer and opens nothing yet.
-    let send = if saving { home::send_sending() } else { home::send_main(ready) };
-    let mode = crate::chips::offers_a_mode(item).then(|| crate::chips::mode_chip(s, item));
+    let send = if compact { crate::chips::send_arrow(ready) } else if saving { home::send_sending() } else { home::send_main(ready) };
+    let mode = crate::chips::offers_a_mode(item).then(|| crate::chips::mode_chip(s, item, compact, crate::chips::mode_folded()));
     let bar = row()
+        .key(crate::chips::BAR)
         .h(57.0)
         .px(16.0)
         .gap(8.0)
         .items_center()
         .border_sides([1.0, 0.0, 0.0, 0.0], edge())
         .border_layout()
-        .child(crate::chips::priority_chip(s, item))
+        .child(crate::chips::priority_chip(s, item, compact))
         .children(mode)
         .child(model_chip)
         .child(spacer())
         // The paper clip's square is 28 points, the chips' height (`.tc-icon`).
         .child(home::attach().size(28.0, 28.0).help("Attach files").on_background_press_tx(|s: &mut State, tx| s.pick_files(Holder::Reply, tx)))
         // Send carries the key a press away from the model menu lands on (`reply.rs`).
-        .child(row().child(send.key(reply::SEND).help("Send · ⌘↵").on_press_tx(|s: &mut State, tx| s.send_reply(tx))).child(crate::feel::answers(home::send_caret()).help("Send later")));
+        .child(row().key(crate::chips::SEND_PAIR).child(send.key(reply::SEND).help("Send · ⌘↵").on_press_tx(|s: &mut State, tx| s.send_reply(tx))).child(crate::feel::answers(home::send_caret()).help("Send later")));
     // The thread moves to another agent with the next reply, and its session cannot follow it:
     // a note says so while that is true (`freshNote`, `.dock-card .compose-note`).
     let note = s.reply_fresh_note(item).map(|note| el().px(16.0).pb(10.0).child(label(&note, 12.0, 400.0, muted())));

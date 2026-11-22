@@ -47,6 +47,9 @@ pub static USAGE: Icon = Icon {
     body: r#"<g fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M4.5 16.5a7.5 7.5 0 1 1 15 0"/><path d="m12 16.5 3.6-4.2"/></g>"#,
 };
 
+// Send in a reply box too narrow for its word (`SendGlyph`, `.dock-send-arrow`).
+stroked!(SEND_ARROW, "m-send-arrow", "1.5", r#"<path d="M12 19V5M6 11l6-6 6 6"/>"#);
+
 // Where a conversation runs, beside Done: the cloud, or this Mac (`CloudMark`, `MacMark`).
 stroked!(PLACE_CLOUD, "m-place-cloud", "1.4", r#"<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>"#);
 stroked!(PLACE_MAC, "m-place-mac", "1.4", r#"<rect x="3" y="5" width="18" height="12"/><path d="M8 21h8M12 17v4"/>"#);
