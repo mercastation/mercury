@@ -191,6 +191,7 @@ pub fn plate(s: &State) -> Option<El> {
     };
     Some(
         col()
+            .key("hint-plate")
             .absolute(left, top)
             .size(plate_w, plate_h)
             .py(7.0)
@@ -286,8 +287,165 @@ pub fn wash_strong() -> Color {
 mod tests {
     use std::collections::BTreeMap;
 
-    use rune::Cursor;
-    use serde_json::Value;
+    use rune::{Cursor, Key, KeyEvent, Mods, Runtime, TitlebarAction};
+    use serde_json::{Value, json};
+
+    use crate::{State, View, chrome};
+
+    /// A window on an invented inbox of four threads an agent finished, all four needing the
+    /// person, at 1280 by 760, opened with `args` as the command line would open it.
+    fn window(name: &str, args: &[&str]) -> Runtime<State> {
+        let now = 1_790_000_000_000.0_f64;
+        let min = 60_000.0;
+        let items: Vec<Value> = (0..4)
+            .map(|i| {
+                let (asked, answered) = (now - (90.0 + 7.0 * i as f64) * min, now - (4.0 + 6.0 * i as f64) * min);
+                json!({
+                    "id": format!("w-feel{i}"), "product": "storefront", "productName": "Storefront",
+                    "status": "done", "kind": "directive", "title": format!("Invented thread number {i}"),
+                    "body": "Look into it.", "result": "Done, and tested. Merge it?", "labels": ["founder"],
+                    "priority": 5, "epoch": 2, "claim": null, "createdAt": asked, "updatedAt": answered,
+                    "wrote": {
+                        "title": { "ts": asked, "source": "founder" }, "body": { "ts": asked, "source": "founder" },
+                        "result": { "ts": answered, "source": "agent" }, "status": { "ts": answered, "source": "agent" },
+                    },
+                })
+            })
+            .collect();
+        let fixture = json!({
+            "now": now,
+            "snapshot": {
+                "products": [{ "slug": "storefront", "name": "Storefront", "dir": "/fixtures/storefront" }],
+                "items": items, "approvals": [],
+                "supervisor": { "paused": false, "pausedProducts": [], "running": [], "stalled": [], "queued": [], "scheduled": [], "productOrder": ["storefront"], "hiddenProducts": [], "personalProducts": [], "capacity": 0 },
+                "restartNeeded": null, "config": {},
+            },
+            "local": {},
+        });
+        let path = std::env::temp_dir().join(format!("mercury-feel-{name}-{}.json", std::process::id()));
+        std::fs::write(&path, fixture.to_string()).expect("the invented inbox");
+        let mut all = vec!["--fixture".to_string(), path.to_string_lossy().into_owned()];
+        all.extend(args.iter().map(|a| a.to_string()));
+        let s = crate::init_from(&all);
+        let _ = std::fs::remove_file(&path);
+        let text = rune::text::TextSystem::new(crate::FONTS, ("Geist", "Geist Mono, ui-monospace"));
+        let mut rt = Runtime::with_text(s, crate::view, (1280.0, 760.0), rune::Env::new(true, 2.0), text);
+        rt.poll = Some(crate::poll);
+        rt.on_key = Some(crate::keys::pressed);
+        rt.frame(0.0);
+        rt.frame(1.0 / 60.0);
+        rt
+    }
+
+    /// `seconds` of frames at 60 a second.
+    fn run(rt: &mut Runtime<State>, seconds: f64) {
+        for _ in 0..(seconds * 60.0).round() as usize {
+            rt.frame(1.0 / 60.0);
+        }
+    }
+
+    fn press(rt: &mut Runtime<State>, x: f32, y: f32) -> Option<TitlebarAction> {
+        rt.pointer_move(x, y);
+        rt.pointer_down(x, y);
+        let action = rt.take_titlebar_action();
+        rt.pointer_up(x, y);
+        rt.frame(1.0 / 60.0);
+        action
+    }
+
+    fn key(rt: &mut Runtime<State>, key: Key) {
+        rt.key(KeyEvent { key, mods: Mods::default() });
+        rt.frame(1.0 / 60.0);
+    }
+
+    #[test]
+    fn the_rail_opens_once_the_pointer_has_rested_on_it_and_folds_when_it_leaves() {
+        let mut rt = window("rail", &[]);
+        assert_eq!(rt.state.lists.needs.len(), 4, "the invented inbox needs the person four times");
+        // Onto Demands, which opens nothing of its own: the pointing hand, and the rail still
+        // folded until 140 ms have gone by.
+        rt.pointer_move(41.0, 244.0);
+        rt.frame(1.0 / 60.0);
+        assert_eq!(rt.cursor(), Cursor::Pointer);
+        run(&mut rt, 0.1);
+        assert_eq!(rt.state.rail.width(rt.state.at), 38.0);
+        // Then it eases open over 0.24 s, the card moving over with it.
+        run(&mut rt, 0.4);
+        assert_eq!(rt.state.rail.width(rt.state.at), 202.0);
+        assert_eq!(chrome::card_left(&rt.state), 246.0);
+        // Off it and onto the card: it folds at once, over 0.2 s.
+        rt.pointer_move(700.0, 400.0);
+        run(&mut rt, 0.3);
+        assert_eq!(rt.state.rail.width(rt.state.at), 38.0);
+        assert_eq!(chrome::card_left(&rt.state), 82.0);
+    }
+
+    #[test]
+    fn a_key_hint_comes_700_ms_after_the_pointer_and_goes_with_it_or_with_a_key() {
+        let mut rt = window("hint", &["--view", "inbox"]);
+        // New thread, in the Inbox's strip.
+        rt.pointer_move(1126.0, 71.0);
+        rt.frame(1.0 / 60.0);
+        run(&mut rt, 0.6);
+        assert!(rt.state.pointed.hint.is_none(), "not before 700 ms");
+        run(&mut rt, 0.2);
+        assert_eq!(rt.state.pointed.hint.as_ref().map(|h| h.id), Some("new-task"));
+        // Hung 7 points under New thread, its left edge on New thread's (`placeHint`): the web
+        // window's plate is 118.4 by 37 at 1065, 95, and `find` gives its middle.
+        let at = rt.find("hint-plate").expect("its plate is drawn");
+        assert!((at.0 - (1065.0 + 118.4 / 2.0)).abs() < 1.0 && (at.1 - (95.0 + 37.0 / 2.0)).abs() < 1.0, "the plate stands at {at:?}");
+        rt.pointer_move(640.0, 600.0);
+        rt.frame(1.0 / 60.0);
+        assert!(rt.state.pointed.hint.is_none(), "it goes the moment the pointer leaves");
+        // Back on a row, and then a key: the plate goes.
+        rt.pointer_move(400.0, 221.0);
+        run(&mut rt, 0.8);
+        assert_eq!(rt.state.pointed.hint.as_ref().map(|h| h.id), Some("row"));
+        key(&mut rt, Key::Down);
+        assert!(rt.state.pointed.hint.is_none(), "a key takes it away");
+    }
+
+    #[test]
+    fn the_row_the_pointer_moves_onto_takes_enter_until_the_keys_walk_the_list() {
+        // The rows stand 54 points apart from 194; the third is under the pointer.
+        let mut rt = window("row", &["--view", "inbox"]);
+        let third = rt.state.lists.needs[2].id.clone();
+        rt.pointer_move(600.0, 194.0 + 2.0 * 54.0 + 27.0);
+        rt.frame(1.0 / 60.0);
+        key(&mut rt, Key::Enter);
+        assert!(matches!(&rt.state.view, View::Thread { id, .. } if *id == third), "Enter opens the row under the pointer");
+
+        let mut rt = window("row-keys", &["--view", "inbox"]);
+        let second = rt.state.lists.needs[1].id.clone();
+        rt.pointer_move(600.0, 194.0 + 2.0 * 54.0 + 27.0);
+        rt.frame(1.0 / 60.0);
+        key(&mut rt, Key::Text("j".into()));
+        key(&mut rt, Key::Enter);
+        assert!(matches!(&rt.state.view, View::Thread { id, .. } if *id == second), "J takes the list back: Enter opens the row the keys walked to");
+    }
+
+    #[test]
+    fn the_bands_the_web_window_drags_move_the_window_and_their_buttons_keep_their_presses() {
+        let mut rt = window("drag", &["--view", "inbox"]);
+        assert_eq!(press(&mut rt, 640.0, 20.0), Some(TitlebarAction::Drag), "the band over the card");
+        assert_eq!(press(&mut rt, 640.0, 60.0), Some(TitlebarAction::Drag), "the Inbox's strip between its title and its buttons");
+        assert_eq!(press(&mut rt, 167.0, 71.5), None, "Forward, with nowhere to go, still keeps its press");
+        assert_eq!(press(&mut rt, 41.0, 300.0), None, "the rail is never part of it");
+        assert_eq!(press(&mut rt, 1126.0, 71.0), None, "New thread keeps its press");
+        assert!(rt.state.compose.card, "and opens the card");
+        // A double press zooms the window as the system says.
+        rt.state.compose.card = false;
+        rt.frame(1.0 / 60.0);
+        assert_eq!([press(&mut rt, 640.0, 20.0), press(&mut rt, 640.0, 20.0)], [Some(TitlebarAction::Drag), Some(TitlebarAction::DoubleClick)]);
+
+        let mut rt = window("drag-thread", &["--thread"]);
+        assert_eq!(press(&mut rt, 92.0, 68.0), Some(TitlebarAction::Drag), "the conversation's strip, left of its arrows");
+        assert_eq!(press(&mut rt, 900.0, 68.0), None, "the middle, where the crumb and the name stand");
+        assert_eq!(press(&mut rt, 900.0, 46.0), Some(TitlebarAction::Drag), "the strip over the middle");
+        assert!(matches!(rt.state.view, View::Thread { .. }));
+        assert_eq!(press(&mut rt, 115.0, 67.5), None, "the Inbox button keeps its press");
+        assert_eq!(rt.state.view, View::Inbox, "and goes to the Inbox");
+    }
 
     /// The web window's word for a pointer (`cursor`), as Rune names it.
     fn shape(css: &str) -> Option<Cursor> {
