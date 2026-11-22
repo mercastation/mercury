@@ -1336,6 +1336,9 @@ fn press_what_the_picture_pressed(s: &mut State, tx: &mut Tx) {
         s.compose.words = TextEdit::new(words.as_str().unwrap_or_default());
         s.send_thread(tx);
     }
+    // And one taken a moment after a reply was sent from the open thread's box (`replySent`),
+    // and after the next keys pressed there (`answer::picture`).
+    crate::answer::picture(s, tx);
     // One taken with a menu of that box open says which (`menu`).
     if let Some(which) = s.fixture.remove("menu") {
         s.picture_menu(which.as_str().unwrap_or_default(), tx);

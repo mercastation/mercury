@@ -93,6 +93,20 @@ pub struct Answering {
     /// say so themselves, by id: true once the write has landed, and let go with the next
     /// snapshot after that.
     pub holding: std::collections::HashMap<String, bool>,
+    /// The line over the thread a send moved the person to, while it stands: its own clock,
+    /// which stops while the pointer is on it (`SentLine`).
+    pub sent_line: Option<SentClock>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SentClock {
+    /// The thread it stands on, as `product/id`, and the line it says, by when that went up.
+    pub on: String,
+    pub toast: f64,
+    /// What is left of its five seconds, and the window's clock when that was last counted.
+    pub left: f64,
+    pub counted: f64,
+    pub hovered: bool,
 }
 
 /// The kept marks: the newest 300.
@@ -232,13 +246,66 @@ impl State {
         }
         let waiting: HashSet<String> = self.answering.sending.iter().filter(|d| !d.held).map(|d| d.thread.clone()).collect();
         self.answering.cutting.retain(|t| waiting.contains(t));
-        before != self.answering.sending.len()
+        before != self.answering.sending.len() || self.tend_sent_line(tx)
+    }
+
+    /// The thread the line about a send stands over: the open one, when the send was to another
+    /// thread and moved the person here (`saysWhereItWent`).
+    fn sent_line_on(&self) -> Option<String> {
+        let toast = self.toast.as_ref()?;
+        toast.sent.as_ref()?;
+        let (id, product) = toast.goes.as_ref()?;
+        match &self.view {
+            View::Thread { id: here, product: of } if here != id || of != product => Some(format!("{of}/{here}")),
+            _ => None,
+        }
+    }
+
+    /// The line's own clock: five seconds, stopped while the pointer is on it, and the line about
+    /// the send held for as long as it stands. Leaving the thread it stands on takes it down.
+    fn tend_sent_line(&mut self, tx: &mut Tx) -> bool {
+        let at = self.at;
+        let on = self.sent_line_on();
+        let since = self.toast.as_ref().map_or(0.0, |t| t.since);
+        match (on, self.answering.sent_line.clone()) {
+            (Some(on), clock) => {
+                let mut clock = clock.filter(|c| c.on == on && c.toast == since).unwrap_or(SentClock { on, toast: since, left: rules::SENT_LINE_MS, counted: at, hovered: false });
+                if !clock.hovered {
+                    clock.left -= (at - clock.counted).max(0.0) * 1000.0;
+                }
+                clock.counted = at;
+                if clock.left <= 0.0 {
+                    self.toast = None;
+                    self.answering.sent_line = None;
+                    return true;
+                }
+                if let Some(toast) = self.toast.as_mut() {
+                    toast.until = toast.until.max(at + 1.0);
+                }
+                self.answering.sent_line = Some(clock);
+                tx.wake_after(std::time::Duration::from_millis(33));
+                true
+            }
+            (None, Some(was)) => {
+                // Left the thread it stood on, while the same line was up: it goes.
+                if self.toast.as_ref().is_some_and(|t| t.since == was.toast) {
+                    self.toast = None;
+                }
+                self.answering.sent_line = None;
+                true
+            }
+            (None, None) => false,
+        }
     }
 
     /// Whether a reply that waits on the step its agent is in can be sent now: a run is up on
     /// the thread, on Claude Code (`cutsARunningStep`).
     pub fn waits_on_the_step(&self, item: &Item) -> bool {
-        self.snap.supervisor.running.iter().any(|r| r.item_id == item.id && r.product == item.product && r.rest.get("engine").and_then(serde_json::Value::as_str).is_none_or(|e| e == "claude-code" || e == "claude"))
+        let thread_on = crate::rules::reply_pick::running_engine(&self.snap, &item.id);
+        self.snap.supervisor.running.iter().any(|r| {
+            let on = r.rest.get("engine").and_then(serde_json::Value::as_str).map(str::to_string).or_else(|| thread_on.clone());
+            r.item_id == item.id && r.product == item.product && on.as_deref().unwrap_or("claude") == "claude"
+        })
     }
 
     /* ------------------------------------- Z's pile ------------------------------------- */
@@ -502,6 +569,42 @@ impl State {
     }
 }
 
+/// What a picture's fixture says was done before it was taken: a reply sent from the open
+/// thread's box (`replySent`), the three seconds over (`handedOver`), and keys pressed after
+/// (`keysAfter`, each a letter or a key's name).
+pub fn picture(s: &mut State, tx: &mut Tx) {
+    // Opened from Needs you on the Inbox (`from`), which a reply then moves on from.
+    if s.fixture.remove("from").is_some_and(|f| f == "needs") {
+        s.history.push(View::Inbox);
+        s.inbox_tab = crate::data::Tab::Needs;
+    }
+    if let Some(words) = s.fixture.remove("replySent").and_then(|w| w.as_str().map(str::to_string)) {
+        s.open_reply(tx);
+        s.reply = rune::TextEdit::new(words);
+        s.send_reply(tx);
+    }
+    if s.fixture.remove("handedOver").is_some() {
+        let sent = s.held.as_ref().map(|h| h.sent.clone());
+        s.write_what_waits();
+        // And refused by the engine, in its own words (`refusedWith`).
+        if let (Some(sent), Some(why)) = (sent, s.fixture.remove("refusedWith").and_then(|w| w.as_str().map(str::to_string))) {
+            s.landed(write::Landed { sent, answer: Err(why), snapshot: None }, tx);
+        }
+    }
+    if let Some(keys) = s.fixture.remove("keysAfter").and_then(|k| k.as_array().cloned()) {
+        for key in keys.iter().filter_map(serde_json::Value::as_str) {
+            let key = match key {
+                "Escape" => rune::edit::Key::Escape,
+                "Enter" => rune::edit::Key::Enter,
+                "ArrowDown" => rune::edit::Key::Down,
+                "ArrowUp" => rune::edit::Key::Up,
+                letter => rune::edit::Key::Text(letter.to_string()),
+            };
+            crate::keys::pressed(s, &rune::KeyEvent { key, mods: rune::Mods::default() }, tx);
+        }
+    }
+}
+
 /* ---------------------------------------- drawn ---------------------------------------- */
 
 /// Stop, where Send is while the box holds nothing and the thread is under way (`.dock-stop`):
@@ -564,10 +667,99 @@ pub fn send_now() -> El {
     })
 }
 
-/// The line over the reply box of the thread a send moved the person to (`SentLine`): drawn
-/// once its place on the page is measured (`docs/parity-answering.md`, P9).
-pub fn sent_line(_s: &State) -> Option<El> {
-    None
+/// The ring of the line about a send, run out by a share in 60 steps: what is left of its circle
+/// from the top, clockwise (`.sent-line-ring`, r 8.25, a stroke of 1.5 on the line's track).
+fn ring(left: f32) -> &'static rune::Icon {
+    static FRAMES: std::sync::OnceLock<Vec<rune::Icon>> = std::sync::OnceLock::new();
+    let frames = FRAMES.get_or_init(|| {
+        (0..=60)
+            .map(|step| {
+                let share = step as f32 / 60.0;
+                let track = r##"<circle cx="10" cy="10" r="8.25" fill="none" stroke="#464443" stroke-width="1.5"/>"##;
+                let arc = if share >= 1.0 {
+                    r#"<circle cx="10" cy="10" r="8.25" fill="none" stroke="currentColor" stroke-width="1.5"/>"#.to_string()
+                } else if share <= 0.0 {
+                    String::new()
+                } else {
+                    let angle = share * std::f32::consts::TAU;
+                    let (x, y) = (10.0 + 8.25 * angle.sin(), 10.0 - 8.25 * angle.cos());
+                    format!(r#"<path d="M10 1.75A8.25 8.25 0 {} 1 {x:.3} {y:.3}" fill="none" stroke="currentColor" stroke-width="1.5"/>"#, i32::from(share > 0.5))
+                };
+                rune::Icon { name: Box::leak(format!("m-sent-ring-{step}").into_boxed_str()), view: 20.0, body: Box::leak(format!("{track}{arc}").into_boxed_str()) }
+            })
+            .collect()
+    });
+    &frames[((left.clamp(0.0, 1.0) * 60.0).round() as usize).min(60)]
+}
+
+static SENT_X: rune::Icon = rune::Icon { name: "m-sent-x", view: 8.0, body: r#"<path d="M1 1 L7 7 M7 1 L1 7" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>"# };
+
+/// The line in the strip over the thread a send moved the person to (`.ts-top > .sent-line`):
+/// a dot of the accent, "Sent to" and the thread it went to, cut short; O Back and Z Undo as
+/// keys; and the ring that runs out over five seconds and closes it, × in it to close it now.
+/// The pointer on it stops its clock.
+pub fn sent_line(s: &State) -> Option<El> {
+    let toast = s.toast.as_ref()?;
+    let clock = s.answering.sent_line.as_ref().filter(|c| Some(&c.on) == s.sent_line_on().as_ref())?;
+    let says = toast.sent.as_deref()?;
+    let (id, product) = toast.goes.as_ref()?;
+    let title = s.snap.items.iter().find(|i| &i.id == id && &i.product == product).map(crate::rules::title::row_title).unwrap_or_else(|| "the thread you left".to_string());
+    let key = |cap: &str, word: &str| {
+        row().items_center().gap(6.0).hover_group().cursor(rune::Cursor::Pointer)
+            .child(row().h(17.0).px(4.0).items_center().border(1.0, rule()).border_layout().child(text(cap).font(TextStyle::new(10.5, 600.0).lh(15.0)).color(muted()).group_color(ink())).child(crate::feel::edge_lit(0.0, muted(), true)))
+            .child(pen(text(word).font(TextStyle::new(12.5, 400.0).lh(20.0)).color(muted()).group_color(ink()), 12.5))
+    };
+    let back = key("O", "Back").on_press(|s: &mut State| {
+        s.open_what_the_line_names();
+    });
+    let undo = toast.undo.then(|| {
+        key("Z", "Undo").on_press_tx(|s: &mut State, tx| {
+            s.toast = None;
+            s.undo(tx);
+        })
+    });
+    let left = (clock.left / rules::SENT_LINE_MS) as f32;
+    let close = el()
+        .size(24.0, 24.0)
+        .ml(2.0)
+        .hover_group()
+        .cursor(rune::Cursor::Pointer)
+        .label("Close")
+        .child(icon_at(ring(left), 20.0, 2.0, 2.0).color(muted()))
+        .child(icon_at(&SENT_X, 8.0, 8.0, 8.0).color(muted()).group_color(ink()))
+        .on_press(|s: &mut State| {
+            s.toast = None;
+        });
+    let said = row().shrink().items_center().child(pen(text(says).font(TextStyle::new(12.5, 400.0).lh(20.0)).color(dim()), 12.5)).child(row().shrink().child(pen(text(format!(" {title}")).font(TextStyle::new(12.5, 400.0).lh(20.0)).color(ink()).truncate(), 12.5)));
+    Some(
+        row()
+            .key("sent-line")
+            .max_w(460.0)
+            .min_w(0.0)
+            .h(26.0)
+            .items_center()
+            .gap(10.0)
+            .pt(2.0)
+            .pr(4.0)
+            .pb(2.0)
+            .pl(12.0)
+            .border(1.0, edge())
+            .border_layout()
+            .on_hover_change(|s: &mut State, over, _| {
+                if let Some(clock) = s.answering.sent_line.as_mut() {
+                    clock.hovered = over;
+                }
+            })
+            .child(el().size(6.0, 6.0).radius(3.0).fill(accent()))
+            .child(said)
+            .child(row().gap(14.0).items_center().child(back).children(undo))
+            .child(close),
+    )
+}
+
+/// An icon `size` points wide, pinned at `(x, y)` inside its box.
+fn icon_at(i: &'static rune::Icon, size: f32, x: f32, y: f32) -> El {
+    rune::icon(i, size).pin(Some(x), Some(y), None, None)
 }
 
 /// The question before throwing the change away, where the options stood (`OptionsOffer` with
@@ -578,27 +770,32 @@ pub fn discard_strip(s: &State, column: f32) -> Option<El> {
     let rows = options.iter().enumerate().map(|(at, c)| {
         let lit = asked.lit == Some(at);
         let tone = if lit { ink() } else { dim() };
-        let number = row().size(20.0, 20.0).radius(6.0).center().border(1.0, if lit { muted() } else { rule() }).child(text(format!("{}", c.n)).font(mono(11.0, 11.0)).color(tone));
+        // The number in its cap (`.opt-key`): 11 points in a frame of the strong line, six
+        // points either side.
+        let number = row().h(18.95).min_w(20.6).px(6.0).items_center().justify_center().radius(6.0).border(1.0, if lit { muted() } else { rule() }).border_layout().mt(1.5).child(text(format!("{}", c.n)).font(TextStyle::new(11.0, 400.0).lh(15.95)).color(tone));
+        let last = at + 1 == options.len();
         let mut line = row()
             .key(format!("discard-{at}"))
-            .pt(if at == 0 { 7.0 } else { 3.0 })
-            .pb(if at + 1 == options.len() { 7.0 } else { 3.0 })
-            .pl(14.0)
-            .pr(44.0)
+            .items_start()
+            .min_h(if last { 39.45 } else { 35.45 })
+            .pt(7.0)
+            .pb(if at + 1 == options.len() { 11.0 } else { 7.0 })
+            .px(16.0)
             .gap(10.0)
             .cursor(rune::Cursor::Pointer)
             .on_press_tx(move |s: &mut State, tx| s.answer_discard(at + 1, tx))
             .child(number)
-            .child(pen(text(c.text.as_str()).font(TextStyle::new(14.5, 400.0).lh(20.0)).color(tone).group_color(ink()), 14.5));
+            .child(pen(text(c.text.as_str()).font(TextStyle::new(14.5, 400.0).lh(21.025)).color(tone).group_color(ink()), 14.5));
         line = if lit { line.fill(white(0.08)) } else { line.hover_group().hover(crate::feel::wash()) };
         let aside = if lit { Some("↵ send") } else if c.recommended { Some("recommended") } else { None };
         match aside {
-            Some(said) => line.child(el().pl(8.0).mt(1.0).child(pen(text(said).font(TextStyle::new(11.5, 400.0).lh(20.0)).color(muted()), 11.5))),
+            Some(said) => line.child(el().pl(8.0).mt(3.5).child(pen(text(said).font(TextStyle::new(11.5, 400.0).lh(16.675)).color(muted()), 11.5))),
             None => line,
         }
     });
-    let head = el().pb(8.0).child(pen(text(rules::DISCARD_ASK).font(TextStyle::new(14.5, 500.0).lh(20.0)).color(ink()), 14.5));
-    Some(rune::col().w(column).child(head).child(rune::col().w(column).radius(10.0).clip_rounded(10.0).border(1.0, edge()).border_layout().children(rows)))
+    // The question heads the strip, inside its frame (`.opt-head.opt-head-ask`).
+    let head = el().pt(11.0).px(16.0).pb(7.0).child(pen(text(rules::DISCARD_ASK).font(TextStyle::new(12.5, 600.0).lh(17.5)).color(ink()), 12.5));
+    Some(rune::col().key("discard-ask").w(column).radius(10.0).clip_rounded(10.0).border(1.0, edge()).border_layout().child(head).children(rows))
 }
 
 #[cfg(test)]

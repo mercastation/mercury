@@ -253,8 +253,14 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
     let mut actions = row().ml(16.0).min_w(0.0).items_center();
     // The line about what was just done stands first in this group (`.toast-in-bar`), and the
     // thread's name gives way to it.
-    if let Some(line) = chrome::toast_in_bar(s) {
-        actions = actions.child(line.mr(16.0));
+    // Or, over a thread a send moved the person to, the line saying where it went (`SentLine`).
+    // Six points after the line, sixteen after the sent line, and the strip's ten after either
+    // where the arrows follow (`.toast-in-bar`, `.ts-top > .sent-line`, `.ts-top { gap }`).
+    let arrows = if at.is_some() { 10.0 } else { 0.0 };
+    if let Some(line) = crate::answer::sent_line(s) {
+        actions = actions.child(line.mr(16.0 + arrows));
+    } else if let Some(line) = chrome::toast_in_bar(s) {
+        actions = actions.child(line.mr(6.0 + arrows));
     }
     // The threads before and after it are those of Needs you, so a thread elsewhere has none
     // (`QueueNav` stands only on a thread with a place in that queue).
@@ -1186,9 +1192,31 @@ fn read(s: &State, item: &Item, whole: bool, working: bool, saying: Option<&Sayi
     if working {
         talk.without_trailing_work();
     }
+    // While the offer stands, the message it came from loses its list, which the strip over
+    // the reply box draws (`cleanMessage` in `Focus`). A message only holding the same words as
+    // an older offer keeps them: on a finished thread the list is the record.
+    if let Some(offered) = format::offer_is_live(item).then(|| format::offered(item)).flatten() {
+        let strip = |m: &mut Message| {
+            if !m.mine && js_trim(&m.text) == offered {
+                m.text = format::strip_options_section(&m.text);
+            }
+        };
+        talk.said.iter_mut().for_each(|e| {
+            if let Said::Message(m) = e {
+                strip(m);
+            }
+        });
+        if let Some(m) = talk.outcome.as_mut() {
+            strip(m);
+        }
+    }
     let talk = std::rc::Rc::new(talk);
     READ.with(|last| *last.borrow_mut() = Some((print, talk.clone())));
     talk
+}
+
+fn js_trim(s: &str) -> &str {
+    crate::rules::js::trim(s)
 }
 
 /// Whether a fixture's picture was taken with this thread's earlier messages unfolded.
@@ -1396,10 +1424,6 @@ fn dock(s: &State, item: &Item, m: &Measure) -> El {
     if !choices.is_empty() && !s.answer_waits(item) && s.discard_asked().is_none() && (s.option.is_some() || !crate::chips::choices_folded(s, item)) {
         inner = inner.child(options_strip(&choices, s.option, m).mb(10.0));
     }
-    // The line about a send that moved the person here, over the box (`SentLine`).
-    if let Some(line) = crate::answer::sent_line(s) {
-        inner = inner.child(line);
-    }
     inner = inner.child(if s.replying { composer(s, item, m) } else { reply_box(s, item, m).cursor(rune::Cursor::Text).on_press_tx(|s: &mut State, tx| s.open_reply(tx)) });
     el().pl(m.indent).pr(m.right).pb(m.foot).child(inner)
 }
@@ -1504,7 +1528,7 @@ pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
     }
     // The question before throwing the change away, at the conversation's foot (`closeAskStrip`).
     if let Some(strip) = crate::answer::discard_strip(s, m.column) {
-        blocks.push(markdown::block(22.0, 0.0, strip));
+        blocks.push(markdown::block(22.0, 6.0, strip));
     }
     let (body, _, under) = markdown::stack(blocks, false);
     // A browser scrolls a page only as far as a whole device pixel, whatever its lines add up
@@ -1521,7 +1545,8 @@ pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
         .key(if unfolded { "thread-whole" } else { "thread-newest" })
         .grow(1.0)
         .min_h(0.0)
-        .scroll(ScrollSpec { stick_bottom: unfolded || (working && page.alone.is_none()) })
+        // So does one the person has just sent something to: their words are where they look.
+        .scroll(ScrollSpec { stick_bottom: unfolded || (working && page.alone.is_none()) || s.answering.sending.iter().any(|d| d.thread == thread) })
         .child(el().pt(28.0).pl(m.indent).pr(m.right).pb(40.0 + under + whole).child(body.key("thread-said").w(m.column).selection_group(true)));
     col().w(page_w).h(page_h).child(reading).child(dock(s, item, &m))
 }
