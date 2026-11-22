@@ -234,7 +234,6 @@ thread_local! {
 const BODY: &str = "chg-body";
 const TREE: &str = "chg-tree";
 const PICKER: &str = "chg-picker";
-const EDIT: &str = "chg-edit";
 
 fn key_of(product: &str, src: &str) -> String {
     format!("{product}\n{src}")
@@ -790,6 +789,10 @@ fn column(s: &State, here: &Here, shown: &Rc<Shown>, w: f32, h: f32) -> El {
 fn copy(sel: &rune::TextSelection) -> Option<String> {
     let touched: Vec<&rune::SelectedText> = sel.texts().iter().filter(|t| t.is_selected() && t.key().is_some_and(|k| k.starts_with("l:") || k.starts_with("o:"))).collect();
     let removed: Vec<bool> = touched.iter().map(|t| t.key().is_some_and(|k| k.ends_with(":-"))).collect();
+    // Inside one line, its own selected words; the margin's numbers and marks are never copied.
+    if touched.len() == 1 {
+        return Some(touched[0].text().to_string());
+    }
     let plan = rules::lines_to_copy(&removed)?;
     // Each text hands over its selected part, already clipped where the selection starts and
     // ends, so the parts are copied whole.
@@ -939,7 +942,7 @@ fn entry_view(s: &State, shown: &Rc<Shown>, f: usize, i: usize, w: f32, cols: us
                 Mark::Same => "=",
             };
             let editing = here.editing == Some((f, hunk, r));
-            let el = if editing { editing_row(here, *mark, num, w) } else { code_row(*mark, num, &line, span, format!("l:{f}:{hunk}:{r}:{tag}"), w) };
+            let el = if editing { editing_row(here, *mark, num, w, format!("l:{f}:{hunk}:{r}:{tag}")) } else { code_row(*mark, num, &line, span, format!("l:{f}:{hunk}:{r}:{tag}"), w) };
             let el = if *mark != Mark::Removed && !editing { editable(el, f, hunk, r, &line, cols) } else { el };
             let before_gap = i > 0 && matches!(entries[i - 1], Entry::Gap { .. } | Entry::Opened { .. });
             let top = if r == 0 { if before_gap { 2.0 } else if first_in_block { 10.0 } else { 2.0 } } else { 0.0 };
@@ -991,6 +994,14 @@ fn spans_of(line: &str, span: Option<(usize, usize)>, mark: Mark) -> Vec<Span> {
     out
 }
 
+/// A number or a mark in a row's margin: never copied, never washed as selected, the arrow over
+/// it (`user-select: none`), yet a drag that starts on it starts the selection, at the front of
+/// its line, as a press in the web window's margin does. Rune starts a selection only on
+/// selectable words, so the margin's are selectable and carry nothing.
+fn margin(words: &str, font: TextStyle, colour: rune::Color) -> El {
+    text(words.to_string()).font(font).color(colour).cursor(Cursor::Default).selectable(true).uncopied(0..words.len()).selection_color(rgba(0, 0, 0, 0.0))
+}
+
 /// A row of code: its number in the file, its mark, and its line on the bed of its kind
 /// (`.code-row`). The line's words can be selected; the gutter's cannot.
 fn code_row(mark: Mark, num: Option<u32>, line: &str, span: Option<(usize, usize)>, key: String, w: f32) -> El {
@@ -1010,8 +1021,8 @@ fn code_row(mark: Mark, num: Option<u32>, line: &str, span: Option<(usize, usize
         .w(w)
         .items_start()
         .fill(bed)
-        .child(row().w(NUM_W).pr(10.0).justify_end().child(pen(text(num.map(|n| n.to_string()).unwrap_or_default()).font(code_font().features("'tnum' 1")).color(muted()), 12.0)))
-        .child(row().w(MARK_W).justify_center().child(text(sign).font(code_font()).color(sign_colour)))
+        .child(row().w(NUM_W).pr(10.0).justify_end().child(pen(margin(&num.map(|n| n.to_string()).unwrap_or_default(), code_font().features("'tnum' 1"), muted()), 12.0)))
+        .child(row().w(MARK_W).justify_center().child(margin(sign, code_font(), sign_colour)))
         // A line that takes typing is the I-beam across its whole width (`.cr-live .code-line {
         // cursor: text }`); a removed one only over its words, as Rune finds selectable words by
         // their box.
@@ -1032,14 +1043,18 @@ fn editable(row_el: El, f: usize, hunk: usize, r: usize, line: &str, cols: usize
         })
         .on_press_tx(move |s: &mut State, tx| {
             let Some((x, y)) = s.changes.here.as_ref().map(|h| h.pointer) else { return };
-            // A press in the margin is a selection's, never a caret's.
-            if x < 0.0 {
+            // A press in the margin is a selection's, never a caret's; so is a shifted press,
+            // which extends the selection across lines.
+            if x < 0.0 || tx.mods().shift {
                 if let Some(here) = s.changes.here.as_mut() {
                     here.tree_keys = false;
                     here.holding = None;
                 }
                 return;
             }
+            // The line becomes a field here, and the presses after are the field's: Rune counts
+            // them from the field's own first, so a double press takes the word once the caret is
+            // in the line (README, "What still differs").
             let col = caret_at(&line, cols, x, y);
             start_editing(s, f, hunk, r, col, tx);
         })
@@ -1068,11 +1083,12 @@ pub fn caret_at(line: &str, cols: usize, x: f32, y: f32) -> usize {
 }
 
 /// The row being typed in: its line a field on the faint bed, the caret in the added green.
-fn editing_row(here: &Here, mark: Mark, num: Option<u32>, w: f32) -> El {
+fn editing_row(here: &Here, mark: Mark, num: Option<u32>, w: f32, key: String) -> El {
     let bed = if mark == Mark::Added { plus_bed() } else { rgba(0, 0, 0, 0.0) };
     let (sign, sign_colour) = if mark == Mark::Added { ("+", plus()) } else { ("", muted()) };
+    // Keyed as the words it stands for, so the press that made it and the next are one place's.
     let field = text_input(&here.edit, code_font())
-        .key(EDIT)
+        .key(key)
         .wrap_anywhere()
         .color(ink())
         .caret(plus(), rgba(110, 165, 255, 0.3))
@@ -1094,8 +1110,8 @@ fn editing_row(here: &Here, mark: Mark, num: Option<u32>, w: f32) -> El {
         .w(w)
         .items_start()
         .fill(bed)
-        .child(row().w(NUM_W).pr(10.0).justify_end().child(pen(text(num.map(|n| n.to_string()).unwrap_or_default()).font(code_font().features("'tnum' 1")).color(muted()), 12.0)))
-        .child(row().w(MARK_W).justify_center().child(text(sign).font(code_font()).color(sign_colour)))
+        .child(row().w(NUM_W).pr(10.0).justify_end().child(pen(margin(&num.map(|n| n.to_string()).unwrap_or_default(), code_font().features("'tnum' 1"), muted()), 12.0)))
+        .child(row().w(MARK_W).justify_center().child(margin(sign, code_font(), sign_colour)))
         .child(row().grow(1.0).min_w(0.0).pr(LINE_PAD).fill(live_bed()).cursor(Cursor::Text).child(pen(field, 12.0)))
 }
 
@@ -1107,6 +1123,7 @@ fn start_editing(s: &mut State, f: usize, hunk: usize, r: usize, col: usize, tx:
     let said = file.hunks.get(hunk).and_then(|h| h.rows.get(r)).map(|(_, t)| t.clone()).unwrap_or_default();
     let line = typed_here(s, here).and_then(|t| t.get(&file.path)).and_then(|b| b.get(&hunk)).and_then(|rows| rows.get(&r)).cloned().unwrap_or(said);
     let byte = line.char_indices().nth(col).map_or(line.len(), |(b, _)| b);
+    let tag = if file.hunks.get(hunk).and_then(|h| h.rows.get(r)).is_some_and(|(m, _)| *m == Mark::Added) { "+" } else { "=" };
     let Some(here) = s.changes.here.as_mut() else { return };
     here.tree_keys = false;
     here.holding = None;
@@ -1114,7 +1131,7 @@ fn start_editing(s: &mut State, f: usize, hunk: usize, r: usize, col: usize, tx:
     here.edit = TextEdit::new(line);
     here.edit.set_caret(byte);
     here.edit.focused = true;
-    tx.focus(EDIT, false);
+    tx.focus(format!("l:{f}:{hunk}:{r}:{tag}"), false);
 }
 
 /// The line's words are kept as they are typed, never on disk unsaved (`noteEdit`).
@@ -1975,6 +1992,97 @@ mod tests {
         rt.frame(1.0 / 60.0);
         let copied = rt.copy_request.as_ref().expect("⌘C copies").content().text().to_string();
         assert_eq!(copied, "const a = 1;\nlet b = 3;\nexport { a, b };", "no gutter, and the removed line left out");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// ⌘C over what is selected now: what it put on the clipboard, if anything.
+    fn copied(rt: &mut Runtime<State>) -> Option<String> {
+        rt.copy_request = None;
+        rt.key(rune::KeyEvent { key: Key::Command('c'), mods: Mods { cmd: true, ..Mods::default() } });
+        rt.frame(1.0 / 60.0);
+        rt.copy_request.as_ref().map(|c| c.content().text().to_string())
+    }
+
+    #[test]
+    fn a_shifted_press_extends_the_selection_across_lines() {
+        let (mut rt, dir) = with_a_change("extend", (1600.0, 1000.0), None);
+        open_it(&mut rt);
+        // A press in the removed line's words, then a shifted press at the end of the fourth line.
+        let [x1, y1, _, _] = rect_of(&rt, "l:1:0:1:-").expect("the removed line");
+        let [x3, y3, w3, _] = rect_of(&rt, "l:1:0:3:=").expect("the fourth line");
+        rt.pointer_move(x1 + 1.0, y1 + 5.0);
+        rt.pointer_down(x1 + 1.0, y1 + 5.0);
+        rt.pointer_up(x1 + 1.0, y1 + 5.0);
+        rt.frame(1.0 / 60.0);
+        rt.physical_input(rune::PhysicalInput::Modifiers(Mods { shift: true, ..Mods::default() }));
+        rt.pointer_move(x3 + w3 - 1.0, y3 + 5.0);
+        rt.pointer_down(x3 + w3 - 1.0, y3 + 5.0);
+        rt.pointer_up(x3 + w3 - 1.0, y3 + 5.0);
+        rt.frame(1.0 / 60.0);
+        rt.physical_input(rune::PhysicalInput::Modifiers(Mods::default()));
+        // The removed line it started on is left out of the copy, as other lines are in it.
+        assert_eq!(copied(&mut rt).as_deref(), Some("let b = 3;\nexport { a, b };"), "a shifted press extends across lines");
+        assert!(rt.state.changes.here.as_ref().is_some_and(|h| h.editing.is_none()), "and puts no caret anywhere");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_double_press_takes_a_word_and_a_triple_press_the_line() {
+        let (mut rt, dir) = with_a_change("words", (1600.0, 1000.0), None);
+        open_it(&mut rt);
+        let press = |rt: &mut Runtime<State>, x: f32, y: f32| {
+            rt.pointer_down(x, y);
+            rt.pointer_up(x, y);
+            rt.frame(1.0 / 60.0);
+        };
+        // A removed line is words to select: a double press takes the word, a triple the line.
+        let [x, y, _, _] = rect_of(&rt, "l:1:0:1:-").expect("the removed line");
+        let (px, py) = (x + 1.5 * ADVANCE, y + 5.0);
+        rt.pointer_move(px, py);
+        press(&mut rt, px, py);
+        press(&mut rt, px, py);
+        assert_eq!(copied(&mut rt).as_deref(), Some("let"), "a double press takes the word");
+        press(&mut rt, px, py);
+        assert_eq!(copied(&mut rt).as_deref(), Some("let b = 2;"), "a triple press takes the line");
+        rt.frame(1.0);
+        // A line holding the caret takes them as its field does.
+        let [x, y, _, _] = rect_of(&rt, "l:1:0:3:=").expect("the fourth line");
+        let (px, py) = (x + 3.0 * ADVANCE, y + 5.0);
+        rt.pointer_move(px, py);
+        press(&mut rt, px, py);
+        assert_eq!(rt.state.changes.here.as_ref().and_then(|h| h.editing), Some((1, 0, 3)), "the caret is in the line");
+        rt.frame(1.0);
+        press(&mut rt, px, py);
+        press(&mut rt, px, py);
+        assert_eq!(copied(&mut rt).as_deref(), Some("export"), "a double press takes the word");
+        // A key between presses ends a field's run of them, so the triple press is pressed anew.
+        rt.frame(1.0);
+        for _ in 0..3 {
+            press(&mut rt, px, py);
+        }
+        assert_eq!(copied(&mut rt).as_deref(), Some("export { a, b };"), "a triple press takes the line");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_drag_from_the_margin_takes_the_lines_from_their_front() {
+        let (mut rt, dir) = with_a_change("margin", (1600.0, 1000.0), None);
+        open_it(&mut rt);
+        let [x0, y0, _, _] = rect_of(&rt, "l:1:0:0:=").expect("the first line");
+        let [x3, y3, w3, _] = rect_of(&rt, "l:1:0:3:=").expect("the fourth line");
+        // From the number of the first line, in the margin, to the end of the fourth.
+        // The number stands right-aligned ten short of the mark: "1" is one character wide.
+        let (mx, my) = (x0 - MARK_W - 10.0 - ADVANCE / 2.0, y0 + 5.0);
+        rt.pointer_move(mx, my);
+        rt.pointer_down(mx, my);
+        for k in 1..=6 {
+            let t = k as f32 / 6.0;
+            rt.pointer_move(mx + t * (x3 + w3 - 1.0 - mx), my + t * (y3 - y0));
+            rt.frame(1.0 / 60.0);
+        }
+        rt.pointer_up(x3 + w3 - 1.0, y3 + 5.0);
+        rt.frame(1.0 / 60.0);
+        assert_eq!(copied(&mut rt).as_deref(), Some("const a = 1;\nlet b = 3;\nexport { a, b };"), "from the front of the first line, the removed one left out");
         let _ = std::fs::remove_dir_all(dir);
     }
 

@@ -595,6 +595,23 @@ mod tests {
     }
 
     #[test]
+    fn a_thread_with_a_change_has_its_code_row_after_later_and_found_by_diff() {
+        let mut rows = thread_commands(&open_thread(), false, NOW);
+        with_code_row(&mut rows, ("w-1".to_string(), "shop".to_string()));
+        assert_eq!(ids(&rows), ["done", "reply", "snooze", "code", "open"]);
+        let code = rows.iter().find(|r| r.id == "code").unwrap();
+        assert_eq!(code.label, "View code changes");
+        assert_eq!(code.does, Does::Code(("w-1".to_string(), "shop".to_string())));
+        for words in ["diff", "what changed", "files", "code"] {
+            assert!(typed(words, &rows).contains(&"code".to_string()), "{words} finds it");
+        }
+        // With no Later row to follow, it goes at the end.
+        let mut bare = vec![cmd("home", "Go to Home", "")];
+        with_code_row(&mut bare, ("w-1".to_string(), "shop".to_string()));
+        assert_eq!(ids(&bare), ["home", "code"]);
+    }
+
+    #[test]
     fn the_files_place_and_each_projects_page_are_found_by_the_words_for_files() {
         let rows = file_rows(&["Storefront".to_string(), "Mobile".to_string()]);
         assert_eq!(rows.iter().map(|r| r.label.as_str()).collect::<Vec<_>>(), ["Go to Files", "Files in Storefront", "Files in Mobile"]);
