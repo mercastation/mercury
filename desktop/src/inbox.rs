@@ -119,7 +119,14 @@ fn cloud_button(s: &State, b: cloud::Button) -> El {
         (None, Some(running)) => strip_button(s, CLOUD).gap(7.0).pl(9.0).pr(10.0).child(cloud).child(said(running.to_string(), figures(13.0, 400.0), if b.lit { accent() } else { ink() })),
         (None, None) => strip_button(s, CLOUD).w(32.0).justify_center().child(cloud),
     };
-    let e = crate::feel::answers(e);
+    // Its title says what it is, or what it asks (`CloudButton`'s `title`).
+    let title = match b.word {
+        Some(cloud::Word::Again) => "A cloud account needs to sign in again.",
+        Some(cloud::Word::Cloud) => "Set up the cloud",
+        None if b.lit => "Cloud on (⌘C)",
+        None => "Cloud off (⌘C)",
+    };
+    let e = crate::feel::answers(e).help(title);
     if b.dot { e.child(el().pin(None, Some(5.0), Some(5.0), None).size(6.0, 6.0).radius(3.0).fill(accent())) } else { e }
 }
 
@@ -139,9 +146,10 @@ pub fn strip(s: &State) -> El {
         .px(13.0)
         .child(icon(&icons::PEN, 15.0).color(dim()))
         .child(shaded(|shadow| pen(label("New thread", 13.5, 400.0, if shadow { under(1.0) } else { ink() }), 13.5)))
+        .help("New thread (N)")
         .on_press_tx(|s: &mut State, tx| s.open_card(tx));
     // What the list shows and how is the web window's to choose, so this opens nothing here.
-    let display = crate::feel::answers(strip_button(s, DISPLAY).w(32.0).justify_center().child(icon(&icons::SLIDERS, 15.0).color(dim())));
+    let display = crate::feel::answers(strip_button(s, DISPLAY).w(32.0).justify_center().child(icon(&icons::SLIDERS, 15.0).color(dim()))).help("View and filters");
     // New thread and the cloud carry their keys' hints (`data-hint="new-task"`, `"cloud"`).
     let mut buttons = row().gap(10.0).child(crate::feel::hinted(new_thread, "new-task", NEW_THREAD, crate::feel::Align::Left, None));
     if let Some(button) = cloud::button(s.snap.rest.get("cloud"), &s.local.cloud_broken_seen) {

@@ -144,13 +144,14 @@ fn frame(here: Option<&Held>, wide: f32, tall: f32, fit: Option<SurfaceFit>) -> 
 }
 
 /// A picture and its name under it, which open it with the system: the magnifier for a pointer,
-/// as over the web window's (`.inline-image-open { cursor: zoom-in }`), and the picture's edge
-/// brighter under it. A picture on its way opens nothing yet.
-fn opens(block: El, here: Option<&Held>) -> El {
+/// as over the web window's (`.inline-image-open { cursor: zoom-in }`), the picture's edge
+/// brighter under it, and its path as written for a title. A picture on its way opens nothing
+/// yet.
+fn opens(block: El, here: Option<&Held>, src: &str) -> El {
     match here {
         Some(held) => {
             let path = held.path.clone();
-            block.hover_group().cursor(Cursor::ZoomIn).on_press(move |_: &mut State| open_with_system(&path))
+            block.hover_group().cursor(Cursor::ZoomIn).help(src).on_press(move |_: &mut State| open_with_system(&path))
         }
         None => block,
     }
@@ -198,7 +199,7 @@ pub fn picture(f: &Files, src: &str, room: f32, size: f32, line: f32) -> El {
     // place held for one not yet seen is a block of its own, with no line around it.
     let after = 8.0 + if stands { line - baseline_in(size, line) } else { 0.0 } - 2.0;
     let block = col().child(frame(held, wide, tall, None).mt(8.0)).child(name_under(src, wide, f.now).mt(after).mb(8.0));
-    watched(opens(block, held), places, want)
+    watched(opens(block, held, src), places, want)
 }
 
 /// One thing a row holds.
@@ -226,7 +227,7 @@ pub fn media_row(f: &Files, shown: &[Shown], room: f32) -> El {
         // Its place in the row is as wide as the row at most; the picture itself stops at
         // the widest any picture is drawn, and is cropped to fill what it has.
         let drawn = wide.min(WIDEST);
-        watched(opens(col().w(wide).child(frame(held, drawn, ROW_TALL, Some(SurfaceFit::Fill))).child(name_under(src, wide, f.now).mt(6.0)), held), places, want)
+        watched(opens(col().w(wide).child(frame(held, drawn, ROW_TALL, Some(SurfaceFit::Fill))).child(name_under(src, wide, f.now).mt(6.0)), held, src), places, want)
     }))
 }
 
@@ -275,7 +276,8 @@ pub fn folder(f: &Files, href: &str, room: f32, size: f32) -> El {
     // The name stands in a line of reading text with its mark's foot on the baseline, so
     // the line reaches a little under the name.
     let name_line = (line - 15.0) / 2.0 + 15.0 + under_baseline(size);
-    let name = row().h(name_line).items_start().child(name.on_press(open_folder.clone()));
+    // Its path waits in its title (`title={`${short}/`}`).
+    let name = row().h(name_line).items_start().child(name.help(format!("{short}/")).on_press(open_folder.clone()));
     let wide = ((room - 20.0) / 3.0).max(1.0);
     let tall = wide * 10.0 / 16.0;
     // A picture's edge brightens under the pointer, and it opens larger (`.folder-preview-shot`).
@@ -301,9 +303,10 @@ pub fn folder(f: &Files, href: &str, room: f32, size: f32) -> El {
                 _ => el(),
             };
             let (file, base) = (file.clone(), paths_base(file).to_string());
-            // The picture and its name are one button, which opens it (`.folder-preview-shot`).
-            let named = col().w(wide).child(shot(inside)).child(row().mt(4.0).child(row().min_w(0.0).child(text(base).font(label).color(muted()).truncate())));
-            watched(named.hover_group().cursor(Cursor::ZoomIn).on_press(move |_: &mut State| open_with_system(&file)), places, want)
+            // The picture and its name are one button, which opens it, its title the name
+            // (`.folder-preview-shot`).
+            let named = col().w(wide).child(shot(inside)).child(row().mt(4.0).child(row().min_w(0.0).child(text(base.as_str()).font(label).color(muted()).truncate())));
+            watched(named.hover_group().cursor(Cursor::ZoomIn).help(base).on_press(move |_: &mut State| open_with_system(&file)), places, want)
         })
         .collect();
     // Three across, row under row, ten points apart both ways.

@@ -203,8 +203,15 @@ fn task_row(r: &Row, at: usize, on: bool, card: Card) -> El {
     let under = match card {
         Card::Needs => {
             let mut tags = row().mt(3.0).h(16.0).items_center().gap(10.0);
+            // The mark's title is its level's word (`.hm-prio`'s `title`).
             if let Some(mark) = priority_mark(r.priority) {
-                tags = tags.child(mark);
+                let word = match r.priority {
+                    Priority::Urgent => "Urgent",
+                    Priority::High => "High",
+                    Priority::Low => "Low",
+                    Priority::Medium => "Medium",
+                };
+                tags = tags.child(mark.help(word));
             }
             if !r.project.is_empty() {
                 tags = tags.child(text(r.project.as_str()).font(mono(10.5, 16.0).tracking(0.525)).text_case(TextCase::Uppercase).color(muted()));

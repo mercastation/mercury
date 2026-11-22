@@ -425,6 +425,20 @@ mod tests {
     }
 
     #[test]
+    fn command_bracket_goes_back_where_backs_title_says() {
+        let mut rt = window("back", &["--view", "inbox"]);
+        assert_eq!(super::super::chrome::back_title(&rt.state), "Back to Home (⌘[)");
+        rt.key(KeyEvent { key: Key::Command('['), mods: Mods { cmd: true, ..Mods::default() } });
+        rt.frame(1.0 / 60.0);
+        assert_eq!(rt.state.view, View::Home);
+        let mut rt = window("back-thread", &["--thread"]);
+        assert_eq!(super::super::chrome::back_title(&rt.state), "Back to Needs you (⌘[)");
+        rt.key(KeyEvent { key: Key::Command('['), mods: Mods { cmd: true, ..Mods::default() } });
+        rt.frame(1.0 / 60.0);
+        assert_eq!(rt.state.view, View::Inbox, "a conversation opened from nowhere goes back to the Inbox");
+    }
+
+    #[test]
     fn the_bands_the_web_window_drags_move_the_window_and_their_buttons_keep_their_presses() {
         let mut rt = window("drag", &["--view", "inbox"]);
         assert_eq!(press(&mut rt, 640.0, 20.0), Some(TitlebarAction::Drag), "the band over the card");

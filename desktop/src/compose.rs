@@ -216,12 +216,15 @@ fn menu_chip(s: &State, kind: MenuKind, inside: impl FnOnce(rune::Color) -> Vec<
 /// The project's chip and the level's, which every bar has.
 fn filed_chips(s: &State) -> [El; 2] {
     let project = s.compose_project();
+    // Their titles: the project's name, and what the level is (`title` on each `.tc-chip`).
+    let named = project.map_or_else(|| "No project".to_string(), |p| p.name.clone());
     [
         menu_chip(s, MenuKind::Project, |tone| match project {
             Some(p) => vec![swatch(&p.slug), label(&p.name, 13.0, 400.0, tone).group_color(ink())],
             None => vec![label("No project", 13.0, 400.0, tone).group_color(ink())],
-        }),
-        menu_chip(s, MenuKind::Level, |tone| vec![level_mark(s.compose.level), label(rules::choice_label(s.compose.level), 13.0, 400.0, tone).group_color(ink())]),
+        })
+        .help(named),
+        menu_chip(s, MenuKind::Level, |tone| vec![level_mark(s.compose.level), label(rules::choice_label(s.compose.level), 13.0, 400.0, tone).group_color(ink())]).help("Priority"),
     ]
 }
 
@@ -245,14 +248,14 @@ fn later_caret(s: &State) -> El {
     } else {
         home::send_caret()
     };
-    caret.key(CARET).on_background_press_tx(|s: &mut State, tx| s.toggle_menu(MenuKind::Later, tx))
+    caret.key(CARET).help("Send later").on_background_press_tx(|s: &mut State, tx| s.toggle_menu(MenuKind::Later, tx))
 }
 
 /// The paper clip, why Send is off when it is off for want of a project, and Send.
 fn bar_end(s: &State) -> Vec<El> {
     // The two halves of Send are one control with no room between them (`.tc-send`).
-    let send = row().key(MenuKind::Later.anchor()).child(home::send_main(s.compose_ready()).key(SEND).on_background_press_tx(|s: &mut State, tx| s.send_thread(tx))).child(later_caret(s));
-    let clip = home::attach().key(CLIP).on_background_press_tx(|s: &mut State, tx| s.pick_files(tx));
+    let send = row().key(MenuKind::Later.anchor()).child(home::send_main(s.compose_ready()).key(SEND).help("Send · ⌘↵").on_background_press_tx(|s: &mut State, tx| s.send_thread(tx))).child(later_caret(s));
+    let clip = home::attach().key(CLIP).help("Attach files").on_background_press_tx(|s: &mut State, tx| s.pick_files(tx));
     if s.compose_project().is_none() {
         // `.tc-why` takes the room the clip would otherwise push Send across, so the clip
         // stays by the chips. Making a project is the web window's to do, so the way out is

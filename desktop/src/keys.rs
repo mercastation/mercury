@@ -123,6 +123,15 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
     if let Some(taken) = crate::compose::key(s, e, tx) {
         return taken;
     }
+    // ⌘[ is Back, as Back's title says (`Back to … (⌘[)` in `BackForward.tsx`): a conversation
+    // goes back to where it was opened from, any other page to the one before it.
+    if e.mods.cmd && e.key == Key::Command('[') {
+        match s.view {
+            View::Thread { .. } => s.leave_thread(),
+            _ => s.back(),
+        }
+        return true;
+    }
     if e.mods.cmd || e.mods.ctrl || e.mods.alt {
         return false;
     }

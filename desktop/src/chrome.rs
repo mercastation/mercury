@@ -526,6 +526,18 @@ fn toast_about(s: &State, toast: &crate::write::Toast) -> El {
         .child(toast_clock(toast, at, 358.0))
 }
 
+/// What Back's title says it goes back to (`Back to … (⌘[)`, `stopName` in `renderer/src/App.tsx`):
+/// Home, the Inbox's tab, or a thread's name. A conversation opened from nowhere goes back to the
+/// Inbox.
+pub fn back_title(s: &State) -> String {
+    let name = match s.history.last() {
+        Some(View::Home) => "Home".to_string(),
+        Some(View::Thread { id, product }) => s.snap.items.iter().find(|i| &i.id == id && &i.product == product).map_or_else(|| "the thread".to_string(), crate::rules::title::row_title),
+        Some(View::Inbox) | None => s.inbox_tab.label().to_string(),
+    };
+    format!("Back to {name} (⌘[)")
+}
+
 /// Back and forward, at the head of the card. Dim while there is nowhere to go. A conversation
 /// has a strip of its own there, with these two in it.
 pub fn back_forward(s: &State) -> El {
@@ -539,8 +551,11 @@ pub fn back_forward(s: &State) -> El {
         let e = row().size(26.0, 26.0).radius(6.0).center().opacity(if live { 1.0 } else { 0.45 }).child(icon(glyph, 15.0).color(if live { ink() } else { muted() }));
         if live { e.hover(crate::feel::film()).cursor(rune::Cursor::Pointer) } else { e.no_window_drag() }
     };
-    // 44 points into the card (`.gt-inset .topbar`), wherever the rail has put the card.
-    let arrows = row().absolute(card_left(s) + 44.0, 58.5).gap(2.0).child(arrow(&icons::BACK, !s.history.is_empty()).on_press(|s: &mut State| s.back())).child(arrow(&icons::FORWARD, false));
+    // 44 points into the card (`.gt-inset .topbar`), wherever the rail has put the card. Back
+    // with somewhere to go says where in its title.
+    let back = arrow(&icons::BACK, !s.history.is_empty()).on_press(|s: &mut State| s.back());
+    let back = if s.history.is_empty() { back } else { back.help(back_title(s)) };
+    let arrows = row().absolute(card_left(s) + 44.0, 58.5).gap(2.0).child(back).child(arrow(&icons::FORWARD, false));
     // The Inbox's title and buttons stand in the same strip as the arrows.
     if s.view == View::Inbox {
         return el().absolute(0.0, 0.0).child(crate::inbox::strip(s)).child(arrows);

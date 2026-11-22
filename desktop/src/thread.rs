@@ -207,7 +207,7 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
         .window_drag()
         .child(crate::feel::hinted(arrow(square(&icons::INBOX, 15.0, 26.0, ink())).on_press(|s: &mut State| s.go(View::Inbox)), "inbox", "strip-inbox", crate::feel::Align::Left, None).mr(10.0))
         // Back is where the person came from, and a thread opened from nowhere came from the Inbox.
-        .child(arrow(square(&icons::BACK, 15.0, 26.0, ink())).ml(2.0).on_press(|s: &mut State| s.leave_thread()))
+        .child(arrow(square(&icons::BACK, 15.0, 26.0, ink())).ml(2.0).help(chrome::back_title(s)).on_press(|s: &mut State| s.leave_thread()))
         .child(square(&icons::FORWARD, 15.0, 26.0, muted()).ml(2.0).opacity(0.45).no_window_drag())
         .child(
             row().grow(1.0)
@@ -232,7 +232,8 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
                 // It is the box to rename the thread in, so the pointer is the I-beam over it and
                 // its words brighten under it (`button.thread-crumb-name:hover`). Renaming is the
                 // web window's, so a press on it does nothing here.
-                .child(crate::feel::answers(row().min_w(0.0).shrink().px(6.0).hover_group().cursor(rune::Cursor::Text).child(text(crumb(&title)).font(crumbs).text_case(TextCase::Uppercase).color(dim()).group_color(ink()).truncate()))),
+                // Its title is the whole name, which the strip may cut.
+                .child(crate::feel::answers(row().min_w(0.0).shrink().px(6.0).hover_group().cursor(rune::Cursor::Text).help(title.as_str()).child(text(crumb(&title)).font(crumbs).text_case(TextCase::Uppercase).color(dim()).group_color(ink()).truncate()))),
         )
         .child(actions)
 }
@@ -860,7 +861,7 @@ fn reply_box(m: &Measure) -> El {
     // The model opens its menu in the web window, with the pointing hand and the text's own
     // colour under the pointer (`.ts-model`); here it opens nothing yet, and a press on it is
     // not a press on the box.
-    let model = crate::feel::answers(el().hover_group().cursor(rune::Cursor::Pointer))
+    let model = crate::feel::answers(el().hover_group().cursor(rune::Cursor::Pointer).help("Which model this conversation runs on"))
         .child(label("Opus 5.5", 13.0, 400.0, dim()).group_color(ink()))
         // `underline dotted`, three points under the baseline: a dot every three points, as
         // far as the words reach.
@@ -911,12 +912,12 @@ fn composer(s: &State, item: &Item, m: &Measure) -> El {
         .items_center()
         .border_sides([1.0, 0.0, 0.0, 0.0], edge())
         .border_layout()
-        .child(chip(vec![level.0, label(level.1, 13.0, 400.0, dim()).group_color(ink())]))
-        .child(chip(vec![label("Auto", 13.0, 400.0, dim()).group_color(ink())]))
-        .child(chip(vec![label("Opus 5.5", 13.0, 400.0, dim()).group_color(ink())]))
+        .child(chip(vec![level.0, label(level.1, 13.0, 400.0, dim()).group_color(ink())]).help("Priority"))
+        .child(chip(vec![label("Auto", 13.0, 400.0, dim()).group_color(ink())]).help("What this message may do"))
+        .child(chip(vec![label("Opus 5.5", 13.0, 400.0, dim()).group_color(ink())]).help("Which model this conversation runs on"))
         .child(spacer())
-        .child(crate::feel::answers(home::attach()))
-        .child(row().child(home::send_main(ready).on_press_tx(|s: &mut State, tx| s.send_reply(tx))).child(crate::feel::answers(home::send_caret())));
+        .child(crate::feel::answers(home::attach()).help("Attach files"))
+        .child(row().child(home::send_main(ready).help("Send · ⌘↵").on_press_tx(|s: &mut State, tx| s.send_reply(tx))).child(crate::feel::answers(home::send_caret()).help("Send later")));
     // The words fill the box above the bar, as the web window's text box does: the I-beam over
     // all of it, and a press anywhere in it puts the caret in the words.
     let words = el().min_h(92.0).pt(12.0).px(16.0).pb(6.0).cursor(rune::Cursor::Text).on_press_tx(|s: &mut State, tx| {
