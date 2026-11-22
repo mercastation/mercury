@@ -215,8 +215,10 @@ it. A still picture (`--snap`) cannot wait, so there the asking does the reading
   column's width, which is more than a long answer holds. Past it, the copies that left the
   screen longest ago are let go and read again when they come back; what is on screen is always
   held.
-- **Leaving a conversation lets go of every copy.** Each picture's size is remembered, a few
-  bytes, so a conversation opened again holds every picture's exact place from the first frame.
+- **Leaving a conversation lets go of every copy.** Each picture's size is remembered (of the
+  last few thousand), so a conversation opened again holds every picture's exact place from the
+  first frame. A copy made for a smaller window is made again when the picture is drawn a tenth
+  larger; one made for a larger window is kept until the conversation closes.
 - **A file that changes on disk is read again**, and a missing one is looked for again: the
   worker looks at each file's size and date every two seconds while the conversation is open.
 

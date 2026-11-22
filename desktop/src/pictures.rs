@@ -11,8 +11,9 @@
 //!   2880 pixels wide costs 20 MB whole and 6 MB at the reading column's width on a 2x screen.
 //! - All the copies together stay under `BUDGET`. Past it, the ones furthest from what is on
 //!   screen are let go and read again when they come back into view.
-//! - Leaving a conversation lets go of every copy (`keep`). Only the sizes are remembered, a
-//!   few bytes each, so a conversation opened again holds each picture's exact place at once.
+//! - Leaving a conversation lets go of every copy (`keep`). Only the sizes are remembered, of
+//!   the last few thousand pictures, so a conversation opened again holds each one's exact
+//!   place at once.
 //! - A file that changes on disk is read again (`look_again`).
 
 use std::collections::{HashMap, VecDeque};
@@ -29,6 +30,10 @@ use rune::{Pixels, Waker};
 /// pictures of a long answer, all at once, with room to spare, and a small share of the 180 MB
 /// the whole window takes. Pictures on screen are always held, whatever this says.
 pub const BUDGET: usize = 64 << 20;
+
+/// How many pictures' sizes are remembered after their pixels are let go. Each is the places
+/// the picture was looked for and two numbers, about a kilobyte.
+const SIZES_KEPT: usize = 4096;
 
 /// How large a copy the page needs, in device pixels.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -361,6 +366,11 @@ impl Pictures {
                 let bytes = read.rgba.len();
                 pixels.set(read.size.0, read.size.1, read.rgba);
                 shelf.bytes += bytes;
+                // Sizes outlive their conversation, so they are counted too: past a few
+                // thousand the list starts again, and a picture seen long ago is measured anew.
+                if shelf.sizes.len() >= SIZES_KEPT {
+                    shelf.sizes.clear();
+                }
                 shelf.sizes.insert(key, read.natural);
                 entry.state = State::Here { held: Held { pixels, natural: read.natural, path: read.path }, stamp: read.stamp, bytes, copy: read.size };
                 true
@@ -396,12 +406,14 @@ impl Pictures {
         // The copy to go on drawing while another is made, when there is one.
         let meanwhile = match &entry.state {
             State::Missing => return Look::Missing,
-            // A copy made for another size of window is made again once the size has settled
-            // a tenth away from it; until then the one held is drawn.
+            // A copy made for a smaller window is made again once the picture is drawn a tenth
+            // larger than it; until then the one held is drawn. A copy larger than it now needs
+            // to be is kept: two places that draw one picture at two sizes then settle on the
+            // larger, and neither asks again.
             State::Here { held, copy, .. } => {
                 let now = want.copy(held.natural);
-                let off = (now.0 as f32 - copy.0 as f32).abs() > 0.1 * copy.0 as f32 || (now.1 as f32 - copy.1 as f32).abs() > 0.1 * copy.1 as f32;
-                if !off || entry.asked {
+                let short = now.0 as f32 > 1.1 * copy.0 as f32 || now.1 as f32 > 1.1 * copy.1 as f32;
+                if !short || entry.asked {
                     return Look::Here(held.clone());
                 }
                 Some(held.clone())
@@ -596,6 +608,72 @@ mod tests {
         // And nothing ever comes to a page photographed before its pictures did.
         let never = Pictures::new(2.0, true, true);
         assert!(matches!(never.look(nowhere, Want::Within(100, 100)), Look::Arriving(None)));
+    }
+
+    /// Waits for the worker, as the window does on its waker, and says what the page is told.
+    fn settled(store: &Pictures, places: &[String], want: Want, owner: &str, clock: f64) -> Look {
+        for _ in 0..500 {
+            store.tend(Some(owner), clock);
+            match store.look(places.to_vec(), want) {
+                Look::Arriving(_) => std::thread::sleep(std::time::Duration::from_millis(10)),
+                told => return told,
+            }
+        }
+        panic!("the worker never answered");
+    }
+
+    #[test]
+    fn a_picture_is_read_off_the_main_thread_again_when_it_changes_and_let_go_on_leaving() {
+        let folder = std::env::temp_dir().join(format!("mercury-desktop-pictures-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&folder);
+        std::fs::create_dir_all(folder.join("designs")).unwrap();
+        let file = folder.join("designs/round.png");
+        let paint = |w: u32, h: u32| image::RgbImage::from_pixel(w, h, image::Rgb([40, 120, 200])).save(&file).unwrap();
+        paint(400, 200);
+        // Looked for in the project's folder first, where it is not, then in its designs.
+        let places = vec![folder.join("round.png").to_string_lossy().to_string(), file.to_string_lossy().to_string()];
+        let want = Want::Within(200, 200);
+        let store = Pictures::new(2.0, false, false);
+        store.tend(Some("storefront/w-1"), 0.0);
+        // Asking does not read: the page is told it is on its way, with no size yet.
+        assert!(matches!(store.look(places.clone(), want), Look::Arriving(None)));
+        let Look::Here(held) = settled(&store, &places, want, "storefront/w-1", 0.0) else { panic!("the picture was not found") };
+        assert_eq!((held.natural, held.pixels.size(), held.path.as_str()), ((400, 200), (200, 100), places[1].as_str()));
+        assert_eq!(store.held(), (200 * 100 * 4, 1));
+        // Drawn again under the same name at another size: the next look at the disk reads it.
+        paint(300, 300);
+        let mut clock = 0.0;
+        let redrawn = loop {
+            clock += AGAIN_MS;
+            assert!(clock < 500.0 * AGAIN_MS, "the changed file was never read again");
+            store.tend(Some("storefront/w-1"), clock);
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            match store.look(places.clone(), want) {
+                Look::Here(held) if held.natural == (300, 300) => break held,
+                _ => {}
+            }
+        };
+        assert_eq!(redrawn.pixels.size(), (200, 200));
+        // Another conversation: every copy is let go, and its size is still known on return.
+        store.tend(Some("storefront/w-2"), clock);
+        assert_eq!(store.held(), (0, 0));
+        store.tend(Some("storefront/w-1"), clock);
+        assert!(matches!(store.look(places.clone(), want), Look::Arriving(Some((300, 300)))));
+        // And a picture that is taken away says so.
+        settled(&store, &places, want, "storefront/w-1", clock);
+        std::fs::remove_file(&file).unwrap();
+        let gone = loop {
+            clock += AGAIN_MS;
+            assert!(clock < 1000.0 * AGAIN_MS, "the missing file was never noticed");
+            store.tend(Some("storefront/w-1"), clock);
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            if let told @ Look::Missing = store.look(places.clone(), want) {
+                break told;
+            }
+        };
+        assert!(matches!(gone, Look::Missing));
+        assert_eq!(store.held(), (0, 0));
+        std::fs::remove_dir_all(&folder).unwrap();
     }
 
     /// Not a check but a stopwatch: how long the worker takes over one screenshot.
