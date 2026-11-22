@@ -295,6 +295,11 @@ mod tests {
     /// A window on an invented inbox of four threads an agent finished, all four needing the
     /// person, at 1280 by 760, opened with `args` as the command line would open it.
     fn window(name: &str, args: &[&str]) -> Runtime<State> {
+        window_on(name, args, "/fixtures/storefront", "Done, and tested. Merge it?")
+    }
+
+    /// The same, its project's folder at `dir` and every agent's answer `result`.
+    fn window_on(name: &str, args: &[&str], dir: &str, result: &str) -> Runtime<State> {
         let now = 1_790_000_000_000.0_f64;
         let min = 60_000.0;
         let items: Vec<Value> = (0..4)
@@ -303,7 +308,7 @@ mod tests {
                 json!({
                     "id": format!("w-feel{i}"), "product": "storefront", "productName": "Storefront",
                     "status": "done", "kind": "directive", "title": format!("Invented thread number {i}"),
-                    "body": "Look into it.", "result": "Done, and tested. Merge it?", "labels": ["founder"],
+                    "body": "Look into it.", "result": result, "labels": ["founder"],
                     "priority": 5, "epoch": 2, "claim": null, "createdAt": asked, "updatedAt": answered,
                     "wrote": {
                         "title": { "ts": asked, "source": "founder" }, "body": { "ts": asked, "source": "founder" },
@@ -315,7 +320,7 @@ mod tests {
         let fixture = json!({
             "now": now,
             "snapshot": {
-                "products": [{ "slug": "storefront", "name": "Storefront", "dir": "/fixtures/storefront" }],
+                "products": [{ "slug": "storefront", "name": "Storefront", "dir": dir }],
                 "items": items, "approvals": [],
                 "supervisor": { "paused": false, "pausedProducts": [], "running": [], "stalled": [], "queued": [], "scheduled": [], "productOrder": ["storefront"], "hiddenProducts": [], "personalProducts": [], "capacity": 0 },
                 "restartNeeded": null, "config": {},
@@ -459,6 +464,103 @@ mod tests {
         assert!(matches!(rt.state.view, View::Thread { .. }));
         assert_eq!(press(&mut rt, 115.0, 67.5), None, "the Inbox button keeps its press");
         assert_eq!(rt.state.view, View::Inbox, "and goes to the Inbox");
+    }
+
+    /// The first point down a conversation, from under the line that shows its earlier messages
+    /// to over its reply bar, where the pointer takes `shape`.
+    fn first(rt: &mut Runtime<State>, shape: Cursor) -> (f32, f32) {
+        let top = rt.find("thread-earlier").map_or(100, |(_, y)| (y + 12.0) as usize);
+        for y in (top..600).step_by(2) {
+            for x in (90..1200).step_by(3) {
+                let (x, y) = (x as f32, y as f32);
+                rt.pointer_move(x, y);
+                if rt.cursor() == shape {
+                    return (x, y);
+                }
+            }
+        }
+        panic!("nothing on the page takes {shape:?}");
+    }
+
+    /// A right press at `at`, and the menu it opens.
+    fn right_press(rt: &mut Runtime<State>, (x, y): (f32, f32)) -> Option<rune::PopupMenu> {
+        rt.pointer_move(x, y);
+        rt.secondary_down(x, y);
+        rt.secondary_up(x, y);
+        rt.frame(1.0 / 60.0);
+        rt.popup_menu().cloned()
+    }
+
+    /// What the item picked from the open menu put on the clipboard: its words, its files and
+    /// whether it holds a picture.
+    fn pick(rt: &mut Runtime<State>, id: &str) -> (String, Vec<std::path::PathBuf>, Option<(u32, u32)>) {
+        rt.copy_request = None;
+        rt.resolve_popup(Some(id)).expect("the item is in the menu");
+        rt.frame(1.0 / 60.0);
+        let copied = rt.copy_request.as_ref().expect("the item copies").content();
+        (copied.text().to_string(), copied.files().to_vec(), copied.image().map(|i| i.size()))
+    }
+
+    /// A conversation whose agent answered `result`, in an invented project whose folder holds
+    /// one picture, 40 by 30, at `shots/shot.png`, every picture read where it is asked for.
+    /// Each test opens its own: a conversation's reading is kept for its row as last changed,
+    /// for as long as the thread that drew it.
+    fn with_a_picture(name: &str, result: impl Fn(&str) -> String) -> (Runtime<State>, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!("mercury-feel-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("shots")).expect("an invented project's folder");
+        let shot = dir.join("shots/shot.png");
+        image::RgbaImage::from_pixel(40, 30, image::Rgba([200, 120, 60, 255])).save(&shot).expect("an invented picture");
+        let mut rt = window_on(name, &["--thread"], &dir.to_string_lossy(), &result(&shot.to_string_lossy()));
+        rt.update(|s, _| s.pictures = crate::pictures::Pictures::new(2.0, true, false));
+        rt.frame(1.0 / 60.0);
+        (rt, shot)
+    }
+
+    fn menu(items: &[(&str, &str)]) -> Option<rune::PopupMenu> {
+        Some(items.iter().fold(rune::PopupMenu::new(), |menu, &(id, title)| match id {
+            "-" => menu.separator(),
+            _ => menu.item(rune::PopupItem::new(id, title)),
+        }))
+    }
+
+    const COPY_FILE: [(&str, &str); 2] = [("copy-file", "Copy File"), ("-", "")];
+    const LINK: [(&str, &str); 2] = [("open-link", "Open Link"), ("copy-link", "Copy Link Address")];
+
+    #[test]
+    fn a_right_press_on_an_address_opens_it_or_copies_it_as_chromium_parses_it() {
+        let (mut rt, shot) = with_a_picture("menu-address", |_| "Read [the notes](https://example.com) first.".into());
+        let at = first(&mut rt, Cursor::Pointer);
+        assert_eq!(right_press(&mut rt, at), menu(&LINK));
+        assert_eq!(pick(&mut rt, "copy-link").0, "https://example.com/");
+        let _ = std::fs::remove_dir_all(shot.parent().and_then(std::path::Path::parent).expect("its folder"));
+    }
+
+    #[test]
+    fn a_pictures_name_in_a_sentence_copies_the_file_and_the_picture_under_it_copies_the_picture() {
+        let (mut rt, shot) = with_a_picture("menu-named", |_| "Here is [the shot](shots/shot.png) as it stands.".into());
+        // Its name in the words: the file itself first, then the link to where it was found.
+        let at = first(&mut rt, Cursor::Pointer);
+        assert_eq!(right_press(&mut rt, at), menu(&[COPY_FILE.as_slice(), &LINK].concat()));
+        assert_eq!(pick(&mut rt, "copy-file").1, [shot.clone()]);
+        right_press(&mut rt, at);
+        assert_eq!(pick(&mut rt, "copy-link").0, format!("file://{}", crate::rules::paths::normalize_uri(&shot.to_string_lossy())));
+        // The picture under the sentence, named by a short path, carries no file to copy: the
+        // picture alone, read whole from its file.
+        let (x, y) = first(&mut rt, Cursor::ZoomIn);
+        assert_eq!(right_press(&mut rt, (x, y + 12.0)), menu(&[("copy-image", "Copy Image")]));
+        assert_eq!(pick(&mut rt, "copy-image").2, Some((40, 30)));
+        let _ = std::fs::remove_dir_all(shot.parent().and_then(std::path::Path::parent).expect("its folder"));
+    }
+
+    #[test]
+    fn a_picture_named_by_its_whole_path_copies_as_the_file_from_its_drawing_and_its_name() {
+        let (mut rt, shot) = with_a_picture("menu-whole", |shot| format!("![the shot]({shot})"));
+        let (x, y) = first(&mut rt, Cursor::ZoomIn);
+        assert_eq!(right_press(&mut rt, (x, y + 12.0)), menu(&[COPY_FILE.as_slice(), &[("copy-image", "Copy Image")]].concat()));
+        rt.resolve_popup(None).expect("the menu closes");
+        // Its name stands 13 points under its 32 tall frame, which stands 8 down the block.
+        assert_eq!(right_press(&mut rt, (x, y + 8.0 + 32.0 + 13.0 + 8.0)), menu(&COPY_FILE[..1]));
+        let _ = std::fs::remove_dir_all(shot.parent().and_then(std::path::Path::parent).expect("its folder"));
     }
 
     /// The web window's word for a pointer (`cursor`), as Rune names it.

@@ -9,14 +9,15 @@
 //!
 //! Pressing a file opens it with the system, through `open_with_system` at the foot of this
 //! file. The web window opens it beside the conversation, which this window does not have yet.
+//! A right press on one opens the web window's menu for it (`link_menu`, `picture_menu`).
 
-use rune::{Cursor, El, SurfaceFit, TextStyle, col, el, row, text};
+use rune::{ClipboardContent, ClipboardImage, Cursor, El, PointerEvent, PointerPress, PopupItem, PopupMenu, SurfaceFit, TextStyle, Tx, col, el, row, text};
 use serde_json::Value;
 
 use crate::State;
 use crate::data::Item;
 use crate::pictures::{Held, Listed, Look, Pictures, Want};
-use crate::rules::paths::decode_uri;
+use crate::rules::paths::{decode_uri, normalize_uri};
 use crate::rules::roots;
 use crate::theme::*;
 
@@ -145,13 +146,20 @@ fn frame(here: Option<&Held>, wide: f32, tall: f32, fit: Option<SurfaceFit>) -> 
 
 /// A picture and its name under it, which open it with the system: the magnifier for a pointer,
 /// as over the web window's (`.inline-image-open { cursor: zoom-in }`), the picture's edge
-/// brighter under it, and its path as written for a title. A picture on its way opens nothing
-/// yet.
-fn opens(block: El, here: Option<&Held>, src: &str) -> El {
+/// brighter under it, and its path as written for a title. A right press opens its menu, the
+/// picture standing `drawn` points down the block, from its top to its foot. A picture on its
+/// way opens nothing yet.
+fn opens(block: El, here: Option<&Held>, src: &str, drawn: (f32, f32)) -> El {
     match here {
         Some(held) => {
-            let path = held.path.clone();
-            block.hover_group().cursor(Cursor::ZoomIn).help(src).on_press(move |_: &mut State| open_with_system(&path))
+            let (path, carried) = (held.path.clone(), roots::whole_picture_path(src).is_some());
+            let menu_path = path.clone();
+            block
+                .hover_group()
+                .cursor(Cursor::ZoomIn)
+                .help(src)
+                .on_press(move |_: &mut State| open_with_system(&path))
+                .on_secondary_press_local(move |s: &mut State, at: PointerEvent, tx: &mut Tx| picture_menu(s, &menu_path, carried, at.y >= drawn.0 && at.y < drawn.1, at.window(), tx))
         }
         None => block,
     }
@@ -199,7 +207,7 @@ pub fn picture(f: &Files, src: &str, room: f32, size: f32, line: f32) -> El {
     // place held for one not yet seen is a block of its own, with no line around it.
     let after = 8.0 + if stands { line - baseline_in(size, line) } else { 0.0 } - 2.0;
     let block = col().child(frame(held, wide, tall, None).mt(8.0)).child(name_under(src, wide, f.now).mt(after).mb(8.0));
-    watched(opens(block, held, src), places, want)
+    watched(opens(block, held, src, (8.0, 8.0 + tall)), places, want)
 }
 
 /// One thing a row holds.
@@ -227,7 +235,7 @@ pub fn media_row(f: &Files, shown: &[Shown], room: f32) -> El {
         // Its place in the row is as wide as the row at most; the picture itself stops at
         // the widest any picture is drawn, and is cropped to fill what it has.
         let drawn = wide.min(WIDEST);
-        watched(opens(col().w(wide).child(frame(held, drawn, ROW_TALL, Some(SurfaceFit::Fill))).child(name_under(src, wide, f.now).mt(6.0)), held, src), places, want)
+        watched(opens(col().w(wide).child(frame(held, drawn, ROW_TALL, Some(SurfaceFit::Fill))).child(name_under(src, wide, f.now).mt(6.0)), held, src, (0.0, ROW_TALL)), places, want)
     }))
 }
 
@@ -306,6 +314,10 @@ pub fn folder(f: &Files, href: &str, room: f32, size: f32) -> El {
             // The picture and its name are one button, which opens it, its title the name
             // (`.folder-preview-shot`).
             let named = col().w(wide).child(shot(inside)).child(row().mt(4.0).child(row().min_w(0.0).child(text(base.as_str()).font(label).color(muted()).truncate())));
+            // A folder's pictures are listed by their whole paths, which its button carries for
+            // a right press (`data-copy-file={file}`).
+            let menu_file = file.clone();
+            let named = named.on_secondary_press_local(move |s: &mut State, at: PointerEvent, tx: &mut Tx| picture_menu(s, &menu_file, true, at.y < tall, at.window(), tx));
             watched(named.hover_group().cursor(Cursor::ZoomIn).help(base).on_press(move |_: &mut State| open_with_system(&file)), places, want)
         })
         .collect();
@@ -348,6 +360,133 @@ pub fn open(s: &mut State, href: &str) {
         Some(place) => open_with_system(&place),
         None => eprintln!("{} could not be found.", crate::rules::mentions::mention_name(href)),
     }
+}
+
+/// The kinds of file the web window serves from the folders it owns (`PICTURES` and `MEDIA` in
+/// `main/img-scheme.mts`), and so the only kinds its right press copies as the file.
+const SERVED: [&str; 20] = [
+    "png", "jpg", "jpeg", "gif", "webp", "avif", "bmp", "ico", "svg", "pdf", "pptx", "mp3", "wav", "m4a", "aac", "ogg", "mp4", "mov", "m4v", "webm",
+];
+
+/// The folders the web window serves files from (`imageRoots` in `main/main.mts`): the
+/// account's, which holds every project's own folder, and every project's code folder. This
+/// window is not told the account's folder, so each project's own folder stands in for it.
+fn owned(s: &State) -> Vec<String> {
+    let named = |p: &crate::data::Product, field: &str| p.rest.get(field).and_then(Value::as_str).unwrap_or("").to_string();
+    s.snap.products.iter().flat_map(|p| [named(p, "dir"), named(p, "repoPath")]).filter(|root| !root.is_empty()).collect()
+}
+
+/// Whether a right press may copy this as the file (`servable` in `main/img-scheme.mts`): a
+/// whole path to a picture or a film inside a folder the app owns. A path that steps up out of
+/// its folder is not inside it, as `inside` resolves both before it compares them.
+fn servable(file: &str, roots: &[String]) -> bool {
+    let path = std::path::Path::new(file);
+    let kind = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase);
+    path.is_absolute()
+        && kind.is_some_and(|k| SERVED.contains(&k.as_str()))
+        && !path.components().any(|c| c == std::path::Component::ParentDir)
+        && roots.iter().any(|root| path.starts_with(root))
+}
+
+/// The file itself on the clipboard, as a file and nothing else, so Finder or Mail pastes the
+/// file rather than its path (`copyFile`). Something that is no longer a file copies nothing.
+fn copy_file(file: &str, tx: &mut Tx) {
+    if std::path::Path::new(file).is_file() {
+        tx.copy_rich(ClipboardContent::default().with_files([std::path::PathBuf::from(file)]));
+    }
+}
+
+/// A picture on the clipboard as a picture, read whole from its file as `copyPicture` reads it
+/// (`nativeImage.createFromPath`), not the smaller copy this window draws.
+fn copy_picture(file: &str, tx: &mut Tx) {
+    let Ok(bytes) = std::fs::read(file) else { return };
+    let png = if bytes.starts_with(b"\x89PNG") {
+        ClipboardImage::from_png(bytes)
+    } else {
+        let mut png = Vec::new();
+        image::load_from_memory(&bytes).ok().and_then(|picture| picture.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).ok()).and_then(|_| ClipboardImage::from_png(png))
+    };
+    if let Some(png) = png {
+        tx.copy_rich(ClipboardContent::default().with_image(png));
+    }
+}
+
+/// An address as Chromium hands a link's on, parsed: what an address may not hold escaped,
+/// and a site named bare ending in its slash.
+fn parsed(href: &str) -> String {
+    match href.split_once("://") {
+        Some(("http" | "https", rest)) if !rest.contains(['/', '?', '#']) => format!("{href}/"),
+        _ => href.to_string(),
+    }
+}
+
+/// What a link in a message points at, as the web window's link holds it (`ArtifactLink`):
+/// the file it finds, and its address. An address stays itself; a file is a file url to where
+/// it was found, or, while it is found nowhere, to where it would be in the project's own
+/// folder (`resolveSrc`).
+fn link_target(s: &State, href: &str) -> (Option<String>, String) {
+    if href.starts_with("http://") || href.starts_with("https://") || href.starts_with("mailto:") {
+        return (None, parsed(href));
+    }
+    let crate::View::Thread { id, product } = &s.view else { return (None, href.to_string()) };
+    let Some(item) = s.snap.items.iter().find(|i| &i.id == id && &i.product == product) else { return (None, href.to_string()) };
+    let files = Files::of(s, item);
+    let found = files.places(href).into_iter().find(|place| std::path::Path::new(place).exists());
+    let address = match (&found, roots::whole_picture_path(href)) {
+        (Some(place), _) => format!("file://{}", normalize_uri(place)),
+        (None, Some(whole)) => format!("file://{}", normalize_uri(&whole)),
+        (None, None) if !files.dir.is_empty() => format!("file://{}", normalize_uri(&format!("{}/{}", files.dir, href.strip_prefix("./").unwrap_or(href)))),
+        (None, None) => href.to_string(),
+    };
+    (found, address)
+}
+
+/// A right press on a link in a message opens the web window's menu for it, which the system
+/// draws as it draws that one (the `context-menu` handler in `main/main.mts`): a picture or a
+/// film the link finds where the app keeps them is copied as the file, first, as that is what
+/// copying it means; then the link opens, as a press opens it, or gives its address.
+pub fn link_menu(s: &mut State, href: &str, at: PointerPress, tx: &mut Tx) {
+    let (found, address) = link_target(s, href);
+    let file = found.filter(|file| servable(file, &owned(s)));
+    let mut menu = PopupMenu::new();
+    if file.is_some() {
+        menu = menu.item(PopupItem::new("copy-file", "Copy File")).separator();
+    }
+    menu = menu.item(PopupItem::new("open-link", "Open Link")).item(PopupItem::new("copy-link", "Copy Link Address"));
+    let href = href.to_string();
+    tx.popup_menu(menu, at, move |s: &mut State, picked: Option<&str>, tx: &mut Tx| match (picked, &file) {
+        (Some("copy-file"), Some(file)) => copy_file(file, tx),
+        (Some("open-link"), _) => open(s, &href),
+        (Some("copy-link"), _) => tx.copy(address),
+        _ => {}
+    });
+}
+
+/// A right press on a picture opens the web window's menu for one: the file, when the picture
+/// carries its whole path for the press to read (`data-copy-file`), which a picture a message
+/// names by a short path does not; then, over the drawing itself and not the name under it,
+/// the picture.
+fn picture_menu(s: &State, file: &str, carried: bool, on_drawing: bool, at: PointerPress, tx: &mut Tx) {
+    let copies_file = carried && servable(file, &owned(s));
+    if !copies_file && !on_drawing {
+        return;
+    }
+    let mut menu = PopupMenu::new();
+    if copies_file {
+        menu = menu.item(PopupItem::new("copy-file", "Copy File"));
+    }
+    if on_drawing {
+        if copies_file {
+            menu = menu.separator();
+        }
+        menu = menu.item(PopupItem::new("copy-image", "Copy Image"));
+    }
+    let file = file.to_string();
+    tx.popup_menu(menu, at, move |_: &mut State, picked: Option<&str>, tx: &mut Tx| match picked {
+        Some("copy-file") => copy_file(&file, tx),
+        Some("copy-image") => copy_picture(&file, tx),
+        _ => {}
+    });
 }
 
 /// The kinds of file macOS runs or launches on a double-click (`RUNS` in `main/opens-a-program.mts`).

@@ -522,7 +522,8 @@ fn words(kids: &[Inline], font: TextStyle, p: Page) -> El {
     for (a, b, href) in presses {
         e = e.link(Link::new(a..b, href.clone()).hover(lit).pressed(held).help(paths::decode_uri(&href)));
     }
-    e.on_link(|s: &mut crate::State, href: &str, _: &mut rune::Tx| files::open(s, href))
+    // A right press on one opens its menu; on the words around it, the words' own Copy.
+    e.on_link(|s: &mut crate::State, href: &str, _: &mut rune::Tx| files::open(s, href)).on_link_secondary(files::link_menu)
 }
 
 /// The folder a link points at, when it is one: an address that keeps its slash, which is how
