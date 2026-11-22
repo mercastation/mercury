@@ -22,6 +22,7 @@ mod keys;
 mod later;
 mod markdown;
 mod pictures;
+mod reads;
 mod rules;
 mod sky;
 mod source;
@@ -95,9 +96,9 @@ pub struct State {
     /// What the engine answered about each conversation opened so far, by `product/id` and
     /// then by channel, the shape a fixture's `threads` has (`docs/thread-data.md`).
     pub threads: HashMap<String, Value>,
-    /// A conversation being asked for, and what each was last asked at: its row's last change.
-    asking: Latest<(String, Result<Value, String>)>,
-    asked: HashMap<String, f64>,
+    /// A conversation being asked for, and when it is owed a read (`reads.rs`).
+    asking: Latest<reads::Answer>,
+    reads: reads::Reads,
     /// The pictures the open conversation names, read off the disk (`pictures.rs`).
     pub pictures: pictures::Pictures,
     pub history: Vec<View>,
@@ -642,27 +643,26 @@ impl State {
             }
         }
     }
-    /// Asks the engine for the open conversation's lines when it has not been asked since the
-    /// thread last changed. Off the main thread: the answer lands in `poll`.
-    fn ask_for_the_open_thread(&mut self) {
+    /// The read the open conversation is owed now, if any: its lines and its runs' logs, when it
+    /// opens or changes, and while a run is up on every push (`pushed`) and every eight seconds.
+    fn read_owed(&mut self, pushed: bool) -> Option<reads::Ask> {
         let (View::Thread { id, product }, Source::Door(door)) = (&self.view, &self.source) else {
-            return;
+            return None;
         };
         // With no door open yet there is nobody to ask; the next snapshot brings this back.
-        let Some((url, token)) = door.now() else {
-            return;
-        };
+        let door = door.now()?;
         let key = format!("{product}/{id}");
         let changed = self.snap.items.iter().find(|i| &i.id == id && &i.product == product).and_then(|i| i.updated_at).unwrap_or(0.0);
-        if self.asked.get(&key) == Some(&changed) {
-            return;
+        let run = self.snap.supervisor.running.iter().find(|r| &r.item_id == id && &r.product == product).map(|r| r.rest.get("startedAt").and_then(Value::as_f64).unwrap_or(0.0));
+        // Once its middle is asked for, every log is read whole, once.
+        let every = self.reading.whole(&key) && self.threads.get(&key).is_none_or(|t| t.get("zero:session-trace/whole").is_none());
+        self.reads.owed(door, product, id, changed, run, pushed, every, self.asking.is_pending(), clock())
+    }
+    /// Asks for what the open conversation is owed, off the main thread: it lands in `poll`.
+    fn ask_for_the_open_thread(&mut self, pushed: bool) {
+        if let Some(ask) = self.read_owed(pushed) {
+            self.asking.request(ask, reads::read);
         }
-        self.asked.insert(key.clone(), changed);
-        let payload = serde_json::json!({ "product": product, "id": id });
-        self.asking.request((url, token, key, payload), |(url, token, key, payload)| {
-            let lines = source::call(&url, &token, "zero:item-history", &payload);
-            (key, lines)
-        });
     }
     fn hang(&mut self, p: Painted) {
         self.sky_home.set(p.home.0, p.home.1, p.home.2);
@@ -728,7 +728,7 @@ fn init() -> State {
         reading: thread::Reading::default(),
         threads: HashMap::new(),
         asking: Latest::default(),
-        asked: HashMap::new(),
+        reads: reads::Reads::default(),
         pictures: pictures_for(false),
         history: Vec::new(),
         source,
@@ -810,6 +810,13 @@ fn init() -> State {
             s.later.refused = s.fixture.get("laterRefused").and_then(Value::as_bool).unwrap_or(false);
         }
     }
+    // Nor can it wait for a conversation behind the door to be read.
+    if rune::tooling::headless_run().is_some()
+        && let Some(ask) = s.read_owed(false)
+        && let (key, Ok(answer)) = reads::read(ask)
+    {
+        s.threads.insert(key, answer);
+    }
     s
 }
 
@@ -888,17 +895,20 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
     }
     if let Some((key, answer)) = s.asking.take() {
         match answer {
-            Ok(history) => {
-                s.threads.insert(key, serde_json::json!({ "zero:item-history": history }));
+            Ok(answer) => {
+                let answer = reads::landed(s.threads.get(&key), answer);
+                s.threads.insert(key, answer);
             }
-            // Asked again on the thread's next change; until then the row's own words are shown.
-            Err(_) => {
-                s.asked.remove(&key);
-            }
+            // Asked again at its next turn; until then what was read last is shown.
+            Err(_) => s.reads.failed(),
         }
         changed = true;
     }
-    s.ask_for_the_open_thread();
+    s.ask_for_the_open_thread(stale);
+    // While a run is up on the open conversation, it is read again every eight seconds at least.
+    if matches!(&s.view, View::Thread { id, product } if s.snap.supervisor.running.iter().any(|r| &r.item_id == id && &r.product == product)) {
+        tx.wake_after(std::time::Duration::from_millis(reads::AGAIN_MS as u64));
+    }
     // The open conversation's pictures: what was read lands, another conversation's are let
     // go, and while any is on the page the disk is looked at again every two seconds.
     let open = match &s.view {
@@ -985,23 +995,36 @@ fn watch_door(args: &[String]) -> bool {
         let _ = tx.send(());
     });
     let until = std::time::Instant::now() + std::time::Duration::from_secs(seconds);
+    // The newest thread is read the way an open conversation with a run up is: on every change
+    // the engine pushes and every eight seconds, its logs asked for by the stamps already held.
+    let (mut reads, mut newest) = (reads::Reads::default(), None);
     while let Some(left) = until.checked_duration_since(std::time::Instant::now()) {
-        if rx.recv_timeout(left).is_err() {
-            break;
-        }
+        let pushed = rx.recv_timeout(left.min(std::time::Duration::from_millis(reads::AGAIN_MS as u64))).is_ok();
         let mut m = mailbox.lock().unwrap();
         if let Some(snapshot) = m.snapshot.take() {
             let lists = snapshot.lists(clock(), &Local::default());
             println!("changed: {} threads, {} need you, {} in progress", snapshot.items.len(), lists.needs.len(), lists.progress.len());
-            // And one conversation's lines, the way opening it asks for them.
-            if let (Some(item), Some((url, token))) = (snapshot.items.last(), door.now()) {
-                let lines = source::call(&url, &token, "zero:item-history", &serde_json::json!({ "product": item.product, "id": item.id }));
-                let count = lines.as_ref().ok().and_then(|v| v.get("lines")).and_then(Value::as_array).map(Vec::len);
-                println!("the newest thread's conversation: {}", count.map_or("could not be read".to_string(), |n| format!("{n} lines")));
-            }
+            newest = snapshot.items.last().map(|i| (i.product.clone(), i.id.clone(), i.updated_at.unwrap_or(0.0)));
         }
         if let Some(e) = m.error.take() {
             println!("could not read the engine: {e}");
+        }
+        drop(m);
+        if let (Some((product, id, changed)), Some(at)) = (&newest, door.now())
+            && let Some(ask) = reads.owed(at, product, id, *changed, Some(0.0), pushed, false, false, clock())
+        {
+            let (_, answer) = reads::read(ask);
+            match answer {
+                Ok(read) => {
+                    let lines = read["zero:item-history"]["lines"].as_array().map_or(0, Vec::len);
+                    let logs = read["zero:session-trace"]["sessions"].as_array().map_or(0, Vec::len);
+                    println!("the newest thread's conversation: {lines} lines, {logs} logs");
+                }
+                Err(e) => {
+                    reads.failed();
+                    println!("the newest thread's conversation could not be read: {e}");
+                }
+            }
         }
     }
     true

@@ -94,8 +94,6 @@ pub struct Message {
     pub mine: bool,
     pub text: String,
     pub field: Field,
-    /// The run it was typed in, by when that run started.
-    pub run: Option<f64>,
     /// The same run still talking after the line above it: drawn with no name and no time.
     pub same: bool,
     /// The first thing after a long conversation's missing middle, which gets its name back.
@@ -104,7 +102,7 @@ pub struct Message {
 
 impl Message {
     fn new(at: f64, mine: bool, text: String, field: Field) -> Message {
-        Message { at, mine, text, field, run: None, same: false, resumed: false }
+        Message { at, mine, text, field, same: false, resumed: false }
     }
 }
 
@@ -410,7 +408,7 @@ pub fn run_nodes(session: &TraceSession) -> Vec<Said> {
             out.push(Said::Work(w));
             continue;
         }
-        out.push(Said::Message(Message { run: Some(session.started_at), ..Message::new(line.at, false, line.text, Field::Run) }));
+        out.push(Said::Message(Message::new(line.at, false, line.text, Field::Run)));
     }
     out
 }
@@ -770,7 +768,7 @@ impl Talk {
             let kept = trace::as_traced(&now);
             let already = placed.iter().any(|p| p.node.message().is_some_and(|m| !m.mine && [&now, &kept].contains(&&trace::said(&m.text))));
             if !now.is_empty() && !already {
-                placed.push(Placed { node: Said::Message(Message { run: Some(saying.run), ..Message::new(saying.at, false, now, Field::Run) }), run: Some(saying.run), answer: false, answers: false });
+                placed.push(Placed { node: Said::Message(Message::new(saying.at, false, now, Field::Run)), run: Some(saying.run), answer: false, answers: false });
             }
         }
         // Tool-call scaffolding off every message before two of them are compared.

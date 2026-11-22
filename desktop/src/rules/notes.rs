@@ -18,7 +18,7 @@
 use std::collections::HashSet;
 
 use rune::time::LocalTime;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::calendar::Day;
 use super::js::{self, group, re};
@@ -26,7 +26,7 @@ use super::js::{self, group, re};
 const DAY_MS: f64 = 86_400_000.0;
 
 /// One run's log, as the engine hands it over (`TraceSession`).
-#[derive(Deserialize, Default, Clone, Debug, PartialEq)]
+#[derive(Deserialize, Serialize, Default, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct TraceSession {
     pub started_at: f64,
