@@ -248,15 +248,43 @@ pub struct Lists {
     pub later: Vec<Row>,
     /// What is finished and put away, newest finished first.
     pub done: Vec<Row>,
+    /// How many threads each tab held before the View and filters menu's filters thinned the
+    /// lists above, in `Tab::ALL`'s order (`shownBox` in `App.tsx`): what the menu's foot counts
+    /// against, what a tab the filters emptied says they hold back, and whether Later is on the
+    /// strip at all (`rules::display::show`).
+    #[serde(skip)]
+    pub whole: [usize; 4],
+    /// The threads the filters took out of Needs you, Later and Done, as `(tab, product, id)`:
+    /// still in that tab as far as a conversation's strip is concerned (`holds`).
+    #[serde(skip)]
+    pub behind: Vec<(Tab, String, String)>,
 }
 
 impl Lists {
-    /// In progress as the Inbox page's tab draws it: pinned first, then newest sent first
-    /// (`order` in `renderer/src/threads/page-rules.ts`). Rows that tie keep Home's order.
+    /// In progress as the Inbox page's tab draws it: what the filters keep, pinned first, then
+    /// newest sent first (`order` in `renderer/src/threads/page-rules.ts`). Rows that tie keep
+    /// Home's order.
     pub fn in_progress_tab(&self) -> Vec<&Row> {
-        let mut rows: Vec<&Row> = self.progress.iter().collect();
+        let mut rows: Vec<&Row> = self.progress.iter().filter(|r| r.kept).collect();
         rows.sort_by(|a, b| b.pinned.cmp(&a.pinned).then(b.at.unwrap_or(0.0).total_cmp(&a.at.unwrap_or(0.0))));
         rows
+    }
+
+    /// How many threads a tab held before the filters.
+    pub fn whole(&self, tab: Tab) -> usize {
+        self.whole[Tab::ALL.iter().position(|t| *t == tab).unwrap_or(0)]
+    }
+
+    /// Whether a tab holds the thread, whether or not the filters show it there: the tab a
+    /// conversation's strip names is the one that holds it (`stateOfMine` in `App.tsx`).
+    pub fn holds(&self, tab: Tab, id: &str, product: &str) -> bool {
+        let list = match tab {
+            Tab::Needs => &self.needs,
+            Tab::Progress => &self.progress,
+            Tab::Later => &self.later,
+            Tab::Done => &self.done,
+        };
+        list.iter().any(|r| r.id == id && r.product == product) || self.behind.iter().any(|(t, p, i)| *t == tab && p == product && i == id)
     }
 
     /// The rows the Inbox page draws under a tab, in its order (`wholeBox` in `App.tsx`).
@@ -269,12 +297,13 @@ impl Lists {
         }
     }
 
-    /// The number a tab wears on the strip. A number is drawn only where it changes what the
-    /// person does, so Done has none, and a zero is not drawn either (`COUNTED` in `Pages.tsx`).
+    /// The number a tab wears on the strip, of what the filters keep (`shownCount`). A number is
+    /// drawn only where it changes what the person does, so Done has none, and a zero is not
+    /// drawn either (`COUNTED` in `Pages.tsx`).
     pub fn count(&self, tab: Tab) -> usize {
         match tab {
             Tab::Needs => self.needs.len(),
-            Tab::Progress => self.progress.len(),
+            Tab::Progress => self.progress.iter().filter(|r| r.kept).count(),
             Tab::Later => self.later.len(),
             Tab::Done => 0,
         }
@@ -375,6 +404,10 @@ pub struct Row {
     /// The moment `when` tells: when it was finished on Done, when it comes back on Later (0
     /// for none), `at` everywhere else.
     pub shown_at: f64,
+    /// Whether the View and filters menu's filters keep it. Only In progress holds rows they do
+    /// not, for Home's card (`rules::display::show`).
+    #[serde(skip)]
+    pub kept: bool,
 }
 
 impl Snapshot {

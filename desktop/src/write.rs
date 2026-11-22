@@ -74,6 +74,14 @@ pub enum Sent {
     /// Where that thread runs, picked in its panel. The panel shows the pick, so nothing is
     /// said, unless it was a move the cloud could not take (`placeThread`, `moveToCloud`).
     Place { thread: String, moving: bool },
+    /// The cloud turned on or off, or what on means, from the Inbox's cloud menu or ⌘C. The
+    /// menu shows it once the engine says so, and ⌘C's line was said at the press.
+    Cloud,
+    /// Runs on this Mac asked to move to the cloud from that menu, `asked` of them: the line
+    /// says how many go once the engine says (`moveToCloud`).
+    Moved { asked: usize },
+    /// An account that was not added, its sign-in started again (`retry` in `CloudButton`).
+    SignIn,
 }
 
 impl Sent {
@@ -91,7 +99,7 @@ impl Sent {
             | Sent::Withdraw { thread, .. }
             | Sent::Priority { thread, .. }
             | Sent::Place { thread, .. } => thread,
-            Sent::Thread { .. } => "",
+            Sent::Thread { .. } | Sent::Cloud | Sent::Moved { .. } | Sent::SignIn => "",
         }
     }
 }

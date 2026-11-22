@@ -14,6 +14,7 @@ pub mod attach;
 pub mod calendar;
 pub mod cloud;
 pub mod compose;
+pub mod display;
 pub mod engine;
 pub mod format;
 pub mod js;
@@ -338,11 +339,19 @@ fn row(w: &World, i: &Item, tab: &str, to_approve: &HashMap<String, usize>) -> R
         engine: engine::engine_label(engine),
         when,
         shown_at,
+        kept: true,
     }
 }
 
-/// Every list at once, as of `now`.
+/// Every list at once, as of `now`, in the order the page opens on: by priority.
 pub fn lists(snap: &Snapshot, now: f64, local: &Local) -> Lists {
+    lists_sorted(snap, now, local, display::Sort::Priority)
+}
+
+/// Every list at once, Needs you and Later run by `sort` (the View and filters menu's Sort by;
+/// In progress and Done keep their own order whatever it says). Nothing is filtered yet: that
+/// is `display::show`, laid on once whatever else thins the lists has.
+pub fn lists_sorted(snap: &Snapshot, now: f64, local: &Local, sort: display::Sort) -> Lists {
     let w = World::new(snap, now, local);
     let items = &snap.items;
     let order = &snap.supervisor.product_order;
@@ -437,29 +446,36 @@ pub fn lists(snap: &Snapshot, now: f64, local: &Local) -> Lists {
         }
     }
 
-    let rows = |list: &[&Item], tab: &str| list.iter().map(|i| row(&w, i, tab, &to_approve)).collect();
-    Lists {
+    let rows = |list: &[&Item], tab: &str| list.iter().map(|i| row(&w, i, tab, &to_approve)).collect::<Vec<Row>>();
+    let lists = Lists {
         // Home's Needs you and the Inbox page both draw the inbox in the page's own order.
-        needs: rows(&page::sorted(&inbox, "inbox", order), "inbox"),
+        needs: rows(&page::sorted_by(&inbox, "inbox", sort, order), "inbox"),
         // Home draws In progress in the order it will run; the page's tab re-sorts it.
         progress: rows(&progress_tab, "progress"),
         // Later keeps the page's sort, as Needs you does: pinned, the project, the level.
-        later: rows(&page::sorted(&later, "snoozed", order), "snoozed"),
+        later: rows(&page::sorted_by(&later, "snoozed", sort, order), "snoozed"),
         done: rows(&page::sorted(&done, "done", order), "done"),
-    }
+        whole: [0; 4],
+        behind: Vec::new(),
+    };
+    Lists { whole: [lists.needs.len(), lists.progress.len(), lists.later.len(), lists.done.len()], ..lists }
 }
 
 /// `--rows <out.json>`: the lists a fixture gives, written as JSON, with no window opened.
 /// `tools/rows.mjs` holds them against the rows the web window drew from the same fixture.
 /// With them goes what the Inbox page draws around its rows with `--tab <name>` open: the
 /// strip of tabs, the time column's heading and the cloud button. None when the flag is not there.
+/// The lists are under the display the picture was taken on (`display` in the fixture), sorted
+/// and filtered as the page drew them.
 pub fn rows_from_args(args: &[String]) -> Option<Result<(), String>> {
     let flag = |name: &str| args.iter().position(|a| a == name).and_then(|at| args.get(at + 1));
     let out = flag("--rows")?;
     Some((|| {
         let fixture = crate::source::read_fixture(flag("--fixture").ok_or("--rows needs --fixture <file>")?)?;
         let now = fixture.now.ok_or("the fixture has no clock")?;
-        let lists = lists(&fixture.snapshot, now, &fixture.local);
+        let shown = fixture.rest.get("display").cloned().map(display::Display::from).unwrap_or_default();
+        let mut lists = lists_sorted(&fixture.snapshot, now, &fixture.local, shown.sort);
+        display::show(&mut lists, &shown, now);
         let open = Tab::from_args(args);
         let tabs: Vec<Value> = page::tabs(&lists, open).into_iter().map(|t| serde_json::json!({ "label": t.label(), "count": lists.count(t), "on": t == open })).collect();
         let page = serde_json::json!({ "tabs": tabs, "heading": page::time_heading(open.view()), "cloud": cloud::button(fixture.snapshot.rest.get("cloud"), &fixture.local.cloud_broken_seen) });

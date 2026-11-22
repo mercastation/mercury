@@ -42,7 +42,11 @@ The Inbox is its head strip (the title, New thread, the cloud button on a Mac se
 or offered it, the display button), its tabs (Needs you, In progress, Later while something is in
 it, Done) and the open tab's threads as a table. A row is its title with what follows it (an aside,
 "not started", a pin), the Status word with its mark, the project, the priority and a time: when it
-was sent, when it comes back under Later, when it was finished under Done.
+was sent, when it comes back under Later, when it was finished under Done. The display button opens
+View and filters, whose sort and filters every list follows and which this window keeps for the
+next; the cloud button opens the cloud's menu, which turns it on or off, says what on means, moves
+runs there and says what it used; and ⌘C turns the cloud on or off from anywhere ("The Inbox's
+View and filters, and the cloud's menu", below).
 
 ## Run it
 
@@ -566,6 +570,10 @@ The keys are the web window's (`src/keys.rs`, from the keydown handler in `rende
 | Anywhere | Z | Takes back the last thing done |
 | Anywhere | ⌘K | Opens the command bar, and closes it again |
 | The command bar | ↓, ↑, Enter, Esc | Walks its rows and runs the one lit; Esc closes it |
+| Anywhere | ⌘C | Turns the cloud on, or asks before turning it off; Copy instead while words are selected, a box has the keys or something stands over the page |
+| ⌘C's question | Enter, Esc | Turns the cloud off; keeps it on. Every other key waits |
+| The Inbox, a menu of its strip open | Esc | Closes it; every other key goes on to the page under it |
+| The Inbox | B | Says the board is the web window's |
 
 Everything written is one call on a channel the web window calls too, with the web window's own
 words in it (`src/rules/writes.rs`): a reply, a picked option ("Option 2: …") and a close go to
@@ -733,6 +741,127 @@ here answered `{"ok":true}` and the supervisor kept it (`threadOnMac`), letting 
 answered the same and moved it to `threadToCloud`, and a move with no run to move answered
 `{"moving":0}`, on which the panel says the cloud cannot take it. Picks in the panel were pressed
 only on pictures, where nothing is sent.
+
+## The Inbox's View and filters, and the cloud's menu
+
+The two square buttons at the right of the Inbox's head strip open the web window's menus under
+them (`DisplayMenu` and `CloudButton` in `renderer/src/threads/Pages.tsx`), drawn from its
+measurements of each (`src/head.rs`; the rules `src/rules/display.rs` and `src/rules/cloud.rs`).
+Each hangs forty points under its button's top, its right edge on the button's. One is open at a
+time and only over the Inbox: a press on its button closes it and one on the other button opens
+that one instead, a press anywhere else closes it on its way down, Escape closes it, and leaving
+the page closes it. Every other key goes on to the page, as the web window's menus take only
+Escape (`useOutside`): J and K walk the list under the open menu and Tab turns its tabs, the
+menu's foot counting the new tab. The button whose menu is open keeps the sky's dark glass, its
+mark in ink.
+
+**View and filters.** For one person it is View, Sort by, then Priority, Project (where there is
+more than one), Sent and the foot; People, Privacy and Group by are a team's. A pick changes the
+list at once and leaves the menu open (`setInboxDisplay`):
+
+- Sort by Priority runs Needs you and Later by the project order, then the level each thread
+  shows; Sent runs them newest sent first, a pinned thread first under either. In progress and
+  Done keep their own order, and the line says so beside the choice (`order`).
+- The filters keep the levels picked, the projects picked and what was sent today or this week
+  (`keeps`); nothing picked keeps everything. The row that says nothing is running stays
+  whatever they say. They thin every list a screen draws from the Inbox, as the web window's do:
+  the tabs and their numbers, Home's Needs you and its count, the rail's count, and J and K inside
+  a conversation with its strip's arrows. Home's In progress card lists the whole tab under a
+  number counting what the filters keep, as the web window's does (`homeProgress`,
+  `progressCount`). The strip over a conversation still names the tab that holds a thread the
+  filters hide.
+- The Project line offers the eight projects used last, a picked one always among them, and the
+  rest behind Show all (`projectChoices`).
+- The foot says how many of the open tab's threads show of how many it holds, and offers Clear
+  filters while one is on; the display button wears the accent dot then (`isFiltered`). A tab
+  the filters emptied says so, and how many they hold back, with a button that clears them
+  (`FilteredEmpty`), and Later stays on the strip while it holds anything at all.
+- The board is the web window's: Board and B say so in a line, and the list stays.
+
+The display is this window's own, kept in `native-picks.json` beside the picks of the box a thread
+is started in (`src/picks.rs`) and read when the window opens. The web window keeps its own
+(`threads.display.inbox`), which the door does not hand over, so each window opens on its own. A
+fixture's display is its `display`, the web window's own shape.
+
+**The cloud's menu.** While no account can run in the cloud it is an invitation with one button.
+Otherwise: a line about the setup when one is needed (an account that was not added with Try
+again, one being added with the mark of a wait, one that stopped working with Fix), On and Off
+with ⌘C beside them, what on means, the runs on this Mac the cloud could take now with Move them
+(or that they are moving, with Everything), the accounts with Manage, the month's agent-hours, and
+the line at its foot (what runs there, or why threads run on this Mac: the cloud resting, its image
+too old, this Mac's Claude not signed in there, the account at its limit). Opening it on an account
+that stopped working counts that account as seen once it closes, and the button stops asking for
+its sign-in (`seenAfter`); this window keeps which, beside the display.
+
+A pick is written at once, on the web window's own calls (`HeaderActions`' props in
+`renderer/src/App.tsx`), and the menu says the new state once the engine does: On and Off to
+`zero:settings-set-workspace` `{ key: "cloudRuns" }` (On to what on means), what on means to
+`{ key: "cloudWhenOn" }`, Move them to `zero:move-to-cloud` with the runs' ids, and a line says
+how many go once the engine says (`moveToCloud`). Try again lets the failed sign-in go and starts
+it again (`zero:cloud-signin`), then opens the setup. The setup is the web window's own screen
+(`components/CloudSetup.tsx`): Set up the cloud, Manage, Fix and Try again ask the app to bring its
+window forward on it, through a channel only the desktop app's door answers
+(`zero:open-cloud-setup-here`, `main/local-door.mts`, which takes nothing from the caller and
+opens that screen and nothing else). An app without that channel says so in a line. The month's
+hours are Agentbox Cloud's own count where its server says it (`zero:cloud-account-plan`), read
+when the window opens and each time the menu does.
+
+⌘C turns the cloud on from anywhere a key reaches, with the web window's line ("Cloud on:
+threads that don’t fit here start in the cloud"), and asks before turning it off, as both ⌘C and
+⌘K were pressed by accident (`CloudOffAsk`): Enter turns it off, Escape or a press outside keeps
+it on. It is Copy instead while words are selected, a box has the keys or something stands over
+the page (`cloudChord`), and nothing on a Mac with no cloud set up.
+
+The scenes, each the web window photographed with the menu open (`inboxMenu` in the fixture):
+`inbox-display` (as the page opens), `inbox-display-filtered` (Urgent and Low, one project, Sort by
+Sent), `inbox-display-done` (over Done, drawn with `--tab done`), `inbox-filtered` and
+`inbox-sorted-sent` (the list under them, closed), `inbox-filtered-empty`; `inbox-cloud-menu`
+(on), `-off`, `-move`, `-all`, `-again`, `-adding`, `-failed`, `inbox-cloud-invite`, and
+`inbox-cloud-off-ask` (⌘C pressed, `cloudOffAsk`). And four with the pointer resting on a
+choice: `inbox-display-hover-choice` and `-hover-on`, `inbox-cloud-menu-hover-manage` and
+`-hover-off`. At 1280 by 760, 2x, dark, the menu's own box and the whole window, where the web
+window's rail still has the places this one left out (the Inbox with nothing open is 0.26):
+
+| Scene | The menu | Whole window |
+|---|---|---|
+| `inbox-display` | 0.33 | 0.28 |
+| `inbox-display-filtered` | 0.37 | 0.21 |
+| `inbox-display-done` | 0.34 | 0.19 |
+| `inbox-cloud-menu`, `-off` | 0.33, 0.32 | 0.29, 0.28 |
+| `inbox-cloud-menu-move`, `-all` | 0.37, 0.33 | 0.29, 0.29 |
+| `inbox-cloud-menu-again`, `-adding`, `-failed` | 0.31, 0.32, 0.36 | 0.29, 0.29, 0.30 |
+| `inbox-cloud-invite` | 0.38 | 0.28 |
+| `inbox-cloud-off-ask` | the card 0.51 | 0.12 |
+| `inbox-filtered-empty` | the page under the tabs 0.15 | 0.19 |
+| `inbox-filtered`, `inbox-sorted-sent` | | 0.18, 0.26 |
+
+At 900 by 760 and 1600 by 1000 the two menus are 0.33 and 0.37 again. What is left is glyphs, the
+extent of the soft patch of the sky's dark every button of the strip wears (`.topbar :is(h1,
+button)`'s text shadow, which reaches the menus' buttons, and here `inbox::shaded`), and on the
+question its keys' caps, in Geist Mono where the web window's are the system's monospace.
+`tools/rows.mjs` holds every one of these scenes' rows, tabs with their numbers and cloud button
+against the web window's: none differs, the filtered and sorted ones included (`--rows` reads
+the fixture's display). Under the pointer, each choice measured in its own box is within half a
+point of 255 of the same box at rest: High 0.68 (0.58 at rest), Priority while on 1.59 (1.36),
+Manage 2.05 (1.60), Off 1.18 (0.93). Every point inside a menu takes the web window's pointer,
+the arrow on its ground and the pointing hand on its buttons, but one at a button's very edge.
+
+Filmed at 60 frames a second, each menu lands whole on the frame after the press lets go, a pick
+changes the list on the frame after, Escape closes on the next, and ⌘C's question comes and goes
+the same way. Rune counts no frame of View and filters' film as animating, and one where the
+cloud's menu opens and one where the question comes up: a colour landing at once (the cloud's
+mark, the scrim), nothing in motion.
+
+Against a door on loopback that answers an invented inbox on a cloud and records what this window
+writes, pressing Off, Everything, On, Try again, Move them, then ⌘C and Enter, then Manage wrote,
+in order: `cloudRuns` `mac`, `cloudWhenOn` `all`, `cloudRuns` `full`, the sign-in let go and
+started again on no account, `zero:open-cloud-setup-here`, the two runs' ids to
+`zero:move-to-cloud`, `cloudRuns` `mac`, and `zero:open-cloud-setup-here`. A scratch engine took
+each of those settings and said them back on its snapshot's `cloud` (Off keeps what on means,
+When on takes effect at once while on, and waits while off), answered a move with nothing to move
+`{ "moving": 0 }`, and has no `zero:open-cloud-setup-here`, a 404 the window says in its line. A
+filter picked in a window given `--picks` was in that file, and a window opened after on the same
+file drew the dot.
 
 ## Starting a thread
 
@@ -1339,8 +1468,8 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
   web window's opens the limits under it.
 - **The command bar offers only what this window can do.**
   - Not listed, because nothing here does them yet: New project, Record meeting, Filter,
-    Projects and ranking a project first, the cloud's
-    rows, Groups and each group, Files, Connections, teammates, the theme rows, updates and
+    Projects and ranking a project first, Groups and each group, Files, Connections, teammates,
+    the theme rows, updates and
     restarts, Pause agents, Resume interrupted agents, General agent instructions, Usage and
     limits, Settings, Keyboard shortcuts, Show as a board, Import chats and agents, the tutorial,
     setting Mercury up again, a demo copy and keyboard shortcut hints. On a thread: Remote
@@ -1400,10 +1529,26 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
   - A conversation drawn from the answer its agent is working from lands at its foot, as an
     unfolded one does; the web window lands on the top of the last message when that message is
     taller than the window.
-- **The cloud button is a picture of the cloud's state**, with no menu behind it. Live, it goes on
-  saying "Sign in again" for as long as an account is stopped: the web window stops saying it once
-  its menu has been opened on that account, which it remembers for itself
-  (`zero.cloudBrokenSeen`) and the door does not hand over. A fixture carries it.
+- **The Inbox's two menus, where they still differ** (see "The Inbox's View and filters, and the
+  cloud's menu"):
+  - The board is the web window's. Board in the menu and B say so, and the list stays a list; a
+    display kept as a board is drawn as the list.
+  - With a menu open, the page under it shows the arrow and its rows do not wash, and a press on
+    it only closes the menu, where the web window's press also lands on what it was aimed at (a
+    row opens): the layer that catches a press outside the menu covers the page, as for the
+    strip's menus over a conversation.
+  - The display is this window's own and the web window's is its own, so the two can show the
+    Inbox filtered differently; so is the list of stopped cloud accounts already looked at.
+  - The setup of the cloud's accounts is the web window's screen, which Manage and its kin bring
+    forward. That needs the app with `zero:open-cloud-setup-here`; an older one says in a line
+    where the accounts are set up.
+  - The month's hours from Agentbox Cloud's server are read when the window opens and when the
+    menu opens; the web window reads them every two minutes while its cloud is the server's.
+  - The mark of a wait on the line about an account being added stands still; the web window's
+    turns.
+  - ⌘C's question draws its keys' caps in Geist Mono, where the web window's are in the system's
+    monospace.
+  - The command bar still offers none of the cloud's rows, which this window could now do.
 - **When a thread comes back is said in English**, on a twelve-hour clock ("Sun 5:24 PM"), as the
   other dates are. The web window asks the system's language.
 
@@ -1447,6 +1592,10 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
   its files, which a conversation draws.
 - `src/palette.rs`: the command bar ⌘K opens. `src/rules/palette.rs` decides what it offers and
   in which order; `src/rules/search.rs` finds a thread by its words.
+- `src/head.rs`: what the Inbox's head strip opens, View and filters and the cloud's menu, ⌘C and
+  its question, and what each pick does. `src/rules/display.rs`: what View and filters keeps and
+  in which order, laid over the lists (`display::show`); `src/rules/cloud.rs`: the cloud button,
+  its menu's lines and what they write.
 - `src/files.rs`: the files those words name, drawn, and the one function that opens one.
   `src/pictures.rs`: the pictures, read off the disk on a worker and kept small.
   `src/rules/paths.rs`, `mentions.rs`, `roots.rs`: which words name a file, what kind it is and
