@@ -182,7 +182,7 @@ impl State {
         let crumb_roots = crumb_roots(self, &product);
         let src = crate::rules::paths::decode_uri(src.strip_prefix("file://").unwrap_or(src));
         let mut doc = Doc { product, thread: id, src, auto, roots, crumb_roots, found: None, read: None, mtime: 0.0, looked: 0.0 };
-        doc.land(self.now);
+        doc.land(crate::clock());
         self.close_files();
         self.pointed.hint = None;
         self.pane.doc = Some(doc);
@@ -336,13 +336,20 @@ pub fn tend(s: &mut State, now: f64, tx: &mut Tx) -> bool {
         changed = true;
     }
     changed |= open_by_itself(s);
-    if let Some(doc) = s.pane.doc.as_mut() {
-        if now - doc.looked >= rules::FOLLOW_FILE_MS {
-            changed |= doc.follow(now);
-        }
+    if s.pane.doc.is_some() {
+        changed |= follow_the_file(s, now);
         tx.wake_after(std::time::Duration::from_millis(rules::FOLLOW_FILE_MS as u64));
     }
     changed
+}
+
+/// The open file asked of the disk again once `FOLLOW_FILE_MS` have gone by since it last was,
+/// and read again when an agent has written it since (`askAtMostEvery(FOLLOW_FILE_MS, …)`).
+fn follow_the_file(s: &mut State, now: f64) -> bool {
+    match s.pane.doc.as_mut() {
+        Some(doc) if now - doc.looked >= rules::FOLLOW_FILE_MS => doc.follow(now),
+        _ => false,
+    }
 }
 
 /// The note or page the newest answer sets on a line of its own opens beside it, never over a
@@ -392,10 +399,11 @@ pub fn pictured(s: &mut State) {
 
 /* ------------------------------ the card ------------------------------ */
 
-/// A mark in the card's corner (`.doc-mark`): its glyph faint, and under the pointer the
-/// text's own colour on the pane's wash, at once both ways.
+/// A mark in the card's corner (`.doc-mark`): its glyph faint, and under the pointer in the
+/// text's own colour with nothing behind it, at once both ways (the newer look takes the
+/// `--doc-wash` away).
 fn mark(glyph: &'static rune::Icon, size: f32, help: &'static str) -> El {
-    row().size(28.0, 28.0).radius(3.0).center().hover_group().hover(white(0.07)).cursor(Cursor::Pointer).help(help).child(icon(glyph, size).color(dim()).group_color(ink()))
+    row().size(28.0, 28.0).radius(3.0).center().hover_group().cursor(Cursor::Pointer).help(help).child(icon(glyph, size).color(dim()).group_color(ink()))
 }
 
 /// How the card holds its file, by kind: a text keeps the glass card with its line under the
@@ -425,19 +433,20 @@ fn head(s: &State, doc: &Doc, w: f32) -> El {
     // The globe, where the app shares files and this one can be.
     let key = format!("{}/{}", doc.product, doc.src);
     let shares = rules::can_share_file(&doc.src) && s.pane.links.get(&key).is_some_and(|l| l.get("ok") == Some(&Value::Bool(true)) && l.get("site").and_then(Value::as_str).is_some_and(|site| !site.is_empty()));
+    // Its panel, which makes the link and copies it, is the web window's (see what still differs).
     if shares {
-        marks = marks.child(crate::feel::answers(mark(&icons::PANE_GLOBE, 16.0, "Share")));
+        marks = marks.child(crate::feel::answers(mark(&icons::PANE_GLOBE, 16.0, "Share").key("pane-globe")));
     }
     // The notes on it, which open with it over the whole window.
     if rules::takes_notes_sidebar(&doc.src) {
-        marks = marks.child(mark(&icons::PANE_NOTES, 16.0, "Show notes").on_press(|s: &mut State| s.pane_full()));
+        marks = marks.child(mark(&icons::PANE_NOTES, 16.0, "Show notes").key("pane-notes").on_press(|s: &mut State| s.pane_full()));
     }
     if crate::rules::pane::full_screen_takes(&doc.src) {
-        marks = marks.child(mark(&icons::PANE_FULL, 16.0, "Give this document the full workspace").on_press(|s: &mut State| s.pane_full()));
+        marks = marks.child(mark(&icons::PANE_FULL, 16.0, "Give this document the full workspace").key("pane-full").on_press(|s: &mut State| s.pane_full()));
     }
     marks = marks
-        .child(mark(&icons::FILE_OUTSIDE, 16.0, if kind == Kind::Change { "Open this file in your editor" } else { "Open outside Mercury" }).on_press(|s: &mut State| s.pane_outside()))
-        .child(mark(&icons::FILE_CLOSE, 16.0, "Close this document (esc)").on_press(|s: &mut State| s.close_beside()));
+        .child(mark(&icons::FILE_OUTSIDE, 16.0, if kind == Kind::Change { "Open this file in your editor" } else { "Open outside Mercury" }).key("pane-outside").on_press(|s: &mut State| s.pane_outside()))
+        .child(mark(&icons::FILE_CLOSE, 16.0, "Close this document (esc)").key("pane-close").on_press(|s: &mut State| s.close_beside()));
     let (pad_x, line) = if glass(kind) { (16.0, true) } else { (12.0, false) };
     let head = row().w(w).h(if line { 53.0 } else { 52.0 }).pl(pad_x).pr(pad_x).gap(8.0).items_center().child(path).child(el().grow(1.0)).child(marks);
     if line { head.border_sides([0.0, 0.0, 1.0, 0.0], edge()).border_layout() } else { head.fill(paper()) }
@@ -465,7 +474,7 @@ fn body(s: &State, doc: &Doc, w: f32, h: f32) -> El {
             let folder = doc.found.as_deref().and_then(|f| f.rsplit_once('/')).map_or(String::new(), |(dir, _)| dir.to_string());
             let byline = if doc.mtime > 0.0 { rules::edited_words(doc.mtime, s.now) } else { String::new() };
             let held = s.pictures.held();
-            let version = (doc.found.clone(), doc.mtime.to_bits(), w.to_bits(), h.to_bits(), held, (s.now / 60_000.0).floor() as i64);
+            let version = (doc.found.clone(), doc.mtime.to_bits(), w.to_bits(), h.to_bits(), held, (s.now / 60_000.0).floor() as i64, s.viewer.outline_open);
             rune::memo("pane-doc", version, || viewer::doc_page(s, words, &folder, byline.clone(), (w, h), STAGE_KEY, None, true))
         }
         (Kind::Text, Some(Read::Lines(code))) => {
@@ -541,6 +550,7 @@ fn grip(s: &State, body: (f32, f32), body_x: f32, card_h: f32) -> El {
     let (body_w, _) = body;
     // Kept as it moves and written down once it is let go, as the web window writes its own.
     el().size(9.0, card_h)
+        .key("pane-grip")
         .hover_group()
         .cursor(Cursor::ResizeColumn)
         .label("Resize the document")
@@ -563,15 +573,19 @@ fn grip(s: &State, body: (f32, f32), body_x: f32, card_h: f32) -> El {
 }
 
 /// The card, `w` by `h`, holding the file (`.doc-card`).
-fn card(s: &State, doc: &Doc, w: f32, h: f32) -> El {
+/// `headed`: the head is in the card. Over the whole card it is not: the web window moves it up
+/// into the strip it gave up, hides the path there, and draws its marks only over a file the
+/// person sent to the whole window, which this is not (`[data-chrome]` is set only then), so
+/// none is drawn and Escape is the way out, as there.
+fn card(s: &State, doc: &Doc, w: f32, h: f32, headed: bool) -> El {
     let kind = doc.kind();
     let inner_w = w - 2.0;
-    let head_h = if glass(kind) { 53.0 } else { 52.0 };
+    let head_h = if !headed { 0.0 } else if glass(kind) { 53.0 } else { 52.0 };
     let foot = if kind == Kind::Image { 16.0 } else { 0.0 };
     let below = (h - 2.0 - head_h - foot).max(1.0);
     // While the big view stands over the window it covers this card, whose file is not drawn.
     let file = if s.viewer.open.is_some() { el().size(inner_w, below) } else { body(s, doc, inner_w, below + foot) };
-    let inside = col().w(inner_w).h(h - 2.0).child(head(s, doc, inner_w)).child(el().w(inner_w).h(below + foot).clip_rounded(0.0).child(file));
+    let inside = col().w(inner_w).h(h - 2.0).children(headed.then(|| head(s, doc, inner_w))).child(el().w(inner_w).h(below + foot).clip_rounded(0.0).child(file));
     let card = el().size(w, h).border(1.0, if glass(kind) { rule() } else { edge() }).border_layout();
     let card = if glass(kind) {
         card.radius(12.0)
@@ -600,7 +614,7 @@ pub fn page(s: &State, conversation: El, dock: impl FnOnce(f32) -> El) -> El {
             let body_x = crate::chrome::card_left(s);
             let pane = el()
                 .size(pane_w, h)
-                .child(el().absolute(AIR, AIR).child(card(s, doc, card_w, card_h)))
+                .child(el().absolute(AIR, AIR).child(card(s, doc, card_w, card_h, true)))
                 .child(el().absolute(AIR - 4.0, AIR).child(grip(s, (w, h), body_x, card_h)));
             row().w(w).h(h).child(el().w(conv_w).h(h).child(conversation)).child(pane)
         }
@@ -612,7 +626,7 @@ pub fn page(s: &State, conversation: El, dock: impl FnOnce(f32) -> El) -> El {
             let dock_h = rune::memo::layout_size("pane-dock").map_or(55.0, |[_, tall]| tall);
             col().w(whole.0)
                 .h(whole.1)
-                .child(el().w(whole.0).h((whole.1 - dock_h).max(1.0)).child(el().absolute(AIR, AIR).child(card(s, doc, whole.0 - 2.0 * AIR, (whole.1 - dock_h - 2.0 * AIR).max(1.0)))))
+                .child(el().w(whole.0).h((whole.1 - dock_h).max(1.0)).child(el().absolute(AIR, AIR).child(card(s, doc, whole.0 - 2.0 * AIR, (whole.1 - dock_h - 2.0 * AIR).max(1.0), false))))
                 .child(dock.key("pane-dock"))
         }
     }
@@ -652,6 +666,214 @@ pub type Links = std::sync::Arc<std::sync::Mutex<HashMap<String, Value>>>;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::feel::tests::{first, key, press, rect_of, run, with_a_picture};
+    use rune::{Key, Runtime};
+
+    /// A conversation whose answer is `result`, in an invented project holding `notes/plan.md`
+    /// and `shots/shot.png`. Gives the window and the project's folder.
+    fn with_a_plan(name: &str, result: &str) -> (Runtime<State>, std::path::PathBuf) {
+        let result = result.to_string();
+        // The note is written before the window opens on the thread, as an agent's is before
+        // its answer names it.
+        let (mut rt, shot) = with_a_picture(name, move |shot| {
+            let dir = std::path::Path::new(shot).parent().and_then(std::path::Path::parent).expect("its folder");
+            std::fs::create_dir_all(dir.join("notes")).expect("a folder for the note");
+            std::fs::write(dir.join("notes/plan.md"), "# The plan\n\nRound each line.\n").expect("an invented note");
+            result.clone()
+        });
+        let dir = shot.parent().and_then(std::path::Path::parent).expect("its folder").to_path_buf();
+        rt.frame(1.0 / 60.0);
+        (rt, dir)
+    }
+
+    fn middle(rt: &Runtime<State>, key: &str) -> (f32, f32) {
+        let [x, y, w, h] = rect_of(rt, key).unwrap_or_else(|| panic!("{key} is drawn"));
+        (x + w / 2.0, y + h / 2.0)
+    }
+
+    #[test]
+    fn a_document_opens_beside_and_the_conversation_keeps_what_the_file_leaves_it() {
+        let (mut rt, dir) = with_a_plan("pane-open", "Read [the plan](notes/plan.md) first.");
+        let at = first(&mut rt, rune::Cursor::Pointer);
+        press(&mut rt, at.0, at.1);
+        let doc = rt.state.beside().expect("the plan opens beside");
+        assert_eq!((doc.kind(), doc.auto), (Kind::Markdown, false));
+        assert!(matches!(doc.read, Some(Read::Doc(_))), "its words are read off the disk");
+        // At 1280 by 760 the body is 1176 wide: the file opens on what leaves the chat 400.
+        assert_eq!(rt.state.conversation_size().0, 400.0);
+        assert_eq!(rt.state.pane_placement(), Some(Placement::Beside));
+        let card = rect_of(&rt, "pane-grip").expect("the divider is drawn");
+        assert_eq!((card[0], card[1]), (82.0 + 400.0 + 12.0 - 4.0, 104.0 + 12.0));
+        // Escape puts it down, and the next Escape leaves the thread.
+        key(&mut rt, Key::Escape);
+        assert!(rt.state.beside().is_none());
+        assert!(matches!(rt.state.view, View::Thread { .. }));
+        key(&mut rt, Key::Escape);
+        assert!(!matches!(rt.state.view, View::Thread { .. }));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_picture_still_opens_big_and_the_files_list_opens_by_kind() {
+        let (mut rt, dir) = with_a_plan("pane-kinds", "Done.");
+        rt.update(|s, _| open_link(s, "shots/shot.png", false));
+        rt.frame(1.0 / 60.0);
+        assert!(rt.state.viewer.open.is_some() && rt.state.beside().is_none(), "a picture is looked at, big");
+        key(&mut rt, Key::Escape);
+        rt.update(|s, _| open_listed(s, "notes/plan.md"));
+        rt.frame(1.0 / 60.0);
+        assert!(rt.state.viewer.open.is_none());
+        assert_eq!(rt.state.beside().map(|d| d.src.clone()).as_deref(), Some("notes/plan.md"));
+        rt.update(|s, _| open_listed(s, "shots/shot.png"));
+        rt.frame(1.0 / 60.0);
+        assert!(rt.state.viewer.open.is_some(), "a picture of the list opens big over the pane");
+        assert!(rt.state.beside().is_some(), "and the pane stays under it");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_corner_marks_open_it_big_put_it_back_beside_and_close_it() {
+        let (mut rt, dir) = with_a_plan("pane-marks", "Done.");
+        rt.update(|s, _| s.open_beside("notes/plan.md", false));
+        rt.frame(1.0 / 60.0);
+        // The frame's corners: the file over the whole window, the pane kept under it.
+        let (x, y) = middle(&rt, "pane-full");
+        press(&mut rt, x, y);
+        assert_eq!(rt.state.viewer.open.as_ref().and_then(|o| o.kind()), Some("markdown"));
+        key(&mut rt, Key::Escape);
+        assert!(rt.state.viewer.open.is_none() && rt.state.beside().is_some(), "Escape comes back to the pane");
+        // The notes' mark opens it big too, where the web window draws its notes.
+        let (x, y) = middle(&rt, "pane-notes");
+        press(&mut rt, x, y);
+        assert!(rt.state.viewer.open.is_some());
+        // The big view's own mark puts it back beside the conversation.
+        let (x, y) = middle(&rt, "viewer-beside");
+        press(&mut rt, x, y);
+        assert!(rt.state.viewer.open.is_none() && rt.state.beside().is_some());
+        let (x, y) = middle(&rt, "pane-close");
+        press(&mut rt, x, y);
+        assert!(rt.state.beside().is_none());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_divider_is_dragged_kept_and_put_back_with_a_double_press() {
+        let (mut rt, dir) = with_a_plan("pane-drag", "Done.");
+        rt.update(|s, _| s.open_beside("notes/plan.md", false));
+        rt.frame(1.0 / 60.0);
+        let (x, y) = middle(&rt, "pane-grip");
+        rt.pointer_move(x, y);
+        rt.pointer_down(x, y);
+        for step in 1..=6 {
+            rt.pointer_move(x + 60.0 * step as f32, y);
+            rt.frame(1.0 / 60.0);
+        }
+        rt.pointer_up(x + 360.0, y);
+        rt.frame(1.0 / 60.0);
+        // The pointer 360 points further right: the file takes what is right of it.
+        let kept = rt.state.picks.get().doc_split.expect("the split is kept");
+        let body = 1176.0;
+        assert!((kept - rules::split_from_pointer(x + 360.0 - 82.0 - AIR, body)).abs() < 1e-3, "{kept}");
+        assert!((rt.state.conversation_size().0 - body * (1.0 - rules::artifact_fraction(kept, body))).abs() < 0.01);
+        // A double press puts it back where it opens.
+        let (x, y) = middle(&rt, "pane-grip");
+        press(&mut rt, x, y);
+        press(&mut rt, x, y);
+        assert_eq!(rt.state.picks.get().doc_split, Some(rules::OPENING_SPLIT));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn leaving_a_thread_takes_its_file_and_coming_back_puts_it_back_until_a_new_answer() {
+        let (mut rt, dir) = with_a_plan("pane-place", "Done.");
+        rt.update(|s, _| s.open_beside("notes/plan.md", false));
+        rt.frame(1.0 / 60.0);
+        let thread = match &rt.state.view {
+            View::Thread { id, product } => (id.clone(), product.clone()),
+            _ => unreachable!(),
+        };
+        rt.update(|s, _| s.leave_thread());
+        rt.frame(1.0 / 60.0);
+        assert!(rt.state.pane.doc.is_none(), "the pane belongs to the thread");
+        let (id, product) = thread.clone();
+        rt.update(move |s, _| s.open_thread(&id, &product));
+        rt.frame(1.0 / 60.0);
+        assert_eq!(rt.state.beside().map(|d| d.src.clone()).as_deref(), Some("notes/plan.md"));
+        // A newer answer since is what the person came back for: the thread opens as new.
+        rt.update(|s, _| s.leave_thread());
+        let (id, product) = thread;
+        rt.update(move |s, _| {
+            if let Some(item) = s.snap.items.iter_mut().find(|i| i.id == id && i.product == product) {
+                item.rest.insert("wrote".into(), serde_json::json!({ "result": { "ts": 1_790_000_100_000.0_f64, "source": "agent" } }));
+            }
+            s.open_thread(&id, &product);
+        });
+        rt.frame(1.0 / 60.0);
+        assert!(rt.state.beside().is_none());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_newest_answers_file_on_a_line_of_its_own_opens_by_itself_and_stays_shut_once_closed() {
+        let (mut rt, dir) = with_a_plan("pane-auto", "The plan is written down:\n\nnotes/plan.md");
+        run(&mut rt, 0.1);
+        let doc = rt.state.beside().expect("the thread opens it by itself");
+        assert!(doc.auto);
+        // Escape does not stand in the way of a file nobody asked for: it leaves the thread.
+        key(&mut rt, Key::Escape);
+        assert!(!matches!(rt.state.view, View::Thread { .. }));
+        rt.update(|s, _| s.back());
+        run(&mut rt, 0.1);
+        assert!(rt.state.beside().is_some_and(|d| d.auto), "and is there again on coming back");
+        // Closed by its mark, it stays shut until the thread's next answer.
+        let (x, y) = middle(&rt, "pane-close");
+        press(&mut rt, x, y);
+        rt.update(|s, _| {
+            s.leave_thread();
+            s.back();
+        });
+        run(&mut rt, 0.1);
+        assert!(rt.state.beside().is_none());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_card_under_a_thousand_points_gives_the_file_all_of_it() {
+        let (mut rt, dir) = with_a_plan("pane-narrow", "Done.");
+        rt.set_viewport((900.0, 760.0), 2.0);
+        rt.frame(1.0 / 60.0);
+        rt.update(|s, _| s.open_beside("notes/plan.md", false));
+        rt.frame(1.0 / 60.0);
+        assert_eq!(rt.state.pane_placement(), Some(Placement::Focus));
+        assert!(takes_the_card(&rt.state));
+        // No head and no marks over it, as in the web window; Escape is the way out.
+        assert!(rect_of(&rt, "pane-close").is_none());
+        assert!(rect_of(&rt, "pane-dock").is_some(), "the reply box stays under it");
+        key(&mut rt, Key::Escape);
+        assert!(rt.state.beside().is_none());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_file_is_read_again_when_an_agent_writes_it_while_it_is_open() {
+        let (mut rt, dir) = with_a_plan("pane-follow", "Done.");
+        rt.update(|s, _| s.open_beside("notes/plan.md", false));
+        let file = dir.join("notes/plan.md");
+        std::fs::write(&file, "# The plan\n\nRound each line, then add them up.\n").expect("rewritten");
+        let later = std::time::SystemTime::now() + std::time::Duration::from_secs(5);
+        std::fs::File::options().write(true).open(&file).and_then(|f| f.set_modified(later)).expect("a newer time");
+        let read = |s: &State| match s.beside().and_then(|d| d.read.as_ref()) {
+            Some(Read::Doc(words)) => words.to_string(),
+            _ => String::new(),
+        };
+        // Not before its time has come round.
+        let now = crate::clock();
+        rt.update(move |s, _| assert!(!follow_the_file(s, now)));
+        assert!(!read(&rt.state).contains("add them up"));
+        rt.update(move |s, _| assert!(follow_the_file(s, now + rules::FOLLOW_FILE_MS + 1.0)));
+        assert!(read(&rt.state).contains("add them up"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
 
     #[test]
     fn the_newest_answer_is_kept_by_its_result_or_its_making() {

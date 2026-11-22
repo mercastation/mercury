@@ -794,7 +794,7 @@ fn doc_table(head: &[String], rows: &[Vec<Vec<Inline>>], p: Page) -> Block {
     let cell = |c: usize, first_row: bool| {
         row().w(widths[c]).items_start().px(14.0).py(10.0).border_sides([if first_row { 0.0 } else { 1.0 }, 0.0, 0.0, if c == 0 { 0.0 } else { 1.0 }], edge()).border_layout()
     };
-    let heads = row().fill(white(0.04)).children((0..columns).map(|c| cell(c, true).child(readable(text(head.get(c).cloned().unwrap_or_default()).font(heading).color(dim()).wrap()))));
+    let heads = row().fill(white(0.04)).children((0..columns).map(|c| cell(c, true).child(readable(text(head.get(c).cloned().unwrap_or_default()).font(heading).color(dim()).wrap()).w(widths[c] - edge_x + 1.0))));
     let lines = rows.iter().map(|r| {
         row().items_stretch().children((0..columns).map(|c| {
             let kids = r.get(c).cloned().unwrap_or_default();

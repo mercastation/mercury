@@ -115,6 +115,9 @@ pub struct Open {
 #[derive(Default)]
 pub struct Viewer {
     pub open: Option<Open>,
+    /// The pointer is on a document's outline drawn as dashes, which opens it into its card of
+    /// contents (`.doc-outline:hover`), in the big view or the pane beside a conversation.
+    pub outline_open: bool,
 }
 
 /// Where the stage's scroller is: how far it has moved, how far it can, and what it shows.
@@ -648,7 +651,7 @@ fn doc_stage(s: &State, open: &Open, words: &Rc<str>, stage: (f32, f32)) -> El {
     let v = open.version();
     let held = s.pictures.held();
     // The byline says "today" until midnight.
-    let version = (v.id.clone(), v.path.clone(), stage.0.to_bits(), stage.1.to_bits(), held, (s.now / 86_400_000.0).floor() as i64);
+    let version = (v.id.clone(), v.path.clone(), stage.0.to_bits(), stage.1.to_bits(), held, (s.now / 86_400_000.0).floor() as i64, s.viewer.outline_open);
     rune::memo("viewer-doc", version, || doc_stage_built(s, open, words, stage))
 }
 
@@ -676,7 +679,9 @@ pub(crate) fn doc_page(s: &State, words: &str, folder: &str, byline: String, sta
     let narrow = stage.0 <= 600.0;
     let files = Files::beside(s, folder);
     let (blocks, _, _) = markdown::stack(markdown::blocks_doc(words, column, stage.0, editor, &files), true);
-    let byline = readable(text(byline).font(TextStyle::new(12.5, 400.0).lh(18.0)).color(muted()));
+    // Over the pane's editor the line is the page's, which no hand selects.
+    let byline = text(byline).font(TextStyle::new(12.5, 400.0).lh(18.0)).color(muted());
+    let byline = if editor { byline } else { readable(byline) };
     let (top, bottom) = if narrow { (24.0, 80.0) } else { (44.0, 120.0) };
     let page = col().pt(top).pb(bottom).pl(left + gap).w(left + gap + column).child(byline.mb(18.0)).child(blocks.w(column));
     let scroller = col().key(key).size(stage.0, stage.1).scroll(ScrollSpec { stick_bottom: false });
@@ -689,14 +694,15 @@ pub(crate) fn doc_page(s: &State, words: &str, folder: &str, byline: String, sta
     let entries = outline(&markdown::headings(words));
     if entries.len() >= 3 && !narrow {
         let x = left + gap + column + gap;
-        stage_el = stage_el.child(doc_outline(&entries, x, right, stage.0));
+        stage_el = stage_el.child(doc_outline(&entries, x, right, stage.0, s.viewer.outline_open));
     }
     stage_el
 }
 
 /// The headings beside a document (`DocOutline`): in the margin, with their words, where there
-/// is room for them, and as a column of short dashes at the margin's edge where there is not.
-fn doc_outline(entries: &[(usize, bool, String)], x: f32, room: f32, wide: f32) -> El {
+/// is room for them, and as a column of short dashes at the margin's edge where there is not,
+/// which the pointer opens (`outline_open`).
+fn doc_outline(entries: &[(usize, bool, String)], x: f32, room: f32, wide: f32, outline_open: bool) -> El {
     if wide > 1060.0 {
         let head = text("Contents").font(mono(10.5, 14.0).tracking(1.26)).text_case(TextCase::Uppercase).color(muted()).mb(10.0);
         let rows = entries.iter().map(|(at, sub, words)| {
@@ -717,8 +723,51 @@ fn doc_outline(entries: &[(usize, bool, String)], x: f32, room: f32, wide: f32) 
         });
         return col().absolute(x, 44.0).child(head).children(rows);
     }
-    let rows = entries.iter().map(|(_, sub, _)| row().w(18.0).h(7.0).justify_end().items_center().child(el().w(if *sub { 6.0 } else { 10.0 }).h(1.0).fill(rule())));
-    col().absolute(wide - 14.0 - 18.0, 44.0).children(rows)
+    // Under the pointer the dashes open into a card of the contents, over the margin and the
+    // text, each line a press to its heading; it closes when the pointer leaves it.
+    let hover = |e: El| {
+        e.on_hover_change(|s: &mut State, inside, _| {
+            if s.viewer.outline_open != inside {
+                s.viewer.outline_open = inside;
+            }
+        })
+    };
+    if outline_open {
+        let head = text("Contents").font(mono(10.5, 14.0).tracking(1.26)).text_case(TextCase::Uppercase).color(muted()).mb(10.0);
+        let rows = entries.iter().map(|(at, sub, words)| {
+            let dash = el().w(if *sub { 6.0 } else { 10.0 }).h(1.0).fill(rule());
+            let at = *at;
+            row()
+                .w(222.0)
+                .py(4.0)
+                .pl(if *sub { 14.0 } else { 0.0 })
+                .gap(10.0)
+                .items_center()
+                .hover_group()
+                .cursor(Cursor::Pointer)
+                .child(dash)
+                .child(row().min_w(0.0).child(text(words.as_str()).font(TextStyle::new(12.5, 400.0).lh(17.0)).color(muted()).group_color(dim()).truncate()))
+                .on_press_tx(move |_: &mut State, tx| tx.scroll_key_to(format!("doc-heading-{at}"), 32.0))
+        });
+        let card = col()
+            .w(250.0)
+            .px(14.0)
+            .py(12.0)
+            .radius(12.0)
+            .fill(rgb(0x36, 0x34, 0x31))
+            .border(1.0, edge())
+            .border_layout()
+            .box_shadow(shadow(0.0, 18.0, 50.0, 0.0, rgba(0, 0, 0, 0.35), false))
+            .child(head)
+            .children(rows);
+        return hover(col().absolute(wide - 14.0 + 6.0 - 250.0, 44.0 - 14.0).child(card));
+    }
+    // Each dash is its heading's button already, pressed before the card has come.
+    let rows = entries.iter().map(|(at, sub, _)| {
+        let at = *at;
+        row().w(18.0).h(7.0).justify_end().items_center().cursor(Cursor::Pointer).child(el().w(if *sub { 6.0 } else { 10.0 }).h(1.0).fill(rule())).on_press_tx(move |_: &mut State, tx| tx.scroll_key_to(format!("doc-heading-{at}"), 32.0))
+    });
+    hover(col().absolute(wide - 14.0 - 18.0, 44.0).children(rows))
 }
 
 /* ------------------------------ a script, a table ------------------------------ */
@@ -864,7 +913,7 @@ fn bar(s: &State, open: &Open) -> El {
     // conversation instead (`onBeside`, a `FocusControl` drawn as focused), before the close mark.
     let beside = matches!(open.from, From::Thread(..)).then(|| {
         let newest = family.versions[family.versions.len() - 1].path.clone();
-        mark(&icons::PANE_BESIDE, "Move it to the side · Esc closes it").on_press(move |s: &mut State| s.put_big_beside(&newest))
+        mark(&icons::PANE_BESIDE, "Move it to the side · Esc closes it").key("viewer-beside").on_press(move |s: &mut State| s.put_big_beside(&newest))
     });
     let mut marks = row().gap(6.0);
     if open.found.is_some() {
