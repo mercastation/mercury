@@ -565,6 +565,11 @@ pub fn pictured(s: &mut State) {
     s.view = View::Files { project };
     s.history.push(View::Home);
     s.files.as_list = s.fixture.get("filesAsList").and_then(Value::as_bool).unwrap_or(false);
+    s.files.sort = match s.fixture.get("filesSort").and_then(Value::as_str) {
+        Some("name") => Sort::Name,
+        Some("size") => Sort::Size,
+        _ => Sort::Recent,
+    };
     s.files.drawn = rules::TILES_AT_ONCE;
     // A headless picture of a door's Files cannot wait for the list, so it asks for it here.
     if let (Source::Door(door), Some(_)) = (&s.source, rune::tooling::headless_run())
