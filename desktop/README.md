@@ -13,6 +13,10 @@ A file an agent names in a conversation is not left as its path: a picture is dr
 other file is a mention that opens it, and a folder on a line of its own shows its newest pictures
 ("The files a message names", below).
 
+⌘K opens the command bar from anywhere: it finds threads by their words, as the web window's bar
+does, and runs what this window can do to the thread under the keys and the places it can go
+("The command bar", below).
+
 The Inbox is its head strip (the title, New thread, the cloud button on a Mac set up for the cloud
 or offered it, the display button), its tabs (Needs you, In progress, Later while something is in
 it, Done) and the open tab's threads as a table. A row is its title with what follows it (an aside,
@@ -29,6 +33,7 @@ cargo run -- --fixture shots/inbox-fixture.json --view inbox --snap shots/inbox.
 cargo run -- --fixture shots/inbox-later-kinds-fixture.json --view inbox --tab later --snap shots/inbox-later-kinds.png --size 1280x760 --scale 2
 cargo run -- --fixture shots/thread-fixture.json --thread --snap shots/thread.png --size 1280x760 --scale 2
 cargo run -- --fixture shots/thread-pictures-fixture.json --thread --snap shots/thread-pictures.png --size 1280x760 --scale 2
+cargo run -- --fixture shots/palette-typed-fixture.json --view inbox --snap shots/palette-typed.png --size 1280x760 --scale 2
 cargo run -- --fixture shots/home-fixture.json --tree shots/home-tree.json --size 1280x760 --scale 2
 ```
 
@@ -165,6 +170,32 @@ Inside the answer alone, at 1280 by 760: 0.07 where it is only pictures (`thread
 0.29 to 0.67 where sentences name them, and 1.23 for `thread-links`, whose ten mentions each
 carry an underline two points higher than the web window's (see what still differs).
 
+The command bar is photographed open over the Inbox: `palette` (its box empty), `palette-typed`
+("check": a command, then the threads the word found) and `palette-none` (words nothing
+answers). The web window's bar offers far more commands than this one can do, so the two are
+only alike when this window draws the same commands. Each of these scenes reads the rows its
+page drew and hands them on in the fixture (`paletteRows`: a heading, a command with its mark,
+name, hint and key, or only the place of a thread), with the words typed (`palette`). Given
+them, this window draws the web's commands as they were, pressing them does nothing, and where
+the web listed a thread it lists the next one its own search found for the same words, so the
+threads section measures the search as well as the drawing. Without `paletteRows` it draws its
+own rows, as it does live. Each scene names its parts (`tools/scenes/palette*.regions.json`).
+
+| Part, at 1280 by 760 | `palette` | `palette-typed` | `palette-none` |
+|---|---|---|---|
+| Whole window | 0.15 | 0.14 | 0.13 |
+| The box, its frame included | 0.22 | 0.28 | 0.39 |
+| Search row | 0.67 | 0.45 | 0.67 |
+| Esc | 0.03 | 0.03 | 0.03 |
+| The lit row | 0.32 | 0.56 | |
+| The rows under it, the threads found, the line saying nothing matches | 0.12 | 0.18 | 0.30 |
+| Foot | 0.15 | 0.15 | 0.15 |
+| The backdrop around the box | 0.09 to 0.14 | 0.08 to 0.13 | 0.07 to 0.12 |
+
+The empty bar is 0.17 at 900 by 760 and 0.11 at 1600 by 1000, its parts as at 1280. What is
+left is the caret (see what still differs) and glyphs, the placeholder's among them, landing
+within half a device pixel of the browser's.
+
 ## What a press does, frame by frame
 
 A still picture says nothing about what happens between two of them. Rune animates a press by
@@ -181,6 +212,8 @@ cargo run -- --fixture shots/inbox-fixture.json --view inbox --script /tmp/tab.j
 ```
 
 The frame after the press should be the new page whole, and every frame after it the same.
+The command bar was checked so at 60 frames a second: opening it, moving its lit row and closing
+it each land in the next frame, and Rune counts no frame as animating.
 
 ## What the keys do, and what it writes
 
@@ -201,6 +234,8 @@ The keys are the web window's (`src/keys.rs`, from the keydown handler in `rende
 | A conversation | R | Opens the reply box; ⌘Return sends what is in it |
 | A conversation | E | Marks it done and goes on to the next thread |
 | Anywhere | Z | Takes back the last thing done |
+| Anywhere | ⌘K | Opens the command bar, and closes it again |
+| The command bar | ↓, ↑, Enter, Esc | Walks its rows and runs the one lit; Esc closes it |
 
 Everything written is one call on a channel the web window calls too, with the web window's own
 words in it (`src/rules/writes.rs`): a reply, a picked option ("Option 2: …") and a close go to
@@ -242,6 +277,45 @@ A script is a list of events (`{"t": 0.5, "type": "key", "name": "e"}`, `"type":
 `thread-options-reply`, `thread-done-held`, `inbox-done-held` and the four `thread-later*` are the
 web window in each of these states; a fixture says what its picture had open (`replying`,
 `option`, `closed`, `later`, `laterRefused`).
+
+## The command bar
+
+⌘K opens it over whatever is on screen, and ⌘K again closes it; Control K does the same, as in
+the web window (`src/palette.rs`, from `PaletteBox` in `renderer/src/components/Palette.tsx`).
+It opens empty, the caret in its box and its first row lit, its middle three eighths of the way
+down the window as the web window's is. The arrows move the lit row and bring it into view
+inside the list, which scrolls past 320 points; the pointer lights the row it moves over, never
+one the list moved under a pointer standing still (`pointerMoved`). Enter runs the lit row and a
+press the row pressed, the bar closing first; Escape, the Esc button or a press outside closes it
+and runs nothing. It stands over the page alone: opening it closes the Later picker and folds the
+reply box, keeping its words.
+
+A row is there only when this window does what it says, through the code its own key or button
+already runs, under the web row's own name, mark and key:
+
+- On the thread under the keys (the open conversation, else the Inbox's picked row; Home has
+  none), in the web's order: Mark done (E), or Reopen on a finished thread; Reply (R), which
+  opens the thread with the caret in its reply box; Back to Inbox (E) on a thread put off, "Let
+  it run now" when its agent set the moment; Later (L), which opens the picker; and Open (↵)
+  from the Inbox.
+- Then Go to Home, Go to Inbox and each of the Inbox's other tabs.
+
+Nothing stands for Z: the web window's bar has no Undo row either.
+
+Words typed keep the commands every word of which lands in the name or its keywords, ranked as
+the web ranks them ("rem" is Later), and find threads by their words (`src/rules/search.rs`, from
+`renderer/src/search.ts`): every word at the start of a word, the typed phrase ahead of the same
+words scattered, a title ahead of prose, finished threads too. The best five are listed under
+Threads, each its title over the sentence it was found in with the words in ink, its project and
+age beside them, dimmed once finished. A command named by the words goes above them, one the
+words only touch by a keyword after, under Commands (`paletteOrder`). With nothing found, one
+line says what was searched for. The rules are `src/rules/palette.rs`, tested on the web's own
+cases.
+
+New thread is the one row the web has that this window is about to have: the box a thread is
+started in is being built apart. `starts_a_thread` in `src/palette.rs` is the hook: once it
+answers with what opens that box, the row is drawn first (the web has it after New project, which
+this bar does not offer), with N beside it.
 
 ## The files a message names
 
@@ -399,8 +473,29 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
   the web window. Here it is not sent, and the line says to pick it there.
 - **No warning before closing a thread whose agent waits on an answer.** The web window gives it
   once ever, on the first such E, and remembers for itself that it did.
-- **Several rows cannot be ticked**, so nothing is done to many threads at once; N (New thread),
-  ⌘K and the More menu are not there yet.
+- **Several rows cannot be ticked**, so nothing is done to many threads at once; N (New thread)
+  and the More menu are not there yet.
+- **The command bar offers only what this window can do.**
+  - Not listed, because nothing here does them yet: New project, New thread (see the hook in
+    "The command bar"), Record meeting, Filter, Projects and ranking a project first, the cloud's
+    rows, Groups and each group, Files, Connections, teammates, the theme rows, updates and
+    restarts, Pause agents, Resume interrupted agents, General agent instructions, Usage and
+    limits, Settings, Keyboard shortcuts, Show as a board, Import chats and agents, the tutorial,
+    setting Mercury up again, a demo copy and keyboard shortcut hints. On a thread: Remote
+    control, Open terminal, Approve, Run now, Close task, Try again and Resume this agent, Mark
+    read and Mark unread, the thread's own menu (who sees it, pin, rename, where it runs and the
+    rest), its model, moving it to another project, Stop, Send back to agent, Restart the agent
+    and its priority. With rows ticked the web's bar acts on all of them; here none can be ticked.
+  - It finds threads only, the best five, with no "See all" row, since this window has no search
+    page. The web's bar also finds people and groups, repeating tasks, teammates' threads, and
+    lines, files, comments and decisions inside things, which its main process searches.
+  - A thread a day old or more says its date in English. The web window asks the system's
+    language.
+  - With a team's tabs on, the web's bar goes to two pages, Later and Done being columns of In
+    progress there. This window draws no team tabs, and its bar goes to all four.
+  - The caret is Rune's own, 1.5 points wide and four fifths of the line, where Chromium's is 1
+    point and the whole line; Rune has no setting for it.
+  - Control K is answered as the web window answers it, but only ⌘K has been tried, by script.
 - **The Later picker takes a moment, not a rhythm.** In the web window "every monday 9am" typed
   there makes the thread a repeating task, and its box says so in its hint. This window keeps
   no repeating tasks, so the phrase is "not a time" and the hint names only what is read. A
@@ -444,6 +539,8 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
   `src/markdown.rs` draws an agent's words.
 - `src/later.rs`: the Later picker. `src/rules/later.rs` reads the time typed into it, on the
   calendar `src/rules/calendar.rs` keeps.
+- `src/palette.rs`: the command bar ⌘K opens. `src/rules/palette.rs` decides what it offers and
+  in which order; `src/rules/search.rs` finds a thread by its words.
 - `src/files.rs`: the files those words name, drawn, and the one function that opens one.
   `src/pictures.rs`: the pictures, read off the disk on a worker and kept small.
   `src/rules/paths.rs`, `mentions.rs`, `roots.rs`: which words name a file, what kind it is and

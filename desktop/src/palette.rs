@@ -307,8 +307,8 @@ fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) {
 }
 
 /// What the bar takes of the keys before the page gets any: ⌘K from anywhere, and every key
-/// that is no chord while it is open. Control is that key on a keyboard with no Command (the
-/// keydown handler in `renderer/src/App.tsx`).
+/// that is no chord while it is open. Control K does what ⌘K does, as the web window's keydown
+/// handler has it (`metaKey || ctrlKey` in `renderer/src/App.tsx`).
 pub fn took(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
     let k_with_control = e.mods.ctrl && !e.mods.alt && matches!(&e.key, Key::Text(t) if t.eq_ignore_ascii_case("k"));
     if e.is_command('k') || k_with_control {
