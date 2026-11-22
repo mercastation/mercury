@@ -245,6 +245,9 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
   later with the engine's next answer.
 - **Z after a reply or a pick is written takes nothing back.** The web window withdraws it and
   stops the run it started. Here Z works for the three seconds before, and after only for a close.
+- **No card to allow or deny what an agent asks to run.** The web window draws one over the
+  page, answered with ⌘1 and ⌘2. Here a line at the card's foot says an agent is waiting for a
+  yes and where to give it. Where every project runs on full access no agent ever asks.
 - **No question before throwing work away.** An option that discards the change asks first in
   the web window. Here it is not sent, and the line says to pick it there.
 - **No warning before closing a thread whose agent waits on an answer.** The web window gives it
