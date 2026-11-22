@@ -331,9 +331,23 @@ fn folder_card(name: &str, count: usize, w: f32, goes: impl Fn(&mut State) + 'st
 /// `.fp-find`), the height of the strip's buttons.
 const CONTROL: f32 = 32.0;
 
+/// Words of the bar and of the kinds under it, in the soft patch of the sky's own dark that every
+/// word there wears, as the Inbox's tabs do (`.fp-bar`, `:is(.fp-bar, .fp-tools) button`).
+/// `lit` is their colour under the pointer.
+fn shaded_words(words: String, font: TextStyle, size: f32, tone: rune::Color, lit: Option<rune::Color>) -> El {
+    crate::inbox::shaded(move |shadow| {
+        let e = text(words.as_str()).font(font).color(if shadow { crate::inbox::under(1.0) } else { tone });
+        pen(match lit.filter(|_| !shadow) {
+            Some(lit) => e.group_color(lit),
+            None => e,
+        }, size)
+    })
+}
+
 /// A filter or a switch (`.fp-kind`): quiet words, the one on in ink on the strong wash.
 fn kind_button(words: &str, on: bool, does: impl Fn(&mut State) + 'static) -> El {
-    let b = row().h(CONTROL).px(10.0).items_center().radius(6.0).cursor(Cursor::Pointer).child(pen(label(words, 12.5, 400.0, if on { ink() } else { muted() }).group_color(if on { ink() } else { dim() }), 12.5));
+    let said = shaded_words(words.to_string(), sans(12.5, 400.0), 12.5, if on { ink() } else { muted() }, Some(if on { ink() } else { dim() }));
+    let b = row().h(CONTROL).px(10.0).items_center().radius(6.0).cursor(Cursor::Pointer).child(said);
     let b = if on { b.fill(feel::wash_strong()) } else { b.hover_group() };
     b.on_press(does)
 }
@@ -375,9 +389,9 @@ pub fn view(s: &State) -> El {
     let last = crumbs.len() - 1;
     let crumbs = row().grow(1.0).min_w(0.0).items_center().children(crumbs.into_iter().enumerate().map(|(i, (name, to))| {
         let on = i == last;
-        let crumb = row().h(28.0).items_center().child(pen(text(name).font(sans(14.0, 400.0)).color(if on { ink() } else { muted() }).group_color(ink()), 14.0));
+        let crumb = row().h(28.0).items_center().child(shaded_words(name, sans(14.0, 400.0), 14.0, if on { ink() } else { muted() }, Some(ink())));
         let crumb = if on { crumb } else { crumb.hover_group().cursor(Cursor::Pointer).on_press(move |s: &mut State| s.go_files_place(&to)) };
-        let gap = (i > 0).then(|| text("/").font(sans(14.0, 400.0)).color(muted()).mx(8.0));
+        let gap = (i > 0).then(|| crate::inbox::shaded(|shadow| text("/").font(sans(14.0, 400.0)).color(if shadow { crate::inbox::under(1.0) } else { muted() })).mx(8.0));
         row().items_center().children(gap).child(crumb)
     }));
     let search = text_input(&s.files.query, sans(13.0, 400.0))
@@ -426,7 +440,7 @@ pub fn view(s: &State) -> El {
     let mut views = row().gap(12.0).items_center();
     if rules::shows_total(used) {
         let machine = if cfg!(target_os = "macos") { "Mac" } else { "computer" };
-        views = views.child(row().h(26.0).px(9.0).gap(7.0).items_center().child(icon(&icons::DISK, 13.0).color(muted())).child(pen(text(format!("{} on this {machine}", rules::size_words(used))).font(figures(12.5, 400.0)).color(muted()), 12.5)));
+        views = views.child(row().h(26.0).px(9.0).gap(7.0).items_center().child(icon(&icons::DISK, 13.0).color(muted())).child(shaded_words(format!("{} on this {machine}", rules::size_words(used)), figures(12.5, 400.0), 12.5, muted(), None)));
     }
     let sort = s.files.sort;
     let mut sorts = row().gap(2.0).child(kind_button("Recent", sort == Sort::Recent, |s: &mut State| s.files.sort = Sort::Recent)).child(kind_button("Name", sort == Sort::Name, |s: &mut State| s.files.sort = Sort::Name));

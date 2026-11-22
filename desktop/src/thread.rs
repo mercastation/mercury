@@ -1267,7 +1267,8 @@ fn composer(s: &State, item: &Item, m: &Measure) -> El {
         .child(chip(vec![icon(&icons::MODE_MARK, 14.0).color(muted()), pen(label(&mode, 13.0, 400.0, dim()).group_color(ink()), 13.0)]).help("What this message may do"))
         .child(model_chip)
         .child(spacer())
-        .child(home::attach().help("Attach files").on_background_press_tx(|s: &mut State, tx| s.pick_files(Holder::Reply, tx)))
+        // The paper clip's square is 28 points, the chips' height (`.tc-icon`).
+        .child(home::attach().size(28.0, 28.0).help("Attach files").on_background_press_tx(|s: &mut State, tx| s.pick_files(Holder::Reply, tx)))
         // Send carries the key a press away from the model menu lands on (`reply.rs`).
         .child(row().child(send.key(reply::SEND).help("Send · ⌘↵").on_press_tx(|s: &mut State, tx| s.send_reply(tx))).child(crate::feel::answers(home::send_caret()).help("Send later")));
     // The thread moves to another agent with the next reply, and its session cannot follow it:
