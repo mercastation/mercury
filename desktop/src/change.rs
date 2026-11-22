@@ -22,7 +22,7 @@ use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::rc::Rc;
 
-use rune::{Cursor, El, GrowthSpec, Icon, KeyEvent, Latest, PopupItem, PopupMenu, ScrollSpec, Span, TextEdit, TextStyle, Tx, Waker, col, el, icon, row, text, text_input};
+use rune::{Cursor, El, GrowthSpec, Icon, KeyEvent, Latest, PopupMenu, ScrollSpec, Span, TextEdit, TextStyle, Tx, Waker, col, el, icon, row, text, text_input};
 use serde_json::{Value, json};
 
 use crate::rules::change::{self as rules, Change, ChangedFile, Mark, TreeRow};
@@ -100,10 +100,11 @@ static FOLDER_MARK: Icon = Icon {
     body: r#"<g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4l4 4-4 4"/></g>"#,
 };
 /// The page mark a step's file chip wears (`.did-file-mark`: nine by eleven, a corner folded).
+/// Drawn in a square of eleven, a point in from either side.
 static PAGE_MARK: Icon = Icon {
     name: "chg-page",
-    view: 9.0,
-    body: r#"<path fill="currentColor" d="M1.5 0H6.12L9 2.86V9.5A1.5 1.5 0 0 1 7.5 11H1.5A1.5 1.5 0 0 1 0 9.5V1.5A1.5 1.5 0 0 1 1.5 0Z"/>"#,
+    view: 11.0,
+    body: r#"<path fill="currentColor" d="M2.5 0H7.12L10 2.86V9.5A1.5 1.5 0 0 1 8.5 11H2.5A1.5 1.5 0 0 1 1 9.5V1.5A1.5 1.5 0 0 1 2.5 0Z"/>"#,
 };
 
 /* ------------------------------ what is kept ------------------------------ */
@@ -709,6 +710,15 @@ fn column(s: &State, here: &Here, shown: &Rc<Shown>, w: f32, h: f32) -> El {
         })
         .selection_group(true)
         .selection_copy(copy)
+        // A selection reaching past the line being typed in takes the keys from it, or the next
+        // keystroke would land in one line while many are selected.
+        .on_selection_change(|s: &mut State, change: &rune::SelectionChange, tx: &mut Tx| {
+            if change.selection().is_some_and(|sel| lines_selected(sel) > 1) && s.changes.here.as_ref().is_some_and(|h| h.editing.is_some()) {
+                note_edit(s);
+                stop_editing(s);
+                tx.blur();
+            }
+        })
         .child(lines)
 }
 
@@ -719,7 +729,15 @@ fn copy(sel: &rune::TextSelection) -> Option<String> {
     let touched: Vec<&rune::SelectedText> = sel.texts().iter().filter(|t| t.is_selected() && t.key().is_some_and(|k| k.starts_with("l:") || k.starts_with("o:"))).collect();
     let removed: Vec<bool> = touched.iter().map(|t| t.key().is_some_and(|k| k.ends_with(":-"))).collect();
     let plan = rules::lines_to_copy(&removed)?;
-    Some(plan.into_iter().map(|i| touched[i].text().to_string()).collect::<Vec<_>>().join("\n"))
+    // Each text hands over its selected part, already clipped where the selection starts and
+    // ends, so the parts are copied whole.
+    let parts: Vec<String> = plan.into_iter().map(|i| touched[i].text().to_string()).collect();
+    Some(rules::copied_text(&parts, 0, i64::MAX))
+}
+
+/// How many of the change's lines a selection takes.
+fn lines_selected(sel: &rune::TextSelection) -> usize {
+    sel.texts().iter().filter(|t| t.is_selected() && t.key().is_some_and(|k| k.starts_with("l:") || k.starts_with("o:"))).count()
 }
 
 /// One file's block: its head, which stays at the top while the file is in view, and its rows.
@@ -1061,6 +1079,18 @@ fn editable_lines(s: &State, shown: &Shown, here: &Here) -> Vec<(usize, usize, u
 /// caret to the line above or below (`caretStep`).
 fn in_the_line(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
     use rune::Key;
+    // While a selection takes more than one line, nothing typed changes the code: an edit
+    // there would change one line of several (`editsAcrossLines`). The selection stays for ⌘C.
+    let typed = match &e.key {
+        Key::Backspace => "Backspace".to_string(),
+        Key::Delete => "Delete".to_string(),
+        Key::Enter => "Enter".to_string(),
+        Key::Text(t) => t.clone(),
+        _ => String::new(),
+    };
+    if tx.text_selection().is_some_and(|sel| lines_selected(sel) > 1) && rules::edits_across_lines(&typed, e.mods.cmd, e.mods.ctrl, e.mods.alt) {
+        return true;
+    }
     match &e.key {
         Key::Enter if !e.mods.cmd => return true,
         Key::Escape => {
@@ -1445,8 +1475,9 @@ pub fn chip(s: &State, item: &crate::data::Item, raw: &str, shown: &str, font: T
             .cursor(Cursor::Pointer)
             .help(format!("Open {held} in the code"))
             .child(el().absolute(0.0, 0.0).w_full().h_full().radius(6.0).border(1.0, edge()).group_opacity(0.0, 1.0))
-            .child(icon(&PAGE_MARK, 9.0).h(11.0).color(muted()).group_color(dim()))
-            .child(row().min_w(0.0).shrink().child(text(words).font(font).color(dim()).group_color(ink()).truncate()))
+            .child(icon(&PAGE_MARK, 11.0).mx(-1.0).color(muted()).group_color(dim()))
+            // Chromium sets these words half a point higher on their line of 19.2 than Rune does.
+            .child(row().min_w(0.0).shrink().child(text(words).font(font).color(muted()).group_color(ink()).truncate().mt(-0.5).mb(0.5)))
             .on_press(move |s: &mut State| s.open_change(&src, Some(&target))),
     )
 }

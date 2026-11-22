@@ -185,6 +185,12 @@ fn lines(s: &State) -> Vec<Line> {
     }
     let under = under_the_keys(s);
     let mut commands = rules::commands(under.map(|(item, _)| item), under.is_some_and(|(_, open)| open), s.now, starts_a_thread().is_some());
+    // The code its run changed, on the conversation whose page draws the button for it.
+    if let Some((item, true)) = under
+        && crate::change::has_a_change(s, item)
+    {
+        rules::with_code_row(&mut commands, (item.id.clone(), item.product.clone()));
+    }
     // Then the Files place, and each project's page once the place has been read.
     commands.extend(rules::file_rows(&s.files.projects()));
     let listed = rules::listed(commands, threads, query);
@@ -275,6 +281,8 @@ fn run(s: &mut State, does: Does, tx: &mut Tx) {
         Does::Later((id, product)) => s.open_later(&id, &product, tx),
         Does::Back((id, product)) => s.bring_back(&id, &product),
         Does::Files(project) => s.open_files_place(project),
+        // It opens the change, and never closes one already open (`setOpenDoc`).
+        Does::Code((id, _)) => s.open_change(&crate::rules::change::change_path_for(&id), None),
     }
 }
 

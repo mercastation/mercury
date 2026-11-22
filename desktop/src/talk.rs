@@ -135,6 +135,9 @@ pub struct Work {
     pub failed: bool,
     /// How many more a run past its cap ran, which are not shown (`capRuns`).
     pub more: usize,
+    /// The path an editing tool wrote, whole, which a chip opens in the thread's change
+    /// (`changedFile` in `shared/work-lines.mts`); empty for anything else.
+    pub file: String,
 }
 
 #[derive(Clone, Debug)]
@@ -352,12 +355,14 @@ fn work_line(at: f64, name: &str, hint: &str) -> Work {
     // The whole string travels whenever the words replaced it, so it stays one press away.
     let full = if plain.is_some() || (!subject.is_empty() && subject != whole) { whole.to_string() } else { String::new() };
     let verb = plain.map(|p| p.verb).unwrap_or_else(|| work::work_verb(name));
-    Work { at, verb, subject, full, output: String::new(), lines: 0, failed: false, more: 0 }
+    // A log names an editing tool's file as its hint, whole.
+    let file = if crate::rules::change::changes_a_file(name) { whole.to_string() } else { String::new() };
+    Work { at, verb, subject, full, output: String::new(), lines: 0, failed: false, more: 0, file }
 }
 
 /// A cloud run handing its thread back to the Mac, drawn as the move.
 fn moved(at: f64) -> Work {
-    Work { at, verb: "moved".to_string(), subject: "to this Mac".to_string(), full: String::new(), output: String::new(), lines: 0, failed: false, more: 0 }
+    Work { at, verb: "moved".to_string(), subject: "to this Mac".to_string(), full: String::new(), output: String::new(), lines: 0, failed: false, more: 0, file: String::new() }
 }
 
 thread_local! {
@@ -1187,7 +1192,7 @@ mod tests {
 
     #[test]
     fn a_run_past_its_cap_says_how_many_it_left_out() {
-        let work = |n: usize| (0..n).map(|k| Said::Work(Work { at: k as f64, verb: "ran".into(), subject: String::new(), full: String::new(), output: String::new(), lines: 0, failed: false, more: 0 }));
+        let work = |n: usize| (0..n).map(|k| Said::Work(Work { at: k as f64, verb: "ran".into(), subject: String::new(), full: String::new(), output: String::new(), lines: 0, failed: false, more: 0, file: String::new() }));
         let capped = cap_runs(work(23).collect());
         assert_eq!(capped.len(), WORK_RUN);
         assert!(matches!(capped.last(), Some(Said::Work(w)) if w.more == 3));

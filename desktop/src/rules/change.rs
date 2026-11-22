@@ -111,11 +111,6 @@ pub fn change_path_for(item: &str) -> String {
     format!("runs/{item}/the-change-it-made.change")
 }
 
-/// Whether a path is a change (`isChangePath`).
-pub fn is_change_path(path: &str) -> bool {
-    path.split(['?', '#']).next().unwrap_or("").to_lowercase().ends_with(".change")
-}
-
 /// Whether a path is a run's own change, which the pane names "The change" rather than by the
 /// folder the app keeps it in (`DocPane.tsx`).
 pub fn is_a_runs_change(path: &str) -> bool {
@@ -174,12 +169,6 @@ pub fn signed(plus: u64, minus: u64) -> Vec<(bool, String)> {
 /// "1 file", "18 files" (`fileCount`).
 pub fn file_count(n: usize) -> String {
     if n == 1 { "1 file".to_string() } else { format!("{n} files") }
-}
-
-/// The whole line as words (`figuresLabel`).
-pub fn figures_label(f: Figures) -> String {
-    let said: Vec<String> = signed(f.plus, f.minus).into_iter().map(|(_, s)| s).collect();
-    format!("{} in {}", said.join(" "), file_count(f.files))
 }
 
 /// How long the figures of a finished run go on being read: its folder is read back after its
@@ -533,6 +522,11 @@ pub fn caret_step(key: &str, col: usize, len: usize, shift: bool, meta: bool) ->
 
 /// Where the moving end of a selection goes after a shifted key, across lines and stopping at
 /// both ends (`extendHead`). `lens` is every drawn line's length.
+///
+/// Ported and held to the web's cases, and not called: Rune, as pinned, has no way for a
+/// window to set a selection that spans two texts (`Tx::select_text` takes one), so a shifted
+/// arrow extends only inside the line being typed in. See `docs/parity-code-changes.md`, G4.
+#[allow(dead_code)]
 pub fn extend_head(key: &str, head: (usize, usize), lens: &[usize]) -> Option<(usize, usize)> {
     if lens.is_empty() {
         return None;
@@ -671,14 +665,6 @@ pub fn changes_a_file(tool: &str) -> bool {
     matches!(tool, "Edit" | "Write" | "MultiEdit" | "NotebookEdit")
 }
 
-/// The path a tool call changed, whole, or nothing (`changedFile`).
-pub fn changed_file(tool: &str, input: &Value) -> String {
-    if !changes_a_file(tool) {
-        return String::new();
-    }
-    input.get("file_path").or_else(|| input.get("notebook_path")).and_then(Value::as_str).unwrap_or("").trim().to_string()
-}
-
 /// Which file of a change a step's path is: the whole path, or the change's key as its end at a
 /// folder's edge, the longest match, `/private/tmp` read as `/tmp` (`fileInChange`).
 pub fn file_in_change<'a>(paths: impl IntoIterator<Item = &'a str>, raw: &str) -> Option<String> {
@@ -766,8 +752,6 @@ mod tests {
 
     #[test]
     fn opens_a_change_and_nothing_else() {
-        assert!(is_change_path("runs/w-c1d09f0638/the-change-it-made.change"));
-        assert!(!is_change_path("STATE.md") && !is_change_path("designs/w-1/index.html") && !is_change_path(""));
         assert!(is_a_runs_change("runs/w-c1d09f0638/the-change-it-made.change"));
         assert!(is_a_runs_change("/Users/you/store/p/runs/w-c1d09f0638/the-change-it-made.change"));
         assert!(!is_a_runs_change("runs/w-readme0/the-change-it-made.change"));
@@ -790,7 +774,6 @@ mod tests {
         assert_eq!(signed(0, 48)[0].1.chars().next(), Some('\u{2212}'));
         assert_eq!(file_count(1), "1 file");
         assert_eq!(file_count(18), "18 files");
-        assert_eq!(figures_label(Figures { files: 18, plus: 2199, minus: 48 }), "+2,199 −48 in 18 files");
     }
 
     #[test]
@@ -1085,13 +1068,13 @@ mod tests {
 
     #[test]
     fn a_steps_file_is_a_chip_only_when_the_change_holds_it() {
-        assert_eq!(changed_file("Edit", &json!({ "file_path": "/a/b.ts" })), "/a/b.ts");
-        assert_eq!(changed_file("Write", &json!({ "file_path": "/a/b.ts" })), "/a/b.ts");
-        assert_eq!(changed_file("MultiEdit", &json!({ "file_path": "/a/b.ts" })), "/a/b.ts");
-        assert_eq!(changed_file("NotebookEdit", &json!({ "notebook_path": "/a/b.ipynb" })), "/a/b.ipynb");
-        assert_eq!(changed_file("Read", &json!({ "file_path": "/a/b.ts" })), "");
-        assert_eq!(changed_file("Bash", &json!({ "command": "rm -rf /a/b.ts" })), "");
-        assert_eq!(changed_file("Grep", &json!({ "pattern": "b.ts" })), "");
+        // The four tools the engine reads a change from, and nothing else (`changedFile`).
+        for tool in ["Edit", "Write", "MultiEdit", "NotebookEdit"] {
+            assert!(changes_a_file(tool), "{tool}");
+        }
+        for tool in ["Read", "Bash", "Grep", "mcp__mercury__update_work_item"] {
+            assert!(!changes_a_file(tool), "{tool}");
+        }
         const ROOT: &str = "/Users/you/Desktop/dev/zero";
         let paths = ["renderer/src/api.ts", "src/api.ts", "main/ipc.mts"];
         assert_eq!(file_in_change(paths, &format!("{ROOT}/renderer/src/api.ts")).as_deref(), Some("renderer/src/api.ts"));

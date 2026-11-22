@@ -693,16 +693,21 @@ fn stopped() -> rune::Color {
 /// One thing a run ran, inside its opened fold (`WorkLine`, shut): its mark when there is
 /// something behind it, its verb, what it acted on in the code face, and how many lines came
 /// back. A tool that said no wears the stopped colour on its verb.
-fn work_line(w: &Work) -> El {
+fn work_line(w: &Work, chip: Option<El>) -> El {
     let came_back = w.output.split('\n').count() - usize::from(w.output.ends_with('\n') || w.output.is_empty());
     let opens = came_back > 0 || !w.full.is_empty();
     let small = TextStyle::new(12.0, 400.0).lh(18.0);
     let mut line = row().min_w(0.0).items_start().gap(8.0);
+    // A chip stands 23.2 tall, and the verb sits on its words' baseline, 1.5 lower.
+    let lift = if chip.is_some() { 1.5 } else { 0.0 };
     if opens {
-        line = line.child(icon(&icons::WORK_MARK, 8.0).color(muted()).mt(5.75));
+        line = line.child(icon(&icons::WORK_MARK, 8.0).color(muted()).mt(5.75 + lift));
     }
-    line = line.child(text(w.verb.as_str()).font(TextStyle::new(13.0, 400.0).lh(19.5)).color(if w.failed { stopped() } else { dim() }));
-    if !w.subject.is_empty() {
+    line = line.child(text(w.verb.as_str()).font(TextStyle::new(13.0, 400.0).lh(19.5)).color(if w.failed { stopped() } else { dim() }).mt(lift));
+    // A file the thread's change holds is a chip into it, in place of the path (`.did-file`).
+    if let Some(chip) = chip {
+        line = line.child(chip);
+    } else if !w.subject.is_empty() {
         line = line.child(row().min_w(0.0).mt(1.0).child(text(w.subject.as_str()).font(mono(12.0, 18.0)).color(muted()).truncate()));
     }
     if opens && w.lines > 1 {
@@ -719,7 +724,7 @@ fn work_line(w: &Work) -> El {
 /// shuts it at once. Under the pointer its words are the text's own colour and its mark, which
 /// folded shows only then, a step brighter (`.did-head:hover .did-verb`, `.did-run-head:hover >
 /// .did-run-mark`).
-fn run_line(items: &[&Work], open: bool, key: String, m: &Measure) -> El {
+fn run_line(items: &[&Work], chips: Vec<Option<El>>, open: bool, key: String, m: &Measure) -> El {
     let summary = work::activity_summary(items.iter().map(|w| (w.verb.as_str(), w.subject.as_str())));
     let failed = work::run_failures(items.iter().filter(|w| w.failed).count());
     let mut head = row().max_w(m.column).items_start().gap(8.0).child(row().min_w(0.0).child(text(summary).font(TextStyle::new(13.0, 400.0).lh(19.5)).color(dim()).group_color(ink()).truncate()));
@@ -743,7 +748,7 @@ fn run_line(items: &[&Work], open: bool, key: String, m: &Measure) -> El {
         return run;
     }
     // The lines inside step in by the mark and its gap, so the nested marks land on the fold's words.
-    run.child(col().pt(5.0).pb(2.0).pl(16.0).gap(5.0).children(items.iter().map(|w| work_line(w))))
+    run.child(col().pt(5.0).pb(2.0).pl(16.0).gap(5.0).children(items.iter().zip(chips).map(|(w, chip)| work_line(w, chip))))
 }
 
 /// What a block of the conversation holds, which decides the room above it (`.thread-block`
@@ -827,7 +832,8 @@ fn conversation(s: &State, thread: &str, page: &Page, now: f64, m: &Measure, fil
                 let key = format!("{thread}|run>{name_above}");
                 let open = s.reading.runs_open.contains(&key) != pictured.contains(&runs);
                 runs += 1;
-                (run_line(&items, open, key, m), Holds::Run)
+                let chips = items.iter().map(|w| s.open_item().and_then(|item| crate::change::chip(s, item, &w.file, &w.subject, mono(12.0, 19.2)))).collect();
+                (run_line(&items, chips, open, key, m), Holds::Run)
             }
             Said::Message(msg) => {
                 name_above = ids[i].clone();

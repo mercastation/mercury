@@ -41,6 +41,16 @@ pub enum Does {
     Back(Thread),
     /// The Files place: All files, or one project's page.
     Files(Option<String>),
+    /// Opens the code its run changed beside the conversation.
+    Code(Thread),
+}
+
+/// "View code changes", on the open conversation while its page draws the code button
+/// (`f.open?.change` in `renderer/src/thread-commands.ts`): after Later, where the web's thread
+/// commands follow it, and before the places.
+pub fn with_code_row(rows: &mut Vec<Row>, thread: Thread) {
+    let at = rows.iter().position(|r| r.id == "snooze").map_or(rows.len(), |at| at + 1);
+    rows.insert(at, Row::command("code", "View code changes", Does::Code(thread)).found_by("code changes diff files what changed"));
 }
 
 /// One row of the bar (`Command` in `Palette.tsx`).
