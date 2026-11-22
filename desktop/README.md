@@ -1501,18 +1501,27 @@ the file under the head:
 
 | Scene | Window | Whole | Conversation | Card | Head | File |
 |---|---|---|---|---|---|---|
-| `thread-pane` | 1280 by 760 | 1.58 | 2.55 | 1.73 | 0.90 | 1.82 |
+| `thread-pane` | 1280 by 760 | 1.42 | 2.55 | 1.40 | 0.90 | 1.45 |
 | `thread-pane-code` | 1280 by 760 | 1.14 | 2.55 | 0.81 | 0.87 | 0.80 |
 | `thread-pane-table` | 1280 by 760 | 1.01 | 2.55 | 0.53 | 0.21 | 0.56 |
 | `thread-pane-picture` | 1280 by 760 | 0.36 | 0.97 | 0.03 | 0.30 | 0.00 |
-| `thread-pane-auto` | 1280 by 760 | 1.19 | 1.07 | 1.73 | 0.90 | 1.82 |
-PANE_TABLE_REST
+| `thread-pane-auto` | 1280 by 760 | 1.03 | 1.07 | 1.40 | 0.90 | 1.45 |
+| `thread-pane-dragged` | 1280 by 760 | 0.97 | 0.74 | 1.71 | 0.97 | 1.78 |
+| `thread-pane` | 900 by 760 | 1.12 | the reply box 0.56 | 1.43 | | 1.43 |
+| `thread-pane-code` | 900 by 760 | 0.68 | 0.56 | 0.78 | | 0.78 |
+| `thread-pane-table` | 900 by 760 | 0.49 | 0.56 | 0.52 | | 0.52 |
+| `thread-pane` | 1600 by 1000 | 0.97 | 0.89 | 1.25 | 0.89 | 1.27 |
+| `thread-pane-code` | 1600 by 1000 | 0.75 | 0.89 | 0.87 | 0.85 | 0.87 |
+| `thread-pane-table` | 1600 by 1000 | 0.42 | 0.89 | 0.28 | 0.12 | 0.29 |
+| `thread-pane-dragged` | 1600 by 1000 | 0.92 | 0.45 | 1.90 | 0.96 | 1.96 |
+| `thread-pane-wide` | 1800 by 870 | 0.62 | 0.29 | 1.61 | 0.95 | 1.66 |
 
-The conversation is what differs most where its answer names a script: the web window breaks
-the mention `round-tax.ts` at its hyphen and this window moves it whole to the next line (see
-what still differs). A document's text sits between 1.7 and 1.9, as the text-dense parts of a
-conversation do; a narrow one breaks one line a word apart from the browser's, which moves the
-lines under it (`thread-pane-dragged`). Under the pointer, each mark against the web window's
+At 900 by 760 the card is all the card has, its head given up (see above). The conversation
+is what differs most where its answer names a script: the web window breaks the mention
+`round-tax.ts` at its hyphen and this window moves it whole to the next line (see what still
+differs). A document's text sits between 1.3 and 2.0, as the text-dense parts of a conversation
+do: its lines break where the editor's do, one space short of the reader's, which is what
+`white-space: break-spaces` on the editor does to a line's last word. Under the pointer, each mark against the web window's
 under the pointer, and the same box at rest: the globe 0.73 and 0.73, the notes' mark 0.61 and
 0.61, the corners 0.67 and 0.67, open outside 0.92 and 0.92, close 0.63 and 0.63; the divider's
 pill 0.32. The pointer's shape over `thread-pane` matches the web window's at every point of
