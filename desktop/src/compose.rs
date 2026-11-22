@@ -457,6 +457,19 @@ pub fn key(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> Option<bool> {
     None
 }
 
+/// What Z takes back once a thread sent from the box stands: a close of it, which stops its
+/// worker, and the box's words handed back (`noteNewTask` in `renderer/src/App.tsx`). The line
+/// is said once the engine has closed it, and says then where the words went.
+fn taking_back(id: &str, product: &str, title: &str, draft: write::Draft) -> write::Undo {
+    write::Undo {
+        said: rules::said_withdrawn(title, false),
+        writes: vec![(crate::rules::writes::ANSWER, rules::withdraw(product, id))],
+        sent: write::Sent::Withdraw { thread: format!("{product}/{id}"), title: title.to_string(), draft },
+        thread: (id.to_string(), product.to_string()),
+        opens: false,
+    }
+}
+
 /// "6:10pm", and the day after it when that is not today: when an agent out of usage has room
 /// again (`backAt` in `renderer/src/compose-says.ts`, with `resetDay` in `shared/usage.mts`).
 /// Nothing once the moment has passed.
@@ -755,7 +768,7 @@ impl State {
             self.say(rules::toast_parts(&line).0, false, tx);
             return;
         };
-        self.last = Some(write::Undo::Withdraw { id: row.id.clone(), product: row.product.clone(), title: row.title.clone().unwrap_or_default(), draft });
+        self.last = Some(taking_back(&row.id, &row.product, row.title.as_deref().unwrap_or_default(), draft));
         // O pressed while it was on its way opens it now, if the person is still where they were.
         if self.compose.o_waits.take().is_some_and(|screen| screen == self.view) {
             self.toast = None;
@@ -797,16 +810,17 @@ impl State {
 
     /// Z on a thread sent from the box: it is closed, which stops its agent, unless the agent
     /// has already answered. Then closing would only hide the answer, so the answer is shown.
-    pub(crate) fn withdraw(&mut self, id: String, product: String, title: String, draft: write::Draft, tx: &mut Tx) {
+    pub(crate) fn withdraw(&mut self, last: write::Undo, tx: &mut Tx) {
+        let (id, product) = last.thread.clone();
         let row = self.snap.items.iter().find(|i| i.id == id && i.product == product);
         if rules::answered_already(row) {
             self.say(rules::TOO_LATE_TO_WITHDRAW.to_string(), false, tx);
             self.open_thread(&id, &product);
             return;
         }
-        if !self.send(crate::rules::writes::ANSWER, rules::withdraw(&product, &id), write::Sent::Withdraw { id: id.clone(), product: product.clone(), title: title.clone(), draft: draft.clone() }) {
+        if !self.send_all(last.writes.clone(), last.sent.clone()) {
             // Not sent, so not undone: Z still has it.
-            self.last = Some(write::Undo::Withdraw { id, product, title, draft });
+            self.last = Some(last);
         }
     }
 
@@ -814,12 +828,15 @@ impl State {
     /// it holds something newer; refused, Z keeps the thread and a line says why.
     pub(crate) fn withdraw_landed(&mut self, landed: write::Landed, tx: &Tx) {
         let refusal = landed.refusal();
-        let write::Sent::Withdraw { id, product, title, draft } = landed.sent else {
+        let write::Sent::Withdraw { thread, title, draft } = landed.sent else {
+            return;
+        };
+        let Some((product, id)) = thread.split_once('/').map(|(product, id)| (product.to_string(), id.to_string())) else {
             return;
         };
         if let Some(why) = refusal {
             self.say(rules::could_not_undo(&why), false, tx);
-            self.last = Some(write::Undo::Withdraw { id, product, title, draft });
+            self.last = Some(taking_back(&id, &product, &title, draft));
             return;
         }
         // Out of Done from now on: a send taken back is not finished work.

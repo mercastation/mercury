@@ -106,6 +106,74 @@ pub fn reopen_as_it_was(item: &Item) -> Value {
     json!({ "product": item.product, "id": item.id, "status": "open", "reopenAs": { "status": item.status, "mine": mine } })
 }
 
+/// Later. Putting a thread off is about when the person sees it and never about what its
+/// agent does: one call to `zero:snooze` with the moment, and 0 takes the moment off again.
+/// A moment on the work itself is `zero:schedule`'s, and a thread written down and never
+/// begun is started through `zero:thread-edit` (`snoozeUntil` and `unsnooze` in
+/// `renderer/src/App.tsx`).
+pub const SNOOZE: &str = "zero:snooze";
+pub const SCHEDULE: &str = "zero:schedule";
+pub const EDIT: &str = "zero:thread-edit";
+
+/// One call to the engine: where it goes and what it says.
+pub type Write = (&'static str, Value);
+
+pub fn put_off(item: &Item, until: f64) -> Write {
+    (SNOOZE, json!({ "product": item.product, "id": item.id, "snoozedUntil": until }))
+}
+
+/// What the line says once a thread is in Later: its name, then when it is back, in the
+/// words that were picked or typed.
+pub fn said_later(title: &str, back: &str) -> String {
+    format!("Later: {}. Back {}", clip_to_sentence(title, 48), back.to_lowercase())
+}
+
+/// What Z says after taking a thread back out of Later, and after putting one back in.
+pub const BACK_IN_YOUR_INBOX: &str = "Back in your inbox";
+pub const RETURNED_TO_LATER: &str = "Returned to Later";
+
+/// Bringing a thread back from Later: what is written, in order, what the line says, and
+/// what Z writes to put it back.
+pub struct Back {
+    pub writes: Vec<Write>,
+    pub said: &'static str,
+    pub undo: Vec<Write>,
+}
+
+pub fn bring_back(item: &Item, now: f64) -> Back {
+    let at = |channel: &'static str, field: &str, value: Value| (channel, json!({ "product": item.product, "id": item.id, field: value }));
+    let reminder = item.number("snoozedUntil").unwrap_or(0.0);
+    // Its work set for a moment still ahead. A word of the person's waiting is what runs, and
+    // then the moment stays for that run.
+    let run_at = item.run_at.filter(|at| *at > now && !super::answers::word_waits(item));
+    let held = super::kinds::not_started(item);
+    let mut back = Back {
+        writes: Vec::new(),
+        // A thread in Later that never ran is starting for the first time, and one its agent
+        // parked never left the inbox: neither is "back".
+        said: if held {
+            "Started"
+        } else if super::list::parked_by_agent(item, now) {
+            "Running again"
+        } else {
+            "Back in the inbox"
+        },
+        undo: vec![(SNOOZE, json!({ "product": item.product, "id": item.id, "snoozedUntil": reminder }))],
+    };
+    if reminder != 0.0 {
+        back.writes.push(at(SNOOZE, "snoozedUntil", json!(0)));
+    }
+    if let Some(run_at) = run_at {
+        back.writes.push(at(SCHEDULE, "runAt", json!(0)));
+        back.undo.push(at(SCHEDULE, "runAt", json!(run_at)));
+    }
+    if held {
+        back.writes.push(at(EDIT, "patch", json!({ "start": "now" })));
+        back.undo.push(at(EDIT, "patch", json!({ "start": "later" })));
+    }
+    back
+}
+
 /// What picking an option does. Most are a reply; a few are something else.
 #[derive(Debug, PartialEq)]
 pub enum Pick {
@@ -191,6 +259,38 @@ mod tests {
     fn undoing_a_close_puts_the_thread_back_as_it_was_and_starts_no_run() {
         let waiting: Item = serde_json::from_value(json!({ "id": "w-1", "product": "shop", "status": "blocked", "wrote": { "status": { "ts": 1, "source": "agent" } } })).unwrap();
         assert_eq!(reopen_as_it_was(&waiting), json!({ "product": "shop", "id": "w-1", "status": "open", "reopenAs": { "status": "blocked", "mine": false } }));
+    }
+
+    #[test]
+    fn putting_a_thread_off_writes_its_moment_and_says_when_it_is_back() {
+        assert_eq!(put_off(&thread("blocked"), 1_800_000.0), (SNOOZE, json!({ "product": "shop", "id": "w-1", "snoozedUntil": 1_800_000.0 })));
+        assert_eq!(said_later("Snooze is lost on restart", "In 30 minutes"), "Later: Snooze is lost on restart. Back in 30 minutes");
+        assert_eq!(said_later("Snooze is lost on restart", "tomorrow, 8:00 AM"), "Later: Snooze is lost on restart. Back tomorrow, 8:00 am");
+    }
+
+    #[test]
+    fn bringing_a_thread_back_lifts_only_what_holds_it_and_z_puts_all_of_it_back() {
+        let now = 1_000_000.0;
+        // Put off by the person: the moment comes off, and Z writes it again.
+        let put_off: Item = serde_json::from_value(json!({ "id": "w-1", "product": "shop", "status": "blocked", "snoozedUntil": 5_000_000.0, "wrote": { "snoozedUntil": { "ts": 1, "source": "founder" } } })).unwrap();
+        let back = bring_back(&put_off, now);
+        assert_eq!(back.said, "Back in the inbox");
+        assert_eq!(back.writes, vec![(SNOOZE, json!({ "product": "shop", "id": "w-1", "snoozedUntil": 0 }))]);
+        assert_eq!(back.undo, vec![(SNOOZE, json!({ "product": "shop", "id": "w-1", "snoozedUntil": 5_000_000.0 }))]);
+
+        // Its work set for a moment ahead by its agent: the moment comes off and it runs.
+        let parked: Item = serde_json::from_value(json!({ "id": "w-1", "product": "shop", "status": "open", "runAt": 5_000_000.0, "wrote": { "runAt": { "ts": 1, "source": "agent" } } })).unwrap();
+        let back = bring_back(&parked, now);
+        assert_eq!(back.said, "Running again");
+        assert_eq!(back.writes, vec![(SCHEDULE, json!({ "product": "shop", "id": "w-1", "runAt": 0 }))]);
+        assert_eq!(back.undo, vec![(SNOOZE, json!({ "product": "shop", "id": "w-1", "snoozedUntil": 0.0 })), (SCHEDULE, json!({ "product": "shop", "id": "w-1", "runAt": 5_000_000.0 }))]);
+
+        // Written down and never begun: it is started, and Z holds it again.
+        let held: Item = serde_json::from_value(json!({ "id": "w-1", "product": "shop", "status": "open", "start": "later" })).unwrap();
+        let back = bring_back(&held, now);
+        assert_eq!(back.said, "Started");
+        assert_eq!(back.writes, vec![(EDIT, json!({ "product": "shop", "id": "w-1", "patch": { "start": "now" } }))]);
+        assert_eq!(back.undo.last(), Some(&(EDIT, json!({ "product": "shop", "id": "w-1", "patch": { "start": "later" } }))));
     }
 
     #[test]

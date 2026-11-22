@@ -10,18 +10,23 @@
 //! the rows the web window draws from the same snapshot.
 
 pub mod answers;
+pub mod calendar;
 pub mod cloud;
 pub mod compose;
 pub mod engine;
 pub mod format;
 pub mod js;
 pub mod kinds;
+pub mod later;
 pub mod list;
+pub mod mentions;
 pub mod needs;
 pub mod nowhere;
 pub mod page;
+pub mod paths;
 pub mod place;
 pub mod rank;
+pub mod roots;
 pub mod shipping;
 pub mod status;
 pub mod title;

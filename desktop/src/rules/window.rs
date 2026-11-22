@@ -78,6 +78,13 @@ pub fn update_waits(snap: &Snapshot) -> bool {
     part(snap, "update").is_some_and(|u| truthy(u.get("ready")) || truthy(u.get("installing")))
 }
 
+/// How many agents are held on a yes or a no from the person (`approvals` on the snapshot,
+/// drawn by the web window as a card over the page). This window draws no such card yet, so
+/// it says that one waits: an agent stopped on a question nobody is shown stays stopped.
+pub fn approvals_waiting(snap: &Snapshot) -> usize {
+    snap.rest.get("approvals").and_then(Value::as_array).map_or(0, Vec::len)
+}
+
 /// The foot's Feedback button: there unless the engine says this build takes none
 /// (`openFeedback` in `renderer/src/App.tsx`).
 pub fn takes_feedback(snap: &Snapshot) -> bool {
@@ -204,6 +211,13 @@ mod tests {
         assert!(can_record(&snap(json!({ "meeting": { "phase": "idle" } }))));
         assert!(!can_record(&snap(json!({ "meeting": { "phase": "recording", "preparing": null } }))));
         assert!(!can_record(&snap(json!({ "meeting": { "phase": "idle", "preparing": { "at": 1 } } }))));
+    }
+
+    #[test]
+    fn an_agent_held_on_a_yes_is_counted() {
+        assert_eq!(approvals_waiting(&snap(json!({}))), 0);
+        assert_eq!(approvals_waiting(&snap(json!({ "approvals": [] }))), 0);
+        assert_eq!(approvals_waiting(&snap(json!({ "approvals": [{ "id": "a1", "tool": "Bash" }, { "id": "a2", "tool": "Edit" }] }))), 2);
     }
 
     #[test]

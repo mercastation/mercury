@@ -15,12 +15,15 @@
 mod chrome;
 mod compose;
 mod data;
+mod files;
 mod home;
 mod icons;
 mod inbox;
 mod keys;
+mod later;
 mod markdown;
 mod picks;
+mod pictures;
 mod rules;
 mod sky;
 mod source;
@@ -100,6 +103,8 @@ pub struct State {
     /// A conversation being asked for, and what each was last asked at: its row's last change.
     asking: Latest<(String, Result<Value, String>)>,
     asked: HashMap<String, f64>,
+    /// The pictures the open conversation names, read off the disk (`pictures.rs`).
+    pub pictures: pictures::Pictures,
     pub history: Vec<View>,
     pub source: Source,
     mailbox: Mailbox,
@@ -117,6 +122,8 @@ pub struct State {
     /// The threads closed here whose close the engine has not told back yet: out of the lists
     /// from the moment E is pressed.
     hidden: HashSet<String>,
+    /// The Later picker L opens.
+    pub later: later::Picker,
     /// The box a thread is started in, and what it holds.
     pub compose: compose::Composer,
     /// The models this Mac's coding agents offer, as the engine's settings say; the ones the
@@ -193,11 +200,15 @@ impl State {
     }
     /// One write to the engine. A fixture has nobody to send to, and says nothing of it.
     fn send(&mut self, channel: &'static str, payload: Value, sent: write::Sent) -> bool {
+        self.send_all(vec![(channel, payload)], sent)
+    }
+    /// Several writes that are one thing done, sent in order.
+    fn send_all(&mut self, writes: Vec<writes::Write>, sent: write::Sent) -> bool {
         self.refused = None;
         let Source::Door(door) = &self.source else {
             return false;
         };
-        if self.outbox.send(door, channel, payload, sent) {
+        if self.outbox.send_in_order(door, writes, sent) {
             return true;
         }
         self.refused = Some("Mercury is not running, so this was not sent.".to_string());
@@ -214,6 +225,10 @@ impl State {
         let (line, undo) = rules::compose::toast_parts(line);
         let since = tx.clock();
         self.toast = Some(write::Toast { line, undo, since, until: since + rules::compose::TOAST_GOES_MS / 1000.0, goes: Some(goes) });
+    }
+    /// A line that only tells: nothing was done, so there is nothing for Z.
+    pub fn tell(&mut self, line: &str, tx: &Tx) {
+        self.say(line.to_string(), false, tx);
     }
     /// Does something now and writes it in three seconds, unless Z comes first
     /// (`deferCommit` in `renderer/src/App.tsx`). One thing waits at a time: whatever was
@@ -234,10 +249,12 @@ impl State {
         let Some(held) = self.held.take() else {
             return;
         };
-        self.last = held.closes.as_ref().map(|item| write::Undo::Reopen {
+        self.last = held.closes.as_ref().map(|item| write::Undo {
             said: format!("Reopened: {}", writes::clip_to_sentence(item.title.as_deref().unwrap_or(""), 48)),
-            payload: writes::reopen_as_it_was(item),
+            writes: vec![(writes::ANSWER, writes::reopen_as_it_was(item))],
+            sent: write::Sent::Reopen { thread: format!("{}/{}", held.thread.1, held.thread.0) },
             thread: held.thread.clone(),
+            opens: true,
         });
         self.send(held.channel, held.payload, held.sent);
     }
@@ -265,15 +282,150 @@ impl State {
             self.say(writes::said_undone(&held.said, words.is_some()), false, tx);
             return;
         }
-        match self.last.take() {
-            Some(write::Undo::Reopen { said, payload, thread: (id, product) }) => {
-                if self.send(writes::ANSWER, payload, write::Sent::Reopen { thread: format!("{product}/{id}") }) {
-                    self.say(said, false, tx);
+        if let Some(last) = self.last.take() {
+            // A thread sent from the box is taken back its own way (`compose.rs`).
+            if matches!(last.sent, write::Sent::Withdraw { .. }) {
+                return self.withdraw(last, tx);
+            }
+            let (id, product) = last.thread.clone();
+            if self.send_all(last.writes, last.sent) {
+                self.say(last.said, false, tx);
+                // What it puts back in front of the person is opened, so Z is seen to have
+                // done something (`brings` in `renderer/src/App.tsx`).
+                if last.opens {
                     self.open_thread(&id, &product);
                 }
             }
-            Some(write::Undo::Withdraw { id, product, title, draft }) => self.withdraw(id, product, title, draft, tx),
-            None => self.say(writes::NOTHING_TO_UNDO.to_string(), false, tx),
+            return;
+        }
+        self.say(writes::NOTHING_TO_UNDO.to_string(), false, tx);
+    }
+    /// The clock for something done this instant. A fixture has its own.
+    fn moment(&self) -> f64 {
+        if self.fixed_clock { self.now } else { clock() }
+    }
+    fn item(&self, id: &str, product: &str) -> Option<&data::Item> {
+        self.snap.items.iter().find(|i| i.id == id && i.product == product)
+    }
+    /// The rows the open Later picker offers.
+    pub fn later_choices(&self) -> Vec<later::Choice> {
+        let on = self.later.on.as_ref().and_then(|(id, product)| self.item(id, product));
+        on.map(|item| later::choices(item, self.now)).unwrap_or_default()
+    }
+    /// L: opens the Later picker on a thread (`openSnooze` in `renderer/src/App.tsx`).
+    pub fn open_later(&mut self, id: &str, product: &str, tx: &mut Tx) {
+        // A row the app made itself has no ledger to keep a moment in.
+        if product.is_empty() {
+            self.say("Nothing to put off here. Press E to close it until something else stops.".to_string(), false, tx);
+            return;
+        }
+        if self.item(id, product).is_none() {
+            return;
+        }
+        // The moments it offers are counted from this minute, not from when the lists were last read.
+        if !self.fixed_clock {
+            self.now = clock();
+        }
+        self.later = later::Picker::open_on(Some((id.to_string(), product.to_string())), "");
+        tx.focus_when_shown("later", false);
+    }
+    pub fn close_later(&mut self) {
+        self.later = later::Picker::closed();
+    }
+    /// Enter in the Later picker, or a press on one of its rows (`at`). Typed words decide;
+    /// with none, the lit row does; words that are not a time are refused and said so.
+    pub fn pick_later(&mut self, at: Option<usize>) {
+        let Some((id, product)) = self.later.on.clone() else {
+            return;
+        };
+        let Some(item) = self.item(&id, &product).cloned() else {
+            self.close_later();
+            return;
+        };
+        let now = self.moment();
+        let rows = later::choices(&item, now);
+        let row = |at: usize| rows.get(at).map(|choice| (choice.ts, choice.name.to_string()));
+        let picked = match at {
+            Some(at) => row(at),
+            None => {
+                let read = rules::later::parse_when(&self.later.words.text, now);
+                match rules::later::enter_means(&self.later.words.text, read.is_some()) {
+                    rules::later::Enter::Typed => read,
+                    rules::later::Enter::Selected => row(self.later.selected),
+                    rules::later::Enter::Refuse => {
+                        self.later.refused = true;
+                        return;
+                    }
+                }
+            }
+        };
+        let Some((until, back)) = picked else {
+            return;
+        };
+        self.close_later();
+        // "Now" on a thread already put off wakes it instead of timing it again.
+        if until == 0.0 {
+            self.bring_back(&id, &product);
+            return;
+        }
+        self.write_what_waits();
+        let (channel, payload) = writes::put_off(&item, until);
+        let sent = write::Sent::Later {
+            thread: format!("{product}/{id}"),
+            said: writes::said_later(&rules::title::row_title(&item), &back),
+            undo: writes::put_off(&item, item.number("snoozedUntil").unwrap_or(0.0)),
+        };
+        self.send(channel, payload, sent);
+    }
+    /// Brings a thread back from Later: E on its row there, or "Now" in the picker (`unsnooze`).
+    pub fn bring_back(&mut self, id: &str, product: &str) {
+        let Some(item) = self.item(id, product).cloned() else {
+            return;
+        };
+        self.write_what_waits();
+        let back = writes::bring_back(&item, self.moment());
+        self.send_all(back.writes, write::Sent::Back { thread: format!("{product}/{id}"), said: back.said, undo: back.undo });
+    }
+    /// What a write the engine took still has to do on screen. Putting a thread off and
+    /// bringing one back are said only now, as the web window says them only once the write
+    /// stands: a line promising a row had gone, over a row still there, is worse than a wait.
+    fn took(&mut self, landed: write::Landed, tx: &mut Tx) {
+        let Some((product, id)) = landed.sent.thread().split_once('/').map(|(product, id)| (product.to_string(), id.to_string())) else {
+            return;
+        };
+        let (said, undo) = match landed.sent {
+            write::Sent::Later { thread, said, undo } => {
+                // The engine answers with the row as it now stands. Its moment is laid over
+                // the row in hand, so the lists move now and not at the next reading.
+                if let (Ok(row), Some(item)) = (&landed.answer, self.snap.items.iter_mut().find(|i| i.id == id && i.product == product)) {
+                    if let Some(until) = row.get("snoozedUntil") {
+                        item.rest.insert("snoozedUntil".to_string(), until.clone());
+                    }
+                    if let (Some(wrote), Some(mine)) = (row.get("wrote").and_then(|w| w.get("snoozedUntil")), item.rest.get_mut("wrote").and_then(Value::as_object_mut)) {
+                        mine.insert("snoozedUntil".to_string(), wrote.clone());
+                    }
+                }
+                let undo = write::Undo {
+                    said: writes::BACK_IN_YOUR_INBOX.to_string(),
+                    writes: vec![undo],
+                    sent: write::Sent::TakenBack { thread },
+                    thread: (id.clone(), product.clone()),
+                    opens: true,
+                };
+                (said, undo)
+            }
+            write::Sent::Back { thread, said, undo } => {
+                let undo = write::Undo { said: writes::RETURNED_TO_LATER.to_string(), writes: undo, sent: write::Sent::TakenBack { thread }, thread: (id.clone(), product.clone()), opens: false };
+                (said.to_string(), undo)
+            }
+            _ => return,
+        };
+        self.last = Some(undo);
+        self.say(said, true, tx);
+        self.refresh();
+        // The thread has left the list the person was reading it from, so they are back on it.
+        if matches!(&self.view, View::Thread { id: open, product: of } if *open == id && *of == product) {
+            self.leave_thread();
         }
     }
     /// Whether an answer to this thread is waiting to be written: its options are spent on
@@ -405,7 +557,7 @@ impl State {
     }
     /// What the engine said to something sent. A refusal is said in one line, and refused
     /// words go back where the person can send them again.
-    fn landed(&mut self, landed: write::Landed, tx: &Tx) {
+    fn landed(&mut self, landed: write::Landed, tx: &mut Tx) {
         // A new thread, and one taken back, are said of whether they stood or not.
         match &landed.sent {
             write::Sent::Thread { .. } => return self.thread_landed(landed, tx),
@@ -413,6 +565,7 @@ impl State {
             _ => {}
         }
         let Some(why) = landed.refusal() else {
+            self.took(landed, tx);
             return;
         };
         // A close the engine did not make puts the row back in its list.
@@ -437,6 +590,9 @@ impl State {
             write::Sent::Pick { .. } => format!("Could not send that option: {why}"),
             write::Sent::Close { .. } => format!("Could not mark it done: {why}"),
             write::Sent::Reopen { .. } => format!("Could not reopen it: {why}"),
+            write::Sent::Later { .. } => format!("Could not move it to Later: {why}"),
+            write::Sent::Back { .. } => format!("Could not bring it back: {why}"),
+            write::Sent::TakenBack { .. } => format!("Could not undo that: {why}"),
             // Both went their own way above.
             write::Sent::Thread { .. } | write::Sent::Withdraw { .. } => return,
         });
@@ -589,6 +745,13 @@ fn paint_skies(points: (f32, f32)) -> Painted {
 
 const DEFAULT_SIZE: (f32, f32) = (1280.0, 760.0);
 
+/// The store of pictures for this run. A still picture reads each file where it is asked
+/// for, since it cannot wait; a window, or a run of frames, reads them off the main thread.
+fn pictures_for(never: bool) -> pictures::Pictures {
+    let run = rune::tooling::headless_run();
+    pictures::Pictures::new(run.map_or(2.0, |r| r.scale()), run.is_some_and(|r| r.frames() == 0), never)
+}
+
 fn init() -> State {
     let args = rune::tooling::extra_args();
     let source = source::from_args(args);
@@ -630,6 +793,7 @@ fn init() -> State {
         threads: HashMap::new(),
         asking: Latest::default(),
         asked: HashMap::new(),
+        pictures: pictures_for(false),
         history: Vec::new(),
         source,
         mailbox: Mailbox::default(),
@@ -640,6 +804,7 @@ fn init() -> State {
         last: None,
         toast: None,
         hidden: HashSet::new(),
+        later: later::Picker::closed(),
         compose: compose::Composer::default(),
         models: rules::compose::Models::built(),
         reading_models: Latest::default(),
@@ -655,6 +820,10 @@ fn init() -> State {
                 s.snap = fixture.snapshot;
                 s.local = fixture.local;
                 s.fixture = fixture.rest;
+                // A page photographed before its pictures came draws none of them either.
+                if s.fixture.get("arriving").and_then(Value::as_bool) == Some(true) {
+                    s.pictures = pictures_for(true);
+                }
                 if let Some(now) = fixture.now {
                     s.now = now;
                     s.fixed_clock = true;
@@ -712,6 +881,12 @@ fn init() -> State {
             s.replying = true;
         }
         s.option = s.fixture.get("option").and_then(Value::as_u64).and_then(|n| (n as usize).checked_sub(1));
+        // And one taken with the Later picker open (`later` is what was typed into it,
+        // `laterRefused` that Enter was pressed on words it could not read).
+        if let (Some(words), View::Thread { id, product }) = (s.fixture.get("later").and_then(Value::as_str), &s.view) {
+            s.later = later::Picker::open_on(Some((id.clone(), product.clone())), words);
+            s.later.refused = s.fixture.get("laterRefused").and_then(Value::as_bool).unwrap_or(false);
+        }
     }
     // A picture taken with words typed into the box a thread is started in says so in its
     // fixture (`composing`): the same words, with the caret after them.
@@ -750,6 +925,7 @@ fn setup(s: &mut State, wake: Waker) {
     s.reading_models.set_waker(wake.clone());
     s.read_the_models();
     s.outbox.wake_with(wake.clone());
+    s.pictures.set_waker(wake.clone());
     if let Source::Door(door) = s.source.clone() {
         source::follow_door(door, s.mailbox.clone(), move || wake());
     }
@@ -835,7 +1011,17 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
         changed = true;
     }
     s.ask_for_the_open_thread();
-    changed || stale
+    // The open conversation's pictures: what was read lands, another conversation's are let
+    // go, and while any is on the page the disk is looked at again every two seconds.
+    let open = match &s.view {
+        View::Thread { id, product } => Some(format!("{product}/{id}")),
+        _ => None,
+    };
+    let (landed, again) = s.pictures.tend(open.as_deref(), clock());
+    if again {
+        tx.wake_after(std::time::Duration::from_millis(pictures::AGAIN_MS as u64));
+    }
+    changed || stale || landed
 }
 
 fn resized(s: &mut State, [_, _, w, h]: [f32; 4]) {
@@ -847,8 +1033,10 @@ fn resized(s: &mut State, [_, _, w, h]: [f32; 4]) {
     s.painting.request(points, paint_skies);
 }
 
-fn view(s: &State, _: &mut Cx<State>) -> El {
+fn view(s: &State, cx: &mut Cx<State>) -> El {
     let (w, h) = s.size;
+    // A picture's copy is made for this screen's pixels.
+    s.pictures.set_scale(cx.env().scale);
     let page = match &s.view {
         View::Home => home::view(s),
         View::Inbox => inbox::view(s),
@@ -883,6 +1071,11 @@ fn view(s: &State, _: &mut Cx<State>) -> El {
     };
     let root = match chrome::toast_card(s) {
         Some(toast) => root.child(toast),
+        None => root,
+    };
+    // The Later picker stands over everything, the line about the last thing done included.
+    let root = match later::view(s) {
+        Some(picker) => root.child(picker),
         None => root,
     };
     match chrome::notice(s) {

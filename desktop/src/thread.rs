@@ -13,6 +13,7 @@ use rune::{El, Icon, ScrollSpec, TextCase, TextStyle, col, el, icon, row, spacer
 use serde_json::{Value, json};
 
 use crate::data::{Item, Priority};
+use crate::files::Files;
 use crate::home;
 use crate::markdown::{self, Block};
 use crate::rules::format::{self, Choice};
@@ -204,11 +205,11 @@ fn typed(words: &str, m: &Measure) -> El {
 }
 
 /// One message, and how much of what it holds reaches under it.
-fn message(msg: &Message, turn: (bool, bool), now: f64, m: &Measure) -> El {
+fn message(msg: &Message, turn: (bool, bool), now: f64, m: &Measure, files: &Files) -> El {
     let (body, leak) = if msg.mine {
         (typed(&msg.text, m), 0.0)
     } else {
-        let (body, _, bottom) = markdown::stack(markdown::blocks(&msg.text, m.size, m.column), true);
+        let (body, _, bottom) = markdown::stack(markdown::blocks(&msg.text, m.size, m.column, files), true);
         (body, bottom)
     };
     let mut e = col().child(said_by(msg, now)).child(body.mt(3.0));
@@ -238,13 +239,13 @@ fn step(s: &Step) -> El {
 
 /// The conversation: each thing said or done under the last, 22 points apart, with lines of
 /// what happened drawn closer to what they follow (`.thread` and `.thread-block`).
-fn conversation(said: &[Said], now: f64, m: &Measure) -> El {
+fn conversation(said: &[Said], now: f64, m: &Measure, files: &Files) -> El {
     let turns = talk::turns(said);
     let mut out = col();
     let mut above: Option<bool> = None;
     for (e, turn) in said.iter().zip(turns) {
         let (block, is_step) = match e {
-            Said::Message(msg) => (message(msg, turn, now, m), false),
+            Said::Message(msg) => (message(msg, turn, now, m, files), false),
             Said::Step(s) => (step(s), true),
         };
         let gap = match (above, is_step) {
@@ -280,8 +281,8 @@ fn toggle(words: &str, thread: String, m: &Measure) -> El {
 }
 
 /// The agent's last word, whole, at the foot of the conversation.
-fn outcome(answer: &Message, plain: bool, m: &Measure) -> Vec<Block> {
-    let mut blocks = markdown::blocks(&answer.text, m.size, m.column);
+fn outcome(answer: &Message, plain: bool, m: &Measure, files: &Files) -> Vec<Block> {
+    let mut blocks = markdown::blocks(&answer.text, m.size, m.column, files);
     if !plain {
         // A thread still in flight says which of the two this is.
         let words = if answer.field == Field::Result { "Result" } else { "Latest checkpoint" };
@@ -292,10 +293,10 @@ fn outcome(answer: &Message, plain: bool, m: &Measure) -> Vec<Block> {
 
 /// The newest answer alone, as a page that leads with it: a first line that is bold and
 /// nothing else is its headline, unless it only repeats the thread's name.
-fn answer_alone(answer: &Message, title: &str, m: &Measure) -> Vec<Block> {
+fn answer_alone(answer: &Message, title: &str, m: &Measure, files: &Files) -> Vec<Block> {
     let same = |a: &str, b: &str| a.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase() == b.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
     let (headline, rest) = talk::headline(&answer.text);
-    let mut blocks = markdown::blocks(rest, m.size, m.column);
+    let mut blocks = markdown::blocks(rest, m.size, m.column, files);
     if let Some(words) = headline.filter(|h| !same(h, title)) {
         let size = kept(1.05 * m.size);
         blocks.insert(0, markdown::block(0.0, 10.0, text(words).font(TextStyle::new(size, 600.0).lh(kept(1.45 * size))).color(ink()).wrap()));
@@ -476,6 +477,8 @@ pub fn view(s: &State, id: &str, product: &str) -> El {
     let title = name(item);
     let talk = Talk::read(&ledger(s, item));
     let page = talk.page(working, unfolded, imported);
+    // What the files this conversation names are read against: its project's own folders.
+    let files = Files::of(s, item);
 
     let mut summary = col().child(text(title.as_str()).font(TextStyle::new(1.7 * m.size, 500.0).lh(2.125 * m.size).tracking(-0.0255 * m.size)).color(ink()).wrap());
     if let Some(words) = &page.toggle {
@@ -484,17 +487,17 @@ pub fn view(s: &State, id: &str, product: &str) -> El {
     // Under the summary: the newest answer alone, or the conversation with its outcome.
     let mut blocks = vec![markdown::block(0.0, 18.0, summary)];
     match page.alone {
-        Some(answer) => blocks.extend(answer_alone(answer, &title, &m)),
+        Some(answer) => blocks.extend(answer_alone(answer, &title, &m, &files)),
         None => {
             if page.said.is_empty() && talk.outcome.is_none() {
                 blocks.push(markdown::block(0.0, 0.0, el().py(8.0).child(label("Nothing has been said here yet.", 14.0, 400.0, muted()))));
             } else {
-                blocks.push(markdown::block(0.0, 0.0, conversation(page.said, s.now, &m)));
+                blocks.push(markdown::block(0.0, 0.0, conversation(page.said, s.now, &m, &files)));
             }
             if let Some(answer) = &talk.outcome {
                 // The agent's own close leads with its result as it is; anything else is labelled.
                 let closed_by_agent = item.status == "done" && item.rest.get("wrote").and_then(|w| w.get("status")).and_then(|st| st.get("source")).and_then(Value::as_str) != Some("founder");
-                let (body, top, bottom) = markdown::stack(outcome(answer, answer.field == Field::Result && closed_by_agent, &m), false);
+                let (body, top, bottom) = markdown::stack(outcome(answer, answer.field == Field::Result && closed_by_agent, &m, &files), false);
                 blocks.push(markdown::block(top.max(28.0), bottom.max(8.0), body));
             }
         }

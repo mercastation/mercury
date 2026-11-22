@@ -54,19 +54,48 @@ pub fn in_the_box(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
     false
 }
 
+/// The Inbox's picked row, as `(id, product)`.
+fn picked_row(s: &State) -> Option<(String, String)> {
+    s.lists.under(s.inbox_tab).get(s.picked).map(|r| (r.id.clone(), r.product.clone()))
+}
+
 /// E: marks done the thread the keys are on. That is the open conversation, or the Inbox's
-/// picked row under Needs you and In progress. Under Later the web window's E brings a thread
-/// back instead, and under Done there is nothing to close; neither is done here yet.
+/// picked row under Needs you and In progress. Under Later E brings the thread back instead,
+/// and under Done there is nothing to close.
 pub fn close_under_the_keys(s: &mut State, tx: &mut Tx) {
     match s.view.clone() {
         View::Thread { .. } => s.close_thread(false, tx),
-        View::Inbox if matches!(s.inbox_tab, crate::data::Tab::Needs | crate::data::Tab::Progress) => {
-            let on = s.lists.under(s.inbox_tab).get(s.picked).map(|r| (r.id.clone(), r.product.clone()));
-            if let Some((id, product)) = on {
-                s.close(&id, &product, false, tx);
+        View::Inbox => {
+            let Some((id, product)) = picked_row(s) else {
+                return;
+            };
+            match s.inbox_tab {
+                crate::data::Tab::Needs | crate::data::Tab::Progress => s.close(&id, &product, false, tx),
+                crate::data::Tab::Later => s.bring_back(&id, &product),
+                _ => {}
             }
         }
         _ => {}
+    }
+}
+
+/// L: opens the Later picker on the thread the keys are on. A running thread can be put off
+/// too, because Later is about the person's inbox and not about the session; a closed one
+/// cannot, and says so rather than going quiet.
+fn later_under_the_keys(s: &mut State, tx: &mut Tx) {
+    match s.view.clone() {
+        View::Thread { id, product } => s.open_later(&id, &product, tx),
+        View::Inbox => {
+            let Some((id, product)) = picked_row(s) else {
+                return;
+            };
+            if s.inbox_tab == crate::data::Tab::Done {
+                s.tell("Later is for a thread that is still open.", tx);
+            } else {
+                s.open_later(&id, &product, tx);
+            }
+        }
+        View::Home => {}
     }
 }
 
@@ -80,6 +109,11 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
     if e.mods.cmd || e.mods.ctrl || e.mods.alt {
         return false;
     }
+    // While the Later picker is open the keys are its own, and the page under it has none.
+    if s.later.on.is_some() {
+        crate::later::pressed(s, e, tx);
+        return true;
+    }
     let letter = match &e.key {
         Key::Text(t) => t.to_lowercase(),
         _ => String::new(),
@@ -91,6 +125,10 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
     }
     // O goes into the thread the line in the corner is about, while that line is up.
     if letter == "o" && s.open_what_the_line_names() {
+        return true;
+    }
+    if letter == "l" && s.view != View::Home {
+        later_under_the_keys(s, tx);
         return true;
     }
     let (j, k) = (letter == "j", letter == "k");

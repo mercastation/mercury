@@ -146,6 +146,10 @@ impl<'t> Captures<'t> {
     fn whole(&self) -> (usize, usize) {
         self.spans[0].expect("a match has a whole")
     }
+    /// Where group `n` sits in the text, in bytes: `m.index` for group 0.
+    pub fn span(&self, n: usize) -> Option<(usize, usize)> {
+        self.spans.get(n).copied().flatten()
+    }
 }
 
 /// One of the web app's regular expressions. Most are matched by the plain engine. One that
@@ -220,6 +224,11 @@ impl Re {
             }
         }
         out
+    }
+
+    /// `s.matchAll(re)`: every match with its groups, in order.
+    pub fn each<'t>(&self, s: &'t str) -> Vec<Captures<'t>> {
+        self.all(s)
     }
 
     /// The byte ranges of every match, in order.
