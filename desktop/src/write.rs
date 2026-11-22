@@ -57,8 +57,8 @@ pub enum Sent {
     /// The files of a reply from the box of the thread `product/id`, saved into its project
     /// before the reply goes (`persistAttachments` in `DockComposer`'s `send`): once saved, the
     /// reply is held as any other is, its words with the links to them under; refused, the box
-    /// keeps everything.
-    Carry { thread: String, words: String, pick: Option<ReplyPick>, files: Vec<crate::attach::Attached> },
+    /// keeps everything. `said` is the priority and mode the box's chips held at Send.
+    Carry { thread: String, words: String, pick: Option<ReplyPick>, said: crate::rules::reply_chips::Said, files: Vec<crate::attach::Attached> },
     /// A picked option of that thread.
     Pick { thread: String },
     Close { thread: String },

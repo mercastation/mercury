@@ -96,63 +96,10 @@ pub fn approvals_waiting(snap: &Snapshot) -> usize {
     snap.rest.get("approvals").and_then(Value::as_array).map_or(0, Vec::len)
 }
 
-/// A window whose reset is this long past has started over (`JUST_RESET_MS` in `shared/usage.mts`).
-const JUST_RESET_MS: f64 = 2.0 * 60_000.0;
-const WEEK_MS: f64 = 7.0 * 24.0 * 60.0 * 60_000.0;
-
-/// `limitsStillRunning` in `shared/usage.mts`: a window with no clock on its reset keeps its row.
-fn still_running(limit: &Value, now: f64) -> bool {
-    limit.get("resetsAt").and_then(Value::as_f64).filter(|at| at.is_finite()).is_none_or(|at| at + JUST_RESET_MS > now)
-}
-
-/// `headlineLimit`: the five hour window where there is one, else any window with a figure.
-fn has_headline<'a>(limits: impl Iterator<Item = &'a Value>) -> bool {
-    limits.into_iter().any(|l| l.get("span").and_then(Value::as_str) == Some("session") || l.get("percent").and_then(Value::as_f64).is_some_and(f64::is_finite))
-}
-
-fn limits(usage: &Value) -> &[Value] {
-    usage.get("limits").and_then(Value::as_array).map_or(&[], Vec::as_slice)
-}
-
-/// Whether the foot has its usage button: a reading of some agent still answers for a window
-/// (`UsagePill` and `agentsInUse` in `renderer/src/components/UsagePill.tsx`).
+/// Whether the foot has its usage row: a reading of some agent still answers for a window
+/// (`UsagePill` in `renderer/src/components/UsagePill.tsx`, ported in `rules/usage.rs`).
 pub fn usage_shown(snap: &Snapshot, now: f64) -> bool {
-    let sent = snap.rest.get("usage").filter(|u| u.is_object());
-    let all: Vec<&Value> = match snap.rest.get("usageByEngine").and_then(Value::as_array) {
-        Some(every) => every.iter().collect(),
-        None => sent.into_iter().collect(),
-    };
-    let fresh = |u: &&Value| now - u.get("at").and_then(Value::as_f64).unwrap_or(0.0) < WEEK_MS && has_headline(limits(u).iter().filter(|l| still_running(l, now)));
-    // Whichever agent is read, the button is the same one here: folded, it has no figure on it.
-    let Some(last) = all.into_iter().find(fresh).or(sent) else {
-        return false;
-    };
-    // `limitsToShow`: the windows still running, and with any of them a five hour one that ended.
-    let running = limits(last).iter().any(|l| still_running(l, now));
-    running && has_headline(limits(last).iter().filter(|l| still_running(l, now) || l.get("span").and_then(Value::as_str) == Some("session")))
-}
-
-/// What the usage button says while the rail is open (`UsagePill` in the sidebar, and
-/// `agentsInUse`): the agent read last by its name, and the figure of its headline window
-/// (`headlineLimit` in `shared/usage.mts`: the five hour window, else the fullest), none when that
-/// window has started over since. The agent the person last used is the web window's to know,
-/// so here it is the one the snapshot's own reading is of.
-pub fn usage_row(snap: &Snapshot, now: f64) -> Option<(&'static str, Option<f64>)> {
-    let sent = snap.rest.get("usage").filter(|u| u.is_object());
-    let all: Vec<&Value> = match snap.rest.get("usageByEngine").and_then(Value::as_array) {
-        Some(every) => every.iter().collect(),
-        None => sent.into_iter().collect(),
-    };
-    let fresh: Vec<&Value> = all.into_iter().filter(|u| now - u.get("at").and_then(Value::as_f64).unwrap_or(0.0) < WEEK_MS && has_headline(limits(u).iter().filter(|l| still_running(l, now)))).collect();
-    let engine = |u: &Value| u.get("engine").and_then(Value::as_str).map(str::to_string);
-    let last = fresh.iter().find(|u| sent.is_some_and(|s| engine(s) == engine(u))).or(fresh.first()).copied().or(sent)?;
-    let shown = limits(last);
-    let headline = shown.iter().find(|l| l.get("span").and_then(Value::as_str) == Some("session")).or_else(|| {
-        shown.iter().filter(|l| l.get("percent").and_then(Value::as_f64).is_some_and(f64::is_finite)).max_by(|a, b| a["percent"].as_f64().unwrap_or(0.0).total_cmp(&b["percent"].as_f64().unwrap_or(0.0)))
-    })?;
-    let reset = truthy(headline.get("reset"));
-    let used = headline.get("percent").and_then(Value::as_f64).filter(|p| p.is_finite() && !reset).map(|p| p.clamp(0.0, 100.0));
-    Some((crate::rules::engine::engine_label(engine(last).as_deref().unwrap_or("claude")), used))
+    crate::rules::usage::Usage::of(snap, now).is_some()
 }
 
 /// The name and email the person's own row shows beside their face while the rail is open

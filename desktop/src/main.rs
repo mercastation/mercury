@@ -13,6 +13,7 @@
 #![forbid(unsafe_code)]
 
 mod attach;
+mod chips;
 mod chrome;
 mod compose;
 mod data;
@@ -40,6 +41,7 @@ mod strip;
 mod talk;
 mod theme;
 mod thread;
+mod usage;
 mod viewer;
 mod write;
 
@@ -114,6 +116,8 @@ pub struct State {
     /// its words until the next reply carries them (`reply.rs`), and that box's menu while open.
     pub reply_picks: HashMap<String, rules::reply_pick::ReplyPick>,
     pub reply_menu: Option<compose::Menu>,
+    /// The open reply box's priority and mode, and the menu either has open (`chips.rs`).
+    pub chips: chips::Chips,
     /// The menu or the panel open in the strip over a conversation (`strip.rs`).
     pub strip: strip::Strip,
     /// What the Inbox's strip has open: View and filters, the cloud's menu, ⌘C's question (`head.rs`).
@@ -156,6 +160,8 @@ pub struct State {
     pub compose: compose::Composer,
     /// The rail, folded or opened by the pointer resting on it (`chrome.rs`).
     pub rail: chrome::Rail,
+    /// The card of the agents' limits its usage row opens (`usage.rs`).
+    pub usage_card: usage::Card,
     /// The control the pointer is on, for a look under it Rune's own hover cannot draw (`feel.rs`).
     pub pointed: feel::Pointed,
     /// The models this Mac's coding agents offer, as the engine's settings say; the ones the
@@ -544,18 +550,21 @@ impl State {
             return;
         }
         let pick = self.reply_pick_to_send(&item);
-        self.hold_reply(&item, words, "", pick, Vec::new(), tx);
+        let said = chips::said(self, &item);
+        self.hold_reply(&item, words, "", pick, said, Vec::new(), tx);
     }
     /// The reply to `item` held its three seconds and then written: the words, and the links to
-    /// the files it carries under them after a blank line (`[words, attachedMd].join('\n\n')`).
+    /// the files it carries under them after a blank line (`[words, attachedMd].join('\n\n')`),
+    /// with the priority picked on its chip and what it may do (`said`, as they stood at Send).
     /// That thread's box lets go of its words, files and pick, open or not, since the person
     /// may have moved on while the files were saved.
-    pub(crate) fn hold_reply(&mut self, item: &data::Item, words: String, links: &str, pick: Option<rules::reply_pick::ReplyPick>, files: Vec<attach::Attached>, tx: &mut Tx) {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn hold_reply(&mut self, item: &data::Item, words: String, links: &str, pick: Option<rules::reply_pick::ReplyPick>, said: rules::reply_chips::Said, files: Vec<attach::Attached>, tx: &mut Tx) {
         let thread = format!("{}/{}", item.product, item.id);
         let message = [words.as_str(), links].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join("\n\n");
         let mut payload = writes::reply(item, &message);
         if let Some(fields) = payload.as_object_mut() {
-            fields.insert("permissionMode".to_string(), rules::reply_pick::mode_sent(item));
+            fields.extend(said.fields());
             if let Some(pick) = &pick {
                 fields.extend(rules::reply_pick::answer_fields(pick));
             }
@@ -927,6 +936,7 @@ fn init_from(args: &[String]) -> State {
         option: None,
         reply_picks: HashMap::new(),
         reply_menu: None,
+        chips: chips::Chips::default(),
         strip: strip::Strip::default(),
         head: head::Head::default(),
         reading: thread::Reading::default(),
@@ -949,6 +959,7 @@ fn init_from(args: &[String]) -> State {
         palette: palette::Bar::closed(),
         compose: compose::Composer::default(),
         rail: chrome::Rail::default(),
+        usage_card: usage::Card::default(),
         pointed: feel::Pointed::default(),
         models: rules::compose::Models::built(),
         reading_models: Latest::default(),
@@ -1101,10 +1112,25 @@ fn press_what_the_picture_pressed(s: &mut State, tx: &mut Tx) {
     }
     s.picture_live();
     viewer::pictured(s);
-    // And one taken with something of the strip open, or the reply box's model menu (`actions`).
+    // And one taken after a model was picked in the reply box (`replyPick`), and after picks in
+    // its priority and mode chips (`replyPicked`).
+    if let (Some(pick), Some(item)) = (s.fixture.remove("replyPick"), s.open_item().cloned()) {
+        let text = |key: &str| pick.get(key).and_then(Value::as_str).map(str::to_string);
+        s.reply_picks.insert(format!("{}/{}", item.product, item.id), rules::reply_pick::ReplyPick { model: text("model"), effort: text("effort"), engine: text("engine") });
+    }
+    if let Some(picked) = s.fixture.remove("replyPicked") {
+        chips::picture_picked(s, &picked, tx);
+    }
+    // And one taken with the agent's choices folded away by their little arrow (`choicesFolded`).
+    if s.fixture.remove("choicesFolded").is_some() {
+        chips::toggle_choices(s);
+    }
+    // And one taken with something of the strip open, the reply box's model menu, or the menu
+    // of one of its other chips (`actions`).
     if let Some(which) = s.fixture.remove("actions") {
         match which.as_str().unwrap_or_default() {
             "model" => s.picture_reply_menu(tx),
+            which if chips::picture(s, which, tx) => {}
             which => s.picture_strip(which, tx),
         }
     }
@@ -1136,6 +1162,8 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
         s.hang(p);
         changed = true;
     }
+    // The reply box's chips follow the box: opened, they start on its thread's own mode.
+    chips::tend(s);
     press_what_the_picture_pressed(s, tx);
     // What waited its three seconds is written, and a line that has been up long enough goes.
     if s.held.as_ref().is_some_and(|h| at >= h.at) {
@@ -1207,6 +1235,7 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
     // What Settings' reads and writes were answered.
     changed |= settings::tend(s, tx);
     changed |= chrome::rail_moves(s, at, tx);
+    changed |= usage::tend(s, at, tx);
     changed |= feel::hint_due(s, at);
     if let Some((key, answer)) = s.asking.take() {
         match answer {
@@ -1292,12 +1321,16 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
                 .scroll(ScrollSpec { stick_bottom: false })
                 .child(page),
         );
+    // The card of the agents' limits, risen from the rail's usage row over the page.
+    let root = root.children(usage::layer(s));
     // The list a conversation's Files button opens, over the page and under everything else, and
     // what the rest of its strip opens; over the Inbox, what its strip opens.
     let root = root.children(thread::files_list(s)).children(strip::layer(s)).children(head::layer(s));
     // The box a thread is started in: its open menu over the page it hangs in, or the New
     // thread card over the whole page, under the line about the last thing done.
     let root = root.children(compose::layers(s));
+    // The menu of the reply box's priority or mode chip, over the page.
+    let root = root.children(chips::layer(s));
     let root = match chrome::toast_card(s) {
         Some(toast) => root.child(toast),
         None => root,

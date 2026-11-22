@@ -37,6 +37,11 @@ pub fn in_the_reply(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
         s.send_reply(tx);
         return true;
     }
+    // Shift+Tab moves what the next reply may do round its agent's modes, and says so, as
+    // Claude Code's own key does (`boxKey` in `DockComposer`, `chips.rs`).
+    if e.key == Key::Tab && e.mods.shift && !e.mods.cmd && !e.mods.ctrl && !e.mods.alt {
+        return crate::chips::shift_tab(s, tx);
+    }
     if e.key == Key::Escape {
         if s.reply.text.trim().is_empty() && s.reply_files.open.is_empty() {
             s.fold_reply();
@@ -145,7 +150,7 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
     // Then what stands open over a conversation: the strip's menu or panel, and the reply box's
     // model menu; and over the Inbox, a menu of its strip. Each takes its own keys, Escape
     // first, and lets the rest go on to the page.
-    if crate::strip::key(s, e, tx) == Some(true) || crate::reply::menu_key(s, e, tx) == Some(true) || crate::head::key(s, e, tx) == Some(true) {
+    if crate::strip::key(s, e, tx) == Some(true) || crate::reply::menu_key(s, e, tx) == Some(true) || crate::chips::key(s, e, tx) == Some(true) || crate::head::key(s, e, tx) == Some(true) {
         return true;
     }
     // ⌘C turns the cloud on or off, unless it is Copy (`cloudChord`).

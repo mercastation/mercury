@@ -501,8 +501,9 @@ impl State {
         }
         let thread = format!("{}/{}", item.product, item.id);
         let pick = self.reply_pick_to_send(item);
+        let said = crate::chips::said(self, item);
         let save = crate::write::Step::Save { product: item.product.clone(), files: pending(&files) };
-        if self.send_steps(vec![save], crate::write::Sent::Carry { thread: thread.clone(), words, pick, files }) {
+        if self.send_steps(vec![save], crate::write::Sent::Carry { thread: thread.clone(), words, pick, said, files }) {
             self.reply_files.saving = Some(thread);
         }
     }
@@ -511,7 +512,7 @@ impl State {
     /// words with a link to each file under them; refused, the box keeps everything and a line
     /// says why, in the web window's words.
     pub(crate) fn carried(&mut self, landed: crate::write::Landed, tx: &mut Tx) {
-        let crate::write::Sent::Carry { thread, words, pick, files } = landed.sent.clone() else {
+        let crate::write::Sent::Carry { thread, words, pick, said, files } = landed.sent.clone() else {
             return;
         };
         if self.reply_files.saving.as_deref() == Some(thread.as_str()) {
@@ -524,7 +525,7 @@ impl State {
         let Some(item) = thread.split_once('/').and_then(|(product, id)| self.snap.items.iter().find(|i| i.id == id && i.product == product)).cloned() else {
             return;
         };
-        self.hold_reply(&item, words, &links, pick, files, tx);
+        self.hold_reply(&item, words, &links, pick, said, files, tx);
     }
 
     /// What a picture taken with files in a box says of them: each file by its path, attached
@@ -745,17 +746,20 @@ mod tests {
         // The engine saved the picture: the reply is held with the link under its words, and the
         // box empties and folds.
         let saved = json!([{ "rel": format!("attachments/mx1-ab-{name}"), "name": name, "image": true }]);
-        let landed = crate::write::Landed { sent: crate::write::Sent::Carry { thread: thread.clone(), words: "Use this layout.".to_string(), pick: None, files: files.clone() }, answer: Ok(saved), snapshot: None };
+        // The chips' picks as they stood at Send ride the reply once its files are saved.
+        let said = crate::rules::reply_chips::Said { level: Some(crate::rules::compose::Level::High), mode: Some("plan".to_string()) };
+        let landed = crate::write::Landed { sent: crate::write::Sent::Carry { thread: thread.clone(), words: "Use this layout.".to_string(), pick: None, said: said.clone(), files: files.clone() }, answer: Ok(saved), snapshot: None };
         rt.update(|s, tx| s.carried(landed, tx));
         let held = rt.state.held.as_ref().expect("the reply waits its three seconds");
         assert_eq!(held.payload["answer"], json!(format!("Use this layout.\n\n![{name}](attachments/mx1-ab-{name})")));
+        assert_eq!((held.payload["priority"].clone(), held.payload["permissionMode"].clone()), (json!(7.0), json!("plan")));
         assert!(!rt.state.replying && rt.state.reply_files.open.is_empty() && rt.state.reply.text.is_empty());
         // Z gives back the words and the picture, not the link.
         rt.update(|s, tx| s.undo(tx));
         assert_eq!((rt.state.reply.text.as_str(), reply_names(&rt)), ("Use this layout.", vec![name.clone()]));
         assert!(rt.state.replying && rt.state.held.is_none());
         // Refused by the engine instead, the box keeps everything and says why.
-        let refused = crate::write::Landed { sent: crate::write::Sent::Carry { thread, words: "Use this layout.".to_string(), pick: None, files }, answer: Err("connection refused".to_string()), snapshot: None };
+        let refused = crate::write::Landed { sent: crate::write::Sent::Carry { thread, words: "Use this layout.".to_string(), pick: None, said, files }, answer: Err("connection refused".to_string()), snapshot: None };
         rt.update(|s, tx| s.carried(refused, tx));
         assert_eq!(rt.state.toast.as_ref().map(|t| t.line.clone()), Some("Not sent: connection refused Your draft has been kept.".to_string()));
         assert!(rt.state.held.is_none() && rt.state.reply_files.open.len() == 1);

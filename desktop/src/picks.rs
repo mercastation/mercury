@@ -41,6 +41,10 @@ pub struct Picks {
     pub key_hints: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rail_shrinks: Option<bool>,
+    /// The rounds of an agent's choices folded away by the little arrow in their corner, the
+    /// newest hundred, as the web window keeps its own (`one.choicesFoldedOn`, `foldKey`).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub choices_folded: Vec<String>,
 }
 
 /// The picks, and the file they are kept in when there is one.

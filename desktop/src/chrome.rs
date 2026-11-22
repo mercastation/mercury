@@ -115,6 +115,11 @@ impl Rail {
             self.dot = self.dot.toward(1.0, now, 0.0, 0.1 * k, ease);
         }
     }
+    /// Whether it is open, or opening: the web window's rail stops being folded the moment it
+    /// starts to widen (`railOpen`).
+    pub fn is_open(&self) -> bool {
+        self.open
+    }
     /// How wide it is at `now`.
     pub fn width(&self, now: f64) -> f32 {
         self.width.at(now)
@@ -353,15 +358,17 @@ pub fn rail(s: &State, still: bool) -> El {
         .child(search)
         .child(places)
         .child(buttons);
-    if usage {
-        // Open, it names the agent read last and, where the Inbox has its count, the figure of
-        // its headline window (`.usage-row-label`, `.usage-row-num`). The web window opens the
-        // limits under it; here it only reads, so it does not answer the pointer as if it would.
-        let (word, used) = window::usage_row(&s.snap, s.now).unwrap_or(("Usage", None));
-        let mut row = rail_button(&icons::USAGE, word, false, wide, words);
-        if let Some(used) = used {
-            row = row.child(spacer()).child(pen(label(&format!("{used}%"), 13.0, 400.0, muted()).group_color(ink()), 13.0).opacity(words));
+    if let Some(reading) = crate::rules::usage::Usage::of(&s.snap, s.now) {
+        // Open, it names the agent used last and, where the Inbox has its count, the figure of
+        // its headline window (`.usage-row-label`, `.usage-row-num`). Resting on it opens the
+        // card of every agent's limits over it, and a press opens that agent's page in Settings
+        // (`usage.rs`).
+        let mut row = rail_button(&icons::USAGE, reading.word(), false, wide, words);
+        if let Some(used) = reading.used(s.now) {
+            let figure = label(&format!("{}%", crate::rules::usage::number(used)), 13.0, 400.0, crate::usage::figure_ink(used)).group_color(ink());
+            row = row.child(spacer()).child(pen(figure, 13.0).opacity(words));
         }
+        let row = crate::usage::answering(row.label(reading.sentence(s.now)), &reading.last.engine);
         rail = rail.child(el().pin(Some(0.0), None, None, Some(face_room + 12.0)).child(row));
     }
     if let Some(letters) = me {

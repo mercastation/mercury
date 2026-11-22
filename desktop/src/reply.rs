@@ -119,6 +119,7 @@ impl State {
     fn open_reply_menu(&mut self, keys: bool, tx: &mut Tx) {
         // One thing stands open over a conversation at a time.
         self.close_strip();
+        crate::chips::let_go(self);
         let mut menu = Menu { kind: MenuKind::Model, every_model: false, lit: crate::compose::NO_ENTRY, reply: true };
         if keys {
             menu.lit = rules::entry_lit_first(&self.menu_entries(&menu), |entry| self.entry_is_picked(entry, true));
@@ -141,8 +142,10 @@ impl State {
     }
 
     /// The menu closes and the caret is back in the words, which ⌘Return sends from
-    /// (`onOpenChange`, the box taking the focus back when the drawer shuts).
+    /// (`onOpenChange`, the box taking the focus back when the drawer shuts). A menu of the
+    /// box's other chips closes with it, as whatever opens over the conversation closes them.
     pub fn close_reply_menu(&mut self) {
+        self.chips.menu = None;
         if self.reply_menu.take().is_some() && self.replying {
             self.reply.focused = true;
         }

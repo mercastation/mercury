@@ -123,14 +123,6 @@ pub fn answer_fields(sent: &ReplyPick) -> Map<String, Value> {
     fields
 }
 
-/// What a reply typed in the box says of what it may do, with the mode's chip untouched: the
-/// thread's own mode, else `null`, which the store keeps beside the ledger, not on it
-/// (`useState(item.answerMode ?? null)` in `DockComposer`, `setAnswerMode` in `main/store.mts`).
-/// A picked option sends none (`pickOption`).
-pub fn mode_sent(item: &Item) -> Value {
-    item.rest.get("answerMode").cloned().unwrap_or(Value::Null)
-}
-
 /// The level beside the model's name on the chip, or nothing: only a level that will really be
 /// sent, one this model takes (`effortSaid`). It is read against the agent the thread is on now,
 /// as the web window reads it.
@@ -146,32 +138,6 @@ pub fn effort_said(pick: &ReplyPick, running: Option<&str>, models: &Models) -> 
 /// cross, so what runs next starts fresh with the thread (`freshNote`).
 pub fn fresh_note(engines: &Engines, now: &str, shown: &str) -> Option<String> {
     (now != shown).then(|| format!("{} starts fresh with this thread.", engines.rows().into_iter().find(|(id, _)| id == shown).map_or_else(|| "It".to_string(), |(_, label)| label)))
-}
-
-/// The reply box's own two chips besides the model, as the web window words them: what this
-/// message may do, the thread's own setting else its project's (`ModePicker`, `runningMode`).
-/// Claude Code's words are the titles of its own mode table (`MODE_WORDS` in
-/// `renderer/src/modes.ts`), Codex's its own three (`CODEX_MODES` in `shared/codex-modes.mts`).
-pub fn mode_word(snap: &Snapshot, item: &Item, running: Option<&str>) -> String {
-    let claude = running.unwrap_or("claude") == "claude";
-    let permission = snap.rest.get("config").and_then(|c| c.get("permission"));
-    let project = permission.and_then(|p| p.get(&item.product).or_else(|| p.get(""))).and_then(Value::as_str);
-    let mode = item.text("answerMode").or(if claude { project } else { None }).unwrap_or("auto");
-    let word = match (claude, mode) {
-        (true, "default") => "Manual",
-        (true, "acceptEdits") => "Accept edits",
-        (true, "plan") => "Plan",
-        (true, "auto") => "Auto",
-        (true, "dontAsk") => "Don't Ask",
-        (true, "bypassPermissions") => "Bypass Permissions",
-        (true, "custom") => "Custom",
-        (false, "read-only") => "Read only",
-        (false, "auto") => "Auto",
-        (false, "full-access") => "Full access",
-        (_, other) => other,
-    };
-    // Title case, "Accept Edits" with it (`titleCase`).
-    word.split(' ').map(crate::rules::js::upper_first).collect::<Vec<_>>().join(" ")
 }
 
 #[cfg(test)]
@@ -264,19 +230,4 @@ mod tests {
         assert_eq!(engines_of(None, &pick(None, None, Some("antigravity"))), ("claude".to_string(), "antigravity".to_string()));
     }
 
-    #[test]
-    fn a_typed_reply_says_the_threads_own_mode_else_null() {
-        assert_eq!(mode_sent(&thread(json!({ "answerMode": "plan" }))), json!("plan"));
-        assert_eq!(mode_sent(&thread(json!({}))), Value::Null);
-    }
-
-    #[test]
-    fn the_mode_chip_says_the_threads_own_mode_else_its_projects() {
-        let snap: Snapshot = serde_json::from_value(json!({ "config": { "permission": { "": "auto", "shop": "bypassPermissions" } } })).unwrap();
-        assert_eq!(mode_word(&snap, &thread(json!({})), None), "Bypass Permissions");
-        assert_eq!(mode_word(&snap, &thread(json!({ "product": "desk" })), None), "Auto");
-        assert_eq!(mode_word(&snap, &thread(json!({ "answerMode": "acceptEdits" })), None), "Accept Edits");
-        assert_eq!(mode_word(&Snapshot::default(), &thread(json!({})), None), "Auto");
-        assert_eq!(mode_word(&snap, &thread(json!({})), Some("codex")), "Auto");
-    }
 }
