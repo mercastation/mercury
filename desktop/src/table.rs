@@ -1059,7 +1059,9 @@ pub fn focus_keys(s: &mut State, w: Where, tx: &mut Tx) {
     sh.search.focused = false;
     sh.filter_find.focused = false;
     sh.rename.focused = false;
-    tx.focus(w.key("grid"), false);
+    // The table has the keys from this very frame, its pick lit.
+    sh.holding = false;
+    tx.focus(w.key("scroll"), false);
 }
 
 /// A pick made, and its moving end kept in view (`goTo` and the follow effect).
@@ -1204,7 +1206,7 @@ fn end_by_press(s: &mut State, w: Where, tx: &mut Tx) {
 /// page: a letter is the app's (R replies, E closes), and Escape with nothing picked.
 pub fn grid_key(s: &mut State, w: Where, e: &KeyEvent, tx: &mut Tx) -> bool {
     // A box inside the table has the keys: they are its own.
-    if tx.focused() != Some(w.key("grid").as_str()) {
+    if tx.focused() != Some(w.key("scroll").as_str()) {
         return false;
     }
     if s.tables.get(w).is_some_and(|sh| sh.float.is_some()) {
@@ -1443,7 +1445,7 @@ fn bar_key(s: &mut State, w: Where, e: &KeyEvent, tx: &mut Tx) -> Option<bool> {
     if picked {
         focus_keys(s, w, tx);
     } else {
-        tx.focus(w.key("grid"), false);
+        tx.focus(w.key("scroll"), false);
     }
     Some(true)
 }
@@ -1806,7 +1808,7 @@ fn tend_focus(s: &mut State, w: Where, tx: &mut Tx) -> bool {
                     None => {}
                 }
             }
-        } else if !has && held && !mine("grid") {
+        } else if !has && held && !mine("scroll") {
             // Left for somewhere else: the edit ends as the box's blur ends it.
             let e = sh.editing.as_ref().expect("an edit");
             let value = match &e.pop {

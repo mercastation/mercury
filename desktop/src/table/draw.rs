@@ -462,7 +462,7 @@ fn bar(_s: &State, sh: &Sheet, inner: f32) -> El {
                 if let Some(sh) = s.tables.get_mut(w) {
                     sh.search.focused = false;
                 }
-                tx.focus(w.key("grid"), false);
+                tx.focus(w.key("scroll"), false);
                 return crate::keys::pressed(s, e, tx);
             }
             false
@@ -609,7 +609,6 @@ fn grid(s: &State, sh: &Sheet, inner: f32, frame_h: f32) -> El {
         .on_key(move |s: &mut State, e: &KeyEvent, tx: &mut Tx| super::grid_key(s, w, e, tx))
         .child(content);
     // The keys are kept on the viewport itself, which a press anywhere in it gives them to.
-    let viewport = viewport.key(w.key("grid"));
     if moving { viewport.cursor(Cursor::Grabbing) } else { viewport }
 }
 
@@ -2097,7 +2096,7 @@ pub(crate) fn press_row(s: &mut State, w: Where, act: Act, tx: &mut Tx) {
     if picked {
         super::focus_keys(s, w, tx);
     } else {
-        tx.focus(w.key("grid"), false);
+        tx.focus(w.key("scroll"), false);
     }
 }
 
