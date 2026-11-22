@@ -15,9 +15,14 @@ carries pictures and files the same three ways ("Files in a reply").
 
 What can be chosen in a conversation is chosen as in the web window ("Choosing in a
 conversation", below): the model and level its next reply runs on, from the reply box's chip or
-the model named on the folded box; where it runs, this Mac or the cloud, from the place button's
-panel; and from the dots, Later and its priority. The strip's tab word and its arrows go where the
-web window's go.
+the model named on the folded box; the priority the next reply sets and what it may do, from the
+box's other two chips, and Shift+Tab; where it runs, this Mac or the cloud, from the place
+button's panel; and from the dots, Later and its priority. The strip's tab word and its arrows go
+where the web window's go, and the little arrow over an agent's choices folds them away.
+
+The rail's usage row names the agent used last and what it has spent, and resting on it opens the
+card of every agent's limits over it, as the web window's sidebar does ("The agents' limits",
+below).
 
 A file an agent names in a conversation is not left as its path: a picture is drawn in place, any
 other file is a mention that opens it, and a folder on a line of its own shows its newest pictures
@@ -400,8 +405,9 @@ pointer resting. This window does the same, read off the web window the way its 
   painted for the folded card and pinned to its right edge, so the rail uncovers them rather than
   painting them again (`sky-follows-the-card.ts`). Open, it says what the web window's says: each
   place's word, Inbox's count in the dim ink where the dot was, the team's name, Search with ⌘K,
-  the foot's rows, the usage row naming the agent read last and its headline figure, and the
-  person's name over their email. Its places, Search among them, wash under the pointer; Search
+  the foot's rows, the usage row naming the agent used last and its headline figure (resting on
+  it opens the card of the agents' limits, "The agents' limits"), and the person's name over
+  their email. Its places, Search among them, wash under the pointer; Search
   keeps its faint ink as it does, where the places' marks and words come up to the text's
   (`home-rail-search`: Search under the pointer 0.52).
   Under the system's Reduce motion it opens and folds whole, as the same stylesheet's
@@ -633,6 +639,9 @@ The keys are the web window's (`src/keys.rs`, from the keydown handler in `rende
 | A conversation's menu (the dots) | ↓, ↑, Home, End, Enter, Space | Walks its rows around both ends and presses the one lit; every other key goes on to the page |
 | A conversation's menu, its place panel | Esc | Closes it; Tab closes the menu too |
 | The reply box's model menu | ↓, ↑, Enter, Esc | Walks its rows around both ends and picks the one lit; Esc closes it and puts the caret back in the words; any other key goes on to the page |
+| The reply box | Shift Tab | Moves what the next reply may do to the agent's next mode, and says so |
+| The reply box's priority menu | ↓, ↑, Enter, Esc | Walks the four levels around both ends and picks the one lit, the keys staying on the chip; Esc closes it there, where ↓, ↑, Enter or Space opens it again; any other key goes on to the page |
+| The reply box's mode menu | Enter, Space, Esc | Enter and Space close it, as a press on its chip does; Esc closes it and puts the caret back in the words; any other key goes on to the page |
 | Home | N, or a letter none of the list's keys | Puts the caret in the box on the page (the letter typed into it) |
 | The Inbox, a conversation | N | Opens the New thread card over the page |
 | The box, the card | ⌘Return | Sends the thread; Return is a new line |
@@ -653,9 +662,9 @@ words in it (`src/rules/writes.rs`): a reply, a picked option ("Option 2: …") 
 alone keeps what has been read, the way a phone tells it (`zero:phone-seen`). An option that
 closes ("Close this task"), leaves the work on its branch or needs the person's own words
 ("Change something first") does that instead of being sent, by the web window's rules. A reply
-typed in the box carries the model, level and agent picked in it, and what it may do, as the web
-window's box sends them; a level picked in a conversation's menu and where it runs are written
-on their own channels ("Choosing in a conversation", below).
+typed in the box carries the model, level and agent picked in it, the priority picked on its
+chip, and what it may do, as the web window's box sends them; a level picked in a conversation's
+menu and where it runs are written on their own channels ("Choosing in a conversation", below).
 
 What is done waits three seconds before it is written, as in the web window (`deferCommit`): it
 shows at once, a line says so with Z and Undo beside it, and Z inside that time takes it back
@@ -700,9 +709,9 @@ web window in each of these states; a fixture says what its picture had open (`r
 ## Choosing in a conversation
 
 What a conversation offers to choose is the web window's, ported where the person uses it: the
-model and level of the next reply (`src/reply.rs`, its rules `src/rules/reply_pick.rs`), where the
-thread runs and the thread's own menu (`src/strip.rs`, the place's rules `src/rules/place.rs`),
-and the strip's other presses.
+model and level of the next reply (`src/reply.rs`, its rules `src/rules/reply_pick.rs`), the
+priority it sets and what it may do (`src/chips.rs`), where the thread runs and the thread's own
+menu (`src/strip.rs`, the place's rules `src/rules/place.rs`), and the strip's other presses.
 
 **The model and how hard it thinks.** The reply box's model chip opens the New thread box's own
 model menu (`compose.rs`), raised out of the chip eight points over it, its left edge on the chip's
@@ -725,9 +734,57 @@ always named, the other agents' defaults by naming none, the agent only where th
 thread. A pick with nothing typed writes nothing, a picked option of the agent's carries none, and
 the folded box goes on naming the thread's own model until a reply carries the pick. Z inside the
 three seconds puts the words and the pick back; a refused reply comes back by its words alone, as
-in the web window (`restoreFailedDraft`). The reply also says what it may do, the thread's own mode
-or none, which the engine keeps beside the ledger rather than on it (`permissionMode`, as
-`DockComposer` sends it).
+in the web window (`restoreFailedDraft`). The reply also says what it may do (below).
+
+**The priority and what it may do.** The reply box's first chip is the priority the next reply
+sets, the second what it may do (`PriorityPicker` and `ModePicker` in `DockComposer`;
+`src/chips.rs`, its rules `src/rules/reply_chips.rs`). Each opens the web window's `.prio-menu`
+over it, 168 points wide, risen eight points from the chip's left edge, kept inside the window,
+coming in as `prio-in` does (a fade and a four point rise from 98%, over 0.13 s), the chip
+brighter inside a stronger edge while it is up.
+
+- The priority's four levels, each with its bars, open with the keys on the level the chip
+  shows, which is the thread's own (Medium for an untagged one, as it runs) until a pick: the
+  pointer moving onto a row and the arrows move the wash, Enter or a press picks, and the level
+  the chip shows is bold. A pick made with Enter leaves the keys on the chip, where an arrow,
+  Enter or Space opens the menu again; one made with a press leaves them on nothing, as the
+  pressed row goes with its menu.
+- What it may do lists the modes of the agent the thread is on now, whatever a model picked in
+  the box would move it to (`claudeCode`): Claude Code's six in its own words (Manual, Accept
+  edits, Plan, Auto, Don't Ask, Bypass Permissions), Codex's three (Read only, Auto, Full
+  access) on any other agent, Antigravity's threads included. The mode the next reply runs in is
+  bold: the box's own, which starts as the thread's (`answerMode`), else on Claude Code the
+  project's (`config.permission`), else Auto. No row lights under the pointer or the keys. A pick
+  is said in the strip ("Permissions · plan mode on for this thread"), puts the caret back in the
+  words, and empties them only of a slash query. The chip says the mode title cased ("Accept
+  Edits"), led by its shield.
+- Shift+Tab in the words moves the mode round the agent's ring and says so: on Claude Code
+  Manual, Accept edits, Plan, Auto, with anything outside the ring (Bypass Permissions, Don't Ask)
+  going to Manual, so no key walks anybody into Bypass; on any other agent round Codex's three.
+- Nothing is written when a chip is picked. The next reply carries the picks, as the web window
+  sends them: the priority only once it was picked (`priority`, 9, 7, 5 or 2), what it may do
+  always (`permissionMode`: the box's mode, `null` while neither the box nor the thread has one,
+  which clears a mode set on an earlier reply). A reply whose files are saved first carries them
+  as they stood at Send. Neither is kept with the draft: folding the box lets both go, and the box
+  opened again shows the thread's own, now including what the reply wrote, as the web window's
+  box is made anew each time it opens. Z puts the words and the model back, not these.
+- A narrow bar gives up the mode chip first, when the three chips at their whole widths no longer
+  fit beside the paper clip and Send (`chipsOverflow`): it stays laid out unseen, so it comes back
+  when there is room, and Shift+Tab still changes the mode. A box under 460 points drops the
+  priority's word, the shield, the model's mark and level, and Send's word for its arrow
+  (`@container reply`).
+- One menu stands at a time over a conversation: a chip's menu closes the model menu and the
+  strip's, and theirs close it. A press outside closes it on its way down and goes on to what it
+  was aimed at in the box (the other chip, the model's, the words, Send); anywhere else it only
+  closes, as the model menu does.
+
+**The choices' little arrow.** The small arrow in the corner of an agent's choices folds them away
+(`ChoicesFold`): the strip goes, and the folded reply box carries a sign after its R, how many
+choices and an arrow up, whose press brings them back without opening the box (`ChoicesShow`). A
+fold holds one thread's current round of choices, kept from one window to the next with the
+other picks (`foldKey`, the newest hundred): another thread, or the same thread's next round,
+opens unfolded. The keys reach the choices either way, and one picked out with an arrow brings
+the strip back while it is picked.
 
 **Where it runs.** On a Mac set up for the cloud, the button beside Done, a cloud or a Mac, opens
 the panel under it, 440 points wide, its right edge on the button's (`PlaceButton.tsx`): Runs on,
@@ -810,6 +867,52 @@ payload for the same pick, sent by hand to a second thread, wrote the same lines
 - High picked in the menu: `{"priority":7}`, and "Priority: high" in the strip.
 - Later in the menu, then Enter: `{"snoozedUntil":…}`, thirty minutes on, as L does.
 - Z inside the hold after a reply with a pick: no line, and the words and the pick back in the box.
+
+The reply box's chips have their own scenes (`tools/scenes/reply-chips.mjs` answers the page's
+settings with invented Codex and Antigravity models and puts every thread on one agent):
+`thread-reply-priority` and `thread-reply-mode` (each chip's menu open, the project on Bypass
+Permissions), `thread-reply-mode-codex` and `-antigravity` (the menu on those agents),
+`thread-reply-mode-moved` (a waiting thread, a line typed, the next reply moved to Antigravity's
+model at High, its note under the words, the mode menu open), `thread-reply-picked` (High and
+Plan picked, the line in the strip), the pointer resting on a row of each menu
+(`thread-reply-priority-hover-row`, `thread-reply-mode-hover-row`), `thread-reply-compact` (the
+moved one with the rail kept open, photographed at 720 by 760), and the folded choices
+(`thread-choices-folded`, and `-picked` with an arrow pressed). A fixture says what was open or
+picked (`actions`: `reply-priority`, `reply-mode`; `replyPicked`, `replyPick`, `choicesFolded`).
+At 2x, dark, the menu's box (`.prio-menu`), the chips, the box and the bar:
+
+| Scene | Window | Whole | The menu | The chips | The box | The bar |
+|---|---|---|---|---|---|---|
+| `thread-reply-priority` | 1280 by 760 | 0.43 | 0.33 | 0.72 | 0.41 | 0.50 |
+| | 900 by 760 | 0.57 | 0.33 | 0.72 | 0.41 | 0.49 |
+| `thread-reply-mode` | 1280 by 760 | 0.45 | 0.38 | 0.41 | 0.49 | 0.52 |
+| | 900 by 760 | 0.59 | 0.38 | 0.41 | 0.51 | 0.53 |
+| `thread-reply-mode-codex`, `-antigravity` | 1280 by 760 | 0.44, 0.44 | 0.39, 0.39 | 0.40, 0.40 | 0.47, 0.49 | 0.49, 0.53 |
+| `thread-reply-mode-moved` | 1280 by 760 | 0.69 | 0.38 | 0.41 | 0.56 | 0.65 |
+| | 900 by 760 | 0.92 | 0.38 | 0.41 | 0.59 | 0.67 |
+| | 720 by 760, the mode chip folded | 1.19 | | 0.34 | 0.67 | 0.69 |
+| `thread-reply-compact` | 720 by 760 | 5.16, the kept-open rail's places | | 0.10 | 0.75 | 0.76 |
+| `thread-reply-picked` | 1280 by 760 | 0.47 | | 1.14 | 0.63 | 0.57 |
+| `thread-choices-folded` | 1280 by 760 | 0.67 | the sign 0.12 | | the folded box 0.28 | |
+| `thread-choices-folded-picked` | 1280 by 760 | 0.71 | the strip 0.81 | | 0.71 | |
+
+Under the pointer a priority row is 0.20 (0.17 at rest) and a mode row 0.20 (0.20), the
+pointing hand over both, as the web window's. Filmed at 60 frames a second a chip's menu comes in
+over four frames after the press lets go and closes at once. The screens before this did not
+move: `thread-reply`, `thread-options` and `home-team` are drawn to the same pixel as the build
+before it.
+
+Against a scratch engine, two threads written down for later so nothing ran, each reply sent by
+this window (its box opened with R, the chips pressed, Send pressed) beside the web window's own
+payload for the same picks sent by hand to the other thread, wrote the same ledger lines and the
+same kept mode (`answer-modes.json`):
+
+- "Ship the fix." with Plan and High: `{"answer":"Ship the fix."}`, then `{"priority":7}`, and
+  `plan` kept for the thread. Opened again, the box read High and Plan.
+- "Go on." after Shift+Tab, the priority untouched: `{"answer":"Go on."}` alone, and `auto`
+  kept (Plan's next on Claude Code's ring).
+- On two Codex threads, "Go on." with Read only and Urgent: `{"answer":"Go on."}`, then
+  `{"priority":9}`, and `read-only` kept.
 
 The engine there has no cloud set up, so it draws no place button and the panel was not pressed
 against it. Its three writes were sent by hand, as `place::writes` makes them: keeping the thread
@@ -1743,6 +1846,62 @@ door, so the fleet, the cloud and the team are the real ones too.
 The real threads are read and never written, their words are printed as lengths only, and nothing
 of them is ever committed. `cargo test` runs the rules' own tests on invented threads.
 
+## The agents' limits
+
+The rail's usage row and the card it opens are the web window's sidebar `UsagePill`
+(`renderer/src/components/UsagePill.tsx`, its look `.usage-panel` and `.workspace-usage`):
+`src/usage.rs` draws them, and `src/rules/usage.rs` holds `shared/usage.mts`'s rules with its
+cases as tests.
+
+- **The row** names the agent used last: the newest run going now, else the thread touched last
+  that names its agent (`lastUsedEngine`), among the agents with a reading from this week that
+  still answers for a window (`agentsInUse`). Open, it ends on the headline window's figure, the
+  five hour one where there is one, else the fullest (`headlineLimit`); none when that window
+  started over since it was read. Past 80% spent the figure is in the text's ink.
+- **The card** rises eight points over the row from the rail's left edge, 268 points wide
+  whatever the rail's width, square, on the panel's grey under a strong edge and the app's large
+  shadow. One agent: its name in small capitals, each limit (its name, "39% used", a bar of what
+  is spent, when it starts over), and under a hairline when it was read ("Read just now", "Read
+  4m ago"). Several: the one used last first with "Last used" beside its name and when it was
+  read under its limits, then each other under a hairline of its own with its limits and when it
+  was read. A reset is Claude Code's clock time, with the day when it is not today ("Resets Wed
+  at 10:57pm"), or, for a reading that carries an instant and no words, Codex's, counted down
+  ("Resets in 6d 13h"). A five hour window that started over while another still runs says Reset,
+  with no bar and no time (`limitsToShow`).
+- **When it opens.** 120 ms after the pointer came onto the row, so a pointer crossing the
+  rail's foot does not flash it; it stays 220 ms after the pointer left it, so one slipping off
+  its edge does not snap it shut (`LINGER_MS`). On the folded rail nothing opens: a pointer that
+  landed there opens it on its first move once the rail has opened, so the card never opens into
+  a rail still widening, and the rail folding closes it at once. On a rail kept open (Settings'
+  "the sidebar shrinks to icons" off) it opens 120 ms after the pointer moves onto the row. It
+  lands whole, as the web window's has no transition, and takes no pointer: the pointer passes
+  through it to what is under it. Nothing asks the agents for a fresh reading when it opens; the
+  readings are the snapshot's, as the web window's are.
+- **A press** on the row opens that agent's page in Settings, here (Codex's for a Codex reading,
+  Claude Code's for any other: `openAgentSettings`), and the card goes.
+
+The scenes: `home-usage` (one agent), `home-usage-two` (Claude Code read just now, Codex a day
+ago), `home-usage-reset` (a five hour window that started over) and `home-usage-kept-open`
+(two agents, the rail kept open). Each hands the pointer's path to this window in its fixture
+(`script`, `at`), the same three moves the page was given. `tools/scenes/usage.mjs` invents
+the readings. At 2x, dark, the card, the row and the rail:
+
+| Scene | Window | Whole | The card | The row | The rail |
+|---|---|---|---|---|---|
+| `home-usage` | 1280 by 760 | 0.96 | 0.27 | 0.47 | 0.65 |
+| `home-usage-two` | 1280 by 760 | 0.96 | 0.28 | 0.47 | 0.64 |
+| | 900 by 760 | 0.98 | 0.28 | 0.47 | |
+| `home-usage-reset` | 1280 by 760 | 0.96 | 0.27 | 0.32 | 0.64 |
+| `home-usage-kept-open` | 1280 by 760 | 3.60, Home's sky | 0.28 | 0.47 | 0.64 |
+
+The rail is the web window's less its Demands and Connections (see what still differs). Home
+with the rail kept open is 3.60 whole without the card too: the web window paints Home's sky for
+the narrower card there, and this one for the folded card. Filmed at 60 frames a second the card
+lands whole on the frame its 120 ms run out, and stays still. Tests hold the rest on an invented
+inbox: no card until the pointer moves on the opened rail, then 120 ms; 220 ms of linger; the
+rail folding closes it; a pointer only passing over opens nothing; a press opens Claude Code's
+page in Settings.
+
 ## Settings
 
 The rail's Settings, and the person's own row under it, open Settings over the whole window as the
@@ -1869,9 +2028,7 @@ release or a second login.
     brighten (`a.mention:hover .mention-icon`): Rune's link covers words and not a mark set among
     them.
   - The open rail's update card, which the web window draws while a new version waits
-    (`home-update-rail-open`, the rail 3.39 of 255), is its Restart row here, and the usage row
-    opens no panel of its figures under the pointer and takes the arrow, where the web window's
-    takes the pointing hand.
+    (`home-update-rail-open`, the rail 3.39 of 255), is its Restart row here.
   - To's face on the New thread card takes the pointer over its whole square; the web window's
     is round, and Chromium finds its corners as the field's.
   - A table in a message does not sort: its headers are words, where the web window's take the
@@ -1966,13 +2123,18 @@ release or a second login.
   model and level of the next reply, Later, and where a thread runs. Left out is what this window
   cannot do and what goes unused, a thread's name, project, pin, waits, demand and shipped mark,
   and what only teammates or approvals need:
-  - Of the reply box's chips only the model is chosen. The level (`PriorityPicker`, its own list
-    and not the box's menu) rides on the next reply in the web window and goes unused, so it is
-    drawn, and the thread's menu changes the level instead, at once. The second chip is
-    not who takes the thread but what this message may do (`ModePicker`, Claude Code's
-    permission modes, "Bypass Permissions" on a project run with full access): led by its
-    shield (`ModeMark`), it says the thread's own mode in the web's words, and is not chosen.
-    Nothing is sent later (the caret beside Send).
+  - Nothing is sent later. The caret beside Send answers the pointer as the web window's does
+    and opens nothing: its menu (`ReplyLater`: Remove the time, Tomorrow morning, Monday morning,
+    a time typed in words, then the time said on the caret, the reply written with its `runAt`
+    and held on the thread until then, a reply sent meanwhile taking the waiting one with it, and
+    the time kept with the draft) is a box of its own and a grammar of its own, and goes unused.
+  - What a reply may do is changed by its chip and Shift+Tab. The web window's box also takes
+    the mode typed as a slash command (`/plan ` and its kin set it, `/clear ` puts the thread back
+    on its project's setting, and `/` opens a menu of them and of Claude Code's commands); this
+    box has no slash commands, so a mode set on a thread is changed but never cleared from here.
+  - In a box under 460 points the model chip keeps its whole name, where the web window's is
+    cut with an ellipsis once the mode chip has folded and the chips still do not fit. That takes
+    a model's name longer than about twenty letters in the narrowest window with the rail open.
   - The thread's menu leaves out every row this window cannot do, which are also the ones never
     used: Open terminal (⌘J; this window has no terminal), Rename, Move to another project, Pin
     thread, Share…, Add people and Ask or hand off… (teammates), Waits on… and Blocked by…, Mark as
@@ -2080,8 +2242,8 @@ release or a second login.
   has Demands, Chats (with teammates), Connections, Record meeting and Feedback. Drawn here they
   were buttons that went nowhere, so they are left out until this window has their pages, and
   Files stands under the Inbox where the web window has Demands and Connections before it.
-  Settings and the person's row open Settings here ("Settings", above); the usage row only
-  reads, where the web window's opens the limits under it.
+  Settings and the person's row open Settings here ("Settings", above), and the usage row opens
+  the card of the agents' limits ("The agents' limits", above).
 - **Settings has only the pages that are used**, and sends the rest to the web window
   ("Settings", above). Within its pages:
   - A line of a wrapped description can stand a device pixel lower than the web window's:
@@ -2235,6 +2397,13 @@ release or a second login.
   box's own, from `compose.rs`). `src/rules/reply_pick.rs`: what the box opens on, what a pick
   keeps and what the next reply writes. `src/strip.rs`: what the strip over a conversation
   opens, the thread's menu and the place panel, and what a pick there writes.
+- `src/chips.rs`: the reply box's priority and mode chips, their menus, Shift+Tab, what a reply
+  carries of them, the narrow bar's fold, and the little arrow that folds an agent's choices.
+  `src/rules/reply_chips.rs`: each agent's modes and their words, the ring Shift+Tab walks, the
+  line a change says, what a reply writes, and which round of choices a fold holds.
+- `src/usage.rs`: the rail's usage row and the card of the agents' limits it opens, and when.
+  `src/rules/usage.rs`: which agents are in use and which used last, which windows a reading
+  still answers for, the card's rows and their resets, and how old a reading is.
 - `src/compose.rs`: the box a thread is started in, on Home and as the New thread card, its
   menus and what a send does. `src/rules/compose.rs`: what a new thread is made of and the
   menus' rules. `src/picks.rs`: the picks kept from one window to the next.
