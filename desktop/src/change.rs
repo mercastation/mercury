@@ -168,6 +168,10 @@ pub struct Here {
     /// Where each file's block and the column were drawn, in window points.
     tops: Vec<f32>,
     body_top: f32,
+    /// Each file's block as last laid out, and which files are near enough the column's view to
+    /// have their rows built; the rest hold their height (`code-unfilled`).
+    heights: Vec<Option<f32>>,
+    near: Vec<bool>,
     /// The line being typed in, by file, hunk and row, and its words.
     editing: Option<(usize, usize, usize)>,
     pub edit: TextEdit,
@@ -373,6 +377,8 @@ impl State {
             tree_keys: false,
             start_at: None,
             tops: Vec::new(),
+            heights: Vec::new(),
+            near: Vec::new(),
             body_top: 0.0,
             editing: None,
             edit: TextEdit::new(""),
@@ -408,10 +414,59 @@ impl State {
     /// Each file's running list, again: after the change is read, a gap opens or a file folds.
     fn lay_out_the_change(&mut self) {
         let Some(shown) = self.shown() else { return };
+        let folds = self.changes.here.as_ref().and_then(|h| self.changes.folds.get(&h.key)).cloned().unwrap_or_default();
         let Some(here) = self.changes.here.as_mut() else { return };
         here.entries = shown.files.iter().map(|f| Rc::new(entries_of(f, &here.gaps))).collect();
-        here.tops = vec![f32::INFINITY; shown.files.len()];
+        if here.tops.len() != shown.files.len() {
+            here.tops = vec![f32::INFINITY; shown.files.len()];
+        }
+        // A file whose list changed is measured again.
+        here.heights = vec![None; shown.files.len()];
+        here.near = near_files(here, &shown, &folds, COLUMN.with(Cell::get));
     }
+}
+
+/// A file's block before it has been laid out: its head, its rows at a line each, each hunk's
+/// block and air, each gap, and the block's ten under it.
+fn estimated_height(entries: &[Entry], folded: bool) -> f32 {
+    if folded {
+        return HEAD_H + 10.0;
+    }
+    let mut h = HEAD_H + 10.0;
+    for (i, e) in entries.iter().enumerate() {
+        h += match e {
+            Entry::Gap { .. } => 32.0,
+            Entry::Opened { at: 0, .. } => row_tall() + 8.0,
+            Entry::Opened { .. } => row_tall(),
+            Entry::Row { row: 0, .. } => row_tall() + if i > 0 && matches!(entries[i - 1], Entry::Gap { .. } | Entry::Opened { .. }) { 2.0 } else { 10.0 },
+            Entry::Row { .. } => row_tall(),
+        };
+        if matches!(entries.get(i + 1), None | Some(Entry::Gap { .. } | Entry::Opened { at: 0, .. }) | Some(Entry::Row { row: 0, .. })) && matches!(e, Entry::Row { .. }) {
+            h += 2.0;
+        }
+    }
+    h
+}
+
+/// Which files are near the column's view, `(scroll, viewport, _)` as it last said: a screen
+/// above it to two below, by each file's height as laid out, else as estimated. Only those
+/// have their rows built.
+fn near_files(here: &Here, shown: &Shown, folds: &HashSet<String>, (scroll, viewport, _): (f32, f32, f32)) -> Vec<bool> {
+    let view = if viewport > 0.0 { viewport } else { 1000.0 };
+    let (from, to) = (scroll - view, scroll + 3.0 * view);
+    let mut top = 0.0;
+    shown
+        .files
+        .iter()
+        .enumerate()
+        .map(|(f, file)| {
+            let folded = folds.contains(&file.path);
+            let h = here.heights.get(f).copied().flatten().unwrap_or_else(|| estimated_height(here.entries.get(f).map_or(&[][..], |e| &e[..]), folded));
+            let near = top + h >= from && top <= to;
+            top += h;
+            near
+        })
+        .collect()
 }
 
 /// What the engine's answer to the whole change opens onto.
@@ -751,7 +806,13 @@ fn lines_selected(sel: &rune::TextSelection) -> usize {
 fn block(s: &State, here: &Here, shown: &Rc<Shown>, f: usize, file: &ChangedFile, w: f32) -> El {
     let fold = folded(s, here, &file.path);
     let head = file_head(s, here, f, file, fold, w).sticky_top(0.0);
-    let mut block = col().key(format!("chg-file-{f}")).w(w).pb(10.0).child(head).on_drawn_layout_tx(move |s: &mut State, r, tx| section_moved(s, f, r[1], tx));
+    let mut block = col().key(format!("chg-file-{f}")).w(w).pb(10.0).child(head).on_drawn_layout_tx(move |s: &mut State, r, tx| section_moved(s, f, r[1], r[3], tx));
+    // A file far from the column's view holds the height its rows take, as the web window's
+    // `code-unfilled` does, and builds them as it comes near.
+    if !fold && !here.near.get(f).copied().unwrap_or(true) {
+        let tall = here.heights.get(f).copied().flatten().unwrap_or_else(|| estimated_height(here.entries.get(f).map_or(&[][..], |e| &e[..]), false));
+        return block.child(el().w(w).h((tall - HEAD_H - 10.0).max(0.0)));
+    }
     if !fold {
         let count = here.entries.get(f).map_or(0, |e| e.len());
         let cols = ((w - NUM_W - MARK_W - LINE_PAD) / ADVANCE).floor().max(1.0) as usize;
@@ -1204,25 +1265,44 @@ fn read_code_file(path: String) -> Result<String, &'static str> {
 /// A file's block moved: where it now stands says which file is at the top of the column, which
 /// the tree, the picker and the open mark follow, and the tree keeps that file's row in view
 /// (`fileOnScreen`). While a jump lands, it waits for the file it asked for.
-fn section_moved(s: &mut State, f: usize, top: f32, tx: &mut Tx) {
+fn section_moved(s: &mut State, f: usize, top: f32, tall: f32, tx: &mut Tx) {
+    let Some(shown) = s.shown() else { return };
+    let folds = s.changes.here.as_ref().and_then(|h| s.changes.folds.get(&h.key)).cloned().unwrap_or_default();
+    let at_now = s.at;
     let Some(here) = s.changes.here.as_mut() else { return };
     if here.tops.len() <= f {
         here.tops.resize(f + 1, f32::INFINITY);
     }
+    if here.heights.len() <= f {
+        here.heights.resize(f + 1, None);
+    }
     here.tops[f] = top;
+    here.heights[f] = Some(tall);
+    // Files coming near the view have their rows built; the view is drawn again for them.
+    let near = near_files(here, &shown, &folds, COLUMN.with(Cell::get));
+    let nearer = near != here.near;
+    here.near = near;
     let offsets: Vec<f32> = here.tops.iter().map(|t| t - here.body_top).collect();
     if let Some((want, until)) = here.holding {
         let landed = offsets.get(want).is_some_and(|o| o.abs() <= 1.0);
-        if landed || s.at > until {
+        if landed || at_now > until {
             here.holding = None;
         } else {
-            tx.live_only();
+            // Re-asserted while the rows over it settle their heights (`put`).
+            if f == want {
+                tx.scroll_key_to(format!("chg-file-{want}"), 0.0);
+            }
+            if !nearer {
+                tx.live_only();
+            }
             return;
         }
     }
     let at = rules::file_on_screen(&offsets, 0.0);
     if at == here.at {
-        tx.live_only();
+        if !nearer {
+            tx.live_only();
+        }
         return;
     }
     here.at = at;
@@ -2088,10 +2168,30 @@ mod tests {
     /// one, across eighty files, some lines two thousand characters long): a measurement, run with
     /// `MERCURY_BIG_CHANGE=20000 cargo test --release -- --ignored --nocapture a_big_change_opens`.
     #[test]
-    #[ignore]
-    fn a_big_change_opens_in() {
-        let Ok(rows) = std::env::var("MERCURY_BIG_CHANGE").map(|n| n.parse::<usize>().unwrap_or(20_000)) else { return };
-        let files = 80;
+    fn a_large_change_builds_only_the_rows_near_the_view() {
+        let (mut rt, dir) = with_a_change("large", (1280.0, 760.0), None);
+        let change = invented_change(4_000, 40);
+        rt.update(move |s, _| {
+            for v in s.fixture.get_mut("codeChanges").and_then(Value::as_object_mut).expect("answers").values_mut() {
+                *v = json!({ "ok": true, "change": change });
+            }
+        });
+        open_it(&mut rt);
+        run(&mut rt, 0.2);
+        let built = |rt: &Runtime<State>| rt.elements().iter().filter(|e| e.key.as_deref().is_some_and(|k| k.starts_with("l:"))).count();
+        assert!(built(&rt) > 20 && built(&rt) < 400, "{} rows built of 4,000", built(&rt));
+        // Jumped to the last file, its rows are built where the column now stands.
+        rt.update(|s, tx| jump_to_the_last(s, tx));
+        run(&mut rt, 0.5);
+        assert!(rt.elements().iter().any(|e| e.key.as_deref().is_some_and(|k| k.starts_with("l:39:"))), "the last file's rows are built");
+        assert!(built(&rt) < 600);
+        assert_eq!(rt.state.changes.here.as_ref().map(|h| h.at), Some(39));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// An invented change of `rows` rows across `files` files, in hunks of 25 with gaps between
+    /// them, some lines two thousand characters long.
+    fn invented_change(rows: usize, files: usize) -> Value {
         let per = rows / files;
         let big: Vec<Value> = (0..files)
             .map(|f| {
@@ -2107,10 +2207,18 @@ mod tests {
                         json!({ "rows": rows, "nums": nums })
                     })
                     .collect();
-                json!({ "path": format!("pkg{}/src/file_{f}.ts", f % 7), "plus": per * 2 / 5, "minus": per / 5, "hunks": hunks })
+                json!({ "path": format!("pkg{}/src/file_{f:03}.ts", f % 7), "plus": per * 2 / 5, "minus": per / 5, "hunks": hunks })
             })
             .collect();
-        let change = json!({ "files": big, "plus": rows * 2 / 5, "minus": rows / 5 });
+        json!({ "files": big, "plus": rows * 2 / 5, "minus": rows / 5 })
+    }
+
+    #[test]
+    #[ignore]
+    fn a_big_change_opens_in() {
+        let Ok(rows) = std::env::var("MERCURY_BIG_CHANGE").map(|n| n.parse::<usize>().unwrap_or(20_000)) else { return };
+        let files = 80;
+        let change = invented_change(rows, files);
         let (mut rt, dir) = with_a_change("big", (1280.0, 760.0), None);
         rt.update(move |s, _| {
             for v in s.fixture.get_mut("codeChanges").and_then(Value::as_object_mut).expect("answers").values_mut() {
@@ -2132,6 +2240,9 @@ mod tests {
             rt.frame(1.0 / 60.0);
         }
         println!("a frame at rest: {:?}, the change drawn again {} times", still.elapsed() / 10, VIEWS.with(Cell::get) - views);
+        let built = rt.elements().iter().filter(|e| e.key.as_deref().is_some_and(|k| k.starts_with("l:"))).count();
+        let lists: Vec<String> = rt.elements().iter().filter_map(|e| e.key.clone().filter(|k| k.starts_with("chg-rows-")).map(|k| format!("{k}@{:.0}+{:.0}", e.rect[1], e.rect[3]))).take(6).collect();
+        println!("lines built: {built} of {rows}; the first lists: {lists:?}");
         let mut frames = Vec::new();
         for _ in 0..60 {
             let at = std::time::Instant::now();
