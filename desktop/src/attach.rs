@@ -10,15 +10,25 @@
 //! The box reads its size where it is attached, and a picture's shape off its header, which is
 //! all the row needs to stand where it will from the first frame. The picture itself is read
 //! and shrunk to what the row draws off the main thread, and lands in its place.
+//!
+//! The one file that is on its way in for a while is a TIFF or a HEIC, a photo from a phone:
+//! as in the web window, the engine turns it into a PNG or a JPEG the moment it is attached
+//! (`zero:stage-attachment`, `main/stage-attachment.mts`), so it goes as a picture the window,
+//! the agent and the conversation can all draw. Until the engine answers it is a chip with its
+//! name and Send waits for it; one the engine cannot turn goes as the file it is.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::Arc;
 
 use rune::file_dialog::FileDialogOptions;
-use rune::{ClipboardContent, El, Pixels, SurfaceFit, TextStyle, Tx, el, row, text};
+use rune::{ClipboardContent, El, Pixels, SurfaceFit, TextStyle, Tx, Waker, el, row, text};
+use serde_json::{Value, json};
 
 use crate::State;
 use crate::rules::attach::{self as rules, Pending, Source};
+use crate::source::{self, Source as Reading};
 use crate::theme::*;
 
 /// A picture in the row is this tall, edge and all (`.attach-thumb img { height: 84px }`), and
@@ -41,17 +51,26 @@ pub struct Thumb {
 /// One file in the box: what is sent, and what the row draws of it.
 #[derive(Clone, Debug)]
 pub struct Attached {
+    /// Which file of the box this is, for an answer about it that lands later.
+    pub id: u64,
     pub file: Pending,
     /// A picture's, when this window can read it. One named as a picture that it cannot read is
     /// drawn as a chip, rather than as a broken picture.
     pub thumb: Option<Thumb>,
+    /// Still on its way in: being turned by the engine into a picture the window draws.
+    pub coming: bool,
 }
 
 impl PartialEq for Attached {
     /// The same file, going the same way: its drawing is no part of what is sent.
     fn eq(&self, other: &Attached) -> bool {
-        self.file == other.file
+        self.file == other.file && self.coming == other.coming
     }
+}
+
+fn next_id() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
 }
 
 /// A file that could not be read, in words for the box: the web window's for a file that is not
@@ -77,15 +96,35 @@ impl Attached {
             Err(e) => (None, Some(rules::could_not_attach(&name, &why(&e)))),
         };
         let image = rules::is_image_name(&name);
-        let drawn = image && failed.is_none() && size.is_some_and(|size| !rules::too_big_to_send(size));
-        let thumb = drawn.then(|| crate::pictures::size_of(path)).flatten().map(|natural| Thumb { natural, pixels: Pixels::new() });
-        Attached { file: Pending { name, source: Source::Disk(path.to_string_lossy().to_string()), image, size, failed }, thumb }
+        let thumb = Self::thumb_of(path, image && failed.is_none() && size.is_some_and(|size| !rules::too_big_to_send(size)));
+        Attached { id: next_id(), file: Pending { name, source: Source::Disk(path.to_string_lossy().to_string()), image, size, failed }, thumb, coming: false }
+    }
+
+    /// A picture file's place in the row, read off its header, when it is drawn.
+    fn thumb_of(path: &Path, drawn: bool) -> Option<Thumb> {
+        drawn.then(|| crate::pictures::size_of(path)).flatten().map(|natural| Thumb { natural, pixels: Pixels::new() })
     }
 
     /// A picture pasted from the clipboard, as PNG, under the name it goes by.
     pub fn pasted(png: &[u8], natural: (u32, u32), name: String) -> Attached {
         let file = Pending { name, source: Source::Pasted(Arc::from(png)), image: true, size: Some(png.len() as u64), failed: None };
-        Attached { file, thumb: Some(Thumb { natural, pixels: Pixels::new() }) }
+        Attached { id: next_id(), file, thumb: Some(Thumb { natural, pixels: Pixels::new() }), coming: false }
+    }
+
+    /// What the engine answered a file it was asked to turn into a picture (`collectFiles`):
+    /// turned, it goes on under its new name, as the new file, drawn; only copied, it goes as
+    /// the copy under its own name; refused, as the file it was. It is in either way.
+    fn staged(&mut self, answer: Result<Value, String>) {
+        self.coming = false;
+        let Ok(staged) = answer else { return };
+        let Some(path) = staged.get("path").and_then(Value::as_str).map(str::to_string) else { return };
+        self.file.source = Source::Disk(path.clone());
+        if let Some(name) = staged.get("name").and_then(Value::as_str) {
+            self.file.name = name.to_string();
+            self.file.image = rules::is_image_name(name);
+            self.file.size = std::fs::metadata(&path).ok().map(|meta| meta.len()).or(self.file.size);
+            self.thumb = Self::thumb_of(Path::new(&path), self.file.image);
+        }
     }
 }
 
@@ -94,9 +133,31 @@ pub fn pending(files: &[Attached]) -> Vec<Pending> {
     files.iter().map(|a| a.file.clone()).collect()
 }
 
-/// Whether Send may go for the files the box holds: none that cannot go (`filesReady`).
+/// Whether Send may go for the files the box holds: none on its way in and none that cannot go
+/// (`filesReady`).
 pub fn ready(files: &[Attached]) -> bool {
-    rules::files_ready(&pending(files), false)
+    rules::files_ready(&pending(files), files.iter().any(|a| a.coming))
+}
+
+/// The engine's answers about files it is turning into pictures, as they land.
+pub struct Staging {
+    tx: Sender<(u64, Result<Value, String>)>,
+    rx: Receiver<(u64, Result<Value, String>)>,
+    waker: Option<Waker>,
+}
+
+impl Default for Staging {
+    fn default() -> Staging {
+        let (tx, rx) = channel();
+        Staging { tx, rx, waker: None }
+    }
+}
+
+impl Staging {
+    /// The window's waker, so an answer is drawn when it lands.
+    pub fn wake_with(&mut self, waker: Waker) {
+        self.waker = Some(waker);
+    }
 }
 
 /// How wide a picture stands in the row, edge and all: as wide as its shape makes it at the
@@ -165,22 +226,19 @@ fn chip(at: usize, a: &Attached) -> El {
     let file = &a.file;
     let over = file.failed.is_some() || rules::too_big_to_send(file.size.unwrap_or(0));
     let words = |s: &str, font: TextStyle, c: rune::Color| pen(text(s).font(font).color(c), 12.0);
+    let frame = |line: El, edge_colour: rune::Color| row().h(CHIP_TALL).items_center().px(10.0).radius(6.0).fill(rgb(47, 45, 44)).border(1.0, edge_colour).border_layout().child(line);
+    // On its way in it is its name alone, and nothing takes it out until it is in
+    // (`.attach-coming`, whose bar runs along its foot as the pieces of a big file land; the
+    // engine turning a picture says nothing of how far it got, so here it has none).
+    if a.coming {
+        return frame(row().child(words(&format!("{} ", file.name), sans(12.0, 400.0), dim())), edge());
+    }
     let mut line = row().child(words(&file.name, sans(12.0, 400.0), if over { ink() } else { dim() }));
     if let Some(size) = file.size.filter(|size| *size > 0 && !over) {
         line = line.child(words(&format!(" {}", rules::size_words(size)), figures(12.0, 400.0), muted()));
     }
     line = line.child(words(" ×", sans(12.0, 400.0), if over { ink() } else { dim() }));
-    row()
-        .h(CHIP_TALL)
-        .items_center()
-        .px(10.0)
-        .radius(6.0)
-        .fill(rgb(47, 45, 44))
-        .border(1.0, if over { muted() } else { edge() })
-        .border_layout()
-        .child(line)
-        .cursor(rune::Cursor::Pointer)
-        .on_background_press_tx(move |s: &mut State, tx| s.remove_attached(at, tx))
+    frame(line, if over { muted() } else { edge() }).cursor(rune::Cursor::Pointer).on_background_press_tx(move |s: &mut State, tx| s.remove_attached(at, tx))
 }
 
 /// What the box holds of files, as the place it is drawn in lays it out: the row
@@ -192,8 +250,8 @@ pub fn rows(s: &State, pad: impl Fn(El) -> El) -> Vec<El> {
         return Vec::new();
     }
     let drawn = files.iter().enumerate().map(|(at, a)| match &a.thumb {
-        Some(thumb) => picture(at, a, thumb),
-        None => chip(at, a),
+        Some(thumb) if !a.coming => picture(at, a, thumb),
+        _ => chip(at, a),
     });
     let mut out = vec![pad(row().flex_wrap().items_start().gap(GAP).children(drawn))];
     if let Some(problem) = rules::attach_problem(&pending(files)) {
@@ -208,7 +266,7 @@ pub fn rows_tall(files: &[Attached]) -> f32 {
     if files.is_empty() {
         return 0.0;
     }
-    let row = if files.iter().any(|a| a.thumb.is_some()) { THUMB_TALL } else { CHIP_TALL };
+    let row = if files.iter().any(|a| a.thumb.is_some() && !a.coming) { THUMB_TALL } else { CHIP_TALL };
     row + if rules::attach_problem(&pending(files)).is_some() { 23.5 } else { 0.0 }
 }
 
@@ -219,13 +277,46 @@ fn still() -> bool {
 
 impl State {
     /// Files dropped on the box or the card, picked with the paper clip, or pasted from Finder,
-    /// in the order they came (`addFiles` in `ThreadComposer.tsx`).
+    /// in the order they came (`addFiles` in `ThreadComposer.tsx`). A TIFF or a HEIC is handed
+    /// to the engine to be turned into a picture the window draws, and is on its way in until
+    /// it answers (`stageAttachment`); with no engine to ask, it goes as the file it is.
     pub fn attach_paths(&mut self, paths: &[PathBuf]) {
         for path in paths {
-            let attached = Attached::from_disk(path);
+            let mut attached = Attached::from_disk(path);
+            let door = match &self.source {
+                Reading::Door(door) => door.now(),
+                _ => None,
+            };
+            if let (Some((url, token)), Source::Disk(src), true) = (door, &attached.file.source, attached.file.failed.is_none() && rules::turned_name(&attached.file.name).is_some()) {
+                attached.coming = true;
+                let (id, ask) = (attached.id, json!({ "name": attached.file.name, "srcPath": src }));
+                let (tx, waker) = (self.compose.staging.tx.clone(), self.compose.staging.waker.clone());
+                std::thread::spawn(move || {
+                    let answer = source::call(&url, &token, rules::STAGE_ATTACHMENT, &ask);
+                    let _ = tx.send((id, answer));
+                    if let Some(wake) = waker {
+                        wake();
+                    }
+                });
+            }
             read_thumb(&attached, self.pictures.scale(), still());
             self.compose.files.push(attached);
         }
+    }
+
+    /// What the engine said of the files it was turning into pictures, put in their place in
+    /// the box: from the window's turn. One taken out meanwhile is gone, and so is the answer.
+    /// True when the box changed.
+    pub fn land_staged(&mut self) -> bool {
+        let landed: Vec<(u64, Result<Value, String>)> = self.compose.staging.rx.try_iter().collect();
+        let mut changed = false;
+        for (id, answer) in landed {
+            let Some(attached) = self.compose.files.iter_mut().find(|a| a.id == id) else { continue };
+            attached.staged(answer);
+            read_thumb(attached, self.pictures.scale(), still());
+            changed = true;
+        }
+        changed
     }
 
     /// A picture pasted with no file behind it: a screenshot, as PNG.
@@ -339,6 +430,40 @@ mod tests {
         std::fs::write(&broken, "not a picture").unwrap();
         let broken = Attached::from_disk(&broken);
         assert!(broken.file.image && broken.thumb.is_none() && broken.file.failed.is_none());
+        std::fs::remove_dir_all(&folder).unwrap();
+    }
+
+    // tests/a-tiff-you-paste-is-sent-as-a-picture.test.mts
+    #[test]
+    fn a_photo_the_engine_turned_goes_as_the_picture_and_one_it_could_not_as_itself() {
+        let folder = std::env::temp_dir().join(format!("mercury-desktop-staged-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&folder);
+        std::fs::create_dir_all(&folder).unwrap();
+        let turned = folder.join("mt1-ab12cd-IMG_0042.jpg");
+        image::RgbImage::from_pixel(400, 300, image::Rgb([120, 90, 60])).save(&turned).unwrap();
+        let photo = || Attached {
+            id: 7,
+            file: Pending { name: "IMG_0042.HEIC".to_string(), source: Source::Disk("/Users/you/Desktop/IMG_0042.HEIC".to_string()), image: false, size: Some(2_000_000), failed: None },
+            thumb: None,
+            coming: true,
+        };
+        // On its way in, it holds Send.
+        assert!(!ready(&[photo()]));
+        let mut done = photo();
+        done.staged(Ok(json!({ "path": turned.to_string_lossy(), "name": "IMG_0042.jpg" })));
+        assert_eq!((done.file.name.as_str(), done.file.image, done.coming), ("IMG_0042.jpg", true, false));
+        assert_eq!(done.file.source, Source::Disk(turned.to_string_lossy().to_string()));
+        assert_eq!((done.file.size, done.thumb.map(|t| t.natural)), (std::fs::metadata(&turned).ok().map(|m| m.len()), Some((400, 300))));
+        // Copied and not turned (no sips): the copy goes, under its own name, as a file.
+        let mut copied = photo();
+        copied.staged(Ok(json!({ "path": "/Users/you/Mercury/accounts/a/.staging/mt1-ab12cd-IMG_0042.HEIC" })));
+        assert_eq!((copied.file.name.as_str(), copied.file.image, copied.thumb.is_none()), ("IMG_0042.HEIC", false, true));
+        assert_eq!(copied.file.source, Source::Disk("/Users/you/Mercury/accounts/a/.staging/mt1-ab12cd-IMG_0042.HEIC".to_string()));
+        // Refused: the file as it was, and in.
+        let mut refused = photo();
+        refused.staged(Err("sips is not here".to_string()));
+        assert_eq!((&refused.file, refused.coming), (&photo().file, false));
+        assert!(ready(&[refused]));
         std::fs::remove_dir_all(&folder).unwrap();
     }
 }

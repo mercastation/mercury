@@ -952,6 +952,7 @@ fn setup(s: &mut State, wake: Waker) {
     s.reading_models.set_waker(wake.clone());
     s.read_the_models();
     s.outbox.wake_with(wake.clone());
+    s.compose.staging.wake_with(wake.clone());
     s.pictures.set_waker(wake.clone());
     if let Source::Door(door) = s.source.clone() {
         source::follow_door(door, s.mailbox.clone(), move || wake());
@@ -1025,6 +1026,8 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
         s.landed(landed, tx);
         changed = true;
     }
+    // A picture the engine has turned for the box a thread is started in.
+    changed |= s.land_staged();
     if let Some((key, answer)) = s.asking.take() {
         match answer {
             Ok(answer) => {

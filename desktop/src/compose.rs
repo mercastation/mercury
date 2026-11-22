@@ -100,6 +100,8 @@ pub struct Composer {
     pub later: bool,
     /// The files dropped on it, picked or pasted, in the order they came (`attach.rs`).
     pub files: Vec<attach::Attached>,
+    /// The engine's answers about the files it is turning into pictures.
+    pub staging: attach::Staging,
     pub menu: Option<Menu>,
     /// The chip the keyboard was left on when Escape closed its menu: an arrow opens the menu
     /// again, a letter goes to the words, and a second Escape lets go of the box.
@@ -115,7 +117,20 @@ pub struct Composer {
 
 impl Default for Composer {
     fn default() -> Composer {
-        Composer { words: TextEdit::new(""), level: None, project: None, pick: None, later: false, files: Vec::new(), menu: None, on_chip: None, card: false, not_taken_at: None, o_waits: None }
+        Composer {
+            words: TextEdit::new(""),
+            level: None,
+            project: None,
+            pick: None,
+            later: false,
+            files: Vec::new(),
+            staging: attach::Staging::default(),
+            menu: None,
+            on_chip: None,
+            card: false,
+            not_taken_at: None,
+            o_waits: None,
+        }
     }
 }
 
