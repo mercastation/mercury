@@ -460,6 +460,12 @@ contextBridge.exposeInMainWorld('zero', {
     ipcRenderer.on('zero:open-settings', handler);
     return () => ipcRenderer.removeListener('zero:open-settings', handler);
   },
+  // The native window's cloud menu: opens the cloud's setup (main/local-door.mts).
+  onOpenCloudSetup: (fn) => {
+    const handler = () => fn();
+    ipcRenderer.on('zero:open-cloud-setup', handler);
+    return () => ipcRenderer.removeListener('zero:open-cloud-setup', handler);
+  },
   // The window moved to a screen that wants the other set of theme pictures.
   // Only main can see which physical display a window is on, and only main can
   // read a display's density without page zoom folded into it, so this is the

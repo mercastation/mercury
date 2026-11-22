@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { LOCAL_DOOR_NOTE, OPEN_SETTINGS, TOLD_AT_THE_DOOR, WINDOW_KEEPS, openLocalDoor, openSettings, tellTheDoorToo, windowKeeps } from '../main/local-door.mts';
+import { LOCAL_DOOR_NOTE, OPEN_CLOUD_SETUP, OPEN_SETTINGS, TOLD_AT_THE_DOOR, WINDOW_KEEPS, openCloudSetup, openLocalDoor, openSettings, tellTheDoorToo, windowKeeps } from '../main/local-door.mts';
 import type { LocalDoor, LocalDoorNote } from '../main/local-door.mts';
 import type { IpcHandler, PushListener } from '../main/serve.mts';
 
@@ -229,6 +229,56 @@ describe("the native window's Settings button", () => {
     open.push(door);
     expect((await ask(door, OPEN_SETTINGS)).status).toBe(403);
     expect(forwarded).toBe(0);
+  });
+});
+
+describe("the native window's cloud menu", () => {
+  it("brings the app's window forward on the cloud's setup, and takes nothing from the caller", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'local-door-'));
+    folders.push(dir);
+    const channels = new Map<string, IpcHandler>([['zero:snapshot', () => ({ items: [] })]]);
+    let forwarded = 0;
+    const told: unknown[][] = [];
+    const cloudSetup = openCloudSetup(() => { forwarded += 1; return true; }, (...said) => told.push(said));
+    const door = await openLocalDoor({ channels, note: path.join(dir, LOCAL_DOOR_NOTE), cloudSetup });
+    open.push(door);
+    const res = await ask(door, OPEN_CLOUD_SETUP, { key: door.token, body: { channel: 'zero:compose', pane: 'general' } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(forwarded).toBe(1);
+    expect(told).toEqual([['zero:open-cloud-setup']]);
+    // The phone's copy is made from the app's Map, and it did not grow.
+    expect([...channels.keys()]).toEqual(['zero:snapshot']);
+  });
+
+  it('says so, and tells nothing, when the app has no window to bring forward', async () => {
+    const told: unknown[] = [];
+    const handler = openCloudSetup(() => false, (...said) => told.push(said));
+    expect(await handler({ sender: null })).toEqual({ ok: false, error: 'the window is gone' });
+    expect(told).toEqual([]);
+  });
+
+  it('is not a channel on a door nobody gave it to, and still needs the key', async () => {
+    const { door } = await aDoor();
+    expect((await ask(door, OPEN_CLOUD_SETUP, { key: door.token })).status).toBe(404);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'local-door-'));
+    folders.push(dir);
+    let forwarded = 0;
+    const cloudSetup = openCloudSetup(() => { forwarded += 1; return true; }, () => {});
+    const keyed = await openLocalDoor({ channels: new Map(), note: path.join(dir, LOCAL_DOOR_NOTE), cloudSetup });
+    open.push(keyed);
+    expect((await ask(keyed, OPEN_CLOUD_SETUP)).status).toBe(403);
+    expect(forwarded).toBe(0);
+  });
+
+  it('is handed to the door the app opens, and the window listens for its push', () => {
+    const main = fs.readFileSync(path.join(import.meta.dirname, '..', 'main', 'main.mts'), 'utf8');
+    expect(main).toMatch(/openCloudSetup\(forward, \(channel\) => window\?\.webContents\.send\(channel\)\)/);
+    expect(main).toMatch(/openLocalDoor\(\{[^}]*\bcloudSetup\b[^}]*\}\)/);
+    const preload = fs.readFileSync(path.join(import.meta.dirname, '..', 'preload.cjs'), 'utf8');
+    expect(preload).toMatch(/onOpenCloudSetup: \(fn\) => \{[\s\S]{0,200}'zero:open-cloud-setup'/);
+    const app = fs.readFileSync(path.join(import.meta.dirname, '..', 'renderer', 'src', 'App.tsx'), 'utf8');
+    expect(app).toMatch(/onOpenCloudSetup\?\.\(\(\) => \{[\s\S]{0,120}setCloudSetupOpen\(true\)/);
   });
 });
 
