@@ -37,8 +37,8 @@
 // - NATIVE_WINDOW (main/native-window.mts): whether the native window is in
 //   front, at each change and every five seconds, so no banner and no island
 //   comes up over the window the person is working in.
-// - OPEN_SETTINGS (below): its rail's Settings button, which brings this app's
-//   window forward on its Settings until the native window has its own.
+// - OPEN_SETTINGS (below): a Settings page the native window does not draw
+//   itself, which brings this app's window forward on that page.
 // On its event stream the app tells it two things, and nothing else:
 // - TOLD_AT_THE_DOOR (below): the inbox changed, so it reads it again now.
 // - OPEN_IN_NATIVE (main/native-window.mts): the banner or the tray was
@@ -141,21 +141,37 @@ export interface LocalDoorOptions {
   token?: string;
 }
 
-// THE SETTINGS ARE STILL THE WEB WINDOW'S. The native window has no Settings page
-// yet, and a Settings button there that went nowhere left no way to reach them
-// from it. So this door has a channel that does what the tray's "Turn off in
+// SOME SETTINGS ARE STILL THE WEB WINDOW'S. The native window draws the pages its
+// person uses, and leaves the rest (a theme's pictures, the list of keys, the
+// instructions' editor, signing an account in through a terminal) to this app's
+// window. So this door has a channel that does what the tray's "Turn off in
 // Settings…" does (main/corner-tag.mts): bring this app's window forward on its
-// Settings. It takes nothing from the caller, so it can open Settings and nothing else.
+// Settings, on the page the native window names. The page is the one thing it
+// takes from the caller, and only as one of the menu's own ids: anything else
+// opens General, so it can open Settings and nothing else.
 export const OPEN_SETTINGS = 'zero:open-settings-here';
+
+/** The Settings pages a caller may name, as the menu lists them (`SETTINGS_PAGES` in renderer/src/settings-search.ts). */
+export const SETTINGS_PAGE_IDS: readonly string[] = Object.freeze([
+  'general', 'appearance', 'shortcuts', 'phone', 'alpha',
+  'claude', 'codex', 'antigravity', 'running', 'instructions',
+  'projects', 'files', 'team', 'rooms', 'cloud',
+]);
+
+/** The page a caller asked for, when it is one of the menu's; else General. */
+export function settingsPage(asked: unknown): string {
+  const page = (asked as { page?: unknown } | null | undefined)?.page;
+  return typeof page === 'string' && SETTINGS_PAGE_IDS.includes(page) ? page : 'general';
+}
 
 /**
  * Answers `OPEN_SETTINGS`. `forward` brings the app's window to the front and says whether
  * there is one; `tell` sends that window its own push, the one the tray sends.
  */
 export function openSettings(forward: () => boolean, tell: (channel: string, payload: unknown) => void): IpcHandler {
-  return () => {
+  return (_event, asked) => {
     if (!forward()) return { ok: false, error: 'the window is gone' };
-    tell('zero:open-settings', { pane: 'general' });
+    tell('zero:open-settings', { pane: settingsPage(asked) });
     return { ok: true };
   };
 }

@@ -12,7 +12,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { LOCAL_DOOR_NOTE, OPEN_SETTINGS, TOLD_AT_THE_DOOR, WINDOW_KEEPS, openLocalDoor, openSettings, tellTheDoorToo, windowKeeps } from '../main/local-door.mts';
+import { LOCAL_DOOR_NOTE, OPEN_SETTINGS, SETTINGS_PAGE_IDS, TOLD_AT_THE_DOOR, WINDOW_KEEPS, openLocalDoor, openSettings, tellTheDoorToo, windowKeeps } from '../main/local-door.mts';
+import { SETTINGS_PAGES } from '../renderer/src/settings-search.ts';
 import type { LocalDoor, LocalDoorNote } from '../main/local-door.mts';
 import type { IpcHandler, PushListener } from '../main/serve.mts';
 
@@ -188,24 +189,51 @@ describe('what the web window keeps for itself', () => {
   });
 });
 
-describe("the native window's Settings button", () => {
-  it("brings the app's window forward on its Settings, as the tray does", async () => {
+describe("the native window's way to a Settings page it does not draw", () => {
+  const aSettingsDoor = async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'local-door-'));
     folders.push(dir);
     const channels = new Map<string, IpcHandler>([['zero:snapshot', () => ({ items: [] })]]);
-    let forwarded = 0;
-    const told: [string, unknown][] = [];
-    const settings = openSettings(() => { forwarded += 1; return true; }, (channel, payload) => told.push([channel, payload]));
+    const state = { forwarded: 0, told: [] as [string, unknown][] };
+    const settings = openSettings(() => { state.forwarded += 1; return true; }, (channel, payload) => state.told.push([channel, payload]));
     const door = await openLocalDoor({ channels, note: path.join(dir, LOCAL_DOOR_NOTE), settings });
     open.push(door);
-    // Whatever the caller sends, it opens Settings and nothing else.
+    return { door, channels, state };
+  };
+
+  it("brings the app's window forward on its Settings, as the tray does, and on General when no page is named", async () => {
+    const { door, channels, state } = await aSettingsDoor();
+    // A pane, or a channel, is not a page: it opens Settings on General and nothing else.
     const res = await ask(door, OPEN_SETTINGS, { key: door.token, body: { pane: 'somewhere-else', channel: 'zero:compose' } });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
-    expect(forwarded).toBe(1);
-    expect(told).toEqual([['zero:open-settings', { pane: 'general' }]]);
+    expect(state.forwarded).toBe(1);
+    expect(state.told).toEqual([['zero:open-settings', { pane: 'general' }]]);
     // The phone's copy is made from the app's Map, and it did not grow.
     expect([...channels.keys()]).toEqual(['zero:snapshot']);
+  });
+
+  it('opens the page named, when it is one of the menu\'s own, and takes nothing else from the caller', async () => {
+    const { door, state } = await aSettingsDoor();
+    for (const page of ['appearance', 'instructions', 'shortcuts', 'claude']) {
+      await ask(door, OPEN_SETTINGS, { key: door.token, body: { page, channel: 'zero:compose', pane: 'project:kestrel' } });
+    }
+    expect(state.told).toEqual(['appearance', 'instructions', 'shortcuts', 'claude'].map((pane) => ['zero:open-settings', { pane }]));
+  });
+
+  it('opens General for a page that is not on the menu: a project, a stranger, or not a word at all', async () => {
+    const { door, state } = await aSettingsDoor();
+    for (const page of ['project:kestrel', 'themes', 'constructor', '__proto__', 'general ', '', 7, ['appearance'], { id: 'appearance' }, null]) {
+      await ask(door, OPEN_SETTINGS, { key: door.token, body: { page } });
+    }
+    await ask(door, OPEN_SETTINGS, { key: door.token, body: 'appearance' });
+    await ask(door, OPEN_SETTINGS, { key: door.token });
+    expect(state.told).toHaveLength(12);
+    expect(new Set(state.told.map(([, payload]) => JSON.stringify(payload)))).toEqual(new Set([JSON.stringify({ pane: 'general' })]));
+  });
+
+  it("knows the menu's pages, every one of them and nothing else", () => {
+    expect([...SETTINGS_PAGE_IDS].sort()).toEqual(SETTINGS_PAGES.map((p) => p.id).sort());
   });
 
   it('says so, and tells nothing, when the app has no window to bring forward', async () => {
