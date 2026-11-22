@@ -354,13 +354,18 @@ fn cell(w: f32, h: f32) -> El {
     row().w(w).h(h).px(16.0).items_center().border_sides([0.0, 1.0, 1.0, 0.0], line()).border_layout()
 }
 
+/// What the sheet's search, Filter and Sort say when pressed.
+pub const TOOLS_NOT_HERE: &str = "A table is searched, filtered and sorted in Mercury's own window.";
+
 /// The sheet in a box `w` by `h` (`.tbl.tbl-pane`).
 pub fn view(s: &State, grid: &Grid, path: &str, (w, h): (f32, f32)) -> El {
     let _ = s;
     let inner = (w - 56.0).max(1.0);
     let rows = grid.rows.len();
+    // Searching, filtering and sorting a sheet are the web window's: a press says so, rather
+    // than a control that answers the pointer and goes nowhere.
     let control = |glyph: &'static rune::Icon, words: &str| {
-        crate::feel::answers(row().h(34.0).px(12.0).gap(6.0).items_center().hover_group().hover(white(0.06)).cursor(rune::Cursor::Pointer).child(icon(glyph, 14.0).color(dim()).group_color(ink())).child(label(words, 13.0, 400.0, dim()).group_color(ink())))
+        row().h(34.0).px(12.0).gap(6.0).items_center().hover_group().hover(white(0.06)).cursor(rune::Cursor::Pointer).child(icon(glyph, 14.0).color(dim()).group_color(ink())).child(label(words, 13.0, 400.0, dim()).group_color(ink())).on_press_tx(|s: &mut State, tx| s.tell(TOOLS_NOT_HERE, tx))
     };
     let search = row()
         .w(280.0_f32.min(inner).max(140.0))
@@ -374,7 +379,7 @@ pub fn view(s: &State, grid: &Grid, path: &str, (w, h): (f32, f32)) -> El {
         .child(icon(&crate::icons::TABLE_SEARCH, 14.0).color(muted()))
         .child(label(&format!("Search {rows} row{}", if rows == 1 { "" } else { "s" }), 13.0, 400.0, muted()));
     let count = text(format!("{rows} row{}", if rows == 1 { "" } else { "s" })).font(mono(11.0, 14.0).tracking(0.66)).text_case(TextCase::Uppercase).color(muted());
-    let bar = row().w(inner).pt(18.0).pb(16.0).gap(6.0).items_center().child(crate::feel::answers(search)).child(control(&crate::icons::TABLE_FILTER, "Filter")).child(control(&crate::icons::TABLE_SORT, "Sort")).child(el().grow(1.0)).child(count);
+    let bar = row().w(inner).pt(18.0).pb(16.0).gap(6.0).items_center().child(search.on_press_tx(|s: &mut State, tx| s.tell(TOOLS_NOT_HERE, tx))).child(control(&crate::icons::TABLE_FILTER, "Filter")).child(control(&crate::icons::TABLE_SORT, "Sort")).child(el().grow(1.0)).child(count);
     let px = widths(grid, inner - 1.0);
     let head_font = mono(10.5, 10.5).tracking(0.945);
     let mut header = row().child(row().w(44.0).h(41.0).fill(ground()).border_sides([1.0, 1.0, 1.0, 0.0], line()).border_layout());

@@ -175,6 +175,9 @@ fn crumb_from(s: &State, id: &str, product: &str) -> &'static str {
 /// height of its worded ones (`.ts-more`, `.ts-done`, `.ts-more.one-step`).
 pub const STRIP: f32 = 64.0;
 const BUTTON: f32 = 32.0;
+/// What the caret beside Send says: its menu, a reply held for a time or repeated, is the web
+/// window's, and a press says so rather than going nowhere.
+pub const SEND_LATER_NOT_HERE: &str = "A reply is sent later, or repeated, from Mercury's own window.";
 
 /// The card's top strip over a conversation: the Inbox, back and forward, where the thread
 /// is, the threads before and after it in Needs you, and what can be done to it.
@@ -1289,7 +1292,7 @@ fn composer(s: &State, item: &Item, m: &Measure) -> El {
         // The paper clip's square is 28 points, the chips' height (`.tc-icon`).
         .child(home::attach().size(28.0, 28.0).help("Attach files").on_background_press_tx(|s: &mut State, tx| s.pick_files(Holder::Reply, tx)))
         // Send carries the key a press away from the model menu lands on (`reply.rs`).
-        .child(row().key(crate::chips::SEND_PAIR).child(send.key(reply::SEND).help("Send · ⌘↵").on_press_tx(|s: &mut State, tx| s.send_reply(tx))).child(crate::feel::answers(home::send_caret()).help("Send later")));
+        .child(row().key(crate::chips::SEND_PAIR).child(send.key(reply::SEND).help("Send · ⌘↵").on_press_tx(|s: &mut State, tx| s.send_reply(tx))).child(home::send_caret().help("Send later").on_press_tx(|s: &mut State, tx| s.tell(SEND_LATER_NOT_HERE, tx))));
     // The thread moves to another agent with the next reply, and its session cannot follow it:
     // a note says so while that is true (`freshNote`, `.dock-card .compose-note`).
     let note = s.reply_fresh_note(item).map(|note| el().px(16.0).pb(10.0).child(label(&note, 12.0, 400.0, muted())));

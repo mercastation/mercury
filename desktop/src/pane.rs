@@ -38,6 +38,8 @@ use crate::{State, View, icons, viewer};
 const AIR: f32 = 12.0;
 /// The scroller a document or a script is read in.
 const STAGE_KEY: &str = "pane-stage";
+/// What the globe says: the panel that makes a file's link is the web window's.
+pub const SHARE_NOT_HERE: &str = "A link to share this file is made in Mercury's own window.";
 
 /// What the file is drawn from, read off the disk.
 enum Read {
@@ -433,9 +435,10 @@ fn head(s: &State, doc: &Doc, w: f32) -> El {
     // The globe, where the app shares files and this one can be.
     let key = format!("{}/{}", doc.product, doc.src);
     let shares = rules::can_share_file(&doc.src) && s.pane.links.get(&key).is_some_and(|l| l.get("ok") == Some(&Value::Bool(true)) && l.get("site").and_then(Value::as_str).is_some_and(|site| !site.is_empty()));
-    // Its panel, which makes the link and copies it, is the web window's (see what still differs).
+    // Its panel, which makes the link and copies it, is the web window's (see what still differs):
+    // a press says so, rather than a mark that answers the pointer and goes nowhere.
     if shares {
-        marks = marks.child(crate::feel::answers(mark(&icons::PANE_GLOBE, 16.0, "Share").key("pane-globe")));
+        marks = marks.child(mark(&icons::PANE_GLOBE, 16.0, "Share").key("pane-globe").on_press_tx(|s: &mut State, tx| s.tell(SHARE_NOT_HERE, tx)));
     }
     // The notes on it, which open with it over the whole window.
     if rules::takes_notes_sidebar(&doc.src) {

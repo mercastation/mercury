@@ -2311,7 +2311,7 @@ release or a second login.
   cannot do and what goes unused, a thread's name, project, pin, waits, demand and shipped mark,
   and what only teammates or approvals need:
   - Nothing is sent later. The caret beside Send answers the pointer as the web window's does
-    and opens nothing: its menu (`ReplyLater`: Remove the time, Tomorrow morning, Monday morning,
+    and, pressed, says a reply is sent later from Mercury's own window: its menu (`ReplyLater`: Remove the time, Tomorrow morning, Monday morning,
     a time typed in words, then the time said on the caret, the reply written with its `runAt`
     and held on the thread until then, a reply sent meanwhile taking the waiting one with it, and
     the time kept with the draft) is a box of its own and a grammar of its own, and goes unused.
