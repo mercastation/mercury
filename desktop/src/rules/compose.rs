@@ -2,12 +2,12 @@
 //! how hard, and what the window says while it goes and once it has. A port of the rules under
 //! the web window's New thread card (`renderer/src/threads/composer-rules.ts`) and of the files
 //! those read: `message-split.ts`, `priority.ts`, `models.ts`, `engines.ts`, `effort.ts`,
-//! `compose-says.ts`, `withdraw-send.ts`, `toast-parts.ts`, `reply-keys.ts` and
-//! `keep-in-window.ts`.
+//! `compose-says.ts`, `withdraw-send.ts`, `toast-parts.ts`, `reply-keys.ts`,
+//! `keep-in-window.ts` and `compose-project.ts`.
 //!
 //! Left out, with the parts of the card this window does not draw yet: a thread to a person or
-//! to a teammate, files, a moment to start at, a repeating task, a branch, a demand, and who
-//! sees it.
+//! to a teammate, files, a moment to start at (Later, which has none, is in), a repeating task,
+//! a branch, a demand, and who sees it.
 
 use std::collections::HashSet;
 
@@ -149,6 +149,34 @@ pub fn projects_offered<'a>(ranked: &[&'a Product]) -> Vec<&'a Product> {
 pub fn card_project<'a>(offered: &[&'a Product], picked: Option<&str>, on_screen: Option<&str>, remembered: Option<&str>) -> Option<&'a Product> {
     let named = |slug: Option<&str>| slug.and_then(|slug| offered.iter().copied().find(|p| p.slug == slug));
     named(picked).or_else(|| named(on_screen)).or_else(|| named(remembered)).or_else(|| offered.iter().copied().find(|p| !is_practice(p))).or_else(|| offered.first().copied())
+}
+
+re!(ABOUT_CODE, r"\b(?:code|page|screen|button|bug|fix|build|restyle|repo|branch|merge|component|css|test suite|browser test|onboarding page)\b", "i");
+
+fn has_code(p: &Product) -> bool {
+    p.rest.get("code") == Some(&Value::Bool(true))
+}
+
+/// Where words about code go when the box points at a project with no code and nobody picked
+/// one: the one other project that has code. Two with code is a guess, so the box stays; and
+/// words that name the project it is on stay there too (`codeProjectFor` in
+/// `renderer/src/compose-project.ts`).
+pub fn code_project_for<'a>(text: &str, offered: &[&'a Product], current: &str) -> Option<&'a Product> {
+    let here = offered.iter().find(|p| p.slug == current)?;
+    if has_code(here) || !ABOUT_CODE.test(text) || text.to_lowercase().contains(&here.name.to_lowercase()) {
+        return None;
+    }
+    let with_code: Vec<&Product> = offered.iter().copied().filter(|p| has_code(p) && !is_direct(p)).collect();
+    (with_code.len() == 1).then(|| with_code[0])
+}
+
+/// The note that says so, and the way back to the project the box was on.
+pub fn going_to_code(to: &str) -> String {
+    format!("Going to {to}, where the code is.")
+}
+
+pub fn keep(name: &str) -> String {
+    format!("Keep {name}")
 }
 
 /// What the menu says after a project's name, when it says anything: whose it is, where the
@@ -721,6 +749,23 @@ pub enum Entry {
     /// The row that turns it back.
     Recent,
     Effort(String),
+    /// Under the caret beside Send: write the thread down under Later, where nothing starts it
+    /// until the person does, and take that back.
+    AddToLater,
+    RemoveTheTime,
+}
+
+/// The caret's menu, as far as this window takes it: its heading, the way to take a pick back,
+/// and the one pick with no clock in it (`laterMenu` in `ThreadComposer.tsx`).
+pub const SEND_LATER: &str = "Send later";
+pub const ADD_TO_LATER: &str = "Add it to Later";
+pub const REMOVE_THE_TIME: &str = "Remove the time";
+/// What the caret says once Later is picked (`whenWords`).
+pub const LATER_WORD: &str = "Later";
+
+/// That menu's entries: "Remove the time" only while something is picked.
+pub fn later_entries(later: bool) -> Vec<Entry> {
+    if later { vec![Entry::RemoveTheTime, Entry::AddToLater] } else { vec![Entry::AddToLater] }
 }
 
 /// The project menu's entries: the projects, then the way to make one.
@@ -950,6 +995,35 @@ mod tests {
         assert_eq!(card_project(&[], None, None, None).map(|p| p.slug.as_str()), None);
         assert_eq!(practice_refusal(Some(&products[0])), Some(PRACTICE_REFUSAL));
         assert_eq!(practice_refusal(Some(&products[1])), None);
+    }
+
+    #[test]
+    fn words_about_code_on_a_project_with_none_go_to_the_one_project_that_has_code() {
+        let products = [
+            project(json!({ "slug": "mine", "name": "My Workspace", "code": false })),
+            project(json!({ "slug": "shop", "name": "Storefront", "code": true })),
+            project(json!({ "slug": "notes", "name": "Notes", "code": false })),
+        ];
+        let offered: Vec<&Product> = products.iter().collect();
+        let to = |text: &str, current: &str| code_project_for(text, &offered, current).map(|p| p.slug.as_str());
+        assert_eq!(to("Fix the checkout button", "mine"), Some("shop"));
+        // Not about code, already on code, or naming the project it is on: it stays.
+        assert_eq!(to("Book the flights for March", "mine"), None);
+        assert_eq!(to("Fix the checkout button", "shop"), None);
+        assert_eq!(to("Fix the bug in my workspace list", "mine"), None);
+        // A word that only starts like one of them is not one ("debugging", "pages").
+        assert_eq!(to("Write about debugging habits", "mine"), None);
+        // Two projects with code is a guess, so nothing moves.
+        let two = [project(json!({ "slug": "mine", "name": "Mine", "code": false })), project(json!({ "slug": "a", "name": "A", "code": true })), project(json!({ "slug": "b", "name": "B", "code": true }))];
+        assert!(code_project_for("Fix the build", &two.iter().collect::<Vec<_>>(), "mine").is_none());
+        assert_eq!(going_to_code("Storefront"), "Going to Storefront, where the code is.");
+        assert_eq!(keep("My Workspace"), "Keep My Workspace");
+    }
+
+    #[test]
+    fn the_caret_offers_later_and_takes_it_back_once_it_is_picked() {
+        assert_eq!(later_entries(false), [Entry::AddToLater]);
+        assert_eq!(later_entries(true), [Entry::RemoveTheTime, Entry::AddToLater]);
     }
 
     #[test]
