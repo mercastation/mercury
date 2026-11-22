@@ -227,10 +227,10 @@ fn finishes_here(why: Option<&Why>) -> String {
     if why.why == "kept" {
         return "This reply finishes on this Mac, and the next one starts in the cloud.".to_string();
     }
-    if why.why == "handed-back" {
-        if let Some(detail) = why.detail.as_deref().filter(|d| !merging_into_main(d)) {
-            return format!("This reply needs {detail}, so it finishes on this Mac. The next one starts in the cloud.");
-        }
+    if why.why == "handed-back"
+        && let Some(detail) = why.detail.as_deref().filter(|d| !merging_into_main(d))
+    {
+        return format!("This reply needs {detail}, so it finishes on this Mac. The next one starts in the cloud.");
     }
     let body = why_words(why);
     if FOR_NOW.contains(&why.why.as_str()) { format!("{body} This reply finishes on this Mac.") } else { format!("{body} This reply finishes on this Mac, and the next one starts in the cloud.") }

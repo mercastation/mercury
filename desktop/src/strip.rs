@@ -289,14 +289,13 @@ impl State {
             "place" => self.toggle_place(),
             "menu" | "priority" => {
                 self.toggle_more(tx);
-                if which == "priority" {
-                    let at = self.strip_rows().iter().position(|r| matches!(r, Row::Priority(_)));
-                    if let Some(Over::More { levels, lit }) = self.strip.open.as_mut().map(|(_, over)| over) {
-                        if at.is_some() {
-                            *levels = true;
-                            *lit = 0;
-                        }
-                    }
+                let has_levels = self.strip_rows().iter().any(|r| matches!(r, Row::Priority(_)));
+                if which == "priority"
+                    && has_levels
+                    && let Some(Over::More { levels, lit }) = self.strip.open.as_mut().map(|(_, over)| over)
+                {
+                    *levels = true;
+                    *lit = 0;
                 }
             }
             _ => {}

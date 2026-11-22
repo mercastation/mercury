@@ -171,7 +171,7 @@ pub fn mode_word(snap: &Snapshot, item: &Item, running: Option<&str>) -> String 
         (_, other) => other,
     };
     // Title case, "Accept Edits" with it (`titleCase`).
-    word.split(' ').map(|w| crate::rules::js::upper_first(w)).collect::<Vec<_>>().join(" ")
+    word.split(' ').map(crate::rules::js::upper_first).collect::<Vec<_>>().join(" ")
 }
 
 #[cfg(test)]
