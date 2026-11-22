@@ -12,6 +12,7 @@
 
 #![forbid(unsafe_code)]
 
+mod attach;
 mod chrome;
 mod compose;
 mod data;
@@ -914,6 +915,8 @@ fn init() -> State {
         s.compose.words.focused = !s.fixture.contains_key("menu");
         s.compose.card = s.fixture.get("card") == Some(&Value::Bool(true));
     }
+    // And one taken with files in that box says which (`attached`, `pasted`).
+    s.picture_attached();
     s
 }
 

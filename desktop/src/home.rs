@@ -11,6 +11,54 @@ use crate::{State, View, icons};
 
 /// The page's column: 760 points, or what the card leaves it.
 const COLUMN: f32 = 760.0;
+/// How tall the column is at least (`.hm-col { min-height: 660px }`), and what Home's two cards
+/// are, at most and at least (`.hm-two`).
+const COLUMN_TALL: f32 = 660.0;
+const CARDS_TALL: f32 = 300.0;
+const CARDS_LEAST: f32 = 240.0;
+/// The greeting's line, the doors under it with their margin, and the margins over the box and
+/// over the cards: what in the column never gives.
+const FIXED: f32 = 36.0 + 16.0 + 32.0 + 22.0 + 24.0;
+
+/// What the column gives up when the box in it grows past the room it has, as `home.css` lays
+/// it out: the room above the greeting first, a thousand times more readily than the cards,
+/// which give up to 240 points a hundred times more readily than the box (CSS flexbox's
+/// shrinking, with those weights times each one's own height). `room` is how tall the column
+/// is, `above` the room over the greeting, `box_h` the box. Gives the room above, the box's
+/// slot and the cards' height. The box gives a sliver of a point until the other two are at
+/// their least, and its slot is that much shorter with the box itself whole; past that, where
+/// the web window's box would scroll its words inside itself, this page scrolls instead.
+fn give_way(room: f32, above: f32, box_h: f32) -> (f32, f32, f32) {
+    // Each part that can give: its height, how readily it gives, and the least it can be.
+    let parts = [(above, 1000.0, 0.0), (box_h, 1.0, 0.0), (CARDS_TALL, 100.0, CARDS_LEAST)];
+    let mut size = parts.map(|(basis, _, _)| basis);
+    let mut held = [false; 3];
+    loop {
+        // What is over, with each part already at its least counted at that.
+        let over = FIXED - room + (0..3).map(|i| if held[i] { size[i] } else { parts[i].0 }).sum::<f32>();
+        let weights: f32 = (0..3).filter(|&i| !held[i]).map(|i| parts[i].1 * parts[i].0).sum();
+        if over <= 0.0 || weights <= 0.0 {
+            break;
+        }
+        let mut more = false;
+        for i in 0..3 {
+            if held[i] {
+                continue;
+            }
+            let wanted = parts[i].0 - over * parts[i].1 * parts[i].0 / weights;
+            size[i] = wanted.max(parts[i].2);
+            // One that would go under its least stays there, and the rest is spread again.
+            if size[i] > wanted {
+                held[i] = true;
+                more = true;
+            }
+        }
+        if !more {
+            break;
+        }
+    }
+    (size[0], size[1], size[2])
+}
 
 /// Home's words, each standing where Chromium puts its glyphs to a quarter pixel (`theme::pen`).
 fn label(s: &str, size: f32, weight: f32, c: rune::Color) -> El {
@@ -198,13 +246,23 @@ pub fn view(s: &State) -> El {
     let (needs, progress) = (&s.lists.needs, &s.lists.progress);
     // What the card leaves the column (`home.css`). The room above the greeting grows with the
     // window, `clamp(0px, 9vh - 24px, 80px)`, and the two cards are 300 points tall however
-    // tall the window is: the column is never shorter than 660, so nothing in it has to give.
-    let (page_w, _) = s.page_size();
+    // tall the window is: the column is never shorter than 660, so with the box one line tall
+    // nothing in it has to give. Files in the box, or words on many lines, make it taller.
+    let (page_w, page_h) = s.page_size();
     let column = COLUMN.min((page_w - 64.0).max(320.0));
     let above = (0.09 * s.size.1 - 24.0).clamp(0.0, 80.0);
-    let cards_h = 300.0;
-    // A window 980 points wide or less stacks the cards, each as wide as the column.
+    // A window 980 points wide or less stacks the cards, each as wide as the column, and then
+    // nothing gives: the page scrolls.
     let stacked = s.size.0 <= 980.0;
+    // The box as it is laid out, its slot empty while the card is up; before it ever was, one
+    // line of words and its files on one line.
+    let box_h = if s.compose.card {
+        0.0
+    } else {
+        let files = if s.compose.files.is_empty() { 0.0 } else { 12.0 + crate::attach::rows_tall(&s.compose.files) };
+        rune::memo::layout_size(crate::compose::BOX).map_or(152.0 + files, |[_, tall]| tall)
+    };
+    let (above, slot, cards_h) = if stacked { (above, box_h, CARDS_TALL) } else { give_way(COLUMN_TALL.max(page_h - 64.0), above, box_h) };
 
     // An empty card says so in one line (`HomePage.tsx`), and a head shows its count only above zero.
     let list = |rows: &[Row], empty: &str, card: Card| {
@@ -248,7 +306,16 @@ pub fn view(s: &State) -> El {
         .child(doors)
         // The box is drawn in this slot, or in the New thread card while that is up, and then
         // the slot is empty and the cards under it come up (`drawnIn` in `App.tsx`).
-        .child(if s.compose.card { el().mt(22.0) } else { el().mt(22.0).child(crate::compose::inline(s).w_full()) })
+        .child(if s.compose.card {
+            el().mt(22.0)
+        } else if slot < box_h - 0.001 {
+            // The box gives its sliver too: what is under it moves up by that, as in the web
+            // window, while the box keeps all of itself. A column, which leaves the box its own
+            // height: stretched to the slot it could never be measured growing.
+            col().mt(22.0).h(slot).child(crate::compose::inline(s).w_full())
+        } else {
+            el().mt(22.0).child(crate::compose::inline(s).w_full())
+        })
         .child(if stacked {
             col().mt(24.0).gap(22.0).child(home_card("Needs you", count(needs.len()), "Open inbox →", Some(View::Inbox), rows, cards_h).w(column)).child(second.w(column))
         } else {
@@ -260,4 +327,25 @@ pub fn view(s: &State) -> El {
                 .child(second.w((column - 22.0) / 2.35))
         });
     row().w_full().justify_center().child(page)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_taller_box_takes_its_room_from_above_the_greeting_first_and_then_from_the_cards() {
+        let near = |a: (f32, f32, f32), b: (f32, f32, f32)| (a.0 - b.0).abs() < 0.01 && (a.1 - b.1).abs() < 0.01 && (a.2 - b.2).abs() < 0.01;
+        // A window 760 points tall: one line of words leaves everything where it was.
+        assert_eq!(give_way(660.0, 44.4, 152.0), (44.4, 152.0, 300.0));
+        // A file's chip (the web window draws the greeting at 171.27, the box 187.49 tall and the
+        // cards 299.24) and a picture (135.29, 247.79 and 274.92).
+        assert!(near(give_way(660.0, 44.4, 187.5), (43.27, 187.49, 299.24)), "{:?}", give_way(660.0, 44.4, 187.5));
+        assert!(near(give_way(660.0, 44.4, 248.0), (7.29, 247.79, 274.92)), "{:?}", give_way(660.0, 44.4, 248.0));
+        // Far too tall: the room above is gone, the cards stop at 240, and the rest is the box's.
+        let squeezed = give_way(660.0, 44.4, 500.0);
+        assert_eq!((squeezed.0, squeezed.2), (0.0, 240.0));
+        // A window with room to spare gives nothing up.
+        assert_eq!(give_way(810.0, 66.0, 248.0), (66.0, 248.0, 300.0));
+    }
 }

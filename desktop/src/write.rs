@@ -54,15 +54,16 @@ impl Sent {
     }
 }
 
-/// What the box to start a thread in held when Send was pressed: the words, and the level, the
-/// model and Later picked on it, which are as much a part of the message (`ComposeDraft` in
-/// `renderer/src/drafts.ts`).
+/// What the box to start a thread in held when Send was pressed: the words, the files, and the
+/// level, the model and Later picked on it, which are as much a part of the message
+/// (`ComposeDraft` in `renderer/src/drafts.ts`).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Draft {
     pub words: String,
     pub level: Option<Level>,
     pub pick: Option<Pick>,
     pub later: bool,
+    pub files: Vec<crate::attach::Attached>,
 }
 
 /// Something done and not yet written (`deferCommit` in `renderer/src/App.tsx`). It shows at

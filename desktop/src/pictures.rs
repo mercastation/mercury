@@ -214,28 +214,42 @@ fn stamp(path: &Path) -> Option<Stamp> {
     Some((meta.len(), written))
 }
 
+/// A picture's reader, refusing one that claims a size no screen shows.
+fn limited<R: std::io::BufRead + std::io::Seek>(mut reader: ImageReader<R>) -> ImageReader<R> {
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(20_000);
+    limits.max_image_height = Some(20_000);
+    limits.max_alloc = Some(768 << 20);
+    reader.limits(limits);
+    reader
+}
+
+/// A picture's bytes decoded whole and turned the way it says it is up, as a browser turns a
+/// photograph. None when it is not a picture this window reads.
+pub fn decode(bytes: &[u8]) -> Option<DynamicImage> {
+    let mut decoder = limited(ImageReader::new(Cursor::new(bytes)).with_guessed_format().ok()?).into_decoder().ok()?;
+    let turned = decoder.orientation().ok();
+    let mut picture = DynamicImage::from_decoder(decoder).ok()?;
+    if let Some(turned) = turned {
+        picture.apply_orientation(turned);
+    }
+    Some(picture)
+}
+
+/// The size a picture file is drawn at, turned the way it says it is up, read off its header
+/// alone: what a place for it needs before the picture itself is read.
+pub fn size_of(path: &Path) -> Option<(u32, u32)> {
+    let mut decoder = limited(ImageReader::open(path).ok()?.with_guessed_format().ok()?).into_decoder().ok()?;
+    let (w, h) = decoder.dimensions();
+    use image::metadata::Orientation::{Rotate90, Rotate90FlipH, Rotate270, Rotate270FlipH};
+    let sideways = matches!(decoder.orientation(), Ok(Rotate90 | Rotate270 | Rotate90FlipH | Rotate270FlipH));
+    Some(if sideways { (h, w) } else { (w, h) })
+}
+
 /// The first of `places` that is a file, decoded and shrunk to what `want` needs.
 fn read(places: &[String], want: Want) -> Answer {
     let Some((path, stamp)) = places.iter().find_map(|p| stamp(Path::new(p)).map(|s| (p, s))) else { return Answer::Missing };
-    let decoded = (|| {
-        let bytes = std::fs::read(path).ok()?;
-        let mut reader = ImageReader::new(Cursor::new(&bytes)).with_guessed_format().ok()?;
-        // A file that claims a size no screen shows is not decoded at all.
-        let mut limits = image::Limits::default();
-        limits.max_image_width = Some(20_000);
-        limits.max_image_height = Some(20_000);
-        limits.max_alloc = Some(768 << 20);
-        reader.limits(limits);
-        let mut decoder = reader.into_decoder().ok()?;
-        // A photograph says which way up it is, and a browser turns it so.
-        let turned = decoder.orientation().ok();
-        let mut picture = DynamicImage::from_decoder(decoder).ok()?;
-        if let Some(turned) = turned {
-            picture.apply_orientation(turned);
-        }
-        Some(picture)
-    })();
-    let Some(picture) = decoded else { return Answer::Missing };
+    let Some(picture) = std::fs::read(path).ok().and_then(|bytes| decode(&bytes)) else { return Answer::Missing };
     let natural = (picture.width(), picture.height());
     let size = want.copy(natural);
     // The whole picture is let go here, in the worker, the moment its copy is made.

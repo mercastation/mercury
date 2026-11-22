@@ -27,10 +27,12 @@ use crate::data::{Item, Product};
 use crate::rules::compose::{self as rules, Engines, Entry, Hang, Keyboard, Level, Pick};
 use crate::rules::{title, window};
 use crate::theme::*;
-use crate::{State, View, chrome, home, icons, write};
+use crate::{State, View, attach, chrome, home, icons, write};
 
 /// The key of the field the words are typed in.
 pub const FIELD: &str = "compose";
+/// The box on Home's page, whose height Home's column makes room for.
+pub const BOX: &str = "compose-box";
 /// And of the open menu's rows, whose width decides whether it has to slide.
 const MENU: &str = "compose-menu";
 /// The card, which a press outside closes.
@@ -38,6 +40,8 @@ const CARD: &str = "compose-card";
 /// Send, and the caret beside it that opens Later. The reply box has a Send of its own.
 const SEND: &str = "compose-send";
 const CARET: &str = "compose-caret";
+/// The paper clip, which opens the system's file picker.
+const CLIP: &str = "compose-clip";
 
 /// One of the box's menus, named by the control that opens it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -94,6 +98,8 @@ pub struct Composer {
     /// "Add it to Later" was picked under the caret: Send writes the thread down under Later,
     /// where nothing starts it until the person does.
     pub later: bool,
+    /// The files dropped on it, picked or pasted, in the order they came (`attach.rs`).
+    pub files: Vec<attach::Attached>,
     pub menu: Option<Menu>,
     /// The chip the keyboard was left on when Escape closed its menu: an arrow opens the menu
     /// again, a letter goes to the words, and a second Escape lets go of the box.
@@ -109,7 +115,7 @@ pub struct Composer {
 
 impl Default for Composer {
     fn default() -> Composer {
-        Composer { words: TextEdit::new(""), level: None, project: None, pick: None, later: false, menu: None, on_chip: None, card: false, not_taken_at: None, o_waits: None }
+        Composer { words: TextEdit::new(""), level: None, project: None, pick: None, later: false, files: Vec::new(), menu: None, on_chip: None, card: false, not_taken_at: None, o_waits: None }
     }
 }
 
@@ -127,19 +133,25 @@ impl Composer {
 
     /// What Send takes off the box, for a refusal or Z to put back.
     fn draft(&self) -> write::Draft {
-        write::Draft { words: self.words.text.clone(), level: self.level, pick: self.pick.clone(), later: self.later }
+        write::Draft { words: self.words.text.clone(), level: self.level, pick: self.pick.clone(), later: self.later, files: self.files.clone() }
     }
 
-    /// What a refusal or Z puts back: every word and every pick, in a box that holds nothing
-    /// newer. True when it did.
+    /// Whether there is anything in the box to keep: words, or files (`composeDraftIsEmpty`).
+    fn holds_something(&self) -> bool {
+        !self.words.text.trim().is_empty() || !self.files.is_empty()
+    }
+
+    /// What a refusal or Z puts back: every word, every file and every pick, in a box that holds
+    /// nothing newer (`restoreComposeDraft`). True when it did.
     fn put_back(&mut self, draft: write::Draft) -> bool {
-        if !self.words.text.trim().is_empty() || draft.words.trim().is_empty() {
+        if self.holds_something() || (draft.words.trim().is_empty() && draft.files.is_empty()) {
             return false;
         }
         self.words = TextEdit::new(draft.words);
         self.level = draft.level;
         self.pick = draft.pick;
         self.later = draft.later;
+        self.files = draft.files;
         true
     }
 }
@@ -222,14 +234,15 @@ fn later_caret(s: &State) -> El {
 fn bar_end(s: &State) -> Vec<El> {
     // The two halves of Send are one control with no room between them (`.tc-send`).
     let send = row().key(MenuKind::Later.anchor()).child(home::send_main(s.compose_ready()).key(SEND).cursor(rune::Cursor::Pointer).on_background_press_tx(|s: &mut State, tx| s.send_thread(tx))).child(later_caret(s));
+    let clip = home::attach().key(CLIP).cursor(rune::Cursor::Pointer).on_background_press_tx(|s: &mut State, tx| s.pick_files(tx));
     if s.compose_project().is_none() {
         // `.tc-why` takes the room the clip would otherwise push Send across, so the clip
         // stays by the chips. Making a project is the web window's to do, so the way out is
         // words here and not a button.
         let why = label(&format!("{} {}", rules::NO_PROJECT_REASON, rules::NO_PROJECT_ACTION), 13.0, 400.0, dim());
-        return vec![home::attach(), row().grow(1.0).min_w(0.0).pl(8.0).child(why), send];
+        return vec![clip, row().grow(1.0).min_w(0.0).pl(8.0).child(why), send];
     }
-    vec![spacer(), home::attach(), send]
+    vec![spacer(), clip, send]
 }
 
 /// The bar under the words on the page: who gets the thread where someone besides the agent
@@ -254,6 +267,8 @@ fn words_field(s: &State, font: TextStyle, caret: rune::Color) -> El {
         // Return is a new line, as in the web window's box; ⌘Return sends.
         .on_submit(|s: &mut State, _| s.compose.words.insert("\n"))
         .on_input_key(crate::keys::in_the_box)
+        // A picture or a file on the clipboard is attached rather than typed (`onPaste`).
+        .on_input_paste(|s: &mut State, content, _| s.paste_into_the_box(content, crate::clock()))
 }
 
 /// The lines between the words and the bar (`.tc-note`): why Practice takes nothing, and where
@@ -283,6 +298,7 @@ pub fn inline(s: &State) -> El {
     // `caret-color: var(--accent)` on the box drawn on a page.
     let field = words_field(s, TextStyle::new(22.0, 400.0).lh(30.0), accent());
     glass(col())
+        .key(BOX)
         .pt(16.0)
         .px(18.0)
         .pb(14.0)
@@ -292,8 +308,13 @@ pub fn inline(s: &State) -> El {
         .border_layout()
         .box_shadow(shadow(0.0, 0.0, 0.0, 3.0, white(0.03), false))
         .box_shadow(shadow(0.0, 12.0, 40.0, 0.0, rgba(0, 0, 0, 0.3), false))
+        // Files dropped anywhere on the box attach. The web window takes them on its words,
+        // which are most of it; a drop on the rest of it does nothing there.
+        .on_drop_files(|s: &mut State, files, _| s.attach_paths(files))
         // One line tall until the words need more: 74 points with the room under them.
         .child(el().min_h(74.0).pb(14.0).child(field.w_full()))
+        // The files, under the words and over the notes (`.tc-inline .attach-row`).
+        .children(attach::rows(s, |r| r.pt(12.0)))
         .children(notes(s, |n| n.pt(12.0)))
         .child(bar(s))
 }
@@ -351,11 +372,15 @@ fn card(s: &State) -> El {
     // 156 points tall (`.tc-text`).
     let field = words_field(s, TextStyle::new(15.0, 400.0).lh(23.25), ink());
     let words = col().h(156.0).pt(12.0).px(18.0).pb(6.0).child(col().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(field.w_full()));
+    // The files, between the words and the notes (`.tc-card .attach-row`).
+    let files = attach::rows(s, |r| r.px(18.0).pb(10.0));
     let lines = notes(s, |n| n.px(18.0).pb(10.0));
     // How tall the card is, so it can stand where the grid puts it: as it was last laid out,
-    // else its edge, the head's fields and hairline, the words, one line a note and the bar.
+    // else its edge, the head's fields and hairline, the words, the files on one line, one
+    // line a note and the bar.
     let fields = if window::to_offered(&s.snap) { 2.0 } else { 1.0 };
-    let tall = rune::memo::layout_size(CARD).map_or(2.0 + fields * 42.0 + 1.0 + 156.0 + lines.len() as f32 * 29.0 + 57.0, |[_, tall]| tall);
+    let filed = if files.is_empty() { 0.0 } else { attach::rows_tall(&s.compose.files) + 10.0 };
+    let tall = rune::memo::layout_size(CARD).map_or(2.0 + fields * 42.0 + 1.0 + 156.0 + filed + lines.len() as f32 * 29.0 + 57.0, |[_, tall]| tall);
     // `place-items: center` in the window less a tenth of its height at the foot.
     let top = ((h - 0.1 * h - tall) / 2.0).max(0.0).round();
     let bar = row().pt(12.0).pr(14.0).pb(12.0).pl(18.0).gap(8.0).items_center().border_sides([1.0, 0.0, 0.0, 0.0], hair()).border_layout().children(filed_chips(s)).children(bar_end(s));
@@ -374,8 +399,11 @@ fn card(s: &State) -> El {
         .on_background_press_tx(|s: &mut State, tx| s.let_go(tx))
         // Escape that nothing else took, and a press outside: the card goes, the words stay.
         .modal_tx(true, |s: &mut State, tx| s.close_card(tx))
+        // Files dropped anywhere on the card attach, as on the box on Home's page.
+        .on_drop_files(|s: &mut State, files, _| s.attach_paths(files))
         .child(card_head(s))
         .child(words)
+        .children(files)
         .children(lines)
         .child(bar)
 }
@@ -594,7 +622,7 @@ fn menu_layer(s: &State) -> Option<El> {
     // On the way down, as the web window's `pointerdown` listener does, so the same press can
     // still land the caret in the words. Where the box's controls are is read here, while the
     // window is drawn: a handler has no layout to read.
-    let marks: Vec<(&'static str, [f32; 4])> = [SEND, FIELD, CARD].into_iter().chain(MenuKind::ALL.map(MenuKind::trigger)).filter_map(|key| rune::memo::window_layout(key).map(|rect| (key, rect))).collect();
+    let marks: Vec<(&'static str, [f32; 4])> = [SEND, CLIP, FIELD, CARD].into_iter().chain(MenuKind::ALL.map(MenuKind::trigger)).filter_map(|key| rune::memo::window_layout(key).map(|rect| (key, rect))).collect();
     let away = el().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).on_drag(move |s: &mut State, d: &mut Drag, tx: &mut Tx| {
         if d.phase == Phase::Down {
             s.pressed_away(d.window_point(), &marks, tx);
@@ -767,9 +795,16 @@ impl State {
         }
     }
 
-    /// Whether Send is lit: there is something to send, and somewhere it can run (`canSend`).
+    /// What the box sends as the thread's title and words: its words, or with files and no words
+    /// a title naming the first file.
+    fn compose_message(&self) -> Option<rules::Message> {
+        rules::thread_message(&self.compose.words.text, self.compose.files.first().map(|a| a.file.name.as_str()))
+    }
+
+    /// Whether Send is lit: there is something to send, every file in the box can go, and there
+    /// is somewhere it can run (`canSend`, with `filesReady`).
     pub fn compose_ready(&self) -> bool {
-        rules::thread_message(&self.compose.words.text, None).is_some() && self.compose_project().is_some_and(|p| rules::practice_refusal(Some(p)).is_none())
+        self.compose_message().is_some() && attach::ready(&self.compose.files) && self.compose_project().is_some_and(|p| rules::practice_refusal(Some(p)).is_none())
     }
 
     /// The level last picked for an agent, when it is one worth keeping.
@@ -882,8 +917,9 @@ impl State {
     /// A press outside the open menu, as it goes down, with where the box's controls stood
     /// (`marks`). The menu closes and the press goes on to what it was aimed at in the box:
     /// another chip opens its menu, its own chip keeps the keyboard, the words take the caret,
-    /// Send sends. On the card a press outside the card closes the card too, as the veil's own
-    /// press does. Anywhere else on the page the menu only closes.
+    /// Send sends, the paper clip opens the picker. On the card a press outside the card closes
+    /// the card too, as the veil's own press does. Anywhere else on the page the menu only
+    /// closes.
     pub fn pressed_away(&mut self, at: [f32; 2], marks: &[(&'static str, [f32; 4])], tx: &mut Tx) {
         let inside = |key: &str| marks.iter().any(|(mark, [x, y, w, h])| *mark == key && at[0] >= *x && at[0] < x + w && at[1] >= *y && at[1] < y + h);
         let Some(menu) = self.compose.menu.take() else {
@@ -892,6 +928,9 @@ impl State {
         self.compose.on_chip = None;
         if inside(SEND) {
             return self.send_thread(tx);
+        }
+        if inside(CLIP) {
+            return self.pick_files(tx);
         }
         if let Some(kind) = MenuKind::ALL.into_iter().find(|kind| inside(kind.trigger())) {
             if kind == menu.kind {
@@ -1007,9 +1046,13 @@ impl State {
     /// the card closes, and a line says where the thread is going; a refusal puts every word
     /// back.
     pub fn send_thread(&mut self, tx: &mut Tx) {
-        let Some(message) = rules::thread_message(&self.compose.words.text, None) else {
+        let Some(message) = self.compose_message() else {
             return;
         };
+        // A file that cannot go holds the whole send, and the line under the files says why.
+        if !attach::ready(&self.compose.files) {
+            return;
+        }
         let Some(product) = self.compose_project().filter(|p| rules::practice_refusal(Some(p)).is_none()).map(|p| p.slug.clone()) else {
             return;
         };
@@ -1030,6 +1073,7 @@ impl State {
         }
         self.picks.change(|picks| picks.project = Some(product.clone()));
         self.compose.words = TextEdit::new("");
+        self.compose.files.clear();
         self.compose.later = false;
         self.compose.menu = None;
         self.compose.on_chip = None;
@@ -1234,20 +1278,37 @@ mod tests {
         assert_eq!(back_at(now + 14.0 * 86_400_000.0, now).unwrap().split(' ').count(), 4);
     }
 
+    fn pasted(name: &str) -> attach::Attached {
+        attach::Attached::pasted(b"png", (1440, 900), name.to_string())
+    }
+
     #[test]
     fn a_refusal_or_z_puts_every_pick_back_but_never_over_newer_words() {
         let mut box_ = Composer::default();
-        let draft = write::Draft { words: "Ship the fix".to_string(), level: Some(Level::High), pick: Some(Pick::new("claude", "sonnet")), later: true };
+        let draft = write::Draft { words: "Ship the fix".to_string(), level: Some(Level::High), pick: Some(Pick::new("claude", "sonnet")), later: true, files: vec![pasted("pasted-1.png")] };
         assert!(box_.put_back(draft.clone()));
         assert_eq!(box_.draft(), draft);
         // Something typed since stays, and so do its picks.
         let mut busy = Composer { words: TextEdit::new("A newer thought"), ..Composer::default() };
-        assert!(!busy.put_back(draft));
-        assert_eq!((busy.words.text.as_str(), busy.level, busy.later), ("A newer thought", None, false));
+        assert!(!busy.put_back(draft.clone()));
+        assert_eq!((busy.words.text.as_str(), busy.level, busy.later, busy.files.len()), ("A newer thought", None, false, 0));
         // Nothing to give back is not a reason to empty the picks.
         let mut picked = Composer { level: Some(Level::Low), ..Composer::default() };
         assert!(!picked.put_back(write::Draft::default()));
         assert_eq!(picked.level, Some(Level::Low));
+    }
+
+    #[test]
+    fn files_alone_are_something_to_put_back_and_something_newer_to_keep() {
+        // A thread sent with only a picture comes back as that picture.
+        let mut box_ = Composer::default();
+        let draft = write::Draft { files: vec![pasted("pasted-1.png")], ..write::Draft::default() };
+        assert!(box_.put_back(draft.clone()));
+        assert_eq!(box_.files, draft.files);
+        // A file attached since is newer than what was sent, and stays alone in the box.
+        let mut busy = Composer { files: vec![pasted("pasted-2.png")], ..Composer::default() };
+        assert!(!busy.put_back(write::Draft { words: "Ship the fix".to_string(), ..draft }));
+        assert_eq!((busy.words.text.as_str(), busy.files[0].file.name.as_str()), ("", "pasted-2.png"));
     }
 
     #[test]
