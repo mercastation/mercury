@@ -103,7 +103,8 @@ function conversation(item, found, waiting = false, said = SHIPPED) {
 // whose words name files (`../pictures.mjs`): the thread's project is moved into it, the
 // page's pictures are answered from it, and `found` and `shipped` may then be functions of
 // what was planted (`{ dir, repo, thread }`), for words that hold a full path.
-// `files.arriving` leaves every picture on its way for ever.
+// `files.arriving` leaves every picture on its way for ever, and `files.large` plants ten
+// screenshots besides, for a measurement.
 export async function open(h, { unfold, found = FOUND, shipped = SHIPPED, files = null, waiting = false, then = null }) {
   const snapshot = await h.evaluate('window.__SNAP__');
   // The Inbox opens on its first row; the snapshot's first thread is not always that one.
@@ -113,7 +114,7 @@ export async function open(h, { unfold, found = FOUND, shipped = SHIPPED, files 
   const first = await h.evaluate(`document.querySelector('.list .row.selected')?.dataset.itemId ?? ''`);
   const at = snapshot.items.findIndex((i) => i.id === first || `${i.product}/${i.id}` === first);
   if (at < 0) throw new Error('thread scene: the Inbox\'s first row is not in the snapshot');
-  const planted = files ? plant({ thread: snapshot.items[at].id }) : null;
+  const planted = files ? plant({ thread: snapshot.items[at].id, large: !!files.large }) : null;
   const words = (text) => (typeof text === 'function' ? text(planted) : text);
   const { row, lines } = conversation(snapshot.items[at], words(found), waiting, words(shipped));
   snapshot.items[at] = row;

@@ -85,14 +85,15 @@ impl<'a> Files<'a> {
 
 /// How far under its baseline a line of reading text ends. A picture drawn in a paragraph
 /// stands on that line's baseline, so this much room follows it. The baseline is the font's
-/// ascent (1.005 em) under half the line's spare room, landed on a device pixel of a 2x screen.
+/// ascent (1.005 em, landed on a device pixel of a 2x screen) under half the line's spare
+/// room, and Chromium puts it on the device pixel at or above that.
 fn under_baseline(size: f32) -> f32 {
     kept(1.6 * size) - baseline(size)
 }
 fn baseline(size: f32) -> f32 {
     let snap = |v: f32| (v * 2.0).round() / 2.0;
     let (up, down) = (snap(1.005 * size), snap(0.295 * size));
-    snap((kept(1.6 * size) - up - down) / 2.0 + up)
+    (((kept(1.6 * size) - up - down) / 2.0 + up) * 2.0).floor() / 2.0
 }
 
 /// The words under a picture: its name, small and quiet, cut short where the picture ends.
@@ -192,7 +193,10 @@ pub fn media_row(f: &Files, shown: &[Shown], room: f32) -> El {
             // Not seen yet: the whole width of the row, which is what the web window holds.
             Look::Arriving(None) => (None, room),
         };
-        watched(col().w(wide).child(frame(held, wide, ROW_TALL, Some(SurfaceFit::Fill))).child(name_under(src, wide, f.now).mt(6.0)), places, want)
+        // Its place in the row is as wide as the row at most; the picture itself stops at
+        // the widest any picture is drawn, and is cropped to fill what it has.
+        let drawn = wide.min(WIDEST);
+        watched(col().w(wide).child(frame(held, drawn, ROW_TALL, Some(SurfaceFit::Fill))).child(name_under(src, wide, f.now).mt(6.0)), places, want)
     }))
 }
 
@@ -232,5 +236,8 @@ mod tests {
         // At the reading size of a 1280 window, the line ends 7.09 points under the picture.
         assert!((under_baseline(16.0) - 7.09375).abs() < 0.001);
         assert!((baseline(16.0) - 18.5).abs() < 0.001);
+        // And at a 1600 window's, 7.78: the baseline is 19 points down, not 19.5.
+        assert!((baseline(16.74) - 19.0).abs() < 0.001);
+        assert!((under_baseline(16.74) - 7.78).abs() < 0.01);
     }
 }

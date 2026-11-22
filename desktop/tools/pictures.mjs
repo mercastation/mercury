@@ -8,7 +8,8 @@
 // app answers, so `standIn` is a script for the page that answers those addresses from the
 // planted files. The native window reads the same files off the disk, by the product's `dir`
 // in the fixture. Nothing here is anybody's real file, and nothing outside the planted folder
-// is touched.
+// is touched. Each planting starts the folder again, so scenes that plant are photographed
+// one after another, never two at once.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -83,6 +84,9 @@ const PICTURES = [
   // One level only: a round kept in a folder of its own is not one of the folder's pictures.
   ['designs/rounds/older/round-0.png', 800, 500, [120, 120, 120]],
 ];
+// Ten screenshots the size a Retina Mac takes them, for measuring what a conversation full of
+// pictures costs. Planted only when asked for (`large`): they take a few seconds to paint.
+const LARGE = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => [`screens/screen-${String(n).padStart(2, '0')}.png`, 2880, 1800, [30 + n * 20, 200 - n * 12, 90 + n * 9]]);
 // What a message links to and never draws. Their words do not matter, only that they are there.
 const OTHERS = [
   ['designs/<thread>/checkout.html', '<!doctype html><title>Checkout</title><h1>Checkout</h1>'],
@@ -100,7 +104,7 @@ const OTHERS = [
  * Plants the invented project under `root` for the thread `thread` and says where everything
  * is: the project's folder (`dir`), its code folder (`repo`) and every file by its full path.
  */
-export function plant({ root = PLANTED, thread = 'w-thread' } = {}) {
+export function plant({ root = PLANTED, thread = 'w-thread', large = false } = {}) {
   const dir = path.join(root, 'storefront');
   const repo = path.join(root, 'storefront-code');
   fs.rmSync(root, { recursive: true, force: true });
@@ -115,6 +119,7 @@ export function plant({ root = PLANTED, thread = 'w-thread' } = {}) {
     files.push(file);
   };
   PICTURES.forEach(([rel, w, h, colour], n) => write(dir, rel, picture(w, h, colour), n));
+  if (large) LARGE.forEach(([rel, w, h, colour], n) => write(dir, rel, picture(w, h, colour), 20 + n));
   OTHERS.forEach(([rel, words], n) => write(dir, rel, words, 40 + n));
   // And one picture a worker left in the code folder, where a short path is looked for last.
   write(repo, 'shots/from-the-code.png', picture(280, 64, [200, 80, 110]), 59);

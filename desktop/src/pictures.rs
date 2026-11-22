@@ -402,6 +402,11 @@ impl Pictures {
             changed |= Self::place(&mut shelf, key, answer);
         }
         Self::trim(&mut shelf);
+        // `MERCURY_PICTURES=1` says what is held each time it changes, for a measurement.
+        if changed && std::env::var_os("MERCURY_PICTURES").is_some() {
+            let here = shelf.entries.values().filter(|e| matches!(e.state, State::Here { .. })).count();
+            eprintln!("pictures: {here} of {} held, {:.1} MB of pixels", shelf.entries.len(), shelf.bytes as f64 / (1 << 20) as f64);
+        }
         changed
     }
 
@@ -496,6 +501,24 @@ mod tests {
         // And nothing ever comes to a page photographed before its pictures did.
         let never = Pictures::new(2.0, true, true);
         assert!(matches!(never.look(nowhere, Want::Within(100, 100)), Look::Arriving(None)));
+    }
+
+    /// Not a check but a stopwatch: how long the worker takes over one screenshot.
+    /// `cargo test --release -- --ignored --nocapture a_screenshot_is_read_in` prints it.
+    #[test]
+    #[ignore]
+    fn a_screenshot_is_read_in() {
+        let folder = std::env::temp_dir().join("mercury-desktop-stopwatch");
+        std::fs::create_dir_all(&folder).unwrap();
+        let file = folder.join("screen.png");
+        // Bands, a gradient and a grain, so the file is not one flat colour to inflate.
+        image::RgbImage::from_fn(2880, 1800, |x, y| image::Rgb([(x / 12) as u8, (y / 8) as u8, ((x * 31 + y * 17) % 251) as u8])).save(&file).unwrap();
+        let places = vec![file.to_string_lossy().to_string()];
+        let began = std::time::Instant::now();
+        let Answer::Read(read) = read(&places, Want::Within(1516, 876)) else { panic!("the screenshot was not read") };
+        eprintln!("a 2880 by 1800 screenshot read and shrunk to {} by {} in {:?}, {:.1} MB held", read.size.0, read.size.1, began.elapsed(), read.rgba.len() as f64 / (1 << 20) as f64);
+        assert_eq!(read.natural, (2880, 1800));
+        std::fs::remove_dir_all(&folder).unwrap();
     }
 
     #[test]
