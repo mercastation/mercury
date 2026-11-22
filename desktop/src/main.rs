@@ -699,6 +699,7 @@ impl State {
             write::Sent::Withdraw { .. } => return self.withdraw_landed(landed, tx),
             write::Sent::Cloud | write::Sent::Moved { .. } | write::Sent::SignIn => return self.cloud_landed(landed, tx),
             write::Sent::Carry { .. } => return self.carried(landed, tx),
+            write::Sent::Palette(_) => return palette::landed(self, landed, tx),
             _ => {}
         }
         let Some(why) = landed.refusal() else {
@@ -737,7 +738,7 @@ impl State {
             write::Sent::Priority { .. } => format!("Could not change its priority: {why}"),
             write::Sent::Place { .. } => format!("Could not change where it runs: {why}"),
             // These went their own way above.
-            write::Sent::Thread { .. } | write::Sent::Withdraw { .. } | write::Sent::Carry { .. } | write::Sent::Cloud | write::Sent::Moved { .. } | write::Sent::SignIn => return,
+            write::Sent::Thread { .. } | write::Sent::Withdraw { .. } | write::Sent::Carry { .. } | write::Sent::Cloud | write::Sent::Moved { .. } | write::Sent::SignIn | write::Sent::Palette(_) => return,
         });
     }
     /// Out of a conversation: to where the person came from, and one opened from nowhere came
@@ -1238,6 +1239,8 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
         s.landed(landed, tx);
         changed = true;
     }
+    // A thread moved from the command bar opens as its copy once the lists have it.
+    changed |= palette::tend(s);
     // A picture the engine has turned for the box a thread is started in.
     changed |= s.land_staged();
     // The Files place's list, read again as the store changes, and a tile's file opening.

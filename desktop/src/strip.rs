@@ -237,7 +237,7 @@ impl State {
 
     /// Writes a thread's level at once, as the web window's menu does, and says it once the
     /// engine has it (`retag`: `api.answer` with the level and no words, which starts nothing).
-    fn retag(&mut self, item: &Item, level: Level) {
+    pub(crate) fn retag(&mut self, item: &Item, level: Level) {
         self.write_what_waits();
         let payload = serde_json::json!({ "product": item.product, "id": item.id, "priority": rules::sent_priority(Some(level)) });
         let said = format!("Priority: {}", rules::level_word(level).to_lowercase());

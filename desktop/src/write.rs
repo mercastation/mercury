@@ -89,6 +89,9 @@ pub enum Sent {
     Moved { asked: usize },
     /// An account that was not added, its sign-in started again (`retry` in `CloudButton`).
     SignIn,
+    /// A row of the command bar's, with what is said and done once the engine answers
+    /// (`palette::landed`).
+    Palette(crate::palette::Wrote),
 }
 
 impl Sent {
@@ -107,7 +110,7 @@ impl Sent {
             | Sent::Withdraw { thread, .. }
             | Sent::Priority { thread, .. }
             | Sent::Place { thread, .. } => thread,
-            Sent::Thread { .. } | Sent::Cloud | Sent::Moved { .. } | Sent::SignIn => "",
+            Sent::Thread { .. } | Sent::Cloud | Sent::Moved { .. } | Sent::SignIn | Sent::Palette(_) => "",
         }
     }
 }
