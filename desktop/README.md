@@ -393,7 +393,9 @@ pointer resting. This window does the same, read off the web window the way its 
   painting them again (`sky-follows-the-card.ts`). Open, it says what the web window's says: each
   place's word, Inbox's count in the dim ink where the dot was, the team's name, Search with ⌘K,
   the foot's rows, the usage row naming the agent read last and its headline figure, and the
-  person's name over their email. Its places, Search among them, wash under the pointer.
+  person's name over their email. Its places, Search among them, wash under the pointer; Search
+  keeps its faint ink as it does, where the places' marks and words come up to the text's
+  (`home-rail-search`: Search under the pointer 0.52).
   Under the system's Reduce motion it opens and folds whole, as the same stylesheet's
   `prefers-reduced-motion` block takes every one of those transitions away.
 - **Under the pointer.** Every control these screens draw takes the web window's look while the

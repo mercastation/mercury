@@ -302,7 +302,9 @@ pub fn rail(s: &State, still: bool) -> El {
     let team = if folded { team } else { team.help(window::team_name(&s.snap)) };
     // Search, over the places (`.workspace-find`): the glass, its word and its keys, a row like
     // the ones under it with no line of its own under it, washed under the pointer as they are.
-    // It opens the command bar, as ⌘K does.
+    // Its glass and word keep the faint ink there, where the places' brighten: its own colour
+    // outranks the hover's (`.workspace-navigation .workspace-find button`, later in the sheet
+    // than `.workspace-navigation button:hover`). It opens the command bar, as ⌘K does.
     let search = row()
         .absolute(0.0, 52.0)
         .size(wide, 32.0)
@@ -312,11 +314,10 @@ pub fn rail(s: &State, still: bool) -> El {
         .gap(11.0)
         .radius(6.0)
         .clip_rounded(6.0)
-        .hover_group()
         .hover(feel::wash())
         .cursor(Cursor::Pointer)
-        .child(icon(&icons::SEARCH, 18.0).color(muted()).group_color(ink()))
-        .child(pen(label("Search", 13.0, 400.0, muted()).group_color(ink()), 13.0).opacity(words))
+        .child(icon(&icons::SEARCH, 18.0).color(muted()))
+        .child(pen(label("Search", 13.0, 400.0, muted()), 13.0).opacity(words))
         .child(spacer())
         .child(pen(text("⌘K").font(sans(12.0, 400.0).tracking(0.24)).color(muted()), 12.0).opacity(0.7 * words))
         .help("Search · ⌘K")
