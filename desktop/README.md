@@ -518,7 +518,7 @@ whose count is in the dim ink, that part is 0.44 at 1280 by 760, 0.47 at 900 by 
 conversation; the whole rail is 1.01, 1.03 and 0.81, and Home with the rail open 0.99, 1.06 and
 0.76. With teammates, a recorder and a sign-in (`home-team-rail-open`) the whole window is 1.12,
 the rail 1.61 (the web window's has Chats and Record meeting); while an update waits
-(`home-update-rail-open`) 1.33, the rail 3.39, as the update's card is not drawn open (see what
+(`home-update-rail-open`) 1.32, the rail 3.39, as the update's card is not drawn open (see what
 still differs).
 
 The pointer's shape, points that match the web window's of all the points in each scene:
