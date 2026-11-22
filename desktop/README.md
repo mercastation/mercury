@@ -1496,12 +1496,12 @@ scrolls, where the web window's narrower stage fits it whole at 84% (`thread-fil
 with the page in it, and a card here (`file-page`, 107.6 whole).
 
 A long file is read once and laid out once, the stage built again only when the version, the
-stage's size or the pictures held change (`rune::memo`). Measured in a release build on the
-person's own largest files, through the ignored test `a_big_file_opens_in` (`MERCURY_BIG=<a
-fixture> cargo test --release -- --ignored --nocapture a_big_file_opens`): a script of 15,160
-lines (837 KB) opens in 207 ms, a document of 1,409 lines (509 KB) in 272 ms and a picture of
-4.6 MB in 76 ms, its decoding on the worker after that; every frame after is 1 to 2 ms. A debug
-build takes about five seconds to open the first two.
+stage's size or the pictures held change (`rune::memo`). Measure it in a release build on large
+files with the ignored test `a_big_file_opens_in` (`MERCURY_BIG=<a fixture> cargo test --release
+-- --ignored --nocapture a_big_file_opens`): a script of some fifteen thousand lines and a
+document of some fifteen hundred each open in about a quarter of a second, a picture of a few
+megabytes in under a tenth, its decoding on the worker after that; every frame after is 1 to
+2 ms. A debug build takes about five seconds to open the first two.
 
 Tests hold the rest on invented files (`src/feel.rs`): a picture pressed in a conversation opens
 big, takes every key (E closes nothing under it, + and 0 zoom), and Escape and the close mark go
@@ -1569,12 +1569,13 @@ The rail's Files moved the screens at rest a little, as it stands where the web 
 Demands (the rail itself is 0.52 on each): Home from 0.844 to 0.867, the Inbox from 0.240 to
 0.262, a conversation from 0.409 to 0.429.
 
-On the person's own files, read through the running app's door and never written, the web
-window photographed on the same list (`MERCURY_FILES`) and this window drawn on the door
-(`--view files`): the same three project cards, the same kinds, and the first sixty tiles in the
-same order with the same name and the same line, the web window's harness having no team to tell
-"Your agent" from another's; ordered by name, the same sixty in the same order. On that list of 168 files a release build draws the page first in
-83 ms, its pictures then landing from the worker (the ignored test `the_files_place_draws_in`,
+To check a real list rather than the invented one, read it through the running app's door
+(never written), photograph the web window on the same list (`MERCURY_FILES`) and draw this
+window on the door (`--view files`): the project cards, the kinds and the first sixty tiles
+should come out in the same order with the same names and lines, the web window's harness
+having no team to tell "Your agent" from another's, and ordered by name the same. On a list of
+a couple of hundred files a release build draws the page first in under a tenth of a second,
+its pictures then landing from the worker (the ignored test `the_files_place_draws_in`,
 `MERCURY_FILES_PLACE=<a fixture with the list>`). A document's or a script's face is read once
 from the top of its file, and read again only when its versions or its size change.
 
@@ -1922,9 +1923,8 @@ release or a second login.
   - With more pictures than the budget holds, one less than half on screen may hold its place
     until more of it shows: Rune reports an element on screen from half of it.
 - **A file opened big, where it still differs:**
-  - No comments down the right, no box to write one, no Approve and no Share. On the person's own
-    Mercury no file has ever had a comment, a reply or an approval (none on any of the files in
-    Files, read through the door), so the stage takes the whole width, and everything on it
+  - No comments down the right, no box to write one, no Approve and no Share, which are not used
+    where this window runs, so the stage takes the whole width, and everything on it
     stands further right than in the web window (see the table above). A picture is therefore
     fitted to a wider stage, and one that a narrower stage would fit whole can open fitted to its
     width (the web's own rule, `pictureFit`).
