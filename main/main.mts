@@ -43,8 +43,8 @@ import { FreezeWatch } from './freeze-watch.mts';
 import { applyThrough, phoneDevice } from './phone-inbox.mts';
 import type { PhoneChannel } from './phone-inbox.mts';
 import { answerWhatOnlyTheWindowAnswered } from './serve.mts';
-import { LOCAL_DOOR_NOTE, openLocalDoor, windowKeeps } from './local-door.mts';
-import type { CollectingIpcMain, IpcHandler } from './serve.mts';
+import { LOCAL_DOOR_NOTE, openLocalDoor, tellTheDoorToo, windowKeeps } from './local-door.mts';
+import type { CollectingIpcMain, IpcHandler, PushListener } from './serve.mts';
 import { carryHerBriefsAcross, joinMessageRules, setAsideShippedMessageRules, unifyAgentInstructions } from './instruction-settings.mts';
 import * as approvals from './approvals.mts';
 import { recoveryToast } from '../shared/recovery.mts';
@@ -1013,7 +1013,10 @@ async function createWindow() {
   // What this window keeps for itself is read out of it, so both windows show the same Inbox.
   const askThisWindow = (script: string) => (window && !window.isDestroyed() ? window.webContents.executeJavaScript(script) : null);
   if (config.localDoor === true) {
-    void openLocalDoor({ channels: phoneChannels, note: path.join(userDir, LOCAL_DOOR_NOTE), keeps: windowKeeps(askThisWindow) })
+    // And it is told when the inbox changes, as this window is, so it need not keep asking.
+    const atTheDoor = new Set<PushListener>();
+    tellTheDoorToo(window.webContents, atTheDoor);
+    void openLocalDoor({ channels: phoneChannels, note: path.join(userDir, LOCAL_DOOR_NOTE), keeps: windowKeeps(askThisWindow), listeners: atTheDoor })
       .then((door) => console.log(`local door: open on 127.0.0.1:${door.port}`))
       .catch((err: Error) => console.warn(`local door: ${err.message}`));
   }

@@ -66,6 +66,37 @@ export function windowKeeps(run: (script: string) => Promise<unknown> | null): I
   };
 }
 
+// WHAT A NATIVE WINDOW IS TOLD, AND WHAT IT IS NOT. The app tells its own
+// window that the inbox changed on one channel, `zero:changed`, with nothing
+// in it: the window then asks for the snapshot again. A native window beside
+// it had no such word and asked every two seconds instead, which cost this
+// process about 2% of a core for as long as that window was open (measured
+// 2026-11-21, a 517 KB snapshot each time). So the same word goes to whoever
+// listens at the door. Only that channel, and never its arguments: the other
+// pushes carry things (an approval's answer, a file's line) that a window
+// which never asked has no business being sent.
+export const TOLD_AT_THE_DOOR = 'zero:changed';
+
+/**
+ * From now on, what the app sends its own window on `TOLD_AT_THE_DOOR` is said at the door too.
+ *
+ * It wraps the one `send` the app's pushes all go through rather than asking every place
+ * that pushes to remember a second listener: the store, the supervisor, the approvals spool
+ * and a dozen handlers each push in their own words, and one of them forgotten would be a
+ * native window that is quietly stale.
+ */
+export function tellTheDoorToo(contents: { send(channel: string, ...args: unknown[]): void }, listeners: Set<PushListener>): void {
+  const send = contents.send.bind(contents);
+  contents.send = (channel: string, ...args: unknown[]) => {
+    if (channel === TOLD_AT_THE_DOOR) {
+      for (const tell of listeners) {
+        try { tell({ channel, args: [] }); } catch { /* a window that hung up is not an error */ }
+      }
+    }
+    send(channel, ...args);
+  };
+}
+
 export interface LocalDoorNote { port: number; token: string; pid: number; since: number }
 
 export interface LocalDoor {

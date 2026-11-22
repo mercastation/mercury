@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { LOCAL_DOOR_NOTE, WINDOW_KEEPS, openLocalDoor, windowKeeps } from '../main/local-door.mts';
+import { LOCAL_DOOR_NOTE, TOLD_AT_THE_DOOR, WINDOW_KEEPS, openLocalDoor, tellTheDoorToo, windowKeeps } from '../main/local-door.mts';
 import type { LocalDoor, LocalDoorNote } from '../main/local-door.mts';
 import type { IpcHandler, PushListener } from '../main/serve.mts';
 
@@ -104,6 +104,37 @@ describe('the local door', () => {
     const { value } = await reader.read();
     expect(new TextDecoder().decode(value)).toContain('"channel":"zero:changed"');
     await reader.cancel();
+  });
+
+  it('is told that the inbox changed whenever the app tells its own window, and nothing else the app says', async () => {
+    const listeners = new Set<PushListener>();
+    const { door } = await aDoor({ listeners });
+    // The app's window, as far as a push goes: something with a `send`.
+    const sent: unknown[][] = [];
+    const contents = { send(channel: string, ...args: unknown[]) { sent.push([channel, ...args]); } };
+    tellTheDoorToo(contents, listeners);
+
+    const res = await fetch(`http://127.0.0.1:${door.port}/events?token=${door.token}`);
+    const reader = res.body!.getReader();
+    await reader.read();
+    // Another push first, with something in it: it reaches the app's window and stops there.
+    contents.send('zero:approval-answered', { id: 'a-1', allow: true });
+    contents.send(TOLD_AT_THE_DOOR);
+    const { value } = await reader.read();
+    const heard = new TextDecoder().decode(value);
+    expect(heard).toBe(`data: ${JSON.stringify({ channel: TOLD_AT_THE_DOOR, args: [] })}\n\n`);
+    expect(heard).not.toContain('approval');
+    // And the app's own window was told both, exactly as before.
+    expect(sent).toEqual([['zero:approval-answered', { id: 'a-1', allow: true }], [TOLD_AT_THE_DOOR]]);
+    await reader.cancel();
+  });
+
+  it('never sends what a push carried, only that there was one', async () => {
+    const heard: unknown[] = [];
+    const contents = { send() { /* the app's window */ } };
+    tellTheDoorToo(contents, new Set<PushListener>([(message) => heard.push(message)]));
+    (contents.send as (channel: string, ...args: unknown[]) => void)(TOLD_AT_THE_DOOR, { secret: 'not for the door' });
+    expect(heard).toEqual([{ channel: TOLD_AT_THE_DOOR, args: [] }]);
   });
 
   it('takes its own note away when it closes, and leaves a newer door\'s alone', async () => {

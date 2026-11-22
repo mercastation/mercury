@@ -52,7 +52,13 @@ The app opens a new door, on another port and with another key, each time it sta
 reads the note again when the door it has stops answering, so it carries on by itself after the
 app restarts, and one opened before the app finds the door once there is one.
 
-The app's door does not push yet, so the window asks every two seconds. Measured on a 99-thread
+The app tells the window when its inbox changed, on the door's event stream, with the one word
+it tells its own window (`zero:changed`, never what changed: `tellTheDoorToo` in
+`main/local-door.mts`), and the window then reads the snapshot again at once. It still asks
+unprompted every five seconds, because the engine does not say everything: its store learns of
+a change from a watch on its folders, which misses some, and which threads were read in the web
+window is never pushed. An app from before this (or any engine that keeps the stream open and
+says nothing on it) is asked every two seconds, as it always was; measured on a 99-thread
 inbox, that costs the app about 2% of one core and the reader next to nothing.
 
 ## Compare a screen with the real one
