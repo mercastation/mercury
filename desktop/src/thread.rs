@@ -1406,7 +1406,8 @@ fn live_step_rows(s: &State, run: &str, steps: &live::Steps, mut out: El) -> El 
             // it 0.217 points a letter wider at 12 points, which `'trak' 0` does not take back,
             // so the letters are drawn that much closer.
             let face = TextStyle::new(12.0, 400.0).family(rune::Family::SystemMono).lh(19.2).tracking(-0.217);
-            let command = readable(text(step.detail.as_str()).font(face).color(dim()).wrap_anywhere());
+            // And it puts the letters a point higher on their line than Rune does.
+            let command = readable(text(step.detail.as_str()).font(face).color(dim()).wrap_anywhere()).mt(-1.0).mb(1.0);
             item = item.child(el().ml(21.0).mt(4.0).mb(10.0).px(14.0).py(12.0).radius(6.0).fill(rgba(40, 38, 37, 0.9)).border(1.0, edge()).border_layout().child(command));
         }
         out = out.child(item);

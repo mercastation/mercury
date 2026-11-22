@@ -408,6 +408,37 @@ mod tests {
         assert!(texts(&rt).iter().any(|t| t == "Try again"), "{:?}", texts(&rt));
     }
 
+    /// `queuedWithHeld`: a reply held for its three seconds is already on its way to an agent.
+    #[test]
+    fn a_reply_held_for_its_undo_reads_as_queued() {
+        let mut rt = stuck("foot-held", json!({ "queued": [] }));
+        run(&mut rt, 0.1);
+        assert!(texts(&rt).iter().any(|t| t == "Nothing running"));
+        rt.key(rune::KeyEvent { key: rune::Key::Text("r".into()), mods: rune::Mods::default() });
+        run(&mut rt, 0.1);
+        rt.state.reply = rune::TextEdit::new("Carry on with the second one.");
+        rt.key(rune::KeyEvent { key: rune::Key::Enter, mods: rune::Mods { cmd: true, ..rune::Mods::default() } });
+        run(&mut rt, 0.2);
+        assert!(rt.state.held.is_some(), "held for its undo");
+        assert!(texts(&rt).iter().any(|t| t == "Queued"), "{:?}", texts(&rt));
+    }
+
+    /// `workingContext`'s schedule: a run of a repeating task says when it repeats.
+    #[test]
+    fn a_working_run_of_a_repeating_task_says_its_schedule_under_the_title() {
+        let mut rt = window_dressed("foot-repeats", &["--thread", "w-feel0"], "/fixtures/storefront", "Done, and tested. Merge it?", |fixture| {
+            let now = fixture["now"].as_f64().unwrap();
+            let item = &mut fixture["snapshot"]["items"][0];
+            item["status"] = json!("claimed");
+            item["labels"] = json!(["founder", "repeat:r-1"]);
+            item["body"] = json!("Send the weekly numbers");
+            fixture["snapshot"]["supervisor"]["running"] = json!([{ "itemId": "w-feel0", "product": "storefront", "startedAt": now - 60_000.0, "tail": [] }]);
+            fixture["repeats"] = json!([{ "id": "r-1", "product": "storefront", "every": "weekday", "at": "09:00" }]);
+        });
+        run(&mut rt, 0.2);
+        assert!(texts(&rt).iter().any(|t| t == "You asked: Send the weekly numbers. Repeats weekdays at 9:00am."), "{:?}", texts(&rt));
+    }
+
     #[test]
     fn each_still_state_says_its_own_words_and_only_the_stuck_ones_offer_try_again() {
         for (fleet, words, retry) in [
