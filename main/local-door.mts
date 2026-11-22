@@ -36,6 +36,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHandler, newToken } from './serve.mts';
 import type { IpcHandler, PushListener } from './serve.mts';
+import { NATIVE_WINDOW } from './native-window.mts';
+import type { NativeWindow } from './native-window.mts';
 
 /** The note's name inside the app's own folder. The native window looks for it there. */
 export const LOCAL_DOOR_NOTE = 'local-door.json';
@@ -114,17 +116,25 @@ export interface LocalDoorOptions {
   listeners?: Set<PushListener>;
   /** What answers `WINDOW_KEEPS` (see `windowKeeps`). Without it the channel is not there. */
   keeps?: IpcHandler;
+  /**
+   * What answers `NATIVE_WINDOW` and hears the event stream close (main/native-window.mts).
+   * Without it the channel is not there.
+   */
+  native?: Pick<NativeWindow, 'hear' | 'hungUp'> | null;
   token?: string;
 }
 
 /** Opens the door and leaves its note. Rejects if the port cannot be had or the note cannot be written. */
-export async function openLocalDoor({ channels, note, listeners = new Set(), keeps, token = newToken() }: LocalDoorOptions): Promise<LocalDoor> {
+export async function openLocalDoor({ channels, note, listeners = new Set(), keeps, native = null, token = newToken() }: LocalDoorOptions): Promise<LocalDoor> {
   // A folder that is certain to hold no index.html: the note's own name with a suffix.
   const noScreen = `${note}.no-screen`;
-  // The door's own channel is looked up before the app's, and the app's Map is left as it was:
+  // The door's own channels are looked up before the app's, and the app's Map is left as it was:
   // the phone's copy is made from that same Map and must not grow a channel meant for this door.
-  const answered = keeps ? new Map<string, IpcHandler>([...channels, [WINDOW_KEEPS, keeps]]) : channels;
-  const server = http.createServer(createHandler({ channels: answered, token, listeners, dist: noScreen }));
+  const own: [string, IpcHandler][] = [];
+  if (keeps) own.push([WINDOW_KEEPS, keeps]);
+  if (native) own.push([NATIVE_WINDOW, native.hear]);
+  const answered = own.length ? new Map<string, IpcHandler>([...channels, ...own]) : channels;
+  const server = http.createServer(createHandler({ channels: answered, token, listeners, hungUp: () => native?.hungUp(), dist: noScreen }));
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(0, '127.0.0.1', () => { server.off('error', reject); resolve(); });

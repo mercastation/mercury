@@ -35,6 +35,20 @@ export function atTheApp({ focused = false, idleMs = 0 }: { focused?: boolean; i
   return !!focused && idleMs < AWAY_AFTER_MS;
 }
 
+// THE NATIVE WINDOW SAYS WHETHER IT IS IN FRONT (desktop/, through
+// main/local-door.mts), each time that changes and again every beat while it
+// stays. A window that crashed or hung stops saying it, so a word is believed
+// for three beats and no longer: one late beat is not a window gone, three are.
+export const NATIVE_BEAT_MS = 5_000;
+export const NATIVE_WORD_LASTS_MS = 3 * NATIVE_BEAT_MS;
+
+/** What the native window last said of its focus, and when this app heard it. */
+export interface NativeWord { focused: boolean; at: number }
+
+export function nativeInFront(word: NativeWord | null | undefined, now: number): boolean {
+  return !!word?.focused && now - word.at < NATIVE_WORD_LASTS_MS;
+}
+
 // THE PHONE'S RULE IS WIDER: she is at the computer, in any app, so the phone
 // says nothing. Someone in a browser on the laptop is not at the app, and the
 // desktop banner above is how she hears; buzzing the phone in her bag as well

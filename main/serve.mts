@@ -119,6 +119,8 @@ export interface HandlerOptions {
   channels: Map<string, IpcHandler>;
   token: DoorToken;
   listeners?: Set<PushListener>;
+  /** Hears an event stream close, once its listener has left `listeners`. */
+  hungUp?: () => void;
   dist?: string;
   files?: PictureRule | null;
   platform?: string;
@@ -473,7 +475,7 @@ export function createServer(options: HandlerOptions) {
  * own server in front of it. `token` may be a function, read on every request,
  * so a key that is reset stops working at once.
  */
-export function createHandler({ channels, token, listeners = new Set(), dist = path.join(repoRoot, 'renderer', 'dist'), files = null, platform = process.platform }: HandlerOptions) {
+export function createHandler({ channels, token, listeners = new Set(), hungUp = () => {}, dist = path.join(repoRoot, 'renderer', 'dist'), files = null, platform = process.platform }: HandlerOptions) {
   return async (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url!, 'http://127.0.0.1');
 
@@ -532,7 +534,7 @@ export function createHandler({ channels, token, listeners = new Set(), dist = p
       // screen only finds out when a push goes missing. A comment every twenty
       // seconds keeps it honest and costs nothing.
       const beat = setInterval(() => res.write(': beat\n\n'), 20_000);
-      req.on('close', () => { clearInterval(beat); listeners.delete(send); });
+      req.on('close', () => { clearInterval(beat); listeners.delete(send); hungUp(); });
       return;
     }
 

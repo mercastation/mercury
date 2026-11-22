@@ -44,6 +44,7 @@ import { applyThrough, phoneDevice } from './phone-inbox.mts';
 import type { PhoneChannel } from './phone-inbox.mts';
 import { answerWhatOnlyTheWindowAnswered } from './serve.mts';
 import { LOCAL_DOOR_NOTE, openLocalDoor, tellTheDoorToo, windowKeeps } from './local-door.mts';
+import { createNativeWindow } from './native-window.mts';
 import type { CollectingIpcMain, IpcHandler, PushListener } from './serve.mts';
 import { carryHerBriefsAcross, joinMessageRules, setAsideShippedMessageRules, unifyAgentInstructions } from './instruction-settings.mts';
 import * as approvals from './approvals.mts';
@@ -1012,11 +1013,13 @@ async function createWindow() {
   // It needs no quit step: the note it leaves names a door that is shut once this process is gone.
   // What this window keeps for itself is read out of it, so both windows show the same Inbox.
   const askThisWindow = (script: string) => (window && !window.isDestroyed() ? window.webContents.executeJavaScript(script) : null);
+  // Who listens at the door, and what the native window says there of whether it is in front.
+  const atTheDoor = new Set<PushListener>();
+  const nativeWindow = config.localDoor === true ? createNativeWindow({ listeners: atTheDoor }) : null;
   if (config.localDoor === true) {
     // And it is told when the inbox changes, as this window is, so it need not keep asking.
-    const atTheDoor = new Set<PushListener>();
     tellTheDoorToo(window.webContents, atTheDoor);
-    void openLocalDoor({ channels: phoneChannels, note: path.join(userDir, LOCAL_DOOR_NOTE), keeps: windowKeeps(askThisWindow), listeners: atTheDoor })
+    void openLocalDoor({ channels: phoneChannels, note: path.join(userDir, LOCAL_DOOR_NOTE), keeps: windowKeeps(askThisWindow), listeners: atTheDoor, native: nativeWindow })
       .then((door) => console.log(`local door: open on 127.0.0.1:${door.port}`))
       .catch((err: Error) => console.warn(`local door: ${err.message}`));
   }
