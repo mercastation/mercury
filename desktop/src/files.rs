@@ -32,9 +32,8 @@ const ROW_GAP: f32 = 14.0;
 /// What a conversation's files are read against: its project's folders, the thread, where a
 /// short path is looked for, and the pictures read so far.
 pub struct Files<'a> {
-    /// The project's own folder, and its code folder. Empty when the snapshot names none.
+    /// The project's own folder. Empty when the snapshot names none.
     pub dir: String,
-    pub repo: String,
     pub thread: String,
     /// The folder the thread's runs work in (`taskFolder`).
     pub folder: Option<String>,
@@ -66,7 +65,6 @@ impl<'a> Files<'a> {
             draws_pictures: roots::referenced_files(&texts, Some(&dir)).iter().any(|file| roots::is_image_path(file)),
             snap: &s.snap,
             dir,
-            repo,
             thread: item.id.clone(),
             pictures: &s.pictures,
             window_h: s.size.1,
@@ -317,14 +315,52 @@ pub fn open(s: &mut State, href: &str) {
     }
 }
 
+/// The kinds of file macOS runs or launches on a double-click (`RUNS` in `main/opens-a-program.mts`).
+const RUNS: [&str; 23] = [
+    "command", "tool", "terminal", "term", "app", "workflow", "action", "prefpane", "saver", "qlgenerator", "kext", "bundle", "plugin", "fileloc", "webloc", "inetloc", "scpt", "scptd", "applescript", "pkg", "mpkg",
+    "jar", "osax",
+];
+
+/// Whether opening this would run it (`opensAProgram`): a kind macOS launches, a link to
+/// one, or any file with an executable bit. A file a worker wrote would then run as the
+/// person, outside the worker's own bounds.
+fn opens_a_program(path: &std::path::Path) -> bool {
+    let Ok(real) = std::fs::canonicalize(path) else { return false };
+    let Ok(meta) = std::fs::metadata(&real) else { return false };
+    let runs = |p: &std::path::Path| p.extension().and_then(|e| e.to_str()).is_some_and(|e| RUNS.contains(&e.to_ascii_lowercase().as_str()));
+    if runs(&real) || runs(path) {
+        return true;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        meta.is_file() && meta.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = meta;
+        false
+    }
+}
+
 /// Hands a file, a folder or an address to the system, which opens it in the app that owns
-/// it. This is the one place to change when files open inside this window instead.
+/// it. One that would run instead is shown in its folder, as the web app shows it
+/// (`openForThePerson`). This is the one place to change when files open inside this window.
 pub fn open_with_system(target: &str) {
     // A headless run draws pictures and opens nothing.
     if rune::tooling::headless_run().is_some() {
         return;
     }
-    let _ = std::process::Command::new("open").arg(target).spawn();
+    let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+    let mut command = std::process::Command::new(opener);
+    let address = target.starts_with("http://") || target.starts_with("https://") || target.starts_with("mailto:");
+    if !address && opens_a_program(std::path::Path::new(target)) {
+        if !cfg!(target_os = "macos") {
+            return;
+        }
+        command.arg("-R");
+    }
+    let _ = command.arg(target).spawn();
 }
 
 #[cfg(test)]
@@ -339,5 +375,46 @@ mod tests {
         // And at a 1600 window's, 7.78: the baseline is 19 points down, not 19.5.
         assert!((baseline(16.74) - 19.0).abs() < 0.001);
         assert!((under_baseline(16.74) - 7.78).abs() < 0.01);
+    }
+
+    // tests/a-click-on-a-workers-link-never-runs-a-program.test.mts
+    #[test]
+    #[cfg(unix)]
+    fn a_click_never_runs_a_program() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("mercury-desktop-launch-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = |name: &str, mode: u32| {
+            let path = dir.join(name);
+            std::fs::write(&path, "#!/bin/sh\necho hi\n").unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).unwrap();
+            path
+        };
+        let folder = |name: &str| {
+            let path = dir.join(name);
+            std::fs::create_dir_all(path.join("Contents")).unwrap();
+            path
+        };
+        // Any of the kinds macOS runs or launches on a double-click.
+        for name in ["notes.command", "notes.tool", "notes.terminal", "x.term", "X.TERM", "x.fileloc", "x.webloc", "x.inetloc", "x.scpt", "x.applescript", "x.pkg", "x.jar", "NOTES.COMMAND"] {
+            assert!(opens_a_program(&file(name, 0o644)), "{name}");
+        }
+        for name in ["Tool.app", "Flow.workflow", "Thing.prefPane"] {
+            assert!(opens_a_program(&folder(name)), "{name}");
+        }
+        // Any file with an executable bit, whatever its name, and a link to a program.
+        assert!(opens_a_program(&file("runme", 0o755)));
+        assert!(opens_a_program(&file("report.pdf", 0o744)));
+        let link = dir.join("harmless.pdf");
+        std::os::unix::fs::symlink(file("real.command", 0o644), &link).unwrap();
+        assert!(opens_a_program(&link));
+        // Not a picture, a document or an ordinary folder, nor a program that is not there.
+        for name in ["shot.png", "report-2.pdf", "notes.md", "deck.key", "leads.csv", "notes.sh"] {
+            assert!(!opens_a_program(&file(name, 0o644)), "{name}");
+        }
+        assert!(!opens_a_program(&folder("designs")));
+        assert!(!opens_a_program(&dir.join("missing.command")));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
