@@ -212,9 +212,11 @@ it. A still picture (`--snap`) cannot wait, so there the asking does the reading
   the copy a 1280 by 760 window draws (1402 by 876 pixels on a 2x screen). The web window keeps
   its copies the column's width whatever height they are drawn at.
 - **All copies together stay under 64 MiB** (`BUDGET`): eleven screenshots or more at the
-  column's width, which is more than a long answer holds. Past it, the copies that left the
-  screen longest ago are let go and read again when they come back; what is on screen is always
-  held.
+  column's width, which is more than a long answer holds. What has been asked for and not read
+  yet counts too, so a page of thirty screenshots reads the first eleven and then only what
+  comes on screen. Past the budget, the copies that left the screen longest ago are let go and
+  read again when they come back; what is on screen is always held. A still picture reads
+  everything its one frame asks for.
 - **Leaving a conversation lets go of every copy.** Each picture's size is remembered (of the
   last few thousand), so a conversation opened again holds every picture's exact place from the
   first frame. A copy made for a smaller window is made again when the picture is drawn a tenth

@@ -101,6 +101,8 @@ struct Entry {
     state: State,
     /// Asked of the worker and not answered yet.
     asked: bool,
+    /// What it is expected to take, in bytes, while it is asked for and has not come.
+    claim: usize,
     /// On screen, as far as the page has said.
     near: bool,
     /// When it last left the screen, on the store's own count of looks.
@@ -174,6 +176,8 @@ struct Shelf {
     sizes: HashMap<String, (u32, u32)>,
     folders: HashMap<String, Folder>,
     bytes: usize,
+    /// The bytes expected of what has been asked for and has not come.
+    coming: usize,
     looks: u64,
     /// The conversation these pictures belong to.
     owner: Option<String>,
@@ -191,6 +195,8 @@ pub struct Pictures {
     never: bool,
     /// When the disk was last looked at again, in milliseconds.
     looked: Mutex<f64>,
+    /// The most bytes of pixels held at once: `BUDGET`, or less in a test.
+    budget: usize,
 }
 
 /// How often the files behind the pictures on the page are looked at again: every two
@@ -278,7 +284,7 @@ impl Pictures {
     /// `scale`: device pixels per point, until the window says its own. `still`: a still
     /// picture is being taken. `never`: no picture ever comes.
     pub fn new(scale: f32, still: bool, never: bool) -> Pictures {
-        Pictures { shelf: Mutex::default(), desk: Arc::default(), scale: Mutex::new(scale), still, never, looked: Mutex::new(0.0) }
+        Pictures { shelf: Mutex::default(), desk: Arc::default(), scale: Mutex::new(scale), still, never, looked: Mutex::new(0.0), budget: BUDGET }
     }
 
     /// Who to wake when a picture has been read.
@@ -344,6 +350,8 @@ impl Pictures {
         }
         let Some(entry) = shelf.entries.get_mut(&key) else { return false };
         entry.asked = false;
+        // What it was expected to cost gives way to what it does.
+        shelf.coming -= std::mem::take(&mut entry.claim);
         match answer {
             Answer::Same | Answer::Listed(_) => false,
             Answer::Missing => {
@@ -378,9 +386,11 @@ impl Pictures {
         }
     }
 
-    /// Lets go of the copies furthest from the screen until what is held fits the budget.
-    fn trim(shelf: &mut Shelf) {
-        while shelf.bytes > BUDGET {
+    /// Lets go of the copies furthest from the screen until what is held fits the budget. A
+    /// still picture is not trimmed: it reads everything its one frame asks for, before the
+    /// page has said what is on screen.
+    fn trim(shelf: &mut Shelf, budget: usize) {
+        while shelf.bytes > budget {
             let far = shelf.entries.iter().filter(|(_, e)| !e.near && matches!(e.state, State::Here { .. })).min_by_key(|(_, e)| e.left).map(|(k, _)| k.clone());
             let Some(far) = far else { break };
             let entry = shelf.entries.get_mut(&far).expect("just found");
@@ -400,9 +410,12 @@ impl Pictures {
         let key = key(&places, want);
         let mut shelf = self.shelf.lock().unwrap();
         shelf.looks += 1;
-        let (held_bytes, known) = (shelf.bytes, shelf.sizes.get(&key).copied());
-        let entry = shelf.entries.entry(key.clone()).or_insert_with(|| Entry { places: places.clone(), want, state: State::Waiting, asked: false, near: false, left: 0 });
+        // What is held, and what has been asked for and not come yet: both count against the
+        // budget, or a page of thirty pictures would have all thirty read before the first lands.
+        let (spoken_for, known) = (shelf.bytes + shelf.coming, shelf.sizes.get(&key).copied());
+        let entry = shelf.entries.entry(key.clone()).or_insert_with(|| Entry { places: places.clone(), want, state: State::Waiting, asked: false, near: false, left: 0, claim: 0 });
         entry.want = want;
+        let mut claim = 0;
         // The copy to go on drawing while another is made, when there is one.
         let meanwhile = match &entry.state {
             State::Missing => return Look::Missing,
@@ -425,7 +438,9 @@ impl Pictures {
                     (None, Want::Within(w, h) | Want::Cover(w, h)) => (w, h),
                     (None, Want::Tall(h)) => (h * 2, h),
                 };
-                let fits = held_bytes + cost.0 as usize * cost.1 as usize * 4 <= BUDGET;
+                claim = cost.0 as usize * cost.1 as usize * 4;
+                // A still has one frame and no word yet of what is on screen: it reads all.
+                let fits = self.still || spoken_for + claim <= self.budget;
                 if entry.asked || !(fits || entry.near) {
                     return Look::Arriving(known);
                 }
@@ -442,7 +457,9 @@ impl Pictures {
         }
         if let Some(entry) = shelf.entries.get_mut(&key) {
             entry.asked = true;
+            entry.claim = claim;
         }
+        shelf.coming += claim;
         drop(shelf);
         self.send(Job { key, places, want: Some(want), held: None });
         match meanwhile {
@@ -498,11 +515,12 @@ impl Pictures {
         for (key, answer) in done {
             changed |= Self::place(&mut shelf, key, answer);
         }
-        Self::trim(&mut shelf);
+        Self::trim(&mut shelf, self.budget);
         // `MERCURY_PICTURES=1` says what is held each time it changes, for a measurement.
         if changed && std::env::var_os("MERCURY_PICTURES").is_some() {
             let here = shelf.entries.values().filter(|e| matches!(e.state, State::Here { .. })).count();
-            eprintln!("pictures: {here} of {} held, {:.1} MB of pixels", shelf.entries.len(), shelf.bytes as f64 / (1 << 20) as f64);
+            let near = shelf.entries.values().filter(|e| e.near).count();
+            eprintln!("pictures: {here} of {} held, {:.1} MB of pixels, {near} on screen", shelf.entries.len(), shelf.bytes as f64 / (1 << 20) as f64);
         }
         changed
     }
@@ -519,6 +537,7 @@ impl Pictures {
         shelf.entries.clear();
         shelf.folders.clear();
         shelf.bytes = 0;
+        shelf.coming = 0;
         self.desk.0.lock().unwrap().jobs.clear();
     }
 
@@ -714,6 +733,7 @@ mod tests {
             want: Want::Tall(1),
             state: State::Here { held: Held { pixels: Pixels::new(), natural: (1, 1), path: String::new() }, stamp: (0, 0), bytes, copy: (1, 1) },
             asked: false,
+            claim: 0,
             near,
             left,
         };
@@ -721,7 +741,7 @@ mod tests {
         shelf.entries.insert("left long ago".into(), here(false, 3, BUDGET / 2));
         shelf.entries.insert("left just now".into(), here(false, 9, BUDGET / 2));
         shelf.bytes = BUDGET / 2 * 3;
-        Pictures::trim(&mut shelf);
+        Pictures::trim(&mut shelf, BUDGET);
         assert!(matches!(shelf.entries["left long ago"].state, State::Waiting));
         assert!(matches!(shelf.entries["left just now"].state, State::Here { .. }));
         assert!(matches!(shelf.entries["on screen"].state, State::Here { .. }));
@@ -729,7 +749,59 @@ mod tests {
         // Nothing on screen is let go, even past the budget.
         shelf.entries.get_mut("left just now").unwrap().near = true;
         shelf.bytes = BUDGET * 2;
-        Pictures::trim(&mut shelf);
+        Pictures::trim(&mut shelf, BUDGET);
         assert!(matches!(shelf.entries["left just now"].state, State::Here { .. }));
+    }
+
+    #[test]
+    fn past_the_budget_only_what_is_on_screen_is_read_and_nothing_is_read_twice_over() {
+        let folder = std::env::temp_dir().join(format!("mercury-desktop-budget-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&folder);
+        std::fs::create_dir_all(&folder).unwrap();
+        // Four pictures of 100 by 100, 40,000 bytes each as pixels, and room for two and a bit.
+        let places: Vec<Vec<String>> = (1..=4)
+            .map(|n| {
+                let file = folder.join(format!("round-{n}.png"));
+                image::RgbImage::from_pixel(100, 100, image::Rgb([n * 40, 90, 160])).save(&file).unwrap();
+                vec![file.to_string_lossy().to_string()]
+            })
+            .collect();
+        let want = Want::Within(100, 100);
+        let store = Pictures { budget: 100_000, ..Pictures::new(1.0, false, false) };
+        store.keep(Some("storefront/w-1"));
+        // The page draws all four, over and over, as a page does. Two are read; the two the
+        // budget has no room for hold their place and are not asked for.
+        let draw = |store: &Pictures| places.iter().map(|p| matches!(store.look(p.clone(), want), Look::Here(_))).collect::<Vec<bool>>();
+        let settle = |store: &Pictures, until: &dyn Fn(&[bool]) -> bool| {
+            for _ in 0..500 {
+                store.tend(Some("storefront/w-1"), 0.0);
+                let drawn = draw(store);
+                if until(&drawn) {
+                    return drawn;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            panic!("the pictures never settled: {:?}", draw(store));
+        };
+        assert_eq!(settle(&store, &|d| d[0] && d[1]), [true, true, false, false]);
+        for _ in 0..20 {
+            store.tend(Some("storefront/w-1"), 0.0);
+            assert_eq!(draw(&store), [true, true, false, false]);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert_eq!(store.held(), (80_000, 2));
+        // The person scrolls: the first leaves the screen and the fourth comes onto it. The
+        // fourth is read whatever the budget says, and the first, the one gone, makes room.
+        store.near(&places[1], want, true);
+        store.near(&places[0], want, false);
+        store.near(&places[3], want, true);
+        assert_eq!(settle(&store, &|d| d[3]), [false, true, false, true]);
+        for _ in 0..20 {
+            store.tend(Some("storefront/w-1"), 0.0);
+            assert_eq!(draw(&store), [false, true, false, true]);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert_eq!(store.held(), (80_000, 2));
+        std::fs::remove_dir_all(&folder).unwrap();
     }
 }
