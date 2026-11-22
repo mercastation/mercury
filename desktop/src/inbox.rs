@@ -142,9 +142,10 @@ pub fn strip(s: &State) -> El {
         .on_press_tx(|s: &mut State, tx| s.open_card(tx));
     // What the list shows and how is the web window's to choose, so this opens nothing here.
     let display = crate::feel::answers(strip_button(s, DISPLAY).w(32.0).justify_center().child(icon(&icons::SLIDERS, 15.0).color(dim())));
-    let mut buttons = row().gap(10.0).child(new_thread);
+    // New thread and the cloud carry their keys' hints (`data-hint="new-task"`, `"cloud"`).
+    let mut buttons = row().gap(10.0).child(crate::feel::hinted(new_thread, "new-task", NEW_THREAD, crate::feel::Align::Left, None));
     if let Some(button) = cloud::button(s.snap.rest.get("cloud"), &s.local.cloud_broken_seen) {
-        buttons = buttons.child(cloud_button(s, button));
+        buttons = buttons.child(crate::feel::hinted(cloud_button(s, button), "cloud", CLOUD, crate::feel::Align::Center, None));
     }
     // `.topbar`: 64 points with a clear hairline under it, the arrows' 54 and their 12 before the title.
     row().absolute(chrome::card_left(s), chrome::CARD[1])
@@ -182,11 +183,9 @@ fn tab(at: Tab, count: usize, open: bool, shadow: bool) -> El {
     if shadow {
         return e;
     }
-    e.key(format!("tab-{}", at.view()))
-        .border_sides([0.0, 0.0, 1.0, 0.0], if open { accent() } else { rgba(0, 0, 0, 0.0) })
-        .hover_group()
-        .cursor(Cursor::Pointer)
-        .on_press(move |s: &mut State| s.show_tab(at))
+    // Every tab carries Tab's hint, since Tab walks them (`data-hint="state-tab"`).
+    let e = e.border_sides([0.0, 0.0, 1.0, 0.0], if open { accent() } else { rgba(0, 0, 0, 0.0) }).hover_group().cursor(Cursor::Pointer).on_press(move |s: &mut State| s.show_tab(at));
+    crate::feel::hinted(e, "state-tab", format!("tab-{}", at.view()), crate::feel::Align::Left, None)
 }
 
 /// `.th-bar`: Needs you, In progress, Later while something is in it, and Done. A number only
@@ -344,7 +343,9 @@ fn title_cell(r: &Row, selected: bool, pointed: bool, room: f32) -> El {
 /// One thread: 54 points, a hairline above every row but the first, and the title's underline,
 /// which is how a row answers: orange on the selected one, faint under the pointer.
 fn thread(s: &State, r: &Row, at: usize, picked: usize, cols: &Columns) -> El {
-    let title = title_cell(r, at == picked, s.pointed.is_row(&r.product, &r.id), cols.title);
+    // The title's cell is what the row's hint lines its keys up with (`data-hint-text`).
+    let subject = format!("subject-{}-{}", r.product, r.id);
+    let title = title_cell(r, at == picked, s.pointed.is_row(&r.product, &r.id), cols.title).key(subject.clone());
     let small = |s: &str, c: Color| capitals(s, 11.5, 20.0, 0.575, c).truncate();
     let mut state = row().items_center();
     if let Some(mark) = status_mark(r.mark) {
@@ -384,7 +385,8 @@ fn thread(s: &State, r: &Row, at: usize, picked: usize, cols: &Columns) -> El {
     if r.unread {
         e = e.child(el().absolute(13.0, 27.0).size(6.0, 6.0).fill(accent()));
     }
-    e
+    // Its keys' hint, lined up with its title (`data-hint="row"`, `data-hint-text=".subject"`).
+    crate::feel::hinted(e, "row", format!("thread-{}-{}", r.product, r.id), crate::feel::Align::Left, Some(subject))
 }
 
 /// The one quiet line an empty tab carries (`.th-empty`), in the middle of what the tabs leave

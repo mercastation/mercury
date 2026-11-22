@@ -81,6 +81,11 @@ for asked in scenes:
     grown = [box[0] - 4, box[1] - 4, box[2] + 8, box[3] + 8]
     name = f"{top['tag']}.{'.'.join((top.get('cls') or '').split()[:2])}"
     at_rest = ''
+    # A key hint drawn beside the control (`.hint-plate`), measured with a point around it.
+    plate = next((n for n in dump['nodes'] if 'hint-plate' in (n.get('cls') or '')), None)
+    if plate:
+        r = plate['rect']
+        at_rest += f"  plate [{r[0]:.0f} {r[1]:.0f} {r[2]:.1f} {r[3]:.1f}] {mean(a, b, [r[0] - 1, r[1] - 1, r[2] + 2, r[3] + 2]):5.2f}"
     if still:
         ra = np.asarray(Image.open(os.path.join(shots, still + '-real.png')).convert('RGB'))
         rb = np.asarray(Image.open(os.path.join(shots, still + '.png')).convert('RGB'))

@@ -7,7 +7,9 @@
 //! lands every hover at once both ways (`hover_motion_within` in `main.rs`): Rune's own hover
 //! overlay would otherwise fade out over a tenth of a second.
 
-use rune::{Color, El, el};
+use std::time::Duration;
+
+use rune::{Color, El, TextStyle, col, el, row, text};
 
 use crate::State;
 use crate::theme::*;
@@ -32,6 +34,8 @@ pub struct Pointed {
     /// Moving onto a row is what takes it, never a row moving under a still pointer, and the
     /// keys that walk the list take it back (`takesTheListBack` in `renderer/src/keys.ts`).
     pub row: Option<(String, String)>,
+    /// The control whose key hint is drawn beside it, once the pointer has waited on it.
+    pub hint: Option<Hint>,
 }
 
 impl Pointed {
@@ -41,6 +45,166 @@ impl Pointed {
     pub fn is_row(&self, product: &str, id: &str) -> bool {
         self.row.as_ref().is_some_and(|(p, i)| p == product && i == id)
     }
+}
+
+/* -------------------------------- key hints -------------------------------- */
+
+/// How long the pointer stays on a control before its plate is drawn, every control its own
+/// wait and nothing remembered between two of them (`HINT_WAIT` in `renderer/src/hint-timing.ts`).
+const HINT_WAIT: Duration = Duration::from_millis(700);
+/// The plate's distance from its control, and from the window's edge (`HINT_GAP`, `HINT_MARGIN`).
+const HINT_GAP: f32 = 7.0;
+const HINT_MARGIN: f32 = 8.0;
+
+/// Which edge of its control a plate lines up with (`data-hint-align`): the left, or the words
+/// inside it when it says which (`data-hint-text`); the right, for one in the window's right
+/// corner; or its middle, for a small square button.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Align {
+    Left,
+    Right,
+    Center,
+}
+
+/// A control's hint: its name in `HINTS`, the layout key the plate is hung from, how it lines
+/// up, and the key of the words inside the control it lines its first key up with.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Hint {
+    pub id: &'static str,
+    pub key: String,
+    pub align: Align,
+    pub words: Option<String>,
+}
+
+/// What each hint says, line by line: the key, and what it does (`HINTS` in
+/// `renderer/src/hint-plate.ts`), for the controls this window draws.
+fn hint_lines(id: &str) -> &'static [(&'static str, &'static str)] {
+    match id {
+        "new-task" => &[("N", "New thread")],
+        "state-tab" => &[("⇥", "Next tab")],
+        "row" => &[("↵", "Open task"), ("E", "Mark done"), ("L", "Schedule for later")],
+        "cloud" => &[("⌘C", "Cloud on or off")],
+        "done" => &[("E", "Mark done")],
+        "back" => &[("esc", "Go back one level")],
+        "inbox" => &[("esc", "Inbox")],
+        "previous-thread" => &[("K", "Previous thread")],
+        "next-thread" => &[("J", "Next thread")],
+        "thread-files" => &[("", "Files in this thread")],
+        "runs-on" => &[("", "Where this thread runs")],
+        "more" => &[("", "More actions")],
+        _ => &[],
+    }
+}
+
+/// One cap per key, a word that names one key staying whole (`capsOf` in `shared/key-caps.mts`).
+fn caps_of(key: &str) -> Vec<String> {
+    if key.is_empty() {
+        return Vec::new();
+    }
+    if ["esc", "Ctrl", "Alt", "Shift", "Enter", "Tab", "Backspace"].contains(&key) {
+        return vec![key.to_string()];
+    }
+    key.chars().map(|c| c.to_string()).collect()
+}
+
+/// The control `e`, carrying the hint `id` (`data-hint`): the pointer waiting on it 700 ms
+/// draws its plate beside it (`plate`), and the plate goes the moment the pointer leaves. The
+/// control is laid out under `key`, which the plate is hung from. The wait is a layer around
+/// the control, so a control that already follows the pointer keeps doing so.
+pub fn hinted(e: El, id: &'static str, key: impl Into<String>, align: Align, words: Option<String>) -> El {
+    let hint = Hint { id, key: key.into(), align, words };
+    let control = e.key(hint.key.clone());
+    // A column, so a control as wide as a list is as wide inside it as it was.
+    col().hover_delays(HINT_WAIT, Duration::ZERO).on_hover_change(move |s: &mut State, inside, tx| {
+        if inside {
+            s.pointed.hint = Some(hint.clone());
+        } else if s.pointed.hint.as_ref().is_some_and(|h| h.key == hint.key) {
+            s.pointed.hint = None;
+        } else {
+            tx.live_only();
+        }
+    })
+    .child(control)
+}
+
+/// The plate of the hint the pointer has waited on (`HintPlate`, `.hint-plate` in
+/// `renderer/src/styles.css`): under its control, lined up with it, each line the keys in caps
+/// and what they do, on the window's glass. It rises above a control too near the window's foot,
+/// keeps inside the window, and takes no pointer. None is drawn while something holds the keys
+/// whole (the command bar, the New thread card, the Later picker, the reply box: `hintsOn`).
+pub fn plate(s: &State) -> Option<El> {
+    let hint = s.pointed.hint.as_ref()?;
+    if s.palette.open || s.compose.card || s.later.on.is_some() || s.replying {
+        return None;
+    }
+    let lines = hint_lines(hint.id);
+    let [x, y, w, h] = rune::memo::window_layout(&hint.key)?;
+    if lines.is_empty() || (w <= 0.0 && h <= 0.0) {
+        return None;
+    }
+    let (cap_font, word_font, what_font) = (TextStyle::new(11.5, 600.0).lh(19.0), TextStyle::new(11.5 * 0.86, 600.0).tracking(0.0989), sans(12.0, 400.0));
+    let wide = |s: &str, font: TextStyle| rune::text::measure(s, &[], font, None).0;
+    // Each cap: its glyph in 6 points of room either side inside its edge, 19 points wide at
+    // least; ⇥ with its name beside it, the way the walkthrough's cap reads "⇥ Tab".
+    let cap_w = |glyph: &str| {
+        let named = if glyph == "⇥" { 5.0 + wide("Tab", word_font) } else { 0.0 };
+        (wide(glyph, cap_font) + named + 14.0).max(19.0)
+    };
+    let caps_w = |key: &str| {
+        let caps = caps_of(key);
+        caps.iter().map(|c| cap_w(c)).sum::<f32>() + 3.0 * caps.len().saturating_sub(1) as f32
+    };
+    let caps_col = lines.iter().map(|(key, _)| caps_w(key)).fold(0.0, f32::max);
+    let words_col = lines.iter().map(|(_, what)| wide(what, what_font)).fold(0.0, f32::max);
+    let line_h = |key: &str| if key.is_empty() { 15.5 } else if key == "⇥" { 21.5 } else { 21.0 };
+    // A plate of words alone is five points wider: its line's ten point gap, on a grid whose
+    // own gap is nought, puts half of itself after the words' column (CSS subgrid).
+    let plate_w = 2.0 + 20.0 + if caps_col > 0.0 { caps_col + 10.0 } else { 5.0 } + words_col;
+    let plate_h = 2.0 + 14.0 + lines.iter().map(|(key, _)| line_h(key)).sum::<f32>() + 4.0 * (lines.len() - 1) as f32;
+    // Where it goes (`placeHint`): under the control, or above it when there is no room under.
+    let (vw, vh) = s.size;
+    let rose = y + h + HINT_GAP + plate_h > vh - HINT_MARGIN;
+    let top = if rose { y - HINT_GAP - plate_h } else { y + h + HINT_GAP };
+    let wanted = match hint.align {
+        Align::Right => x + w - plate_w,
+        Align::Center => x + w / 2.0 - plate_w / 2.0,
+        // Its first key under the words' first letter: their left, less the plate's own
+        // padding and edge.
+        Align::Left => hint.words.as_deref().and_then(rune::memo::window_layout).map_or(x, |[wx, ..]| wx - 11.0),
+    };
+    // `Math.round`, which takes a half up.
+    let left = (wanted.min(vw - plate_w - HINT_MARGIN).max(HINT_MARGIN) + 0.5).floor();
+    let top = (top + 0.5).floor();
+    let cap = |glyph: &str| {
+        let mut c = row().h(if glyph == "⇥" { 21.5 } else { 21.0 }).min_w(19.0).px(6.0).radius(6.0).border(1.0, rule()).border_layout().justify_center().items_center().child(text(glyph).font(cap_font).color(muted()));
+        if glyph == "⇥" {
+            c = c.child(text("Tab").font(word_font).color(dim()).ml(5.0));
+        }
+        c
+    };
+    let line = |(key, what): &(&str, &str)| {
+        let words = pen(text(*what).font(what_font).color(dim()), 12.0);
+        if key.is_empty() {
+            return row().h(line_h(key)).items_center().child(words);
+        }
+        row().h(line_h(key)).items_center().gap(10.0).child(row().w(caps_col).gap(3.0).children(caps_of(key).iter().map(|c| cap(c)))).child(words)
+    };
+    Some(
+        col()
+            .absolute(left, top)
+            .size(plate_w, plate_h)
+            .py(7.0)
+            .px(10.0)
+            .gap(4.0)
+            .radius(6.0)
+            .backdrop_blur(18.0)
+            .fill(white(0.07))
+            .border(1.0, rule())
+            .border_layout()
+            .inert()
+            .a11y_hidden()
+            .children(lines.iter().map(line)),
+    )
 }
 
 /// Keeps `key` as what the pointer is on while it is on `e`, its children included.

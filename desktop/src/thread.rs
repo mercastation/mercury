@@ -134,13 +134,15 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
     let square = |glyph: &'static Icon, size: f32, side: f32, color| row().size(side, side).radius(6.0).center().child(icon(glyph, size).color(color).group_color(ink()));
     let at = s.lists.needs.iter().position(|r| r.id == id && r.product == product);
     // An arrow with a thread to go to brightens on a ground of its own under the pointer
-    // (`.ts-more.one-step:hover`); one with none is faded and keeps the arrow pointer.
-    let step = |glyph: &'static Icon, to: Option<&crate::data::Row>| {
+    // (`.ts-more.one-step:hover`) and carries its key's hint; one with none is faded and keeps
+    // the arrow pointer.
+    let step = |glyph: &'static Icon, hint: &'static str, to: Option<&crate::data::Row>| {
         let b = square(glyph, 14.0, 30.0, dim());
         match to {
             Some(r) => {
                 let (id, product) = (r.id.clone(), r.product.clone());
-                b.hover_group().hover(crate::feel::wash_strong()).cursor(rune::Cursor::Pointer).on_press(move |s: &mut State| s.step_to_thread(&id, &product))
+                let b = b.hover_group().hover(crate::feel::wash_strong()).cursor(rune::Cursor::Pointer).on_press(move |s: &mut State| s.step_to_thread(&id, &product));
+                crate::feel::hinted(b, hint, format!("strip-{hint}"), crate::feel::Align::Right, None)
             }
             None => b.opacity(0.35),
         }
@@ -152,14 +154,16 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
     let close = if finished {
         close.child(label("Reopen", 13.0, 400.0, dim()).group_color(ink())).on_press(|s: &mut State| s.reopen_thread())
     } else {
-        close.child(icon(&icons::DONE, 16.0).color(dim()).group_color(ink())).child(label("Done", 13.0, 400.0, dim()).group_color(ink())).on_press_tx(|s: &mut State, tx| s.close_thread(false, tx))
+        let done = close.child(icon(&icons::DONE, 16.0).color(dim()).group_color(ink())).child(label("Done", 13.0, 400.0, dim()).group_color(ink())).on_press_tx(|s: &mut State, tx| s.close_thread(false, tx));
+        crate::feel::hinted(done, "done", "strip-done", crate::feel::Align::Right, None)
     };
     // Where the thread runs, for one the cloud could take (`PlaceButton.tsx`): a cloud or a Mac,
     // faded while the whole cloud is off, dotted when it was handed back for something.
     let place = item(s, id, product).and_then(|i| place::thread_place(&s.snap, i).map(|p| place::mark(&s.snap, i, p))).map(|m| {
         let glyph = icon(if m.cloud { &icons::PLACE_CLOUD } else { &icons::PLACE_MAC }, 16.0).color(dim()).group_color(ink()).opacity(if m.faded { 0.7 } else { 1.0 });
         let button = crate::feel::answers(crate::feel::strip_button(row().size(30.0, 30.0).radius(6.0).center().border(1.0, edge()), false).child(glyph));
-        if m.dot { button.child(el().absolute(20.0, 4.0).size(6.0, 6.0).radius(3.0).fill(accent())) } else { button }
+        let button = if m.dot { button.child(el().absolute(20.0, 4.0).size(6.0, 6.0).radius(3.0).fill(accent())) } else { button };
+        crate::feel::hinted(button, "runs-on", "strip-place", crate::feel::Align::Right, None)
     });
     let mut actions = row().ml(16.0).min_w(0.0).items_center();
     // The line about what was just done stands first in this group (`.toast-in-bar`), and the
@@ -171,20 +175,21 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
     // (`QueueNav` stands only on a thread with a place in that queue).
     if at.is_some() {
         actions = actions
-            .child(step(&icons::UP, at.and_then(|a| a.checked_sub(1)).and_then(|a| s.lists.needs.get(a))))
-            .child(step(&icons::DOWN, at.and_then(|a| s.lists.needs.get(a + 1))));
+            .child(step(&icons::UP, "previous-thread", at.and_then(|a| a.checked_sub(1)).and_then(|a| s.lists.needs.get(a))))
+            .child(step(&icons::DOWN, "next-thread", at.and_then(|a| s.lists.needs.get(a + 1))));
     }
     let mut actions = actions;
     // The files the thread made, first of what can be done to it, for one that made any.
     let files = item(s, id, product).map(|i| files_made_here(s, i)).unwrap_or_default();
     if !files.is_empty() {
-        actions = actions.child(files_button(files.len(), s.files_open()).ml(10.0));
+        actions = actions.child(crate::feel::hinted(files_button(files.len(), s.files_open()), "thread-files", FILES_BUTTON, crate::feel::Align::Right, None).ml(10.0));
     }
     if let Some(place) = place {
         actions = actions.child(place.ml(10.0));
     }
     // The thread's own menu is the web window's, so ⋯ opens nothing here yet.
-    let actions = actions.child(close.ml(10.0)).child(crate::feel::answers(crate::feel::strip_button(square(&icons::MORE, 16.0, 30.0, dim()).ml(10.0).border(1.0, edge()), false)));
+    let more = crate::feel::answers(crate::feel::strip_button(square(&icons::MORE, 16.0, 30.0, dim()).border(1.0, edge()), false));
+    let actions = actions.child(close.ml(10.0)).child(crate::feel::hinted(more, "more", "strip-more", crate::feel::Align::Right, None).ml(10.0));
     // The arrows at the strip's left end take `--film-strong` under the pointer, and only while
     // there is somewhere to go (`.back-forward button:not(:disabled):hover`).
     let arrow = |e: El| e.hover(crate::feel::film()).cursor(rune::Cursor::Pointer);
@@ -195,7 +200,7 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
         .pr(28.0)
         .border_sides([0.0, 0.0, 1.0, 0.0], edge())
         .border_layout()
-        .child(arrow(square(&icons::INBOX, 15.0, 26.0, ink())).mr(10.0).on_press(|s: &mut State| s.go(View::Inbox)))
+        .child(crate::feel::hinted(arrow(square(&icons::INBOX, 15.0, 26.0, ink())).on_press(|s: &mut State| s.go(View::Inbox)), "inbox", "strip-inbox", crate::feel::Align::Left, None).mr(10.0))
         // Back is where the person came from, and a thread opened from nowhere came from the Inbox.
         .child(arrow(square(&icons::BACK, 15.0, 26.0, ink())).ml(2.0).on_press(|s: &mut State| s.leave_thread()))
         .child(square(&icons::FORWARD, 15.0, 26.0, muted()).ml(2.0).opacity(0.45))
@@ -207,9 +212,13 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
                 .items_center()
                 // The tab the thread is in, which goes back to it: a solid ground under the
                 // pointer, from its left edge to eight points past its words (`.thread-crumb-back`).
-                .child(
+                .child(crate::feel::hinted(
                     row().h(28.0).pr(8.0).items_center().radius(6.0).hover(rgb(46, 44, 43)).cursor(rune::Cursor::Pointer).child(text(crumb_from(s, id, product)).font(crumbs).text_case(TextCase::Uppercase).color(muted())).on_press(|s: &mut State| s.go(View::Inbox)),
-                )
+                    "back",
+                    "strip-crumb",
+                    crate::feel::Align::Left,
+                    None,
+                ))
                 .child(text("/").font(crumbs).color(muted()).ml(5.0).mr(7.0))
                 // The name gives way to what can be done to the thread, cut short with dots
                 // (`.thread-crumb-name`): Rune's flex never shrinks a child below what it holds

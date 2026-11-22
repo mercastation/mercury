@@ -1080,6 +1080,8 @@ fn resized(s: &mut State, [_, _, w, h]: [f32; 4]) {
         return;
     }
     s.size = (w, h);
+    // A key hint goes when the window is resized, as the web window's does.
+    s.pointed.hint = None;
     let points = chrome::folded_card_size(s);
     s.painting.request(points, paint_skies);
 }
@@ -1138,10 +1140,12 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
         Some(bar) => root.child(bar),
         None => root,
     };
-    match chrome::notice(s) {
+    let root = match chrome::notice(s) {
         Some(notice) => root.child(notice),
         None => root,
-    }
+    };
+    // The key hint of the control the pointer has waited on, over everything (`feel.rs`).
+    root.children(feel::plate(s))
 }
 
 static FONTS: &[&[u8]] = &[include_bytes!("../assets/fonts/Geist-Variable.ttf"), include_bytes!("../assets/fonts/GeistMono-Variable.ttf")];
