@@ -180,6 +180,8 @@ pub struct State {
     pub viewer: viewer::Viewer,
     /// A file opened beside the conversation (`pane.rs`).
     pub pane: pane::Pane,
+    /// A sheet open beside the conversation or big, worked as a spreadsheet (`table.rs`).
+    pub tables: table::Sheets,
     /// The Files place's list and how it is narrowed (`files_page.rs`).
     pub files: files_page::Place,
     /// Settings, a screen over everything while it is open (`settings.rs`).
@@ -974,6 +976,7 @@ fn init_from(args: &[String]) -> State {
         withdrawn: HashMap::new(),
         viewer: viewer::Viewer::default(),
         pane: pane::Pane::default(),
+        tables: table::Sheets::default(),
         files: files_page::Place::default(),
         settings: settings::Screen::default(),
     };
@@ -1246,6 +1249,8 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
     changed |= settings::tend(s, tx);
     // The file beside a conversation: opened by the newest answer, and read again as it changes.
     changed |= pane::tend(s, clock(), tx);
+    // A sheet beside it or big: its saves, where its keys are, its logos (`table.rs`).
+    changed |= table::tend(s, clock(), tx);
     changed |= chrome::rail_moves(s, at, tx);
     changed |= usage::tend(s, at, tx);
     changed |= feel::hint_due(s, at);
@@ -1358,6 +1363,8 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
     // A file open big covers all of that, the line about the last thing done included, as the
     // web window's view covers its own notices.
     let root = root.children(viewer::layer(s));
+    // A sheet's menus, over it wherever it is open.
+    let root = root.children(table::layer(s));
     // And the command bar, which never stands with it: opening one closes the other.
     let root = match palette::view(s) {
         Some(bar) => root.child(bar),

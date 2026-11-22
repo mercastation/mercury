@@ -264,11 +264,6 @@ fn share(values: &[&str], test: impl Fn(&str) -> bool) -> f64 {
     if values.is_empty() { 0.0 } else { values.iter().filter(|v| test(v)).count() as f64 / values.len() as f64 }
 }
 
-/// Whether a cell says there is nothing in it.
-pub fn says_nothing(v: &str) -> bool {
-    NOTHING.test(v)
-}
-
 re!(AMOUNT_LEAD, r"^[~≈+]|^(about|approx\.?|circa|ca\.?)\s*", "i");
 re!(AMOUNT_TAIL, r"\+$", "");
 re!(AMOUNT_MARKS, r"[$€£¥\s]", "g");
@@ -351,6 +346,8 @@ re!(US_DAY, r"^(\d{1,2})[/.](\d{1,2})[/.](\d{2,4})$", "");
 re!(HAS_YEAR, r"\b\d{4}\b", "");
 
 /// When a cell is, as the UTC midnight of its day, or NaN (`dateOf`). A bare number is no date.
+/// The rules here ask `date_of_in` with the year read once; this is the web's own, for its tests.
+#[cfg(test)]
 pub fn date_of(v: &str) -> f64 {
     date_of_in(v, this_year())
 }

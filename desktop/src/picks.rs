@@ -49,6 +49,10 @@ pub struct Picks {
     /// divider (`zero.docPane.split.v1`); none until one has.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub doc_split: Option<f32>,
+    /// What each sheet keeps, by `product/path`: its sort and filter, the widths a hand set and
+    /// what was chosen that a sheet cannot hold (`agentbox.table-view`, `-widths`, `-looks`).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub tables: BTreeMap<String, crate::table::Kept>,
 }
 
 /// The picks, and the file they are kept in when there is one.

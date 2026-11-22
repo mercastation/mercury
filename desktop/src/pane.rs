@@ -45,7 +45,8 @@ pub const SHARE_NOT_HERE: &str = "A link to share this file is made in Mercury's
 enum Read {
     Doc(Rc<str>),
     Lines(Rc<viewer::Code>),
-    Table(Rc<crate::table::Grid>),
+    /// A sheet's words, which `table.rs` reads into its table and works.
+    Table(Rc<str>),
 }
 
 /// The file open beside a conversation.
@@ -71,6 +72,13 @@ impl Doc {
     pub fn kind(&self) -> Kind {
         rules::pane_kind(&self.src)
     }
+    /// A sheet beside the conversation: where it is, its words and its time on disk.
+    pub fn table_read(&self) -> Option<(&str, Rc<str>, f64)> {
+        match (&self.read, self.found.as_deref()) {
+            (Some(Read::Table(text)), Some(found)) => Some((found, text.clone(), self.mtime)),
+            _ => None,
+        }
+    }
     /// Finds the file and reads what is drawn as words.
     fn land(&mut self, now: f64) {
         self.looked = now;
@@ -79,7 +87,7 @@ impl Doc {
         let kind = self.kind();
         self.read = self.found.as_deref().filter(|_| matches!(kind, Kind::Markdown | Kind::Text | Kind::Table)).and_then(viewer::read_text).map(|text| match kind {
             Kind::Markdown => Read::Doc(Rc::from(text.as_str())),
-            Kind::Table => Read::Table(Rc::new(crate::table::Grid::read(&text, &self.src))),
+            Kind::Table => Read::Table(Rc::from(text.as_str())),
             _ => Read::Lines(Rc::new(viewer::code_of(&text, true))),
         });
     }
@@ -144,6 +152,12 @@ fn crumb_roots(s: &State, product: &str) -> Vec<String> {
     out
 }
 
+/// The project's own folders, which a sheet beside the conversation is written inside of only
+/// (`docRoots`, `paneCanSave`).
+pub(crate) fn project_roots(s: &State, product: &str) -> Vec<String> {
+    crumb_roots(s, product)
+}
+
 /// The newest version of the file a path is one version of, by the edits saved in the app
 /// (`newestOfFamily`).
 fn newest_of_family(path: &str, item: &crate::data::Item, now: f64) -> String {
@@ -189,6 +203,13 @@ impl State {
         self.pointed.hint = None;
         self.pane.doc = Some(doc);
         self.ask_about_sharing();
+        crate::table::sync(self);
+    }
+    /// The file beside the conversation read again off the disk (Load the new one).
+    pub fn reread_beside(&mut self) {
+        if let Some(doc) = self.pane.doc.as_mut() {
+            doc.land(crate::clock());
+        }
     }
     /// A file pressed in a message or in the Files list, opened beside at its newest version.
     fn open_beside_newest(&mut self, src: &str) {
@@ -488,7 +509,7 @@ fn body(s: &State, doc: &Doc, w: f32, h: f32) -> El {
                 el().size(w, h).child(el().key(STAGE_KEY).size(w, h).scroll_xy().child(lines))
             })
         }
-        (Kind::Table, Some(Read::Table(grid))) => crate::table::view(s, grid, &doc.src, (w, h)),
+        (Kind::Table, Some(Read::Table(_))) => crate::table::view(s, crate::table::Where::Pane, (w, h)),
         (Kind::Image, _) => picture(s, doc, w, h),
         (Kind::Markdown | Kind::Text | Kind::Table, None) => missing(&format!("{name} could not be read."), w),
         // A page, a PDF, a film, a change or a site: the web window draws each in a frame or a

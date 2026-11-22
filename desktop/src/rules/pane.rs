@@ -92,9 +92,9 @@ pub fn is_plain_text(path: &str) -> bool {
     ends_with_any(path, &["py", "ipynb", "js", "mjs", "cjs", "ts", "mts", "cts", "tsx", "jsx", "rb", "go", "rs", "sh", "sql", "css", "txt", "csv", "tsv", "json", "yaml", "yml", "xml"])
 }
 
-/// A sheet (`isTablePath`).
+/// A sheet (`isTablePath`), as the table's own rules tell one.
 pub fn is_table_path(path: &str) -> bool {
-    ends_with_any(path, &["csv", "tsv"])
+    super::table_file::is_table_path(path)
 }
 
 /// Whether the pane opens this path at all (`opensInPane`).
@@ -220,6 +220,16 @@ pub const FOLLOW_FILE_MS: f64 = 3000.0;
 /// Whether a fresh read is newer than what is on screen (`newerOnDisk`).
 pub fn newer_on_disk(shown: f64, read: Option<f64>) -> bool {
     read.is_some_and(|at| at > shown)
+}
+
+/// Whether the file found can be written from the pane (`paneCanSave`): one inside the
+/// project's own folders, or any while there is nothing to tell it by.
+pub fn pane_can_save(resolved: Option<&str>, roots: &[String]) -> bool {
+    let Some(resolved) = resolved else { return true };
+    if roots.is_empty() {
+        return true;
+    }
+    roots.iter().any(|root| resolved == root || resolved.starts_with(&format!("{}/", root.trim_end_matches('/'))))
 }
 
 /// Whether Escape closes the file or leaves the thread (`escapeClosesDoc`): a file the person
