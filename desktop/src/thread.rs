@@ -20,7 +20,7 @@ use rune::{Drag, El, Icon, Phase, ScrollSpec, TextCase, TextStyle, col, el, icon
 use serde_json::{Map, Value, json};
 
 use crate::attach::Holder;
-use crate::data::{Item, Priority, Tab};
+use crate::data::{Item, Tab};
 use crate::files::Files;
 use crate::home;
 use crate::markdown::{self, Block};
@@ -1179,6 +1179,9 @@ fn reply_box(s: &State, item: &Item, m: &Measure) -> El {
     let key = row().px(5.5).py(1.5).radius(6.0).fill(white(0.04)).border(1.0, rule()).border_layout().child(text("R").font(mono(10.5, 13.5)).color(dim()));
     let said = text(folded.text.as_str()).font(sans(size, 400.0)).color(if folded.draft { dim() } else { muted() }).truncate();
     let counted = (!folded.files.is_empty()).then(|| el().pr(12.0).child(label(&folded.files, 12.0, 400.0, muted())));
+    // With the agent's choices folded away, the sign that they are there (`ChoicesShow`).
+    let choices = live_options(item);
+    let sign = (!choices.is_empty() && !s.answer_waits(item) && crate::chips::choices_folded(s, item)).then(|| crate::chips::choices_sign(choices.len()));
     row().w(m.column)
         .radius(10.0)
         .fill(white(0.04))
@@ -1190,6 +1193,7 @@ fn reply_box(s: &State, item: &Item, m: &Measure) -> El {
         .children(counted)
         .child(model.mr(12.0))
         .child(key.mr(14.0))
+        .children(sign)
 }
 
 /// The mark of the agent a reply goes to, before the model's name on the reply box's chip
@@ -1219,14 +1223,6 @@ fn composer(s: &State, item: &Item, m: &Measure) -> El {
         .on_input_key(crate::keys::in_the_reply)
         // A picture or a file on the clipboard is attached rather than typed (`onPaste`).
         .on_input_paste(|s: &mut State, content, _| s.paste_into_the_box(Holder::Reply, content, crate::clock()));
-    // The thread's own level, as the Inbox marks it, with its word.
-    let off = rule();
-    let level = match Priority::of(item.priority) {
-        Priority::Urgent => (bars(&[4.0, 7.0, 10.0, 13.0], ink()), "Urgent"),
-        Priority::High => (bars(&[4.0, 7.5, 11.0], ink()), "High"),
-        Priority::Medium => (row().items_end().gap(1.5).child(el().size(3.0, 4.0).radius(1.0).fill(dim())).child(el().size(3.0, 7.5).radius(1.0).fill(dim())).child(el().size(3.0, 11.0).radius(1.0).fill(off)), "Medium"),
-        Priority::Low => (row().items_end().gap(1.5).child(el().size(3.0, 4.0).radius(1.0).fill(dim())).child(el().size(3.0, 7.5).radius(1.0).fill(off)).child(el().size(3.0, 11.0).radius(1.0).fill(off)), "Low"),
-    };
     // Send is lit for words or files, and off while the files of a reply are being saved, when
     // it says so (`disabled={!hasDraft || saving}`).
     let thread = key(&item.product, &item.id);
@@ -1246,15 +1242,12 @@ fn composer(s: &State, item: &Item, m: &Measure) -> El {
         .help("Which model this conversation runs on")
         .on_background_press_tx(|s: &mut State, tx| s.toggle_reply_menu(tx));
     let model_chip = if open { model_chip.border(1.0, rule()) } else { model_chip };
-    // What this message may do, in Claude Code's own words for the thread's mode, else its
-    // project's (`ModePicker`).
-    let mode = crate::rules::reply_pick::mode_word(&s.snap, item, crate::rules::reply_pick::running_engine(&s.snap, &item.id).as_deref());
-    // The other chips and the caret answer the pointer as the web window's do, which open a
-    // menu or a picker there; here they open nothing yet. The paper clip opens the system's file
+    // The priority the next reply sets and what it may do, each a chip that opens its menu
+    // (`chips.rs`; no mode on a terminal agent's row). The paper clip opens the system's file
     // picker (`.dock-clip`). Send and its caret are two controls, as there (`.dock-send`,
-    // `.dock-send-later`).
-    let chip = |kids: Vec<El>| crate::feel::answers(home::chip(kids));
+    // `.dock-send-later`); the caret answers the pointer and opens nothing yet.
     let send = if saving { home::send_sending() } else { home::send_main(ready) };
+    let mode = crate::chips::offers_a_mode(item).then(|| crate::chips::mode_chip(s, item));
     let bar = row()
         .h(57.0)
         .px(16.0)
@@ -1262,9 +1255,8 @@ fn composer(s: &State, item: &Item, m: &Measure) -> El {
         .items_center()
         .border_sides([1.0, 0.0, 0.0, 0.0], edge())
         .border_layout()
-        .child(chip(vec![level.0, pen(label(level.1, 13.0, 400.0, dim()).group_color(ink()), 13.0)]).help("Priority"))
-        // Led by its shield (`ModeMark`), faint as every mark on a chip is (`.tc-chip svg`).
-        .child(chip(vec![icon(&icons::MODE_MARK, 14.0).color(muted()), pen(label(&mode, 13.0, 400.0, dim()).group_color(ink()), 13.0)]).help("What this message may do"))
+        .child(crate::chips::priority_chip(s, item))
+        .children(mode)
         .child(model_chip)
         .child(spacer())
         // The paper clip's square is 28 points, the chips' height (`.tc-icon`).
@@ -1330,9 +1322,9 @@ fn options_strip(choices: &[Choice], on: Option<usize>, m: &Measure) -> El {
     });
     el().w(m.column)
         .child(col().w(m.column).radius(10.0).clip_rounded(10.0).border(1.0, edge()).border_layout().children(rows))
-        // The caret that folds the choices away, drawn and not yet pressed: washed under the
-        // pointer, its mark the text's own colour (`.one-choices-fold:hover`).
-        .child(crate::feel::answers(row().pin(None, Some(6.0), Some(8.0), None).size(24.0, 24.0).radius(6.0).center().hover_group().hover(crate::feel::wash()).cursor(rune::Cursor::Pointer).child(icon(&icons::DOWN, 14.0).color(muted()).group_color(ink()))))
+        // The little arrow that folds the choices away, washed under the pointer, its mark the
+        // text's own colour (`ChoicesFold`, `.one-choices-fold:hover`).
+        .child(row().pin(None, Some(6.0), Some(8.0), None).size(24.0, 24.0).radius(6.0).center().hover_group().hover(crate::feel::wash()).cursor(rune::Cursor::Pointer).key("choices-fold").label("Fold the choices").child(icon(&icons::DOWN, 14.0).color(muted()).group_color(ink())).on_press(|s: &mut State| crate::chips::toggle_choices(s)))
 }
 
 /// The dock at the conversation's foot (`.focus-dock`): the choices the agent's newest answer
@@ -1340,8 +1332,10 @@ fn options_strip(choices: &[Choice], on: Option<usize>, m: &Measure) -> El {
 fn dock(s: &State, item: &Item, m: &Measure) -> El {
     let mut inner = col().w(m.column);
     let choices = live_options(item);
-    // An answer on its way has spent the offer, though the engine has not heard it yet.
-    if !choices.is_empty() && !s.answer_waits(item) {
+    // An answer on its way has spent the offer, though the engine has not heard it yet. Folded
+    // away, the choices show only while one is picked out with the keys
+    // (`.one-choices-folded:not(:has(.opt-row.selected))`).
+    if !choices.is_empty() && !s.answer_waits(item) && (s.option.is_some() || !crate::chips::choices_folded(s, item)) {
         inner = inner.child(options_strip(&choices, s.option, m).mb(10.0));
     }
     inner = inner.child(if s.replying { composer(s, item, m) } else { reply_box(s, item, m).cursor(rune::Cursor::Text).on_press_tx(|s: &mut State, tx| s.open_reply(tx)) });
