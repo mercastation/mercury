@@ -98,6 +98,14 @@ pub fn edges(radius: f32, rest: Color, lit: Color, laid_out: bool) -> [El; 2] {
     [edge(radius, rest, laid_out).group_opacity(1.0, 0.0), edge(radius, lit, laid_out).group_opacity(0.0, 1.0)]
 }
 
+/// A framed button of a conversation's head strip (`.ts-done`, `.ts-more`: Done, Reopen, the
+/// Files button, the place button, ⋯): under the pointer its ground is `--wash-strong`, its edge
+/// `--line-strong` and its words and marks the text's own colour, which they take with
+/// `group_color(ink())` (`threads/summary.css`).
+pub fn strip_button(e: El, laid_out: bool) -> El {
+    e.hover_group().hover(wash_strong()).cursor(rune::Cursor::Pointer).child(edge_lit(6.0, rule(), laid_out))
+}
+
 /// `--wash`, `--film-strong` and `--wash-strong`: what a control's ground turns under the
 /// pointer, by how much it stands out at rest.
 pub fn wash() -> Color {
@@ -169,6 +177,9 @@ mod tests {
         args.extend(view_of(&scene));
         let mut s = crate::init_from(&args);
         s.size = (w, h);
+        // Every picture read where it is asked for, as a still picture reads them, so the page
+        // stands as it does in the scene's picture.
+        s.pictures = crate::pictures::Pictures::new(2.0, true, false);
         let text = rune::text::TextSystem::new(crate::FONTS, ("Geist", "Geist Mono, ui-monospace"));
         let mut rt = rune::Runtime::with_text(s, crate::view, (w, h), rune::Env::new(true, 2.0), text);
         rt.frame(0.0);

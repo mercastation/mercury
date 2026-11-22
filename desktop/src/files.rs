@@ -10,7 +10,7 @@
 //! Pressing a file opens it with the system, through `open_with_system` at the foot of this
 //! file. The web window opens it beside the conversation, which this window does not have yet.
 
-use rune::{El, SurfaceFit, TextStyle, col, el, row, text};
+use rune::{Cursor, El, SurfaceFit, TextStyle, col, el, row, text};
 use serde_json::Value;
 
 use crate::State;
@@ -125,20 +125,34 @@ fn missing(src: &str) -> El {
 
 /// The framed box a picture is drawn in, `wide` by `tall` with its edge: the picture when it
 /// is here, and the place it will take while it is on its way (`.arriving`, which shimmers in
-/// the web window and holds still here).
+/// the web window and holds still here). A picture's edge brightens under the pointer
+/// (`.inline-image-open:hover .inline-image`), whose look `opens` gives what it is drawn in.
 fn frame(here: Option<&Held>, wide: f32, tall: f32, fit: Option<SurfaceFit>) -> El {
     let frame = el().size(wide, tall).radius(10.0).border(1.0, edge());
     match here {
         Some(held) => {
             let inside = el().absolute(1.0, 1.0).size((wide - 2.0).max(0.0), (tall - 2.0).max(0.0)).radius(9.0);
-            let path = held.path.clone();
-            frame.child(match fit {
-                Some(fit) => inside.pixels_fit(&held.pixels, fit),
-                None => inside.pixels(&held.pixels),
-            })
-            .on_press(move |_: &mut State| open_with_system(&path))
+            frame
+                .child(match fit {
+                    Some(fit) => inside.pixels_fit(&held.pixels, fit),
+                    None => inside.pixels(&held.pixels),
+                })
+                .child(crate::feel::edge_lit(10.0, muted(), false))
         }
         None => frame.fill(rgb(47, 45, 44)),
+    }
+}
+
+/// A picture and its name under it, which open it with the system: the magnifier for a pointer,
+/// as over the web window's (`.inline-image-open { cursor: zoom-in }`), and the picture's edge
+/// brighter under it. A picture on its way opens nothing yet.
+fn opens(block: El, here: Option<&Held>) -> El {
+    match here {
+        Some(held) => {
+            let path = held.path.clone();
+            block.hover_group().cursor(Cursor::ZoomIn).on_press(move |_: &mut State| open_with_system(&path))
+        }
+        None => block,
     }
 }
 
@@ -184,7 +198,7 @@ pub fn picture(f: &Files, src: &str, room: f32, size: f32, line: f32) -> El {
     // place held for one not yet seen is a block of its own, with no line around it.
     let after = 8.0 + if stands { line - baseline_in(size, line) } else { 0.0 } - 2.0;
     let block = col().child(frame(held, wide, tall, None).mt(8.0)).child(name_under(src, wide, f.now).mt(after).mb(8.0));
-    watched(block, places, want)
+    watched(opens(block, held), places, want)
 }
 
 /// One thing a row holds.
@@ -212,7 +226,7 @@ pub fn media_row(f: &Files, shown: &[Shown], room: f32) -> El {
         // Its place in the row is as wide as the row at most; the picture itself stops at
         // the widest any picture is drawn, and is cropped to fill what it has.
         let drawn = wide.min(WIDEST);
-        watched(col().w(wide).child(frame(held, drawn, ROW_TALL, Some(SurfaceFit::Fill))).child(name_under(src, wide, f.now).mt(6.0)), places, want)
+        watched(opens(col().w(wide).child(frame(held, drawn, ROW_TALL, Some(SurfaceFit::Fill))).child(name_under(src, wide, f.now).mt(6.0)), held), places, want)
     }))
 }
 
@@ -241,7 +255,11 @@ pub fn folder(f: &Files, href: &str, room: f32, size: f32) -> El {
         _ => None,
     };
     // Its name: the mark, what the folder goes by, and how many pictures once that is known.
-    let mut name = row().h(line).items_center().gap(8.0).child(rune::icon(&crate::icons::MENTION_FOLDER, 15.0).color(muted())).child(text(titled).font(TextStyle::new(size, 500.0).lh(line)).color(ink()));
+    // Under the pointer the mark is the text's own colour and a faint line comes in under the
+    // name, four points under its baseline (`.folder-preview-name:hover`).
+    let under = (((line - 1.3 * size) / 2.0 + 1.005 * size + 4.0) * 2.0).round() / 2.0;
+    let titled = el().child(text(titled).font(TextStyle::new(size, 500.0).lh(line)).color(ink())).child(el().pin(Some(0.0), Some(under), Some(0.0), None).h(1.0).fill(muted()).group_opacity(0.0, 1.0));
+    let mut name = row().h(line).items_center().gap(8.0).hover_group().cursor(Cursor::Pointer).child(rune::icon(&crate::icons::MENTION_FOLDER, 15.0).color(muted()).group_color(ink())).child(titled);
     if let Some(listing) = pictures {
         let count = format!("{} picture{}", listing.total, if listing.total == 1 { "" } else { "s" });
         name = name.child(text(count).font(TextStyle::new(0.9 * size, 400.0).lh(kept(1.6 * 0.9 * size))).color(muted()).ml(2.0));
@@ -260,7 +278,8 @@ pub fn folder(f: &Files, href: &str, room: f32, size: f32) -> El {
     let name = row().h(name_line).items_start().child(name.on_press(open_folder.clone()));
     let wide = ((room - 20.0) / 3.0).max(1.0);
     let tall = wide * 10.0 / 16.0;
-    let shot = |inside: El| el().size(wide, tall).radius(6.0).fill(rgb(47, 45, 44)).border(1.0, edge()).child(inside.absolute(1.0, 1.0).size(wide - 2.0, tall - 2.0).radius(5.0));
+    // A picture's edge brightens under the pointer, and it opens larger (`.folder-preview-shot`).
+    let shot = |inside: El| el().size(wide, tall).radius(6.0).fill(rgb(47, 45, 44)).border(1.0, edge()).child(inside.absolute(1.0, 1.0).size(wide - 2.0, tall - 2.0).radius(5.0)).child(crate::feel::edge_lit(6.0, muted(), false));
     let Some(listing) = pictures else {
         // Still being read: the places its first three will take. Otherwise only its name.
         if !matches!(listed, Some(Listed::Asking)) {
@@ -282,8 +301,9 @@ pub fn folder(f: &Files, href: &str, room: f32, size: f32) -> El {
                 _ => el(),
             };
             let (file, base) = (file.clone(), paths_base(file).to_string());
-            let framed = shot(inside).on_press(move |_: &mut State| open_with_system(&file));
-            watched(col().w(wide).child(framed).child(row().mt(4.0).child(row().min_w(0.0).child(text(base).font(label).color(muted()).truncate()))), places, want)
+            // The picture and its name are one button, which opens it (`.folder-preview-shot`).
+            let named = col().w(wide).child(shot(inside)).child(row().mt(4.0).child(row().min_w(0.0).child(text(base).font(label).color(muted()).truncate())));
+            watched(named.hover_group().cursor(Cursor::ZoomIn).on_press(move |_: &mut State| open_with_system(&file)), places, want)
         })
         .collect();
     // Three across, row under row, ten points apart both ways.
@@ -300,7 +320,8 @@ pub fn folder(f: &Files, href: &str, room: f32, size: f32) -> El {
         let small = 0.86 * size;
         let small_line = kept(1.6 * small);
         let under = (under_baseline(size) - (small_line - baseline_in(small, small_line))).max(0.0);
-        block = block.child(row().mt(6.0).mb(under).child(text(format!("{more} more in the folder")).font(TextStyle::new(small, 400.0).lh(small_line)).color(dim()).on_press(open_folder)));
+        let more = text(format!("{more} more in the folder")).font(TextStyle::new(small, 400.0).lh(small_line)).color(dim()).group_color(ink());
+        block = block.child(row().mt(6.0).mb(under).child(row().hover_group().cursor(Cursor::Pointer).child(more).on_press(open_folder)));
     }
     block
 }

@@ -171,11 +171,6 @@ pub fn send_caret() -> El {
     brightened(caret).cursor(Cursor::Pointer)
 }
 
-/// The two as a conversation's reply box draws them: one pair, pressed as one.
-pub fn send_pair(ready: bool) -> El {
-    row().child(send_main(ready)).child(send_caret())
-}
-
 /// The paper clip beside Send, the text's own colour under the pointer (`.tc-icon:hover`).
 pub fn attach() -> El {
     row().size(30.0, 30.0).radius(6.0).center().hover_group().cursor(Cursor::Pointer).child(icon(&icons::ATTACH, 16.0).color(muted()).group_color(ink()))

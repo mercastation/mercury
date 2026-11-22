@@ -131,14 +131,16 @@ fn crumb_from(s: &State, id: &str, product: &str) -> &'static str {
 /// is, the threads before and after it in Needs you, and what can be done to it.
 pub fn head(s: &State, id: &str, product: &str) -> El {
     let (card_w, _) = s.card_size();
-    let square = |glyph: &'static Icon, size: f32, side: f32, color| row().size(side, side).radius(6.0).center().child(icon(glyph, size).color(color));
+    let square = |glyph: &'static Icon, size: f32, side: f32, color| row().size(side, side).radius(6.0).center().child(icon(glyph, size).color(color).group_color(ink()));
     let at = s.lists.needs.iter().position(|r| r.id == id && r.product == product);
+    // An arrow with a thread to go to brightens on a ground of its own under the pointer
+    // (`.ts-more.one-step:hover`); one with none is faded and keeps the arrow pointer.
     let step = |glyph: &'static Icon, to: Option<&crate::data::Row>| {
         let b = square(glyph, 14.0, 30.0, dim());
         match to {
             Some(r) => {
                 let (id, product) = (r.id.clone(), r.product.clone());
-                b.on_press(move |s: &mut State| s.step_to_thread(&id, &product))
+                b.hover_group().hover(crate::feel::wash_strong()).cursor(rune::Cursor::Pointer).on_press(move |s: &mut State| s.step_to_thread(&id, &product))
             }
             None => b.opacity(0.35),
         }
@@ -146,17 +148,17 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
     let crumbs = mono(11.0, 14.0).tracking(0.99);
     let title = item(s, id, product).map(name).unwrap_or_default();
     let finished = item(s, id, product).is_some_and(|i| i.status == "done");
-    let close = row().h(30.0).items_center().gap(7.0).pl(9.0).pr(12.0).radius(6.0).border(1.0, edge()).border_layout();
+    let close = crate::feel::strip_button(row().h(30.0).items_center().gap(7.0).pl(9.0).pr(12.0).radius(6.0).border(1.0, edge()).border_layout(), true);
     let close = if finished {
-        close.child(label("Reopen", 13.0, 400.0, dim())).on_press(|s: &mut State| s.reopen_thread())
+        close.child(label("Reopen", 13.0, 400.0, dim()).group_color(ink())).on_press(|s: &mut State| s.reopen_thread())
     } else {
-        close.child(icon(&icons::DONE, 16.0).color(dim())).child(label("Done", 13.0, 400.0, dim())).on_press_tx(|s: &mut State, tx| s.close_thread(false, tx))
+        close.child(icon(&icons::DONE, 16.0).color(dim()).group_color(ink())).child(label("Done", 13.0, 400.0, dim()).group_color(ink())).on_press_tx(|s: &mut State, tx| s.close_thread(false, tx))
     };
     // Where the thread runs, for one the cloud could take (`PlaceButton.tsx`): a cloud or a Mac,
     // faded while the whole cloud is off, dotted when it was handed back for something.
     let place = item(s, id, product).and_then(|i| place::thread_place(&s.snap, i).map(|p| place::mark(&s.snap, i, p))).map(|m| {
-        let glyph = icon(if m.cloud { &icons::PLACE_CLOUD } else { &icons::PLACE_MAC }, 16.0).color(dim()).opacity(if m.faded { 0.7 } else { 1.0 });
-        let button = row().size(30.0, 30.0).radius(6.0).center().border(1.0, edge()).child(glyph);
+        let glyph = icon(if m.cloud { &icons::PLACE_CLOUD } else { &icons::PLACE_MAC }, 16.0).color(dim()).group_color(ink()).opacity(if m.faded { 0.7 } else { 1.0 });
+        let button = crate::feel::answers(crate::feel::strip_button(row().size(30.0, 30.0).radius(6.0).center().border(1.0, edge()), false).child(glyph));
         if m.dot { button.child(el().absolute(20.0, 4.0).size(6.0, 6.0).radius(3.0).fill(accent())) } else { button }
     });
     let mut actions = row().ml(16.0).min_w(0.0).items_center();
@@ -181,7 +183,11 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
     if let Some(place) = place {
         actions = actions.child(place.ml(10.0));
     }
-    let actions = actions.child(close.ml(10.0)).child(square(&icons::MORE, 16.0, 30.0, dim()).ml(10.0).border(1.0, edge()));
+    // The thread's own menu is the web window's, so ⋯ opens nothing here yet.
+    let actions = actions.child(close.ml(10.0)).child(crate::feel::answers(crate::feel::strip_button(square(&icons::MORE, 16.0, 30.0, dim()).ml(10.0).border(1.0, edge()), false)));
+    // The arrows at the strip's left end take `--film-strong` under the pointer, and only while
+    // there is somewhere to go (`.back-forward button:not(:disabled):hover`).
+    let arrow = |e: El| e.hover(crate::feel::film()).cursor(rune::Cursor::Pointer);
     row().absolute(chrome::card_left(s), chrome::CARD[1])
         .size(card_w, 56.0)
         .items_center()
@@ -189,9 +195,9 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
         .pr(28.0)
         .border_sides([0.0, 0.0, 1.0, 0.0], edge())
         .border_layout()
-        .child(square(&icons::INBOX, 15.0, 26.0, ink()).mr(10.0).on_press(|s: &mut State| s.go(View::Inbox)))
+        .child(arrow(square(&icons::INBOX, 15.0, 26.0, ink())).mr(10.0).on_press(|s: &mut State| s.go(View::Inbox)))
         // Back is where the person came from, and a thread opened from nowhere came from the Inbox.
-        .child(square(&icons::BACK, 15.0, 26.0, ink()).ml(2.0).on_press(|s: &mut State| s.leave_thread()))
+        .child(arrow(square(&icons::BACK, 15.0, 26.0, ink())).ml(2.0).on_press(|s: &mut State| s.leave_thread()))
         .child(square(&icons::FORWARD, 15.0, 26.0, muted()).ml(2.0).opacity(0.45))
         .child(
             row().grow(1.0)
@@ -199,12 +205,19 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
                 .h(28.0)
                 .ml(12.0)
                 .items_center()
-                .child(text(crumb_from(s, id, product)).font(crumbs).text_case(TextCase::Uppercase).color(muted()).mr(8.0).on_press(|s: &mut State| s.go(View::Inbox)))
+                // The tab the thread is in, which goes back to it: a solid ground under the
+                // pointer, from its left edge to eight points past its words (`.thread-crumb-back`).
+                .child(
+                    row().h(28.0).pr(8.0).items_center().radius(6.0).hover(rgb(46, 44, 43)).cursor(rune::Cursor::Pointer).child(text(crumb_from(s, id, product)).font(crumbs).text_case(TextCase::Uppercase).color(muted())).on_press(|s: &mut State| s.go(View::Inbox)),
+                )
                 .child(text("/").font(crumbs).color(muted()).ml(5.0).mr(7.0))
                 // The name gives way to what can be done to the thread, cut short with dots
                 // (`.thread-crumb-name`): Rune's flex never shrinks a child below what it holds
                 // unless told to, and a strip with a Files button in it can leave the name less.
-                .child(row().min_w(0.0).shrink().px(6.0).child(text(crumb(&title)).font(crumbs).text_case(TextCase::Uppercase).color(dim()).truncate())),
+                // It is the box to rename the thread in, so the pointer is the I-beam over it and
+                // its words brighten under it (`button.thread-crumb-name:hover`). Renaming is the
+                // web window's, so a press on it does nothing here.
+                .child(crate::feel::answers(row().min_w(0.0).shrink().px(6.0).hover_group().cursor(rune::Cursor::Text).child(text(crumb(&title)).font(crumbs).text_case(TextCase::Uppercase).color(dim()).group_color(ink()).truncate()))),
         )
         .child(actions)
 }
@@ -244,18 +257,11 @@ pub fn files_made_here(s: &State, item: &Item) -> Rc<Vec<ThreadFile>> {
 
 /// The button (`.ts-done.ts-files`): Done's frame around the files mark and how many there are.
 fn files_button(count: usize, open: bool) -> El {
-    row().key(FILES_BUTTON)
-        .h(30.0)
-        .min_w(30.0)
-        .px(9.0)
-        .gap(6.0)
-        .justify_center()
-        .items_center()
-        .radius(6.0)
-        .border(1.0, edge())
-        .border_layout()
-        .child(icon(&icons::THREAD_FILES, 16.0).color(dim()))
-        .child(text(count.to_string()).font(figures(12.5, 400.0)).color(dim()))
+    let button = row().key(FILES_BUTTON).h(30.0).min_w(30.0).px(9.0).gap(6.0).justify_center().items_center().radius(6.0).border(1.0, edge()).border_layout();
+    // Done's look under the pointer too (`.ts-done:hover`).
+    crate::feel::strip_button(button, true)
+        .child(icon(&icons::THREAD_FILES, 16.0).color(dim()).group_color(ink()))
+        .child(text(count.to_string()).font(figures(12.5, 400.0)).color(dim()).group_color(ink()))
         .label(format!("Files in this thread ({count})"))
         .expanded(open)
         .on_press(|s: &mut State| s.toggle_files())
@@ -403,12 +409,14 @@ fn when(at: f64, now: f64) -> String {
     format!("{day} {hour}:{:02}{}", t.minute, if t.hour < 12 { "am" } else { "pm" })
 }
 
-/// A message's head: who, when, and for a checkpoint the tag that says so.
+/// A message's head: who, when, and for a checkpoint the tag that says so. Its words can be
+/// selected with the message's, as everything in the web window's conversation can
+/// (`.focus-body { user-select: text }`).
 fn said_by(m: &Message, now: f64) -> El {
     let line = kept(22.4);
     let who = if m.mine { text("You").font(TextStyle::new(14.0, 600.0).lh(line)).color(ink()) } else { text("The agent").font(TextStyle::new(14.0, 400.0).lh(line)).color(dim()) };
     // The three sit on one baseline: the smaller the type, the lower its box starts.
-    let mut head = row().h(line).items_start().gap(10.0).child(who).child(text(when(m.at, now)).font(TextStyle::new(12.5, 400.0).lh(20.0).features("'tnum' 1")).color(muted()).mt(1.5));
+    let mut head = row().h(line).items_start().gap(10.0).child(readable(who)).child(readable(text(when(m.at, now)).font(TextStyle::new(12.5, 400.0).lh(20.0).features("'tnum' 1")).color(muted())).mt(1.5));
     if !m.mine && m.field == Field::Note {
         let tag = mono(11.0, 14.0);
         head = head.child(
@@ -419,8 +427,8 @@ fn said_by(m: &Message, now: f64) -> El {
                 .radius(6.0)
                 .border(1.0, edge())
                 .border_layout()
-                .child(text("Checkpoint").font(tag.tracking(0.22)).color(dim()))
-                .child(row().gap(6.0).child(text("·").font(tag).color(muted())).child(text("progress so far").font(tag).color(muted()))),
+                .child(readable(text("Checkpoint").font(tag.tracking(0.22)).color(dim())))
+                .child(row().gap(6.0).child(readable(text("·").font(tag).color(muted()))).child(readable(text("progress so far").font(tag).color(muted())))),
         );
     }
     head
@@ -517,19 +525,24 @@ fn work_line(w: &Work) -> El {
 
 /// Consecutive things a run ran, folded to one line (`RunLine`): the kinds of thing it did,
 /// how many of them failed, and, open, each one on its own line under it. A press opens and
-/// shuts it at once.
+/// shuts it at once. Under the pointer its words are the text's own colour and its mark, which
+/// folded shows only then, a step brighter (`.did-head:hover .did-verb`, `.did-run-head:hover >
+/// .did-run-mark`).
 fn run_line(items: &[&Work], open: bool, key: String, m: &Measure) -> El {
     let summary = work::activity_summary(items.iter().map(|w| (w.verb.as_str(), w.subject.as_str())));
     let failed = work::run_failures(items.iter().filter(|w| w.failed).count());
-    let mut head = row().max_w(m.column).items_start().gap(8.0).child(row().min_w(0.0).child(text(summary).font(TextStyle::new(13.0, 400.0).lh(19.5)).color(dim()).truncate()));
+    let mut head = row().max_w(m.column).items_start().gap(8.0).child(row().min_w(0.0).child(text(summary).font(TextStyle::new(13.0, 400.0).lh(19.5)).color(dim()).group_color(ink()).truncate()));
     if !failed.is_empty() {
         head = head.child(text(failed).font(TextStyle::new(12.0, 400.0).lh(18.0)).color(stopped()).mt(1.0));
     }
-    // Its mark shows only open, turned down, after the words (`order: 2; opacity: 0`).
-    if open {
-        head = head.child(icon(&icons::WORK_MARK_OPEN, 8.0).color(muted()).mt(5.75));
-    }
-    let head = row().key(key.clone()).cursor(rune::Cursor::Pointer).child(head).on_press(move |s: &mut State| {
+    // Its mark after the words (`order: 2`): open it shows turned down; folded it shows only
+    // under the pointer (`opacity: 0`), pointing at the words.
+    head = if open {
+        head.child(icon(&icons::WORK_MARK_OPEN, 8.0).color(muted()).group_color(dim()).mt(5.75))
+    } else {
+        head.child(icon(&icons::WORK_MARK, 8.0).color(dim()).mt(5.75).group_opacity(0.0, 1.0))
+    };
+    let head = row().key(key.clone()).hover_group().cursor(rune::Cursor::Pointer).child(head).on_press(move |s: &mut State| {
         if !s.reading.runs_open.remove(&key) {
             s.reading.runs_open.insert(key.clone());
         }
@@ -699,7 +712,8 @@ fn running(s: &State, id: &str, product: &str) -> Option<live::Session> {
     serde_json::from_value(Value::Object(facts)).ok()
 }
 
-/// The line under the title that folds and unfolds the rest: small, quiet and underlined.
+/// The line under the title that folds and unfolds the rest: small, quiet and underlined, the
+/// text's own colour under the pointer (`.one-earlier:hover`), its line staying as it is.
 fn toggle(words: &str, thread: String, m: &Measure) -> El {
     let size = (0.7 * m.size).max(12.5);
     let line = kept(1.6 * size);
@@ -708,7 +722,9 @@ fn toggle(words: &str, thread: String, m: &Measure) -> El {
     let under = (((line - 1.3 * size) / 2.0 + 1.005 * size + 4.0) * 2.0).round() / 2.0;
     row().child(
         el().key("thread-earlier")
-            .child(text(words).font(TextStyle::new(size, 400.0).lh(line)).color(muted()))
+            .hover_group()
+            .cursor(rune::Cursor::Pointer)
+            .child(text(words).font(TextStyle::new(size, 400.0).lh(line)).color(muted()).group_color(ink()))
             .child(el().pin(Some(0.0), Some(under), Some(0.0), None).h(1.0).fill(rule()))
             .on_press(move |s: &mut State| {
                 if !s.reading.unfolded.remove(&thread) {
@@ -726,7 +742,7 @@ fn outcome(answer: &Message, plain: bool, m: &Measure, files: &Files) -> Vec<Blo
     if !plain {
         // A thread still in flight says which of the two this is.
         let words = if answer.field == Field::Result { "Result" } else { "Latest checkpoint" };
-        blocks.insert(0, markdown::block(0.0, 7.0, text(words).font(TextStyle::new(12.5, 400.0).lh(20.0)).color(muted())));
+        blocks.insert(0, markdown::block(0.0, 7.0, readable(text(words).font(TextStyle::new(12.5, 400.0).lh(20.0)).color(muted()))));
     }
     blocks
 }
@@ -739,7 +755,7 @@ fn answer_alone(answer: &Message, title: &str, m: &Measure, files: &Files) -> Ve
     let mut blocks = markdown::blocks(rest, m.size, m.column, files);
     if let Some(words) = headline.filter(|h| !same(h, title)) {
         let size = kept(1.05 * m.size);
-        blocks.insert(0, markdown::block(0.0, 10.0, text(words).font(TextStyle::new(size, 600.0).lh(kept(1.45 * size))).color(ink()).wrap()));
+        blocks.insert(0, markdown::block(0.0, 10.0, readable(text(words).font(TextStyle::new(size, 600.0).lh(kept(1.45 * size))).color(ink()).wrap())));
     }
     blocks
 }
@@ -826,8 +842,11 @@ fn pictured_unfolded(s: &State, thread: &str) -> bool {
 /// opens it (`composer`).
 fn reply_box(m: &Measure) -> El {
     let size = (0.78 * m.size).max(14.5);
-    let model = el()
-        .child(label("Opus 5.5", 13.0, 400.0, dim()))
+    // The model opens its menu in the web window, with the pointing hand and the text's own
+    // colour under the pointer (`.ts-model`); here it opens nothing yet, and a press on it is
+    // not a press on the box.
+    let model = crate::feel::answers(el().hover_group().cursor(rune::Cursor::Pointer))
+        .child(label("Opus 5.5", 13.0, 400.0, dim()).group_color(ink()))
         // `underline dotted`, three points under the baseline: a dot every three points, as
         // far as the words reach.
         .child(row().pin(Some(-0.25), Some(16.0), Some(0.0), None).h(1.5).gap(1.5).clip_rounded(0.0).children((0..18).map(|_| el().size(1.5, 1.5).fill(rule()))));
@@ -866,6 +885,10 @@ fn composer(s: &State, item: &Item, m: &Measure) -> El {
         Priority::Low => (row().items_end().gap(1.5).child(el().size(3.0, 4.0).radius(1.0).fill(dim())).child(el().size(3.0, 7.5).radius(1.0).fill(off)).child(el().size(3.0, 11.0).radius(1.0).fill(off)), "Low"),
     };
     let ready = !s.reply.text.trim().is_empty();
+    // Each chip, the paper clip and the caret answer the pointer as the web window's do, which
+    // open a menu or a picker there; here they open nothing yet. Send and its caret are two
+    // controls, as there (`.dock-send`, `.dock-send-later`).
+    let chip = |kids: Vec<El>| crate::feel::answers(home::chip(kids));
     let bar = row()
         .h(57.0)
         .px(16.0)
@@ -873,19 +896,25 @@ fn composer(s: &State, item: &Item, m: &Measure) -> El {
         .items_center()
         .border_sides([1.0, 0.0, 0.0, 0.0], edge())
         .border_layout()
-        .child(home::chip(vec![level.0, label(level.1, 13.0, 400.0, dim())]))
-        .child(home::chip(vec![label("Auto", 13.0, 400.0, dim())]))
-        .child(home::chip(vec![label("Opus 5.5", 13.0, 400.0, dim())]))
+        .child(chip(vec![level.0, label(level.1, 13.0, 400.0, dim()).group_color(ink())]))
+        .child(chip(vec![label("Auto", 13.0, 400.0, dim()).group_color(ink())]))
+        .child(chip(vec![label("Opus 5.5", 13.0, 400.0, dim()).group_color(ink())]))
         .child(spacer())
-        .child(home::attach())
-        .child(home::send_pair(ready).on_press_tx(|s: &mut State, tx| s.send_reply(tx)));
+        .child(crate::feel::answers(home::attach()))
+        .child(row().child(home::send_main(ready).on_press_tx(|s: &mut State, tx| s.send_reply(tx))).child(crate::feel::answers(home::send_caret())));
+    // The words fill the box above the bar, as the web window's text box does: the I-beam over
+    // all of it, and a press anywhere in it puts the caret in the words.
+    let words = el().min_h(92.0).pt(12.0).px(16.0).pb(6.0).cursor(rune::Cursor::Text).on_press_tx(|s: &mut State, tx| {
+        s.reply.focused = true;
+        tx.focus("reply", false);
+    });
     col().w(m.column)
         .radius(10.0)
         .fill(white(0.04))
         .border(1.0, rule())
         .border_layout()
         .box_shadow(shadow(0.0, 10.0, 32.0, 0.0, rgba(0, 0, 0, 0.38), false))
-        .child(el().min_h(92.0).pt(12.0).px(16.0).pb(6.0).child(field.w_full()))
+        .child(words.child(field.w_full()))
         .child(bar)
 }
 
@@ -908,10 +937,10 @@ fn options_strip(choices: &[Choice], on: Option<usize>, m: &Measure) -> El {
             .cursor(rune::Cursor::Pointer)
             .on_press_tx(move |s: &mut State, tx| s.pick_option(at, tx))
             .child(number)
-            .child(pen(text(words).font(TextStyle::new(14.5, 400.0).lh(20.0)).color(tone).wrap().max_lines(2), 14.5));
-        if lit {
-            line = line.fill(white(0.08));
-        }
+            .child(pen(text(words).font(TextStyle::new(14.5, 400.0).lh(20.0)).color(tone).group_color(ink()).wrap().max_lines(2), 14.5));
+        // The lit one keeps its stronger wash under the pointer; any other is washed, its words
+        // the text's own colour (`.opt-row:hover`, which `.opt-row.selected` comes after).
+        line = if lit { line.fill(white(0.08)) } else { line.hover_group().hover(crate::feel::wash()) };
         // Beside the lit one, what Enter does; beside the agent's own pick, that it is.
         let aside = if lit { Some("↵ send") } else if c.recommended { Some("recommended") } else { None };
         match aside {
@@ -921,8 +950,9 @@ fn options_strip(choices: &[Choice], on: Option<usize>, m: &Measure) -> El {
     });
     el().w(m.column)
         .child(col().w(m.column).radius(10.0).clip_rounded(10.0).border(1.0, edge()).border_layout().children(rows))
-        // The caret that folds the choices away, drawn and not yet pressed.
-        .child(row().pin(None, Some(6.0), Some(8.0), None).size(24.0, 24.0).radius(6.0).center().child(icon(&icons::DOWN, 14.0).color(muted())))
+        // The caret that folds the choices away, drawn and not yet pressed: washed under the
+        // pointer, its mark the text's own colour (`.one-choices-fold:hover`).
+        .child(crate::feel::answers(row().pin(None, Some(6.0), Some(8.0), None).size(24.0, 24.0).radius(6.0).center().hover_group().hover(crate::feel::wash()).cursor(rune::Cursor::Pointer).child(icon(&icons::DOWN, 14.0).color(muted()).group_color(ink()))))
 }
 
 /// The dock at the conversation's foot (`.focus-dock`): the choices the agent's newest answer
@@ -963,7 +993,7 @@ pub fn view(s: &State, id: &str, product: &str) -> El {
     // What the files this conversation names are read against: its project's own folders.
     let files = Files::of(s, item);
 
-    let mut summary = col().child(text(title.as_str()).font(TextStyle::new(1.7 * m.size, 500.0).lh(2.125 * m.size).tracking(-0.0255 * m.size)).color(ink()).wrap());
+    let mut summary = col().child(readable(text(title.as_str()).font(TextStyle::new(1.7 * m.size, 500.0).lh(2.125 * m.size).tracking(-0.0255 * m.size)).color(ink()).wrap()));
     if let Some(words) = &page.toggle {
         summary = summary.child(toggle(words, thread.clone(), &m).mt(8.0));
     }
