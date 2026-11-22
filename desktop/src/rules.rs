@@ -26,6 +26,7 @@ pub mod status;
 pub mod title;
 pub mod waits;
 pub mod window;
+pub mod writes;
 
 use std::collections::{HashMap, HashSet};
 

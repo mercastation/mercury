@@ -9,11 +9,13 @@
 use std::collections::HashSet;
 
 use rune::time::LocalTime;
-use rune::{El, Icon, ScrollSpec, TextCase, TextStyle, col, el, icon, row, spacer, text};
+use rune::{El, Icon, ScrollSpec, TextCase, TextStyle, col, el, icon, row, spacer, text, text_input};
 use serde_json::{Value, json};
 
-use crate::data::Item;
+use crate::data::{Item, Priority};
+use crate::home;
 use crate::markdown::{self, Block};
+use crate::rules::format::{self, Choice};
 use crate::rules::place;
 use crate::talk::{self, Answers, Field, Line, Message, Said, Step, Talk};
 use crate::theme::*;
@@ -102,7 +104,11 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
     let title = item(s, id, product).map(name).unwrap_or_default();
     let finished = item(s, id, product).is_some_and(|i| i.status == "done");
     let close = row().h(30.0).items_center().gap(7.0).pl(9.0).pr(12.0).radius(6.0).border(1.0, edge()).border_layout();
-    let close = if finished { close.child(label("Reopen", 13.0, 400.0, dim())) } else { close.child(icon(&icons::DONE, 16.0).color(dim())).child(label("Done", 13.0, 400.0, dim())) };
+    let close = if finished {
+        close.child(label("Reopen", 13.0, 400.0, dim())).on_press(|s: &mut State| s.reopen_thread())
+    } else {
+        close.child(icon(&icons::DONE, 16.0).color(dim())).child(label("Done", 13.0, 400.0, dim())).on_press(|s: &mut State| s.close_thread(false))
+    };
     // Where the thread runs, for one the cloud could take (`PlaceButton.tsx`): a cloud or a Mac,
     // faded while the whole cloud is off, dotted when it was handed back for something.
     let place = item(s, id, product).and_then(|i| place::thread_place(&s.snap, i).map(|p| place::mark(&s.snap, i, p))).map(|m| {
@@ -354,6 +360,103 @@ fn reply_box(m: &Measure) -> El {
         .child(key.mr(14.0))
 }
 
+/// The reply box opened (`.dock-card`): the words, then who takes them and Send. The words
+/// are the person's to type; the three chips are drawn, not yet chosen.
+fn composer(s: &State, item: &Item, m: &Measure) -> El {
+    let field = text_input(&s.reply, TextStyle::new(15.5, 400.0).lh(kept(24.025)))
+        .key("reply")
+        .color(ink())
+        .placeholder("What should the agent do next?", muted())
+        .caret(ink(), rgba(110, 165, 255, 0.3))
+        .on_edit(|s: &mut State| &mut s.reply)
+        // Return is a new line here, as in the web window's box; ⌘Return sends.
+        .on_submit(|s: &mut State, _| s.reply.insert("\n"))
+        .on_input_key(crate::keys::in_the_reply);
+    // The thread's own level, as the Inbox marks it, with its word.
+    let off = rule();
+    let level = match Priority::of(item.priority) {
+        Priority::Urgent => (bars(&[4.0, 7.0, 10.0, 13.0], ink()), "Urgent"),
+        Priority::High => (bars(&[4.0, 7.5, 11.0], ink()), "High"),
+        Priority::Medium => (row().items_end().gap(1.5).child(el().size(3.0, 4.0).radius(1.0).fill(dim())).child(el().size(3.0, 7.5).radius(1.0).fill(dim())).child(el().size(3.0, 11.0).radius(1.0).fill(off)), "Medium"),
+        Priority::Low => (row().items_end().gap(1.5).child(el().size(3.0, 4.0).radius(1.0).fill(dim())).child(el().size(3.0, 7.5).radius(1.0).fill(off)).child(el().size(3.0, 11.0).radius(1.0).fill(off)), "Low"),
+    };
+    let ready = !s.reply.text.trim().is_empty();
+    let bar = row()
+        .h(57.0)
+        .px(16.0)
+        .gap(8.0)
+        .items_center()
+        .border_sides([1.0, 0.0, 0.0, 0.0], edge())
+        .border_layout()
+        .child(home::chip(vec![level.0, label(level.1, 13.0, 400.0, dim())]))
+        .child(home::chip(vec![label("Auto", 13.0, 400.0, dim())]))
+        .child(home::chip(vec![label("Opus 5.5", 13.0, 400.0, dim())]))
+        .child(spacer())
+        .child(home::attach())
+        .child(home::send_pair(ready).on_press_tx(|s: &mut State, tx| s.send_reply(tx)));
+    col().w(m.column)
+        .radius(10.0)
+        .fill(white(0.04))
+        .border(1.0, rule())
+        .border_layout()
+        .box_shadow(shadow(0.0, 10.0, 32.0, 0.0, rgba(0, 0, 0, 0.38), false))
+        .child(el().min_h(92.0).pt(12.0).px(16.0).pb(6.0).child(field.w_full()))
+        .child(bar)
+}
+
+/// The agent's choices over the reply box (`.opt-strip`): each with its number, the one the
+/// arrows are on lit, and what Enter would do said beside it.
+fn options_strip(choices: &[Choice], on: Option<usize>, m: &Measure) -> El {
+    let count = choices.len();
+    let rows = choices.iter().enumerate().map(|(at, c)| {
+        let lit = on == Some(at);
+        let tone = if lit { ink() } else { dim() };
+        let number = row().size(20.0, 20.0).radius(6.0).center().border(1.0, if lit { muted() } else { rule() }).child(text(format!("{}", c.n)).font(mono(11.0, 11.0)).color(tone));
+        let words = format::without_recommended(&c.text);
+        let mut line = row()
+            .key(format!("option-{at}"))
+            .pt(if at == 0 { 7.0 } else { 3.0 })
+            .pb(if at + 1 == count { 7.0 } else { 3.0 })
+            .pl(14.0)
+            .pr(44.0)
+            .gap(10.0)
+            .cursor(rune::Cursor::Pointer)
+            .on_press_tx(move |s: &mut State, tx| s.pick_option(at, tx))
+            .child(number)
+            .child(pen(text(words).font(TextStyle::new(14.5, 400.0).lh(20.0)).color(tone).wrap().max_lines(2), 14.5));
+        if lit {
+            line = line.fill(white(0.08));
+        }
+        // Beside the lit one, what Enter does; beside the agent's own pick, that it is.
+        let aside = if lit { Some("↵ send") } else if c.recommended { Some("recommended") } else { None };
+        match aside {
+            Some(said) => line.child(el().pl(8.0).mt(1.0).child(pen(text(said).font(TextStyle::new(11.5, 400.0).lh(20.0)).color(muted()), 11.5))),
+            None => line,
+        }
+    });
+    el().w(m.column)
+        .child(col().w(m.column).radius(10.0).clip_rounded(10.0).border(1.0, edge()).border_layout().children(rows))
+        // The caret that folds the choices away, drawn and not yet pressed.
+        .child(row().pin(None, Some(6.0), Some(8.0), None).size(24.0, 24.0).radius(6.0).center().child(icon(&icons::DOWN, 14.0).color(muted())))
+}
+
+/// The dock at the conversation's foot (`.focus-dock`): the choices the agent's newest answer
+/// still offers, over the reply box, folded to one line or open.
+fn dock(s: &State, item: &Item, m: &Measure) -> El {
+    let mut inner = col().w(m.column);
+    let choices = live_options(item);
+    if !choices.is_empty() {
+        inner = inner.child(options_strip(&choices, s.option, m).mb(10.0));
+    }
+    inner = inner.child(if s.replying { composer(s, item, m) } else { reply_box(m).cursor(rune::Cursor::Text).on_press_tx(|s: &mut State, tx| s.open_reply(tx)) });
+    el().pl(m.indent).pr(32.0).pb(24.0).child(inner)
+}
+
+/// The choices a thread offers now, while the offer still stands (`liveOption` in `renderer/src/format.ts`).
+pub fn live_options(item: &Item) -> Vec<Choice> {
+    if format::offer_is_live(item) { format::item_options(item) } else { Vec::new() }
+}
+
 pub fn view(s: &State, id: &str, product: &str) -> El {
     let (page_w, page_h) = s.page_size();
     let m = Measure::of(page_w);
@@ -409,5 +512,5 @@ pub fn view(s: &State, id: &str, product: &str) -> El {
         .min_h(0.0)
         .scroll(ScrollSpec { stick_bottom: unfolded })
         .child(el().pt(28.0).pl(m.indent).pr(32.0).pb(40.0 + under + whole).child(body.key("thread-said").w(m.column).selection_group(true)));
-    col().w(page_w).h(page_h).child(reading).child(el().pl(m.indent).pr(32.0).pb(24.0).child(reply_box(&m)))
+    col().w(page_w).h(page_h).child(reading).child(dock(s, item, &m))
 }

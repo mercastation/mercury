@@ -2,8 +2,9 @@
 //! handler in `renderer/src/App.tsx` and Home's in `renderer/src/home/HomePage.tsx`.
 //!
 //! J and K (or the arrows) walk a list and Enter opens the row they are on; Tab turns the
-//! Inbox's tabs; inside a conversation Escape goes back and J and K go on to the next thread
-//! or back to the one before, leaving the arrows to the page.
+//! Inbox's tabs. Inside a conversation Escape goes back, J and K go on to the next thread or
+//! back to the one before, the arrows walk the agent's options and Enter or a number sends
+//! one, R opens the reply box and E marks the thread done.
 
 use rune::edit::Key;
 use rune::{KeyEvent, Tx};
@@ -26,8 +27,21 @@ fn next_tab(s: &State, back: bool) -> crate::data::Tab {
     shown[(at + if back { shown.len() - 1 } else { 1 }) % shown.len()]
 }
 
+/// The keys the reply box does not keep for typing: ⌘Return sends, Escape folds the box.
+pub fn in_the_reply(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
+    if e.key == Key::Enter && e.mods.cmd {
+        s.send_reply(tx);
+        return true;
+    }
+    if e.key == Key::Escape {
+        s.fold_reply();
+        return true;
+    }
+    false
+}
+
 /// True when the key was this window's. A chord is the system's, never one of these.
-pub fn pressed(s: &mut State, e: &KeyEvent, _: &mut Tx) -> bool {
+pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
     if e.mods.cmd || e.mods.ctrl || e.mods.alt {
         return false;
     }
@@ -86,8 +100,45 @@ pub fn pressed(s: &mut State, e: &KeyEvent, _: &mut Tx) -> bool {
             false
         }
         View::Thread { id, product } => {
+            // Escape is one step back: the open reply box first, then the conversation.
             if e.key == Key::Escape {
-                s.leave_thread();
+                if s.replying { s.fold_reply() } else { s.leave_thread() }
+                return true;
+            }
+            // The arrows walk the agent's options, Enter sends the one they are on, and a
+            // number sends that option outright.
+            let choices = s.open_item().map(crate::thread::live_options).unwrap_or_default();
+            if !choices.is_empty() && (e.key == Key::Down || e.key == Key::Up) {
+                s.option = match (s.option, e.key == Key::Down) {
+                    (None, true) => Some(0),
+                    (Some(at), true) => Some((at + 1).min(choices.len() - 1)),
+                    // Above the first is no option at all.
+                    (Some(at), false) if at > 0 => Some(at - 1),
+                    (_, false) => None,
+                };
+                return true;
+            }
+            if e.key == Key::Enter {
+                let Some(at) = s.option else {
+                    return false;
+                };
+                s.pick_option(at, tx);
+                return true;
+            }
+            if let Some(n) = letter.parse::<f64>().ok().filter(|n| *n >= 1.0) {
+                if let Some(at) = choices.iter().position(|c| c.n == n) {
+                    s.pick_option(at, tx);
+                }
+                // Swallowed either way: a pick can open the box, and the key would type itself.
+                return true;
+            }
+            if letter == "r" {
+                s.open_reply(tx);
+                return true;
+            }
+            // E closes, and never anything else.
+            if letter == "e" {
+                s.close_thread(false);
                 return true;
             }
             // J and K walk the threads that need the person from inside one, as the strip's

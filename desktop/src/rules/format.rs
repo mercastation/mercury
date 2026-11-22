@@ -138,6 +138,14 @@ re!(LEADING_MARKS, r"^[*_\s]+", "");
 // ship this", "Merge it". Leading words only.
 re!(SHIPS, r"^(?:(?:yes|no|not now|not yet|ok(?:ay)?)\s*[,:;\p{Pd}]?\s+)?(?:just\s+)?(?:ship\b|merge (?:it|this)\b|let (?:it|this|them|the\b[^,.;:]*?)\s+(?:ship|land)\b)", "iu");
 
+re!(RECOMMENDED_AT_THE_END, r"\s*\(recommended\)\s*$", "i");
+
+/// An option as it is drawn and as it goes into the reply box: without the agent's mark of its
+/// own pick, which is said beside it.
+pub fn without_recommended(option: &str) -> String {
+    js::trim(&RECOMMENDED_AT_THE_END.strip(option)).to_string()
+}
+
 fn bare_option(option: &str) -> String {
     CLOSING_STOPS.strip(js::trim(&RECOMMENDED_WORDS.strip(option)))
 }

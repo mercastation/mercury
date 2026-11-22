@@ -25,13 +25,15 @@ mod source;
 mod talk;
 mod theme;
 mod thread;
+mod write;
 
 use std::collections::HashMap;
 
-use rune::{App, AppSpec, Cx, El, FontSmoothing, Latest, Pixels, ScrollSpec, Tx, Waker, el};
+use rune::{App, AppSpec, Cx, El, FontSmoothing, Latest, Pixels, ScrollSpec, TextEdit, Tx, Waker, el};
 use serde_json::{Map, Value};
 
 use data::{Lists, Local, Snapshot, Tab};
+use rules::writes;
 use source::{Mailbox, Source};
 
 /// Which screen the card is showing.
@@ -77,6 +79,14 @@ pub struct State {
     /// The threads opened in this window and when, until the web window's own record of what
     /// has been read says the same (`saw`).
     opened: HashMap<String, f64>,
+    /// The open conversation's reply box: open, or folded to its one line.
+    pub replying: bool,
+    /// What is written in it. Words written in one conversation wait in `drafts` while
+    /// another is open.
+    pub reply: TextEdit,
+    drafts: HashMap<String, String>,
+    /// Which of the open conversation's options the arrows are on, by its place in the list.
+    pub option: Option<usize>,
     /// What the person has unfolded in the conversations they opened.
     pub reading: thread::Reading,
     /// What the engine answered about each conversation opened so far, by `product/id` and
@@ -90,18 +100,172 @@ pub struct State {
     mailbox: Mailbox,
     /// Why the engine could not be read, when it could not.
     pub error: Option<String>,
+    /// What this window is sending the engine, and what came back.
+    outbox: write::Outbox,
+    /// One line about something sent that the engine did not take, until the next thing is done.
+    pub refused: Option<String>,
 }
 
 impl State {
     pub fn go(&mut self, to: View) {
         if self.view != to {
+            self.put_the_reply_away();
             self.history.push(std::mem::replace(&mut self.view, to));
+            self.take_the_reply_out();
         }
     }
     pub fn back(&mut self) {
         if let Some(prev) = self.history.pop() {
+            self.put_the_reply_away();
             self.view = prev;
+            self.take_the_reply_out();
         }
+    }
+    /// The open conversation's row, as the engine last told it.
+    pub fn open_item(&self) -> Option<&data::Item> {
+        let View::Thread { id, product } = &self.view else {
+            return None;
+        };
+        self.snap.items.iter().find(|i| &i.id == id && &i.product == product)
+    }
+    /// Leaving a conversation folds its reply box and drops the arrow off its options. Words
+    /// written in the box wait for the next visit.
+    fn put_the_reply_away(&mut self) {
+        if let View::Thread { id, product } = &self.view {
+            let key = format!("{product}/{id}");
+            if self.reply.text.trim().is_empty() {
+                self.drafts.remove(&key);
+            } else {
+                self.drafts.insert(key, self.reply.text.clone());
+            }
+        }
+        self.replying = false;
+        self.reply = TextEdit::new("");
+        self.option = None;
+        self.refused = None;
+    }
+    fn take_the_reply_out(&mut self) {
+        if let View::Thread { id, product } = &self.view {
+            if let Some(words) = self.drafts.get(&format!("{product}/{id}")) {
+                self.reply = TextEdit::new(words.clone());
+            }
+        }
+    }
+    /// Opens the reply box with the caret in it (R, or a press on the box).
+    pub fn open_reply(&mut self, tx: &mut Tx) {
+        if self.open_item().is_none() {
+            return;
+        }
+        self.replying = true;
+        self.option = None;
+        self.reply.focused = true;
+        tx.focus_when_shown("reply", false);
+    }
+    /// Folds the reply box back to its one line, keeping what was written.
+    pub fn fold_reply(&mut self) {
+        self.replying = false;
+        self.reply.focused = false;
+    }
+    /// One write to the engine. A fixture has nobody to send to, and says nothing of it.
+    fn send(&mut self, channel: &'static str, payload: Value, sent: write::Sent) -> bool {
+        self.refused = None;
+        let Source::Door(door) = &self.source else {
+            return false;
+        };
+        if self.outbox.send(door, channel, payload, sent) {
+            return true;
+        }
+        self.refused = Some("Mercury is not running, so this was not sent.".to_string());
+        false
+    }
+    /// Sends what is in the reply box to the thread's agent (Send, or ⌘Return).
+    pub fn send_reply(&mut self, _: &mut Tx) {
+        let words = self.reply.text.trim().to_string();
+        let Some(item) = self.open_item().cloned() else {
+            return;
+        };
+        if words.is_empty() {
+            return;
+        }
+        let thread = format!("{}/{}", item.product, item.id);
+        if self.send(writes::ANSWER, writes::reply(&item, &words), write::Sent::Reply { thread: thread.clone(), words }) {
+            // The box empties and folds at once; a refusal puts the words back (`poll`).
+            self.drafts.remove(&thread);
+            self.reply = TextEdit::new("");
+            self.replying = false;
+        }
+    }
+    /// Picks one of the options the open thread offers, by its place in the list: most are sent
+    /// as a reply, and a few close the thread or open the box instead (`rules/writes.rs`).
+    pub fn pick_option(&mut self, at: usize, tx: &mut Tx) {
+        let Some(item) = self.open_item().cloned() else {
+            return;
+        };
+        let Some(choice) = thread::live_options(&item).into_iter().nth(at) else {
+            return;
+        };
+        let thread = format!("{}/{}", item.product, item.id);
+        self.option = None;
+        match writes::pick(&choice) {
+            writes::Pick::Reply(words) => {
+                self.send(writes::ANSWER, writes::reply(&item, &words), write::Sent::Pick { thread });
+            }
+            writes::Pick::Close => self.close_thread(false),
+            writes::Pick::CloseUnshipped => self.close_thread(true),
+            // The web window asks before throwing work away. This window has no such question
+            // yet, so it sends nothing rather than discard on one key.
+            writes::Pick::AsksFirst => self.refused = Some("Throwing the work away asks first. Pick it in Mercury's own window.".to_string()),
+            writes::Pick::NeedsWords(words) => {
+                if self.reply.text.trim().is_empty() {
+                    self.reply = TextEdit::new(words);
+                }
+                self.open_reply(tx);
+            }
+        }
+    }
+    /// Marks the open thread done (E, or the button) and goes back to the list. The engine
+    /// refuses a close that would strand work off main unless `unshipped` says it is meant.
+    pub fn close_thread(&mut self, unshipped: bool) {
+        let Some(item) = self.open_item().cloned() else {
+            return;
+        };
+        if item.status == "done" {
+            return;
+        }
+        let thread = format!("{}/{}", item.product, item.id);
+        if self.send(writes::ANSWER, writes::close(&item, unshipped), write::Sent::Close { thread }) {
+            self.leave_thread();
+        }
+    }
+    /// Opens a finished thread again (the Reopen button).
+    pub fn reopen_thread(&mut self) {
+        let Some(item) = self.open_item().cloned() else {
+            return;
+        };
+        let thread = format!("{}/{}", item.product, item.id);
+        self.send(writes::REOPEN, writes::reopen(&item), write::Sent::Reopen { thread });
+    }
+    /// What the engine said to something sent. A refusal is said in one line, and refused
+    /// words go back where the person can send them again.
+    fn landed(&mut self, landed: write::Landed) {
+        let Some(why) = landed.refusal() else {
+            return;
+        };
+        if let write::Sent::Reply { thread, words } = &landed.sent {
+            let here = matches!(&self.view, View::Thread { id, product } if &format!("{product}/{id}") == thread);
+            if here && self.reply.text.trim().is_empty() {
+                self.reply = TextEdit::new(words.clone());
+                self.replying = true;
+            } else {
+                self.drafts.entry(thread.clone()).or_insert_with(|| words.clone());
+            }
+        }
+        self.refused = Some(match landed.sent {
+            write::Sent::Reply { .. } => format!("Could not send: {why} Your message is back in the reply box."),
+            write::Sent::Pick { .. } => format!("Could not send that option: {why}"),
+            write::Sent::Close { .. } => format!("Could not mark it done: {why}"),
+            write::Sent::Reopen { .. } => format!("Could not reopen it: {why}"),
+        });
     }
     /// Out of a conversation: to where the person came from, and one opened from nowhere came
     /// from the Inbox.
@@ -121,7 +285,9 @@ impl State {
     /// From one conversation straight to another: Escape still goes back to where the first
     /// was opened from, not through every thread walked on the way.
     pub fn step_to_thread(&mut self, id: &str, product: &str) {
+        self.put_the_reply_away();
         self.view = View::Thread { id: id.to_string(), product: product.to_string() };
+        self.take_the_reply_out();
         self.saw(id, product);
     }
     /// Counts a thread as read from now. Only the web window keeps what has been read, in its
@@ -245,6 +411,10 @@ fn init() -> State {
         picked: 0,
         home_pick: None,
         opened: HashMap::new(),
+        replying: false,
+        reply: TextEdit::new(""),
+        drafts: HashMap::new(),
+        option: None,
         reading: thread::Reading::default(),
         threads: HashMap::new(),
         asking: Latest::default(),
@@ -253,6 +423,8 @@ fn init() -> State {
         source,
         mailbox: Mailbox::default(),
         error: None,
+        outbox: write::Outbox::default(),
+        refused: None,
     };
     // The first skies and a fixture are in place before the first frame, so a picture is whole.
     let first = paint_skies(s.card_size());
@@ -301,6 +473,14 @@ fn init() -> State {
         if let Some(r) = row {
             s.view = View::Thread { id: r.id.clone(), product: r.product.clone() };
         }
+        // A picture taken with the reply box open, or with the arrow on an option, says so in
+        // its fixture (`replying` is what was typed, `option` the option's number).
+        if let Some(words) = s.fixture.get("replying").and_then(Value::as_str) {
+            s.reply = TextEdit::new(words);
+            s.reply.focused = true;
+            s.replying = true;
+        }
+        s.option = s.fixture.get("option").and_then(Value::as_u64).and_then(|n| (n as usize).checked_sub(1));
     }
     s
 }
@@ -308,6 +488,7 @@ fn init() -> State {
 fn setup(s: &mut State, wake: Waker) {
     s.painting.set_waker(wake.clone());
     s.asking.set_waker(wake.clone());
+    s.outbox.wake_with(wake.clone());
     if let Source::Door(door) = s.source.clone() {
         source::follow_door(door, s.mailbox.clone(), move || wake());
     }
@@ -350,6 +531,10 @@ fn poll(s: &mut State, _clock: f64, tx: &mut Tx) -> bool {
         s.refresh();
         // A list that lost rows keeps a row under the keys.
         s.picked = s.picked.min(s.rows_under_the_keys().saturating_sub(1));
+    }
+    for landed in s.outbox.landed() {
+        s.landed(landed);
+        changed = true;
     }
     if let Some((key, answer)) = s.asking.take() {
         match answer {

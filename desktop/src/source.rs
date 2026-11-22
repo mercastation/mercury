@@ -40,18 +40,25 @@ pub enum Source {
 pub struct Door {
     at: Arc<Mutex<Option<(String, String)>>>,
     note: Option<String>,
+    /// Set by whoever just wrote through the door: the follower reads again at once.
+    soon: Arc<AtomicBool>,
 }
 
 impl Door {
     /// A door named on the command line: it is where it is.
     fn fixed(url: String, token: String) -> Door {
-        Door { at: Arc::new(Mutex::new(Some((url, token)))), note: None }
+        Door { at: Arc::new(Mutex::new(Some((url, token)))), note: None, soon: Arc::default() }
     }
     /// A door a running app leaves a note about: `{ "port": 49216, "token": "…" }`.
     fn noted(path: String) -> Door {
-        let door = Door { at: Arc::default(), note: Some(path) };
+        let door = Door { at: Arc::default(), note: Some(path), soon: Arc::default() };
         door.look_again();
         door
+    }
+    /// Asks the follower to read the engine again now, not at its next turn: something this
+    /// window wrote has changed what the lists say.
+    pub fn ask_soon(&self) {
+        self.soon.store(true, Ordering::Relaxed);
     }
     /// The address and the key to ask with now, when there is a door at all.
     pub fn now(&self) -> Option<(String, String)> {
@@ -200,7 +207,8 @@ pub fn follow_door(door: Door, mailbox: Mailbox, wake: impl Fn() + Send + 'stati
         loop {
             // Pushes come in bursts while an agent works; a short pause lets one read cover them.
             std::thread::sleep(Duration::from_millis(200));
-            if !told.swap(false, Ordering::Relaxed) && asked.elapsed() < ASK_EVERY {
+            let asked_for = door.soon.swap(false, Ordering::Relaxed);
+            if !told.swap(false, Ordering::Relaxed) && !asked_for && asked.elapsed() < ASK_EVERY {
                 continue;
             }
             asked = Instant::now();

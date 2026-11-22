@@ -153,9 +153,11 @@ pub fn rail(s: &State) -> El {
 /// One quiet line at the card's foot when the engine cannot be read, so an empty inbox is never
 /// mistaken for a finished one.
 pub fn notice(s: &State) -> Option<El> {
-    let said = match (&s.source, &s.error) {
-        (crate::source::Source::Nothing, _) => "Mercury is not running, so there is nothing to show yet.",
-        (_, Some(_)) => "Mercury is not answering. This will catch up by itself when it does.",
+    // Something just sent that was not taken comes first: it is about what the person did.
+    let said = match (&s.refused, &s.source, &s.error) {
+        (Some(why), _, _) => why.as_str(),
+        (_, crate::source::Source::Nothing, _) => "Mercury is not running, so there is nothing to show yet.",
+        (_, _, Some(_)) => "Mercury is not answering. This will catch up by itself when it does.",
         _ => return None,
     };
     Some(
