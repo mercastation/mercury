@@ -1333,8 +1333,8 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
 - **The rail has only what works here**: Search, Home, the Inbox, Restart to update while a new
   version waits, Settings, the usage row and the person's own row. The web window's also has
   Demands, Chats (with teammates), Connections, Files, Record meeting and Feedback. Drawn here
-  they were buttons that went nowhere, and the owner, who does not use them, asked for them gone
-  on first using this window (2026-11-22). Settings and the person's row bring the web window
+  they were buttons that went nowhere, so they are left out until this window has their pages.
+  Settings and the person's row bring the web window
   forward on its Settings, as there is no Settings page here; the usage row only reads, where the
   web window's opens the limits under it.
 - **The command bar offers only what this window can do.**

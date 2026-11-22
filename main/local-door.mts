@@ -142,11 +142,10 @@ export interface LocalDoorOptions {
 }
 
 // THE SETTINGS ARE STILL THE WEB WINDOW'S. The native window has no Settings page
-// yet, and its rail's Settings button was a button that went nowhere: "there is
-// no settings page", the owner said on first using it (2026-11-22). So this door
-// has a channel that does what the tray's "Turn off in Settings…" does
-// (main/corner-tag.mts): bring this app's window forward on its Settings. It
-// takes nothing from the caller, so it can open Settings and nothing else.
+// yet, and a Settings button there that went nowhere left no way to reach them
+// from it. So this door has a channel that does what the tray's "Turn off in
+// Settings…" does (main/corner-tag.mts): bring this app's window forward on its
+// Settings. It takes nothing from the caller, so it can open Settings and nothing else.
 export const OPEN_SETTINGS = 'zero:open-settings-here';
 
 /**

@@ -230,10 +230,9 @@ fn my_face(letters: &str) -> El {
 /// word and Inbox with its count (`Rail`). `still`: the system asks for reduced motion.
 ///
 /// ONLY WHAT WORKS HERE. The web window's rail also has Demands, Chats, Connections, Files,
-/// Record meeting and Feedback. Drawn here they were buttons that went nowhere, for things the
-/// owner does not use, and on first using this window they asked for them gone (2026-11-22). A
-/// page this window does not have and the person needs is the app's: Settings, for now, brings
-/// the app's own window forward on them.
+/// Record meeting and Feedback. Drawn here they were buttons that went nowhere, which is worse
+/// than no button, so they are left out until this window has their pages. Settings, which it
+/// has no page for either, brings the app's own window forward on them.
 pub fn rail(s: &State, still: bool) -> El {
     let now = s.at;
     let (wide, words, line, dot) = (s.rail.width(now), s.rail.words.at(now), s.rail.line.at(now), s.rail.dot.at(now));
