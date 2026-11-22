@@ -296,6 +296,11 @@ impl Pictures {
         *self.scale.lock().unwrap() = scale;
     }
 
+    /// Device pixels to a point, as last set.
+    pub fn scale(&self) -> f32 {
+        *self.scale.lock().unwrap()
+    }
+
     /// Points as device pixels.
     pub fn pixels(&self, points: f32) -> u32 {
         (points * *self.scale.lock().unwrap()).round().max(1.0) as u32

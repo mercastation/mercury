@@ -8,7 +8,6 @@
 //! came back…), each read off the supervisor's own lists. Only the working one is drawn here.
 
 use serde::Deserialize;
-use serde_json::Value;
 
 use super::js::{self, re};
 
@@ -41,13 +40,6 @@ pub struct Session {
     /// `cloud` while the run is in a cloud sandbox.
     #[serde(rename = "where")]
     pub place: Option<String>,
-}
-
-impl Session {
-    /// The run on a thread, off the snapshot's running list.
-    pub fn of(running: &[Value], id: &str, product: &str) -> Option<Session> {
-        running.iter().filter_map(|r| serde_json::from_value::<Session>(r.clone()).ok()).find(|s| s.item_id == id && s.product == product)
-    }
 }
 
 /// How long a run has been up, never a seconds counter (`shortSpan`): under a minute it is
@@ -206,9 +198,8 @@ mod tests {
 
     #[test]
     fn a_running_session_is_read_off_the_snapshot() {
-        let running = vec![serde_json::json!({ "itemId": "w-1", "product": "p", "startedAt": 5.0, "where": "cloud", "activity": [{ "id": "a", "label": "Reading", "detail": "x", "startedAt": 4.0 }], "tail": [] })];
-        let s = Session::of(&running, "w-1", "p").unwrap();
+        let run = serde_json::json!({ "itemId": "w-1", "product": "p", "startedAt": 5.0, "where": "cloud", "activity": [{ "id": "a", "label": "Reading", "detail": "x", "startedAt": 4.0 }], "tail": [] });
+        let s: Session = serde_json::from_value(run).unwrap();
         assert_eq!((s.started_at, s.place.as_deref(), s.activity.len()), (5.0, Some("cloud"), 1));
-        assert_eq!(Session::of(&running, "w-2", "p"), None);
     }
 }

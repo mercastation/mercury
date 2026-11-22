@@ -172,3 +172,16 @@ stroked!(MENTION_IMAGE, "m-mention-image", "1.6", r#"<rect x="3" y="4" width="18
 stroked!(MENTION_CODE, "m-mention-code", "1.6", r#"<path d="m8 8-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14"/>"#);
 stroked!(MENTION_MEDIA, "m-mention-media", "1.6", r#"<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m10 9.5 4.5 2.5-4.5 2.5z"/>"#);
 stroked!(MENTION_FILE, "m-mention-file", "1.6", r#"<path d="M14 3H7.5A2.5 2.5 0 0 0 5 5.5v13A2.5 2.5 0 0 0 7.5 21h9a2.5 2.5 0 0 0 2.5-2.5V8z"/><path d="M14 3v5h5"/>"#);
+
+// The mark on a line of what a run did that opens (`chevron` in `Thread.tsx`), and the same
+// mark turned a quarter for open, which the web window does with `rotate(90deg)`.
+pub static WORK_MARK: Icon = Icon {
+    name: "m-work-mark",
+    view: 8.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2.6 1.2 L5.6 4 L2.6 6.8"/></g>"#,
+};
+pub static WORK_MARK_OPEN: Icon = Icon {
+    name: "m-work-mark-open",
+    view: 8.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M6.8 2.6 L4 5.6 L1.2 2.6"/></g>"#,
+};

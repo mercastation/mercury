@@ -785,7 +785,9 @@ fn init() -> State {
     }
     // `--thread` opens the first thread that needs the person, for a picture of it; `--thread <id>` that one.
     if let Some(at) = args.iter().position(|a| a == "--thread") {
-        let wanted = args.get(at + 1).filter(|a| !a.starts_with("--"));
+        // Or the one its fixture says was open, for a picture of a thread elsewhere than first in Needs you.
+        let pictured = s.fixture.get("thread").and_then(Value::as_str).map(str::to_string);
+        let wanted = args.get(at + 1).filter(|a| !a.starts_with("--")).or(pictured.as_ref());
         let row = match wanted {
             Some(id) => s.lists.needs.iter().chain(&s.lists.progress).chain(&s.lists.later).chain(&s.lists.done).find(|r| &r.id == id),
             None => s.lists.needs.first(),

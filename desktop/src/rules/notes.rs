@@ -8,9 +8,12 @@
 //! its notes say little.
 //!
 //! The web window reads a thread's runs through this (`withRuns` in `thread-history.ts` keeps
-//! each run's whole log as `raw`), and draws them through `trace.rs` and `work.rs`. The one-line
-//! summaries here (`closed_line`, `tally_line`) and the live step (`live_step`) are drawn by no
-//! screen of the web window today; they are kept, with their tests, as the web keeps them.
+//! each run's whole log as `raw`), and draws them through `trace.rs` and `work.rs`, which take
+//! the date a line's clock is on from here (`moment_of`). The diary itself, its one-line
+//! summaries (`closed_line`, `tally_line`) and the live step (`live_step`) are drawn by no
+//! screen of the web window today; they are kept, with their tests, as the web keeps them, for
+//! the screen that draws them.
+#![allow(dead_code)]
 
 use std::collections::HashSet;
 

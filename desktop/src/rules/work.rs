@@ -154,11 +154,6 @@ pub fn is_bookkeeping(name: &str) -> bool {
     matches!(tool, "claim_work_item" | "release_work_item" | "update_work_item" | "list_work_items" | "list_documents" | "list_products" | "list_skills" | "list_chats" | "get_product")
 }
 
-/// The path a tool call changed, whole, or nothing when it changed none (`changedFile`).
-pub fn changed_file(name: &str, file_path: &str) -> String {
-    if matches!(name, "Edit" | "Write" | "MultiEdit" | "NotebookEdit") { js::trim(file_path).to_string() } else { String::new() }
-}
-
 /* ------------------------------ a shell command in words ------------------------------ */
 
 /// What a command did, in words (`CommandWork`).
@@ -641,9 +636,6 @@ pub fn conversation_gap(omitted: usize) -> String {
     }
 }
 
-/// The steps a live line lists (`LIVE_STEPS_SHOWN`).
-pub const LIVE_STEPS_SHOWN: usize = 5;
-
 // A model writing a tool call sometimes leaves the call's closing tags in a field as plain
 // text, and everything from the first one on is cut (`LEAKED`). Written in two halves here so
 // the source never holds the tag itself.
@@ -683,27 +675,6 @@ pub fn unleaked(text: &str) -> String {
     }
 }
 
-/// The steps a live run took since it last said something, with the ones still running taken
-/// out (`previousActivity`): a finished step whose words are a running one's is that one.
-pub fn previous_activity<T>(history: Vec<T>, running: &[(String, Option<f64>)], words: impl Fn(&T) -> (String, Option<f64>)) -> Vec<T> {
-    let mut previous = history;
-    let normal = |s: &str| js::trim(&SPACES.replace_all(s, |_| " ".to_string())).to_string();
-    for (detail, started_at) in running {
-        for at in (0..previous.len()).rev() {
-            let (row, row_at) = words(&previous[at]);
-            if let (Some(row_at), Some(started_at)) = (row_at, started_at)
-                && row_at < started_at - 1000.0
-            {
-                continue;
-            }
-            if normal(&row) == normal(detail) {
-                previous.remove(at);
-                break;
-            }
-        }
-    }
-    previous
-}
 
 #[cfg(test)]
 mod tests {
@@ -845,14 +816,5 @@ mod tests {
         assert_eq!(unleaked(&format!("Done, all green.\n{close}\nmore")), "Done, all green.");
         assert_eq!(unleaked(&format!("The tag `{close}` is fine in code.")), format!("The tag `{close}` is fine in code."));
         assert_eq!(unleaked("Nothing leaked."), "Nothing leaked.");
-    }
-
-    /// `tests/live-steps-reset-when-the-agent-speaks.test.mts`: a step still running is not
-    /// listed twice.
-    #[test]
-    fn a_running_step_is_not_also_a_finished_one() {
-        let history = vec![("npm test".to_string(), Some(10_000.0)), ("ls".to_string(), Some(12_000.0))];
-        let left = previous_activity(history, &[("npm  test".to_string(), Some(9_500.0))], |(detail, at)| (detail.clone(), *at));
-        assert_eq!(left, [("ls".to_string(), Some(12_000.0))]);
     }
 }
