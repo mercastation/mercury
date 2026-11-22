@@ -300,12 +300,12 @@ fn ask_for_the_summary(s: &mut State, pushed: bool, now: f64, tx: &mut Tx) -> bo
         }
         return false;
     }
-    let settling = run.is_some() || rules::folder_may_still_move(item.wrote_at("result"), now);
-    let due = s.changes.asked.as_ref().is_some_and(|(_, _, _, at)| now - at >= rules::FIGURES_AGAIN_MS);
-    if settling {
+    let result_at = item.wrote_at("result");
+    if run.is_some() || rules::folder_may_still_move(result_at, now) {
         tx.wake_after(std::time::Duration::from_millis(rules::FIGURES_AGAIN_MS as u64));
     }
-    if !(fresh || (settling && (due || (pushed && run.is_some())))) {
+    let asked_at = s.changes.asked.as_ref().map(|(_, _, _, at)| *at);
+    if !rules::asks_for_the_figures(fresh, run.is_some(), result_at, asked_at, pushed, now) {
         return false;
     }
     let Some((url, token)) = door(s) else { return false };

@@ -183,6 +183,17 @@ pub fn folder_may_still_move(result_at: f64, now: f64) -> bool {
     result_at > 0.0 && now - result_at < FOLDER_SETTLES_MS
 }
 
+/// Whether the button's figures are asked for now (`Focus.tsx`): on a new reading of the thread
+/// (`fresh`: another thread, its row changed, or a run started on it); and while its folder may
+/// still move (a run up, or its answer written under two minutes ago), every four seconds after
+/// the last ask, and while a run is up on every change the engine pushes too, the beat the
+/// chips on a run's steps are read on (`ItemThread.tsx`). A thread with neither is asked once.
+pub fn asks_for_the_figures(fresh: bool, run_up: bool, result_at: f64, asked_at: Option<f64>, pushed: bool, now: f64) -> bool {
+    let settling = run_up || folder_may_still_move(result_at, now);
+    let due = asked_at.is_some_and(|at| now - at >= FIGURES_AGAIN_MS);
+    fresh || (settling && (due || (pushed && run_up)))
+}
+
 /* ------------------------------ the tree's head ------------------------------ */
 
 /// The whole change in one line: "11 files +287 −74", both sides always and no separators
@@ -781,6 +792,23 @@ mod tests {
         assert!(folder_may_still_move(1_000.0, 1_000.0 + 119_000.0));
         assert!(!folder_may_still_move(1_000.0, 1_000.0 + 120_000.0));
         assert!(!folder_may_still_move(0.0, 5.0));
+    }
+
+    #[test]
+    fn the_figures_are_asked_for_on_a_new_reading_and_every_four_seconds_while_the_folder_moves() {
+        let now = 1_000_000.0;
+        // A new reading always asks; a thread with no run and an old answer is asked once.
+        assert!(asks_for_the_figures(true, false, 0.0, Some(now - 60_000.0), false, now));
+        assert!(!asks_for_the_figures(false, false, 0.0, Some(now - 60_000.0), false, now));
+        assert!(!asks_for_the_figures(false, false, now - 300_000.0, Some(now - 60_000.0), true, now));
+        // While a run is up: four seconds after the last ask, and not before, unless pushed.
+        assert!(asks_for_the_figures(false, true, 0.0, Some(now - 4_000.0), false, now));
+        assert!(!asks_for_the_figures(false, true, 0.0, Some(now - 3_999.0), false, now));
+        assert!(asks_for_the_figures(false, true, 0.0, Some(now - 1_000.0), true, now));
+        // For two minutes after the answer was written: every four seconds, a push not hurrying it.
+        assert!(asks_for_the_figures(false, false, now - 60_000.0, Some(now - 4_000.0), false, now));
+        assert!(!asks_for_the_figures(false, false, now - 60_000.0, Some(now - 1_000.0), true, now));
+        assert!(!asks_for_the_figures(false, false, now - 120_000.0, Some(now - 4_000.0), false, now));
     }
 
     #[test]
