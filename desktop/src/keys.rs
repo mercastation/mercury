@@ -177,6 +177,12 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
     let (down, up) = (j || e.key == Key::Down, k || e.key == Key::Up);
     match s.view.clone() {
         View::Home => {
+            // Tab is the Inbox's, and Home has no tabs: the web window takes it and draws nothing
+            // for it, its focus let go rather than walked into the box (`onTheTabs` in
+            // `renderer/src/App.tsx`). Here it would put the caret in the box.
+            if e.key == Key::Tab {
+                return true;
+            }
             // N goes into the box already on the page, and so does a letter that is none of
             // the list's own: somebody typing, with a box on the page to type in.
             if letter == "n" {
