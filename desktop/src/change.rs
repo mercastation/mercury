@@ -222,6 +222,11 @@ thread_local! {
     /// Where the column is scrolled, as it last said, and how far it shows.
     static COLUMN: Cell<(f32, f32, f32)> = const { Cell::new((0.0, 0.0, 0.0)) };
 }
+#[cfg(test)]
+thread_local! {
+    /// How many times the change has been drawn, for a measurement.
+    static VIEWS: Cell<usize> = const { Cell::new(0) };
+}
 const BODY: &str = "chg-body";
 const TREE: &str = "chg-tree";
 const PICKER: &str = "chg-picker";
@@ -495,6 +500,8 @@ pub fn tend(s: &mut State, now: f64, pushed: bool, tx: &mut Tx) -> bool {
 /// The change in the pane's card, under its head: the skeleton while it is read, the reason
 /// when it cannot be, else the files and the column. `w` by `h`.
 pub fn view(s: &State, w: f32, h: f32) -> El {
+    #[cfg(test)]
+    VIEWS.with(|v| v.set(v.get() + 1));
     let Some(here) = s.changes.here.as_ref() else { return skeleton(w, h) };
     match s.changes.opened.get(&here.key) {
         Some(Opened::Read(shown)) => artifact(s, here, shown, w, h),
@@ -749,10 +756,14 @@ fn block(s: &State, here: &Here, shown: &Rc<Shown>, f: usize, file: &ChangedFile
         let count = here.entries.get(f).map_or(0, |e| e.len());
         let cols = ((w - NUM_W - MARK_W - LINE_PAD) / ADVANCE).floor().max(1.0) as usize;
         let shown = shown.clone();
+        // The keys change only when the change, a gap or the file's list does: a commit then
+        // skips asking each of thousands of rows for its key.
+        let version = (here.key.clone(), f, here.entries.get(f).map_or(0, |e| Rc::as_ptr(e) as usize), count);
         let rows = col()
             .key(format!("chg-rows-{f}"))
             .w(w)
             .growth(GrowthSpec { spring: rune::Spring::NONE, ..GrowthSpec::default() })
+            .virtual_rows_version(version)
             .virtual_rows(
                 count,
                 row_tall(),
@@ -932,6 +943,7 @@ fn code_row(mark: Mark, num: Option<u32>, line: &str, span: Option<(usize, usize
         Mark::Removed => ("−", minus()),
         Mark::Same => ("", muted()),
     };
+    let quiet = mark == Mark::Removed || key.starts_with("o:");
     let words = text(line.to_string()).font(code_font()).color(ink()).spans(spans_of(line, span, mark)).span_radius(2.0).wrap_anywhere().key(key);
     row()
         .w(w)
@@ -939,7 +951,10 @@ fn code_row(mark: Mark, num: Option<u32>, line: &str, span: Option<(usize, usize
         .fill(bed)
         .child(row().w(NUM_W).pr(10.0).justify_end().child(pen(text(num.map(|n| n.to_string()).unwrap_or_default()).font(code_font().features("'tnum' 1")).color(muted()), 12.0)))
         .child(row().w(MARK_W).justify_center().child(text(sign).font(code_font()).color(sign_colour)))
-        .child(row().grow(1.0).min_w(0.0).pr(LINE_PAD).child(pen(readable(words), 12.0).grow(1.0).min_w(0.0)))
+        // A line that takes typing is the I-beam across its whole width (`.cr-live .code-line {
+        // cursor: text }`); a removed one only over its words, as Rune finds selectable words by
+        // their box.
+        .child(row().grow(1.0).min_w(0.0).pr(LINE_PAD).child(if quiet { pen(readable(words), 12.0).min_w(0.0) } else { pen(readable(words), 12.0).grow(1.0).min_w(0.0) }))
 }
 
 /// A line in the file now takes typing as an editor's does: a press on its words puts the caret
@@ -1579,6 +1594,9 @@ pub fn has_a_change(s: &State, item: &crate::data::Item) -> bool {
 /// (`changeTyped`, `[path, hunk, row, words]`) and whether it took the whole workspace
 /// (`docFull`).
 pub fn pictured(s: &mut State) {
+    // The figures the page was answered with, there from the picture's first frame.
+    let mut tx = Tx::default();
+    ask_for_the_summary(s, false, s.now, &mut tx);
     let Some(here) = s.changes.here.as_ref() else { return };
     let key = here.key.clone();
     if let Some(folds) = s.fixture.remove("changeFolded").and_then(|v| v.as_array().cloned()) {
@@ -1600,7 +1618,6 @@ pub fn pictured(s: &mut State) {
     }
     let gaps = s.fixture.remove("changeGaps").and_then(|v| v.as_array().cloned()).unwrap_or_default();
     if !gaps.is_empty() {
-        let mut tx = Tx::default();
         for g in gaps {
             let (Some(path), Some(h)) = (g.get(0).and_then(Value::as_str), g.get(1).and_then(Value::as_u64)) else { continue };
             if let Some(f) = s.shown().and_then(|sh| sh.files.iter().position(|f| f.path == path)) {
@@ -1983,6 +2000,76 @@ mod tests {
         open_it(&mut rt);
         assert!(rt.state.shown().is_none() && the_open_change(&rt).is_some(), "on its way, the skeleton holds its place");
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// How long a large change takes to open from the button and to scroll, on an invented one
+    /// of `MERCURY_BIG_CHANGE` rows (twenty thousand, the most the engine keeps of a file times
+    /// one, across eighty files, some lines two thousand characters long): a measurement, run with
+    /// `MERCURY_BIG_CHANGE=20000 cargo test --release -- --ignored --nocapture a_big_change_opens`.
+    #[test]
+    #[ignore]
+    fn a_big_change_opens_in() {
+        let Ok(rows) = std::env::var("MERCURY_BIG_CHANGE").map(|n| n.parse::<usize>().unwrap_or(20_000)) else { return };
+        let files = 80;
+        let per = rows / files;
+        let big: Vec<Value> = (0..files)
+            .map(|f| {
+                let hunks: Vec<Value> = (0..per / 25)
+                    .map(|h| {
+                        let start = 1 + h * 40;
+                        let rows: Vec<Value> = (0..25).map(|r| {
+                            let mark = match r % 5 { 1 => "-", 2 | 3 => "+", _ => "=" };
+                            let line = if r == 12 && h % 4 == 0 { format!("  const long_{f}_{h} = '{}';", "x".repeat(2000)) } else { format!("  const value_{r} = compute(input_{r}, {h}); // invented line {r} of file {f}") };
+                            json!([mark, line])
+                        }).collect();
+                        let nums: Vec<Value> = (0..25).map(|r| json!([start + r, start + r])).collect();
+                        json!({ "rows": rows, "nums": nums })
+                    })
+                    .collect();
+                json!({ "path": format!("pkg{}/src/file_{f}.ts", f % 7), "plus": per * 2 / 5, "minus": per / 5, "hunks": hunks })
+            })
+            .collect();
+        let change = json!({ "files": big, "plus": rows * 2 / 5, "minus": rows / 5 });
+        let (mut rt, dir) = with_a_change("big", (1280.0, 760.0), None);
+        rt.update(move |s, _| {
+            for v in s.fixture.get_mut("codeChanges").and_then(Value::as_object_mut).expect("answers").values_mut() {
+                *v = json!({ "ok": true, "change": change });
+            }
+        });
+        let (x, y) = middle(&rt, "thread-code");
+        rt.pointer_move(x, y);
+        rt.pointer_down(x, y);
+        rt.pointer_up(x, y);
+        let started = std::time::Instant::now();
+        rt.frame(1.0 / 60.0);
+        rt.frame(1.0 / 60.0);
+        let opened = started.elapsed();
+        assert!(rt.state.shown().is_some_and(|s| s.files.len() == files));
+        let still = std::time::Instant::now();
+        let views = VIEWS.with(Cell::get);
+        for _ in 0..10 {
+            rt.frame(1.0 / 60.0);
+        }
+        println!("a frame at rest: {:?}, the change drawn again {} times", still.elapsed() / 10, VIEWS.with(Cell::get) - views);
+        let mut frames = Vec::new();
+        for _ in 0..60 {
+            let at = std::time::Instant::now();
+            rt.wheel(900.0, 400.0, -120.0);
+            rt.frame(1.0 / 60.0);
+            frames.push(at.elapsed());
+        }
+        frames.sort();
+        let jump = std::time::Instant::now();
+        rt.update(|s, tx| jump_to_the_last(s, tx));
+        rt.frame(1.0 / 60.0);
+        rt.frame(1.0 / 60.0);
+        println!("{rows} rows in {files} files: opened in {opened:?}; a frame scrolling: half under {:?}, the slowest {:?}; to the last file in {:?}", frames[30], frames[59], jump.elapsed());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    fn jump_to_the_last(s: &mut State, tx: &mut Tx) {
+        let last = s.shown().map_or(0, |sh| sh.files.len() - 1);
+        jump(s, last, tx);
     }
 
     #[test]
