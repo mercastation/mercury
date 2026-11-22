@@ -4,7 +4,7 @@
 //! J and K (or the arrows) walk a list and Enter opens the row they are on; Tab turns the
 //! Inbox's tabs. Inside a conversation Escape goes back, J and K go on to the next thread or
 //! back to the one before, the arrows walk the agent's options and Enter or a number sends
-//! one, R opens the reply box and E marks the thread done.
+//! one, R opens the reply box and E marks the thread done. Z takes back the last thing done.
 
 use rune::edit::Key;
 use rune::{KeyEvent, Tx};
@@ -40,6 +40,22 @@ pub fn in_the_reply(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
     false
 }
 
+/// E: marks done the thread the keys are on. That is the open conversation, or the Inbox's
+/// picked row under Needs you and In progress. Under Later the web window's E brings a thread
+/// back instead, and under Done there is nothing to close; neither is done here yet.
+pub fn close_under_the_keys(s: &mut State, tx: &mut Tx) {
+    match s.view.clone() {
+        View::Thread { .. } => s.close_thread(false, tx),
+        View::Inbox if matches!(s.inbox_tab, crate::data::Tab::Needs | crate::data::Tab::Progress) => {
+            let on = s.lists.under(s.inbox_tab).get(s.picked).map(|r| (r.id.clone(), r.product.clone()));
+            if let Some((id, product)) = on {
+                s.close(&id, &product, false, tx);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// True when the key was this window's. A chord is the system's, never one of these.
 pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
     if e.mods.cmd || e.mods.ctrl || e.mods.alt {
@@ -49,6 +65,11 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
         Key::Text(t) => t.to_lowercase(),
         _ => String::new(),
     };
+    // Z takes back the last thing done, wherever the person is by then.
+    if letter == "z" {
+        s.undo(tx);
+        return true;
+    }
     let (j, k) = (letter == "j", letter == "k");
     let (down, up) = (j || e.key == Key::Down, k || e.key == Key::Up);
     match s.view.clone() {
@@ -97,6 +118,10 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
                 s.open_thread(&id, &product);
                 return true;
             }
+            if letter == "e" {
+                close_under_the_keys(s, tx);
+                return true;
+            }
             false
         }
         View::Thread { id, product } => {
@@ -138,7 +163,7 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
             }
             // E closes, and never anything else.
             if letter == "e" {
-                s.close_thread(false);
+                close_under_the_keys(s, tx);
                 return true;
             }
             // J and K walk the threads that need the person from inside one, as the strip's

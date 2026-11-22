@@ -167,6 +167,65 @@ pub fn notice(s: &State) -> Option<El> {
     )
 }
 
+/// The key and its word beside a line while Z can still take it back (`.toast-undo`).
+fn undo_key() -> El {
+    row().items_center()
+        .gap(5.0)
+        .child(row().h(17.0).px(4.0).items_center().border(1.0, rule()).border_layout().child(text("Z").font(TextStyle::new(10.5, 600.0).lh(15.0)).color(muted())))
+        .child(pen(text("Undo").font(TextStyle::new(12.0, 400.0).lh(15.6)).color(muted()), 12.0))
+}
+
+/// The line about what was just done, as a conversation's head strip carries it
+/// (`.toast.toast-in-bar`): framed, at most 520 points, cut short with dots.
+pub fn toast_in_bar(s: &State) -> Option<El> {
+    let toast = s.toast.as_ref()?;
+    let mut line = row()
+        .max_w(520.0)
+        .min_w(0.0)
+        .items_center()
+        .gap(12.0)
+        .pt(4.0)
+        .pr(8.0)
+        .pb(5.0)
+        .pl(12.0)
+        .radius(10.0)
+        .border(1.0, edge())
+        .border_layout()
+        .child(row().min_w(0.0).child(pen(text(toast.line.as_str()).font(TextStyle::new(13.5, 400.0).lh(17.55)).color(ink()).truncate(), 13.5)));
+    if toast.undo {
+        line = line.child(undo_key());
+    }
+    Some(line)
+}
+
+/// The same line over a list: a card in the window's corner (`.toast`), its words on two
+/// lines if they need them.
+pub fn toast_card(s: &State) -> Option<El> {
+    if matches!(s.view, View::Thread { .. }) {
+        return None;
+    }
+    let toast = s.toast.as_ref()?;
+    let room = if toast.undo { 263.95 } else { 326.0 };
+    let mut card = row()
+        .pin(None, None, Some(30.0), Some(30.0))
+        .w(360.0)
+        .items_center()
+        .gap(12.0)
+        .py(11.0)
+        .px(16.0)
+        .radius(10.0)
+        .fill(rgb(54, 52, 49))
+        .border(1.0, edge())
+        .border_layout()
+        .box_shadow(shadow(0.0, 24.0, 70.0, 0.0, rgba(0, 0, 0, 0.55), false))
+        // The words take what the key beside them leaves of the card's 326 points inside.
+        .child(el().w(room).child(pen(text(toast.line.as_str()).font(TextStyle::new(13.5, 400.0).lh(17.55)).color(ink()).wrap().max_w(room), 13.5)));
+    if toast.undo {
+        card = card.child(undo_key());
+    }
+    Some(card)
+}
+
 /// Back and forward, at the head of the card. Dim while there is nowhere to go. A conversation
 /// has a strip of its own there, with these two in it.
 pub fn back_forward(s: &State) -> El {

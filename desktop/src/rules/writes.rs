@@ -50,6 +50,62 @@ pub fn reopen(item: &Item) -> Value {
     json!({ "product": item.product, "id": item.id })
 }
 
+/// How long something done waits before it is written, so Z can take it back whole
+/// (`UNDO_GRACE_MS` in `renderer/src/App.tsx`), and how long the line that says so stays.
+pub const UNDO_GRACE_MS: f64 = 3000.0;
+pub const TOAST_MS: f64 = 2500.0;
+
+/// What Z says when there is nothing of this window's to take back (`renderer/src/undo-window.ts`).
+pub const NOTHING_TO_UNDO: &str = "Nothing to undo yet.";
+
+/// A thread's name as a line about it says it: whole up to `budget` letters, else cut at the
+/// end of a sentence or at a word (`clipToSentence` in `renderer/src/list-rules.ts`). JavaScript
+/// counts UTF-16 units; letters are counted here, which differs only past the first plane.
+pub fn clip_to_sentence(text: &str, budget: usize) -> String {
+    let letters: Vec<char> = text.chars().collect();
+    if letters.len() <= budget {
+        return text.to_string();
+    }
+    // One letter past the budget, so a stop or a space right at the edge still counts.
+    let window = &letters[..=budget];
+    let last = |stop: [char; 2]| window.windows(2).rposition(|pair| pair == stop);
+    let end = [['.', ' '], ['?', ' '], ['!', ' ']].into_iter().filter_map(last).max();
+    if let Some(end) = end.filter(|end| *end > 40) {
+        return letters[..=end].iter().collect();
+    }
+    let space = window.iter().rposition(|c| *c == ' ').filter(|space| *space > 40).unwrap_or(budget);
+    let kept: String = letters[..space].iter().collect();
+    format!("{}…", kept.trim_end())
+}
+
+/// What the line says while a close waits: "Done: " and the thread's name (`markDone`).
+pub fn said_done(title: &str) -> String {
+    format!("Done: {}", clip_to_sentence(title, 48))
+}
+
+/// What the line says while a reply or a pick waits (`answerWith`).
+pub fn said_sent(project: &str) -> String {
+    format!("Sent → {project}")
+}
+
+/// What Z says after taking back something still waiting (`graceUndoneLine`).
+pub fn said_undone(said: &str, words_are_back: bool) -> String {
+    if words_are_back {
+        return "Undone. Your message is back in the reply box.".to_string();
+    }
+    match said.strip_prefix("Done: ") {
+        Some(title) => format!("Undone. Still open: {title}"),
+        None => "Undone. Nothing changed.".to_string(),
+    }
+}
+
+/// Opening a thread again as it was before this window closed it: blocked if it was blocked,
+/// so undoing a close starts no run (`wasBeforeClose` in `shared/reopen-as-it-was.mts`).
+pub fn reopen_as_it_was(item: &Item) -> Value {
+    let mine = item.wrote("status").is_some_and(|w| w.source == "founder");
+    json!({ "product": item.product, "id": item.id, "status": "open", "reopenAs": { "status": item.status, "mine": mine } })
+}
+
 /// What picking an option does. Most are a reply; a few are something else.
 #[derive(Debug, PartialEq)]
 pub enum Pick {
@@ -113,6 +169,28 @@ mod tests {
         assert_eq!(pick(&choice(2.0, "Keep it on the branch")), Pick::CloseUnshipped);
         assert_eq!(pick(&choice(3.0, "Discard it")), Pick::AsksFirst);
         assert_eq!(pick(&choice(2.0, "Change something first")), Pick::NeedsWords("Change something first\n\n".to_string()));
+    }
+
+    #[test]
+    fn a_line_names_a_thread_whole_or_cut_at_a_sentence_or_a_word() {
+        assert_eq!(clip_to_sentence("Snooze is lost on restart", 48), "Snooze is lost on restart");
+        // Cut at the last space inside the budget, with the dots.
+        assert_eq!(said_done("Checkout fails for some customers since this morning"), "Done: Checkout fails for some customers since this…");
+        // A sentence that ends past the fortieth letter is kept whole, with its stop.
+        assert_eq!(clip_to_sentence("The weekly usage total is off by one again. Second sentence here.", 48), "The weekly usage total is off by one again.");
+    }
+
+    #[test]
+    fn taking_something_back_says_what_is_as_it_was() {
+        assert_eq!(said_undone("Done: Snooze is lost on restart", false), "Undone. Still open: Snooze is lost on restart");
+        assert_eq!(said_undone("Sent → Storefront", true), "Undone. Your message is back in the reply box.");
+        assert_eq!(said_undone("Sent → Storefront", false), "Undone. Nothing changed.");
+    }
+
+    #[test]
+    fn undoing_a_close_puts_the_thread_back_as_it_was_and_starts_no_run() {
+        let waiting: Item = serde_json::from_value(json!({ "id": "w-1", "product": "shop", "status": "blocked", "wrote": { "status": { "ts": 1, "source": "agent" } } })).unwrap();
+        assert_eq!(reopen_as_it_was(&waiting), json!({ "product": "shop", "id": "w-1", "status": "open", "reopenAs": { "status": "blocked", "mine": false } }));
     }
 
     #[test]

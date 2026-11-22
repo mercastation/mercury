@@ -7,6 +7,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use rune::Waker;
 use serde_json::Value;
 
+use crate::data::Item;
 use crate::source::{self, Door};
 
 /// What was sent, kept until the engine answers, so a refusal can be put right on screen.
@@ -19,6 +20,41 @@ pub enum Sent {
     Pick { thread: String },
     Close { thread: String },
     Reopen { thread: String },
+}
+
+/// Something done and not yet written (`deferCommit` in `renderer/src/App.tsx`). It shows at
+/// once, is written when its time comes, and until then Z takes it back whole: nothing was
+/// written, so nothing has to be unwritten.
+pub struct Held {
+    pub channel: &'static str,
+    pub payload: Value,
+    pub sent: Sent,
+    /// What the line about it says.
+    pub said: String,
+    /// When it is written, in seconds on the window's clock.
+    pub at: f64,
+    /// The thread it was done to, as `(id, product)`: where Z goes back.
+    pub thread: (String, String),
+    /// Done from inside that conversation, which Z then opens again.
+    pub from_inside: bool,
+    /// The row as it was, when this closes it: what undoing the close needs once it is written.
+    pub closes: Option<Item>,
+}
+
+/// The one thing Z still takes back after it was written: a close, by opening the thread as
+/// it was before.
+pub struct Undo {
+    pub said: String,
+    pub payload: Value,
+    pub thread: (String, String),
+}
+
+/// One line about what was just done, with Z beside it while Z can take it back.
+pub struct Toast {
+    pub line: String,
+    pub undo: bool,
+    /// When it goes, in seconds on the window's clock.
+    pub until: f64,
 }
 
 /// One answer from the engine: its own, or why it could not be reached.

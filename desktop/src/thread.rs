@@ -107,7 +107,7 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
     let close = if finished {
         close.child(label("Reopen", 13.0, 400.0, dim())).on_press(|s: &mut State| s.reopen_thread())
     } else {
-        close.child(icon(&icons::DONE, 16.0).color(dim())).child(label("Done", 13.0, 400.0, dim())).on_press(|s: &mut State| s.close_thread(false))
+        close.child(icon(&icons::DONE, 16.0).color(dim())).child(label("Done", 13.0, 400.0, dim())).on_press_tx(|s: &mut State, tx| s.close_thread(false, tx))
     };
     // Where the thread runs, for one the cloud could take (`PlaceButton.tsx`): a cloud or a Mac,
     // faded while the whole cloud is off, dotted when it was handed back for something.
@@ -116,9 +116,13 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
         let button = row().size(30.0, 30.0).radius(6.0).center().border(1.0, edge()).child(glyph);
         if m.dot { button.child(el().absolute(20.0, 4.0).size(6.0, 6.0).radius(3.0).fill(accent())) } else { button }
     });
-    let mut actions = row()
-        .ml(16.0)
-        .items_center()
+    let mut actions = row().ml(16.0).min_w(0.0).items_center();
+    // The line about what was just done stands first in this group (`.toast-in-bar`), and the
+    // thread's name gives way to it.
+    if let Some(line) = chrome::toast_in_bar(s) {
+        actions = actions.child(line.mr(16.0));
+    }
+    let mut actions = actions
         .child(step(&icons::UP, at.and_then(|a| a.checked_sub(1)).and_then(|a| s.lists.needs.get(a))))
         .child(step(&icons::DOWN, at.and_then(|a| s.lists.needs.get(a + 1))));
     if let Some(place) = place {
@@ -445,7 +449,8 @@ fn options_strip(choices: &[Choice], on: Option<usize>, m: &Measure) -> El {
 fn dock(s: &State, item: &Item, m: &Measure) -> El {
     let mut inner = col().w(m.column);
     let choices = live_options(item);
-    if !choices.is_empty() {
+    // An answer on its way has spent the offer, though the engine has not heard it yet.
+    if !choices.is_empty() && !s.answer_waits(item) {
         inner = inner.child(options_strip(&choices, s.option, m).mb(10.0));
     }
     inner = inner.child(if s.replying { composer(s, item, m) } else { reply_box(m).cursor(rune::Cursor::Text).on_press_tx(|s: &mut State, tx| s.open_reply(tx)) });
