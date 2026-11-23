@@ -2,9 +2,7 @@
 //! and the threads of the open tab as a table. Built from the web app's own measurements
 //! (`renderer/src/threads/pages.css`, `Pages.tsx`), and matched against it pixel by pixel.
 
-use std::cell::RefCell;
-
-use rune::{Color, Cursor, El, Pixels, TextCase, TextStyle, col, el, icon, row, text};
+use rune::{Color, Cursor, El, TextCase, TextStyle, col, el, icon, row, text};
 
 use crate::data::{Mark, Priority, Row, Tab};
 use crate::rules::{cloud, page};
@@ -22,39 +20,19 @@ pub(crate) fn under(a: f32) -> Color {
     rgba(0x1b, 0x19, 0x17, a)
 }
 
-thread_local! {
-    /// The sky's band turned over, and the painting it was cut from.
-    static TURNED: RefCell<Option<((u64, u64), Pixels)>> = const { RefCell::new(None) };
-}
-
 /// The web app paints the streak in a band at the card's foot and turns the picture over with
 /// CSS (`transform: scaleY(-1)`), so the band stands behind the head. Rune turns nothing over, so
-/// the rows the mask lets through are copied out bottom row first, once for each painting.
-fn turned(s: &State) -> (Pixels, f32) {
-    let painted = s.sky_inbox.signature();
-    let (w, h) = s.sky_inbox.size();
-    // The painting's pixels a point, from the card it was painted for.
-    let per_point = if s.sky_size.1 >= 1.0 { h as f32 / s.sky_size.1.floor() } else { 1.0 };
-    let rows = ((SKY_REACH * per_point).ceil() as u32).min(h);
-    let band = TURNED.with(|kept| {
-        let mut kept = kept.borrow_mut();
-        if let Some((from, band)) = kept.as_ref()
-            && *from == painted
-        {
-            return band.clone();
-        }
-        let all = s.sky_inbox.rgba();
-        let line = w as usize * 4;
-        let mut out = Vec::with_capacity(line * rows as usize);
-        for y in (h - rows..h).rev() {
-            out.extend_from_slice(&all[y as usize * line..(y as usize + 1) * line]);
-        }
-        let band = Pixels::new();
-        band.set(w, rows, out);
-        *kept = Some((painted, band.clone()));
-        band
-    });
-    (band, rows as f32 / per_point)
+/// the rows the mask lets through are copied out bottom row first. That is done where the sky is
+/// painted, off the main thread, and the rest of the painting is let go there: only the band is
+/// ever drawn, and a whole second sky kept for it took as much memory as Home's.
+pub fn band((w, h, all): (u32, u32, Vec<u8>)) -> (u32, u32, Vec<u8>) {
+    let rows = ((SKY_REACH * crate::sky::PER_POINT as f32).ceil() as u32).min(h);
+    let line = w as usize * 4;
+    let mut out = Vec::with_capacity(line * rows as usize);
+    for y in (h - rows..h).rev() {
+        out.extend_from_slice(&all[y as usize * line..(y as usize + 1) * line]);
+    }
+    (w, rows, out)
 }
 
 /// The Inbox's sky, as the card draws it under this page: at full strength behind the head and
@@ -63,12 +41,17 @@ fn turned(s: &State) -> (Pixels, f32) {
 /// rail opening covers its left edge, as Home's does.
 pub fn sky(s: &State) -> El {
     let (card_w, card_h) = s.card_size();
-    let (band, band_h) = turned(s);
+    // The band's height in points, as it was painted.
+    let band_h = s.sky_inbox.size().1 as f32 / crate::sky::PER_POINT as f32;
+    // A sky painted for another size is stretched to the card as it is now, until the card
+    // has held still and the new one lands (`chrome::sky_box`).
+    let (sky_w, sky_h) = chrome::sky_box(s);
+    let band_h = if s.sky_size.1 >= 1.0 { band_h * sky_h / s.sky_size.1 } else { band_h };
     el().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).radius(6.0).clip_rounded(6.0).child(
         el().pin(Some(0.0), Some(0.0), Some(0.0), None)
             .h(SKY_REACH)
             .clip_fade_linear(0.0, 0.0, 0.0, SKY_REACH - SKY_WHOLE)
-            .child(el().absolute(card_w - s.sky_size.0, 0.0).size(s.sky_size.0, band_h).pixels(&band))
+            .child(el().absolute(card_w - sky_w, 0.0).size(sky_w, band_h).pixels(&s.sky_inbox))
             .child(el().absolute(0.0, 0.0).size(card_w, card_h).radius(6.0).border(1.0, white(0.07))),
     )
 }
@@ -527,4 +510,24 @@ pub fn view(s: &State) -> El {
     let head = row().h(38.0).pt(10.0).pr(32.0).pl(44.0).child(cols.line(heading("Thread"), heading("Status"), heading("Project"), heading("Priority"), heading(page::time_heading(tab.view()))));
     let picked = s.picked.min(rows.len() - 1);
     page.child(head).children(rows.iter().enumerate().map(|(i, r)| thread(s, r, (i, rows.len()), picked, &cols)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn of_the_inbox_sky_only_the_rows_behind_the_head_are_kept_the_last_row_first() {
+        // A painting two pixels wide and 400 rows tall, each row filled with its own number.
+        let all: Vec<u8> = (0..400u32).flat_map(|y| [(y % 256) as u8; 8]).collect();
+        let (w, rows, kept) = band((2, 400, all));
+        // Ninety points of it show, at two pixels a point.
+        assert_eq!((w, rows), (2, 180));
+        assert_eq!(kept.len(), 2 * 180 * 4);
+        assert_eq!(kept[0], (399 % 256) as u8);
+        assert_eq!(kept[kept.len() - 1], 220);
+        // A painting shorter than the band is kept whole, and an empty one stays empty.
+        assert_eq!(band((2, 10, vec![7; 80])), (2, 10, vec![7; 80]));
+        assert_eq!(band((0, 0, Vec::new())), (0, 0, Vec::new()));
+    }
 }

@@ -179,9 +179,20 @@ pub fn backdrop(w: f32, h: f32) -> El {
         .children(dots)
 }
 
-/// The main card. The sky is drawn at the size it was painted for and cut to the card, so a
-/// window being resized shows the old sky still, never a stretched one, until the new one lands.
-/// It stands on the card's right edge, so the rail opening covers its left edge.
+/// How long the card holds still before a sky stretched by a new size is painted again
+/// (`STILL_MS` in `renderer/src/home/sky-follows-the-card.ts`).
+pub const STILL: Duration = Duration::from_millis(150);
+
+/// The box a painted sky is drawn in: the card with the rail folded, as wide and tall as it is
+/// now. A sky painted for another size is stretched to it until the card has held still and the
+/// new one lands, as the web window stretches its canvas (`followTheCard`).
+pub fn sky_box(s: &State) -> (f32, f32) {
+    folded_card_size(s)
+}
+
+/// The main card. The sky fills the card as it is with the rail folded, stretched while a
+/// window is being resized and painted again once it holds still. It stands on the card's right
+/// edge, so the rail opening covers its left edge.
 pub fn card(s: &State) -> El {
     let card = el()
         .pin(Some(card_left(s)), Some(CARD[1]), Some(CARD[2]), Some(CARD[3]))
@@ -190,10 +201,11 @@ pub fn card(s: &State) -> El {
         .box_shadow(shadow(0.0, 40.0, 120.0, 0.0, rgba(0, 0, 0, 0.7), false));
     let whole = || el().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).radius(6.0);
     let (card_w, _) = s.card_size();
+    let (sky_w, sky_h) = sky_box(s);
     match s.view {
         // Home's sky covers the whole card, on a ground of its own, under a faint edge.
         View::Home => card
-            .child(whole().fill(rgb(0x1b, 0x19, 0x17)).clip_rounded(6.0).child(el().absolute(card_w - s.sky_size.0, 0.0).size(s.sky_size.0, s.sky_size.1).pixels(&s.sky_home)))
+            .child(whole().fill(rgb(0x1b, 0x19, 0x17)).clip_rounded(6.0).child(el().absolute(card_w - sky_w, 0.0).size(sky_w, sky_h).pixels(&s.sky_home)))
             .child(whole().border(1.0, white(0.07))),
         // The Inbox's sky stands behind its head alone, so under it the card shows its own glass
         // and edge. The Files place wears it too (`skyOnPlace` in `renderer/src/App.tsx`).

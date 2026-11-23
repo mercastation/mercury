@@ -73,6 +73,7 @@ pub enum View {
 /// Both skies for one card size, painted off the main thread, so changing screen never waits.
 struct Painted {
     home: (u32, u32, Vec<u8>),
+    /// The Inbox's band alone, turned over (`inbox::band`).
     inbox: (u32, u32, Vec<u8>),
     points: (f32, f32),
 }
@@ -80,7 +81,8 @@ struct Painted {
 pub struct State {
     /// The window, in points.
     pub size: (f32, f32),
-    /// Home's sky, and the Inbox's (drawn at the card's foot; `inbox.rs` turns it over).
+    /// Home's sky, and the band of the Inbox's that shows behind its head, turned over
+    /// (`inbox::band`).
     pub sky_home: Pixels,
     pub sky_inbox: Pixels,
     /// The card size the skies on screen were painted for.
@@ -1118,10 +1120,11 @@ fn paint_skies(points: (f32, f32)) -> Painted {
     let (w, h) = (points.0.floor() as f64, points.1.floor() as f64);
     let art = sky::ember();
     // Home's: dots from 40 points down, fully in 300 points later (`SkyBackdrop` in App.tsx).
-    let home = sky::draw(&art, w, h, 40.0, 300.0, 0.0, 2);
-    // The Inbox's: a band 190 points tall at the card's foot (`InboxSky`, shape "head").
+    let home = sky::draw(&art, w, h, 40.0, 300.0, 0.0, sky::PER_POINT);
+    // The Inbox's: a band 190 points tall at the card's foot (`InboxSky`, shape "head"), of
+    // which only the rows behind the head are kept.
     let start = (h - 190.0).round();
-    let inbox = sky::draw(&art, w, h, start, 120.0, start - 60.0, 2);
+    let inbox = inbox::band(sky::draw(&art, w, h, start, 120.0, start - 60.0, sky::PER_POINT));
     Painted { home, inbox, points }
 }
 
@@ -1159,7 +1162,10 @@ fn init_from(args: &[String]) -> State {
         sky_home: Pixels::new(),
         sky_inbox: Pixels::new(),
         sky_size: (0.0, 0.0),
-        painting: Latest::default(),
+        // A sky is painted again once the card has held still (`STILL`), never on each step of
+        // a window being dragged larger: every step painted two full skies off the main thread
+        // and hung them, which took a window from 0.4 GB to 1.6 GB while it was resized.
+        painting: Latest::default().debounce(chrome::STILL),
         snap: Snapshot::default(),
         lists: Lists::default(),
         local: Local::default(),

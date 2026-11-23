@@ -56,6 +56,9 @@ impl Rnd {
     }
 }
 
+/// The pixels a point both skies are painted at.
+pub const PER_POINT: u32 = 2;
+
 /// Paints `art` for a card `w` by `h` points, at `dpr` pixels a point. Dots start at `from`
 /// points and are fully in by `from + span`. `curve_top` lays the streak out in the card below
 /// that line instead of the whole card (the Inbox's head). Returns the pixel size and

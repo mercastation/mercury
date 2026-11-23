@@ -2346,6 +2346,54 @@ failing) 0.43 whole, its steps 0.38. Every other conversation scene measured bef
 (`thread`, `-folded`, `-steps*`, `-options`, `-pictures-large`, `-reply-attached`,
 `-getting-ready`, `-working`) draws as it did, to the pixel.
 
+## A window dragged larger
+
+The web window does not draw its sky again on each step of a window being resized. Any new size
+stretches the sky already drawn until the card has held still for 150 ms, and only then is it
+drawn again (`followTheCard` and `STILL_MS` in `renderer/src/home/sky-follows-the-card.ts`). This
+window does the same: Home's sky and the Inbox's band are stretched to the card as it is now
+(`chrome::sky_box`), and the painting waits for the card to hold still (`chrome::STILL`, the
+debounce on `painting` in `main.rs`).
+
+It did not at first. Each step of a drag painted both skies whole and hung them, so every frame
+brought two new pictures the size of the card, and for the one on screen a new page in Rune's
+atlas of what it draws and a new texture. A picture larger than 1024 pixels either way is held
+three times while it is drawn: the bytes it was set with, a page of its own in that atlas, and
+the texture (`rune-image/src/pixels.rs`).
+
+Measured in the debug build on the `home` scene: a window of 1280 by 760 at 2x dragged to 1900
+by 1040 over one second (`[{"t": 0.5, "type": "resize", "dw": 620, "dh": 280, "dur": 1.0}]` as
+the `--script`, with `--realtime --frames 360 --fps 30 --trace <file>`), its footprint read
+once a second with `footprint <pid>`.
+
+| | Before the drag | Just after it | Eight seconds later |
+|---|---|---|---|
+| A sky painted on each step | 367 MB | 1339 MB | 1339 MB |
+| A sky stretched, then painted once the card is still | 354 MB | 479 MB | 478 MB |
+
+What a drag took was not given back, so a window resized once went on holding it. The 478 MB
+is what the larger window costs. Every screen was then dragged the same way as a still
+(`/usr/bin/time -l ./target/debug/mercury … --script <the resize> --at 3.0 --snap …`), and none
+peaks above what it costs opened large but the Files place, by 9 MB:
+
+| Screen, peak footprint | 1280 by 760 | 1900 by 1040 | Dragged from one to the other |
+|---|---|---|---|
+| `home` | 400 MB | 586 MB | 521 MB |
+| `inbox` | 385 MB | 543 MB | 450 MB |
+| `thread` | 301 MB | 405 MB | 368 MB |
+| `thread-working` | 302 MB | 406 MB | 366 MB |
+| `files` | 400 MB | 530 MB | 539 MB |
+
+A still taken after a scripted drag keeps the size the run began at, so it is compared with the
+top left of one opened large. The Inbox's is the same to the pixel. Home's differs by two
+levels a channel at most, under its glass, and did before the sky waited.
+
+Of the Inbox's sky only the band behind its head is ever drawn. So only that band is kept,
+turned over where the sky is painted (`inbox::band`), and the rest of that painting, as large
+as Home's sky, is let go in the worker: 25 MB less at 1900 by 1040, the picture the same to the
+pixel. The three screens that draw a sky still cost 125 to 180 MB more than a conversation at
+that size, which the skies' own pixels do not account for; what does was not looked for.
+
 ## What moves on its own
 
 The web window's conversation page moves in few places, and this window moves in the same ones.
