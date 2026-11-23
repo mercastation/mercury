@@ -4,7 +4,7 @@ import {updateFixture} from './agent-update-fixture';
 // bridge; fixtures mode (?fixtures=1) serves canned data so the UI can be
 // developed, reviewed, and screenshotted without a live store or any agents.
 
-import type { Person, PictureIn, TeamBillingDetails } from './types';
+import type { AppsThatOpen, BringInResult, Person, PictureIn, TeamBillingDetails } from './types';
 import type { AccountUsageReading, AgentConversation, AgentUpdate, AgentUpdateAction, ArtifactMark, BranchList, ConnectAnswer, ConnectAsk, ConnectionsList, ConnectionTile, CopyAct, CloudPlan, AnswerMode, CodexModeId, DemoOpened, FileFolderAct, FolderListing,FreshUser, PermissionMode, PhoneLink, PhoneRoute, ProductDashboard, ProjectBrowser, ProjectSettings, RepeatRule, RepeatShape, RoomsResult, Settings, Snapshot, TeammatesResult, TeamCallResult, TeammateThreadWork, TerminalAction, TerminalAnswer, TerminalAsk, FoundInThreads, FileElsewhere, FileLine, FilesPlaceList, FilesPlaceView, FilesUploaded, FilesTrashed, FilesCloudStatus, TeamMessageFile, ThreadEditPatch, LiveRoomTicket, UpdateState, Usage, UsageLimit, WorkItem, WorkspaceSettings } from './types';
 import type { LedgerLine } from './thread-history';
 import type { MeetingState } from './meeting-card';
@@ -13,7 +13,7 @@ import type { AgentFile as AgentFileRow } from './onboarding';
 import type { AgentFolder, SessionThread } from './agent-import-card';
 import type { EngineSetupState } from './plan-setup';
 import { fixtureAgents, fixtureSnapshot, fixtureUrgentArrival,fixtureDashboards, fixtureRepeats, fixtureRuns, fixtureMock, fixtureMockDashboards, fixtureTraces, fixtureHistory, fixtureSettings, fixtureConversation, fixtureAgentFiles, fixtureSessionThreads, fixtureSearchableThreads } from './fixtures';
-import { fixtureEngineWorld, fixtureEngineSettings, fixtureSecondEngine } from './fixtures';
+import { fixtureEngineWorld, fixtureEngineSettings, fixtureSecondEngine, fixtureFurtherHarness } from './fixtures';
 import { fixtureBranches, fixtureFolders } from './fixtures';
 import { fixtureDemands } from './demands/fixture-demands';
 import type { DemandPatch, DemandRecord } from './demands/demand-rules';
@@ -28,6 +28,7 @@ interface LaterBridge {
   gitHubBrowserSignIn?(): Promise<{ ok: boolean; code?: string; url?: string; error?: string }>;
   gitHubCloudSignIn?(p: { action: 'start' | 'token' }): Promise<{ ok: boolean; code?: string; url?: string; token?: string; error?: string }>;
   signInAnswer?(p: { product: string; id: string; ask: string; said: 'signed-in' | 'skipped' | 'landed' | 'code'; url?: string; code?: string }): Promise<{ ok: boolean; error?: string }>;
+  signInKeep?(p: { product: string; id: string; ask: string; keep: boolean }): Promise<{ ok: boolean; error?: string }>;
   cloudAccountPay?(p: { plan: 'pro' | 'plus' | 'max' | 'team' }): Promise<{ ok: boolean; where?: 'checkout' | 'billing' | 'started'; error?: string; message?: string }>;
   cloudAccountTeamBilling?(): Promise<{ ok: boolean; owner?: boolean } & Partial<TeamBillingDetails>>;
 }
@@ -67,6 +68,7 @@ import { withoutFileHomes } from '../../shared/file-home.mts';
 import { installBrowserBridge } from './browser-bridge';
 import { installCloudBridge } from './cloud-bridge';
 import { onASharedFilePage } from './shared-file/route';
+import { shownSnapshots } from './shown-snapshot';
 
 // The Mac's own page first; the phone with the Mac shut only on its own site.
 // A shared file's page is neither: it is for people with no app at all.
@@ -83,6 +85,8 @@ async function teamCall(fn: () => Promise<TeamCallResult>): Promise<TeamCallResu
 // The inbox and the open threads' agent logs as last answered, so each read
 // asks only for what changed since.
 const snapshots = snapshotReader();
+// A document's holder thread is the app's, so no list of threads draws it.
+const shown = shownSnapshots<Snapshot['items'][number], Snapshot>(withoutFileHomes);
 const traces = traceReader();
 // Which thread is on screen: only its agent's live detail is sent.
 let openThread: { product: string | null; id: string } | null = null;
@@ -128,6 +132,8 @@ const mockFixtures = params.get('fixtures') === 'mock';
 // script already photographs and is the rule it records. The four
 // machines and the whole argument are in ./fixtures, beside the data.
 const engineFixtures = fixtureEngineWorld(params.get('engines'));
+// The harnesses of the world asked for: the second coding agent, then any further harness (`?further=opencode`).
+const withEngines = (snap: Snapshot): Snapshot => fixtureFurtherHarness(fixtureSecondEngine(snap, engineFixtures), params.get('further'));
 // &codexout: Codex's week spent until Sunday 6:10pm, over ?fixtures=empty or the full world.
 function codexOut(snap: Snapshot): Snapshot {
   if (!params.has('codexout')) return snap;
@@ -213,6 +219,16 @@ if (params.get('codexaccounts') === 'two' && fixtureSettingsState.workspace.code
     { profile: 'default', email: 'work@example.com', name: null, plan: 'Free', accountId: null, signedIn: true, chosen: true },
     { profile: 'codex-2', email: 'you@example.com', name: null, plan: 'Plus', accountId: null, signedIn: true, chosen: false },
   ];
+}
+// With ?engines=codex: &localonly is this Mac's one Codex login and none in the
+// cloud; &cloudday is that login at its week's limit (use with &cloudcodex).
+const CLOUDDAY_RESET = Date.now() + 2.5 * 86_400_000;
+if ((params.has('localonly') || params.has('cloudday')) && fixtureSettingsState.workspace.codex) {
+  const limited = params.has('cloudday') ? { atLimit: true, limitResetsAt: CLOUDDAY_RESET, limitAt: Date.now() - 600_000 } : {};
+  fixtureSettingsState.workspace.codex.accounts = [
+    { profile: 'default', email: 'you@example.com', name: null, plan: 'Plus', accountId: null, signedIn: true, chosen: true, ...limited },
+  ];
+  if (params.has('cloudday')) fixtureSettingsState.workspace.codex.trouble = 'Codex is at its usage limit, so its tasks are waiting. They start again on their own when it resets.';
 }
 if (params.has('codextrouble') && fixtureSettingsState.workspace.codex) {
   fixtureSettingsState.workspace.codex.trouble = `Codex sessions are dying on arrival, so its tasks are not moving. ${NAME} keeps trying.`;
@@ -320,6 +336,14 @@ function fixtureAccountUsage(): AccountUsageReading[] {
 
 // &codexaccounts=two: the Plus login not in use has its own session and week.
 function fixtureCodexAccountUsage(): AccountUsageReading[] {
+  if (params.has('localonly') || params.has('cloudday')) {
+    const now = Date.now();
+    const full = params.has('cloudday');
+    const window = (span: 'session' | 'week', percent: number, resetsAt: number) => ({
+      span, qualifier: null, name: span === 'session' ? 'This session' : 'This week', percent, resetsText: null, resetsOn: null, resetsAt, zone: null,
+    });
+    return [{ profile: 'default', at: now - 120_000, limits: [window('session', full ? 0 : 18, now + 3 * 3_600_000), window('week', full ? 100 : 31, full ? CLOUDDAY_RESET : now + 4 * 86_400_000)] }];
+  }
   if (params.get('codexaccounts') !== 'two') return [];
   const now = Date.now();
   const window = (span: 'session' | 'week', percent: number, resetsAt: number) => ({
@@ -491,9 +515,9 @@ export const api = {
       // builds its own object; layering it here is what lets
       // ?fixtures=empty&engines=codex photograph the corner naming an agent on
       // the idle page. A world of `null` hands the snapshot straight back.
-      return codexOut(fixtureSecondEngine(empty, engineFixtures));
+      return codexOut(withEngines(empty));
     }
-    if (mockFixtures) return fixtureSecondEngine(structuredClone(fixtureMock), engineFixtures);
+    if (mockFixtures) return withEngines(structuredClone(fixtureMock));
     if (crowdedFixtures) {
       const base = structuredClone(fixtureSnapshot);
       base.products = CROWDED_NAMES.map((name) => ({
@@ -509,7 +533,7 @@ export const api = {
       // live supervisor to write to.
       base.supervisor.hiddenProducts = (params.get('hidden') ?? '').split(',').filter(Boolean);
       if (!params.has('approvals')) base.approvals = [];
-      return fixtureSecondEngine(base, engineFixtures);
+      return withEngines(base);
     }
     if (useFixtures) {
       const base = structuredClone(fixtureSnapshot);
@@ -690,10 +714,8 @@ export const api = {
         base.usage = { engine: 'codex', limits, at: now - 6 * 3_600_000 };
         base.usageByEngine = [base.usage];
       }
-      return codexOut(fixtureSecondEngine(base, engineFixtures));
+      return codexOut(withEngines(base));
     }
-    // A document's holder thread is the app's, so no list of threads draws it.
-    const shown = (s: Snapshot) => ({ ...s, items: withoutFileHomes(s.items) });
     const got = snapshots.take(await window.zero!.snapshot({ ...snapshots.ask(), open: openThread }));
     if (got) return shown(got);
     // Built on a list this window no longer holds: a whole one, which take() never refuses.
@@ -773,7 +795,7 @@ export const api = {
   // everything else, so the reply box can be built and looked at without a live
   // session to type into. Fixtures answer sent-and-working, which is the good
   // case; &agentUnsure draws the failure, which is the one worth looking at.
-  async agentReply(p: { pid: number; text: string }): Promise<{ ok: boolean; delivered?: boolean; working?: boolean; name?: string; reason?: string; key?: string; at?: number }> {
+  async agentReply(p: { pid: number; text: string; engine?: string }): Promise<{ ok: boolean; delivered?: boolean; working?: boolean; name?: string; reason?: string; key?: string; at?: number }> {
     if (useFixtures) {
       if (params.has('agentUnsure')) return { ok: false, reason: 'That agent is not listening any more.' };
       return { ok: true, delivered: true, working: true };
@@ -781,16 +803,21 @@ export const api = {
     return window.zero?.agentReply?.(p) ?? { ok: false, reason: 'The message could not be handed over.' };
   },
 
-  async agentReveal(p: { pid: number }): Promise<{ ok: boolean; name?: string; reason?: string }> {
-    if (useFixtures) return { ok: true, name: 'CNVS' };
+  async agentReveal(p: { pid: number; engine?: string; sessionId?: string | null }): Promise<{ ok: boolean; name?: string; reason?: string }> {
+    if (useFixtures) return { ok: true, name: p.engine === 'codex' ? 'Codex' : 'CNVS' };
     return window.zero?.agentReveal?.(p) ?? { ok: false, reason: `${Name} cannot tell which window it is running in.` };
+  },
+
+  async bringInSession(p: { pid: number; engine?: string; sessionId?: string | null }): Promise<BringInResult> {
+    if (useFixtures) return { ok: true, product: 'storefront', id: 'w-brought' };
+    return window.zero?.bringInSession?.(p) ?? { ok: false, reason: `Quit and reopen ${Name} to bring sessions in.` };
   },
 
   // WHAT THE TWO OF THEM SAID, read only when she presses the line. The main
   // process streams it off the transcript she already has; nothing is sent and
   // no model sees a word of it. `whole` is her pressing the gap line: send the
   // middle back too.
-  async agentConversation(p: { pid: number; sessionId: string | null; cwd: string; whole?: boolean }): Promise<AgentConversation> {
+  async agentConversation(p: { pid: number; sessionId: string | null; cwd: string; whole?: boolean; engine?: string }): Promise<AgentConversation> {
     if (useFixtures) return fixtureConversation();
     return window.zero?.agentConversation?.(p) ?? { ok: false, reason: 'That conversation could not be read.' };
   },
@@ -964,10 +991,18 @@ export const api = {
 
   // Hand a file to the operating system, the way every link on a card already
   // does. The pane's first mark, and what a png or a pdf still does.
-  async openArtifactExternally(p: { product: string; src: string; thread?: string }): Promise<{ ok: boolean; error?: string }> {
+  // `app` opens it in one of the apps `appsThatOpen` listed; `reveal` shows it in Finder.
+  async openArtifactExternally(p: { product: string; src: string; thread?: string; app?: string; reveal?: boolean }): Promise<{ ok: boolean; error?: string }> {
     const zero = window.zero;
     if (!zero?.openArtifact) { window.open(p.src, '_blank'); return { ok: true }; }
-    return zero.openArtifact(p);
+    const { reveal, ...ask } = p;
+    return zero.openArtifact(reveal ? { ...ask, mode: 'reveal' } : ask);
+  },
+
+  // The open mark's menu. The phone's door has no such channel and throws, which reads as no list.
+  async appsThatOpen(p: { product: string; src: string; thread?: string }): Promise<AppsThatOpen> {
+    try { return (await window.zero?.openWith?.(p)) ?? { ok: false, apps: [] }; }
+    catch { return { ok: false, apps: [] }; }
   },
 
   // Everything that happened on one task: the raw ledger lines, which the
@@ -1038,7 +1073,7 @@ export const api = {
   // once instead of after it (main/claude-input.mts `interrupt`).
   // `inReplyTo` is the uid of the message a reply in a thread answers
   // (w-920461cbe6); main keeps it only in a conversation between people.
-  async answer(p: { product: string; id: string; answer?: string; status?: string; priority?: number; permissionMode?: AnswerMode | null; engine?: string | null; model?: string | null; effort?: string | null; now?: boolean; inReplyTo?: string; closeUnshipped?: boolean; runAt?: number; putAway?: boolean; reopenAs?: WasBeforeClose }): Promise<WorkItem | null> {
+  async answer(p: { product: string; id: string; answer?: string; status?: string; priority?: number; permissionMode?: AnswerMode | null; engine?: string | null; model?: string | null; effort?: string | null; now?: boolean; inReplyTo?: string; closeUnshipped?: boolean; runAt?: number; putAway?: boolean; reopenAs?: WasBeforeClose; reopen?: boolean }): Promise<WorkItem | null> {
     if (useFixtures) return null;
     return window.zero!.answer(p);
   },
@@ -1094,7 +1129,7 @@ export const api = {
     return window.zero.teamThreadWork(p);
   },
   // Lines, files and comments inside threads (main/everything-found.mts).
-  async findInThreads(p: { query: string; limit?: { lines?: number; files?: number; comments?: number } }): Promise<FoundInThreads> {
+  async findInThreads(p: { query: string; limit?: { lines?: number; files?: number; comments?: number }; opened?: Record<string, number> }): Promise<FoundInThreads> {
     const none: FoundInThreads = { lines: [], files: [], comments: [], total: { lines: 0, files: 0, comments: 0 } };
     if (!window.zero?.findInThreads) return none;
     const got = await window.zero.findInThreads(p).catch(() => none);
@@ -1132,8 +1167,9 @@ export const api = {
   async connectionsCheck(p: { id: string }): Promise<ConnectionTile | null> { return (await window.zero?.connectionsCheck?.(p).catch(() => null)) ?? null; },
   async connectionsDisconnect(p: { id: string }): Promise<void> { await window.zero?.connectionsDisconnect?.(p); },
   async connectionsAccept(p: { id: string }): Promise<void> { await window.zero?.connectionsAccept?.(p); },
-  async filesPlace(): Promise<FilesPlaceList> {
-    return (await window.zero?.filesPlace?.().catch(() => null)) ?? { files: [], projects: [], folders: [] };
+  /** `soon`: the last list made, at once, for a page with nothing to draw yet. */
+  async filesPlace(opts?: { soon?: boolean }): Promise<FilesPlaceList> {
+    return (await window.zero?.filesPlace?.(opts).catch(() => null)) ?? { files: [], projects: [], folders: [] };
   },
   async filesPlaceFolder(p: FileFolderAct): Promise<{ ok: boolean; error?: string; folder?: string | null; ids?: string[] }> {
     if (!window.zero?.filesPlaceFolder) return { ok: false, error: `quit and reopen ${NAME} to use folders` };
@@ -1907,6 +1943,13 @@ export const api = {
     const zero = laterBridge();
     if (!zero?.signInAnswer) return { ok: false, error: RESTART_NOTE };
     return zero.signInAnswer(p);
+  },
+
+  /** Whether a cloud sign-in an agent on this thread is waiting on is saved for every cloud thread. */
+  async signInKeep(p: { product: string; id: string; ask: string; keep: boolean }): Promise<{ ok: boolean; error?: string }> {
+    const zero = laterBridge();
+    if (!zero?.signInKeep) return { ok: false, error: RESTART_NOTE };
+    return zero.signInKeep(p);
   },
 
   /** Signing in to Agentbox Cloud itself, on the app's sign-in page: Google, email, a new account and its link again, or a password reset. */

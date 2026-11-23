@@ -18,6 +18,7 @@ import { describe, it, expect } from 'vitest';
 import { HOSTED_SERVICES } from '../shared/hosted-services.mts';
 import { CLOUD_ADDRESS } from '../shared/cloud-address.mts';
 import { cloudAccountConfig } from '../main/cloud/config.mts';
+import { loadCloudConfig } from '../main/team/session.mts';
 import { FEEDBACK_ADDRESS, feedbackUrl, sendFeedback } from '../main/feedback.mts';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -63,6 +64,29 @@ describe('the cloud', () => {
 
   it('is not a half-written file of yours', () => {
     expect(cloudAccountConfig(folderWithCloud({ gateway: 'https://gateway.mine.example' }), { home: emptyFolder(), hosted: OFF })).toBeNull();
+  });
+});
+
+// 2026-11-23 sync: Agentbox made a checkout with no team file sign in to its
+// own team's database ("forks get Multiplayer", main/team/session.mts), which
+// read past this switch. Measured on the merge: loadCloudConfig of an empty
+// checkout answered the original team's supabaseUrl.
+describe('the team sign-in', () => {
+  const lookup = (dir, extra = {}) => loadCloudConfig(dir, { packaged: false, home: emptyFolder(), env: {}, ...extra });
+
+  it('is not the original team from a checkout with no team file', () => {
+    expect(lookup(emptyFolder())).toBeNull();
+  });
+
+  it('comes back when its switch is on', () => {
+    expect(lookup(emptyFolder(), { hosted: ON })?.url).toBe(CLOUD_ADDRESS.supabaseUrl);
+  });
+
+  it('is still a team file of yours with the switch off', () => {
+    const dir = emptyFolder();
+    fs.mkdirSync(path.join(dir, 'cloud'));
+    fs.writeFileSync(path.join(dir, 'cloud', 'team.config.json'), JSON.stringify({ url: 'https://mine.example', anonKey: 'anon-mine' }));
+    expect(lookup(dir, { hosted: OFF })?.url).toBe('https://mine.example');
   });
 });
 

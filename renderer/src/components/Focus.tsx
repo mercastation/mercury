@@ -43,7 +43,7 @@ import { MessageMarkdown } from './MessageMarkdown';
 import { ConnectionLink } from '../connections/ConnectionsPlace';
 import { connectionLinkOf } from '../connections/connections-shown';
 import remarkGfm from 'remark-gfm';
-import type { AgentTurn, AnswerMode, CodexModeId, FileMarkLink, PermissionMode, RunningSession, WorkItem } from '../types';
+import type { AgentMode, AgentTurn, AnswerMode, CodexModeId, FileMarkLink, PermissionMode, RunningSession, WorkItem } from '../types';
 import type { ReplyPick } from '../reply-pick';
 import {
   MENU_TITLE, MODE_ORDER, MODE_STATUS, MODE_WORDS, exactClear, exactMode, nextMode, slashQuery,
@@ -98,11 +98,11 @@ import { fileNewsFor, shownName, type ThreadLine } from '../../../shared/artifac
 import { whereAFileOpens } from '../artifact-layout';
 import { carryLine, type CarryState } from '../../../shared/carried-files.mts';
 import { watchScrollGutter } from '../scroll-gutter';
-import { CODE_PATH, artifactUrlTransform, isMediaPath, remarkArtifactPaths, shortPath } from '../remark-artifact-paths';
+import { CODE_PATH, accountFilePath, artifactUrlTransform, isMediaPath, remarkArtifactPaths, shortPath } from '../remark-artifact-paths';
 import { api } from '../api';
 import { draftKey, readDraft, saveDraft, clearDraft, readDraftAttachments, saveDraftAttachments, readDraftPick, saveDraftPick, readDraftWhen, saveDraftWhen, type SentDraft } from '../drafts';
 import { ReplyLater } from './ReplyLater';
-import { effortSaid, modelShown, pickOnItsWay, pickToSend, replyOpensOn } from '../reply-pick';
+import { effortSaid, modelShown, pickOnItsWay, pickToSend, replyHarness, replyOpensOn, takesModesAndCommands } from '../reply-pick';
 import { withQuote } from '../team/chat-quote';
 import { THREAD_WIDTH, THREAD_WIDTH_KEY, clampThreadWidth, paneForThread, threadToOpen } from '../team/chat-threads';
 import { heldByAPerson, isGivenTask, nameIsAPersons, taskGiver, whatWaits } from '../../../shared/team-rules.mts';
@@ -124,13 +124,15 @@ import { optionIsClipped, optionPeek } from '../option-peek';
 import { agentSaidNotReady, changedFiles, FOLDER_SETTLES_MS, folderMayStillMove, onlyNamedFiles, saidNotToShip, shipOfferFor, shipOfferLive, standingFrom, UNREAD, type ChangedFile, type Standing } from '../ship-offer';
 import { THE_OPTIONS_MOVED, clickLandsOnTheRowYouSaw, stripUnderThePointer } from '../pick-settles';
 import { askHeading, askFull, askIsClipped } from '../ask-line';
-import { replyIsSwallowed, replyReaches } from '../../../shared/agents.mts';
+import { answeredWhereItRuns, replyIsSwallowed, replyReaches } from '../../../shared/agents.mts';
 import { recapFor } from '../recap';
 import type { LedgerLine } from '../thread-history';
 import type { LiveFacts } from '../live-line';
 import { offersRunNow } from '../run-now';
 import { AttachRow } from './AttachRow';
 import { AgentThread } from './AgentThread';
+import { BRING_IN } from '../outside-agents';
+import { chord } from '../this-keyboard';
 import { Live } from './Live';
 import { SidebarIcon } from './SidebarIcon';
 import { Byline, ConversationAside } from './Byline';
@@ -145,6 +147,7 @@ import { useKeepInWindow } from '../keep-in-window';
 import { escapeClosesMenu } from '../menu-escape';
 import { isUpdateRow } from '../update-row';
 import { TeamRouteStrip, teamHeld } from '../team/TeamFocus';
+import { SendBack } from '../team/SendBack';
 import { HandedLine } from '../team/HandedBy';
 import {
   PriorityPicker, priorityIdOf, priorityValueOf, type PriorityId,
@@ -157,7 +160,7 @@ import { ThreadsMade, type MadeRow } from './ThreadsMade';
 import { ChatAgentsContext, useChatMentions } from '../team/ChatAgents';
 import { useThreadMentions } from './ThreadMentions';
 import { AGENT_SCHEME } from '../team/agent-mentions';
-import { antigravityModelRows, defaultModelFor, engineModelLabel } from '../models';
+import { antigravityModelRows, defaultModelFor, engineModelLabel, furtherHarnesses } from '../models';
 import { defaultEffortFor, effortChoicesFor, effortShown } from '../effort';
 import { ENGINES } from '../../../shared/engines.mts';
 import { lookAgainAfter } from '../picture-looks-again';
@@ -346,7 +349,9 @@ export function ArtifactImg({ src, alt, roots, onOpen, find }: {
     const file = whole;
     if (found) return door(found, <FittedImg maxHeight={maxHeight} minWidth={minWidth} src={pictureUrl(found)} alt={alt ?? ''} className="inline-image" crossOrigin="anonymous" />);
     if (broken && direct) return <CarriedNote src={file} always />;
-    if (broken) return <button type="button" className="missing-artifact" title="Look for it again" onClick={() => { setTries(tries + 1); setBroken(false); }}>missing image: {file}</button>;
+    // The finder may know where it really is (a project folder left out of the path).
+    if (broken && found === undefined && find) return <span className="inline-image arriving" aria-hidden="true" />;
+    if (broken) return <button type="button" className="missing-artifact" title={`${file} could not be found. Press to look again.`} onClick={() => { setTries(tries + 1); setBroken(false); }}>missing image: {shownName(file)}</button>;
     return door(file, <FittedImg maxHeight={maxHeight} minWidth={minWidth} src={again(pictureUrl(file))} alt={alt ?? ''} className="inline-image" crossOrigin="anonymous" onError={() => setBroken(true)} />);
   }
   const rel = src.replace(/^\.\//, '');
@@ -756,7 +761,11 @@ export function ArtifactEmbed({ product, path, fallback, open, onOpen }: {
 /** Which threads' choices are folded, kept on this machine. */
 const CHOICES_FOLDED = 'one.choicesFoldedOn';
 
-export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlot, inlineArtifacts, headerTarget, cornerHeaderTarget, crumbFrom, item, parent, blockedBy, filed = [], runningMode, engineChoice, runningEngine, codexModels, codexModelDefault, engines, items, session, live, stoppable: stoppableIn, productDir, repoDir, selectedOption, returnedFromSnooze, scheduledUntil, scheduledByAgent, replyOpen, sending, stalled, openDoc, resumeAt, onScrolled, onOpenDoc, onCloseDoc, onRedeliver, onTryAgain, onUnschedule, onClose, onResolve, onCloseTask, onPick, onReply, onReplySend, onReplyClose, onStop, onRunNow, onPin, place: runsIn = null, onPlace, onReopen, onReopenDone, onMove, onPriority, onSnooze, onReveal, onOpenItem, onApproveFiled, onHereFiled, onDismissFiled, onStartAllFiled, onDismissAllFiled, closeAsk, onNotice, onHandToAgent, onAddPeople, onShare, giveTo = [], onGive, onAsk, asksCorner = null, shippedMark = null, onShipped, waitChoices = [], waitNow = null, waitEndedWords = null, onWait, repeat = null, pageAsk = null, onAsked, onShown, aboveDock, questions, queue = null, onePage = false, inChats = false, openAt = null, cloudKeys = null, outOfUsage }: {
+const goIcon = <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14 4h6v6" /><path d="m20 4-9 9" /><path d="M18 14v5H5V6h5" /></svg>;
+/** An arrow going in through a door: into here. The arrow has to read at 15 points. */
+const inIcon = <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4" /><path d="m9 16 4-4-4-4" /><path d="M13 12H3" /></svg>;
+
+export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlot, inlineArtifacts, headerTarget, cornerHeaderTarget, crumbFrom, item, parent, blockedBy, filed = [], runningMode, engineChoice, runningEngine, codexModels, codexModelDefault, engines, items, session, live, stoppable: stoppableIn, productDir, repoDir, selectedOption, returnedFromSnooze, scheduledUntil, scheduledByAgent, replyOpen, sending, stalled, openDoc, resumeAt, onScrolled, onOpenDoc, onCloseDoc, onRedeliver, onTryAgain, onUnschedule, onClose, onResolve, onCloseTask, onPick, onReply, onReplySend, onReplyClose, onStop, onRunNow, onPin, place: runsIn = null, onPlace, onReopen, onReopenDone, onMove, onPriority, outside = 'all', onOutside, onBringIn, onSnooze, onReveal, onOpenItem, onApproveFiled, onHereFiled, onDismissFiled, onStartAllFiled, onDismissAllFiled, closeAsk, onNotice, onHandToAgent, onAddPeople, onShare, giveTo = [], onGive, onAsk, asksCorner = null, shippedMark = null, onShipped, waitChoices = [], waitNow = null, waitEndedWords = null, onWait, repeat = null, pageAsk = null, onAsked, onShown, aboveDock, questions, queue = null, onePage = false, inChats = false, openAt = null, cloudKeys = null, outOfUsage }: {
   /** `supervisor.outOfUsage`, for the reply box's model chip. */
   outOfUsage?: Record<string, { tool: string; until: number }>;
   /** One thing at a time (w-65bcefb857): this thread's place in Needs you and the arrows that walk it. */
@@ -947,6 +956,11 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   onMove?: () => void;
   /** Sets the thread's level, from the thread's own menu. */
   onPriority?: (value: number) => void;
+  /** How many sessions started outside Agentbox the inbox takes, changed from one of their pages. */
+  outside?: AgentMode;
+  onOutside?: (mode: AgentMode) => void;
+  /** Makes a session started outside Agentbox one of its threads. */
+  onBringIn?: () => void;
   // Putting something off had no button anywhere in the app: S, and only S.
   // Every other verb in this footer is clickable, so the one verb that is not
   // is the one a hand that has never read a shortcut list cannot reach.
@@ -1033,6 +1047,14 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // 2026-08-17. The only agent a message really is swallowed by is the one
   // frozen on a permission prompt, and that is now the only one without a box.
   const replyBlocked = agent ? replyIsSwallowed(agent) : false;
+  // Codex working on her message in its own window: nothing here to answer, so no box at all.
+  const codexAtWork = agent?.engine === 'codex' && !agent.approval && answeredWhereItRuns(agent);
+  // Pressing it takes her there: the Codex app, or the very terminal tab or editor the session is in.
+  // Only a session with a project to go to and an id to file it under can move here.
+  const bringIn = agent?.product && agent.sessionId && onBringIn ? onBringIn : null;
+  // The bar offers it beside Respond in terminal; only a session without that bar has it in ⋯.
+  const barBringsIn = !!bringIn && !update && !trouble && replyBlocked && !codexAtWork && !!onReveal;
+  const respondIn = agent?.app === 'Codex app' ? 'Respond in Codex' : agent?.app === 'Codex in your editor' ? 'Respond in your editor' : 'Respond in terminal';
 
   // A SUMMARISED THREAD is work with a ledger: not a message between two people
   // (main/team/projects.mts makeDirect), and not a running agent's row, the
@@ -1422,6 +1444,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
     const resolveSrc = (src?: string) => {
       if (!src) return src;
       if (/^(https?|file|data):/.test(src)) return src;
+      if (src.startsWith('/')) return `file://${src}`;
       if (!productDir) return src;
       return `file://${productDir}/${src.replace(/^\.\//, '')}`;
     };
@@ -1526,12 +1549,13 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
         const value = String(children ?? '');
         if (!className && ticketReference(value)) return <code>{children}</code>;
         const source = !className && sourceReference(value);
-        if (source) return <ArtifactLink kind="code" product={product} src={source} fallback={resolveSrc(source)} onOpen={(click, from) => openHref(source, from, click)}>{mentionName(value)}</ArtifactLink>;
+        if (source) return <ArtifactLink kind="code" product={product} src={source} fallback={resolveSrc(source)} onOpen={(click, from) => openHref(source, from, click)}>{mentionName(shortPath(value.trim(), null, taskFolder(repoDir, item.id)) ?? value)}</ArtifactLink>;
         // Written out in full into this product's folder, or the thread's own,
         // counts as the short path it names, as a full path in a sentence does.
         const shown = value.trim();
-        const path = (!className && shortPath(shown, productDir, taskFolder(repoDir, item.id))) || shown;
-        if (!className && (PATH_RE.test(path) || (conversing && path.startsWith('/') && PATH_RE.test(path.slice(1))))) {
+        const meant = className ? null : accountFilePath(shown, productDir);
+        const path = (!className && shortPath(shown, productDir, taskFolder(repoDir, item.id))) || meant || shown;
+        if (!className && (PATH_RE.test(path) || path === meant || (conversing && path.startsWith('/') && PATH_RE.test(path.slice(1))))) {
           if (/\.(png|jpe?g|gif|webp)$/i.test(path)) {
             return <ArtifactImg key={path} src={path} alt={shown} roots={roots} onOpen={openHref} find={find} />;
           }
@@ -1989,7 +2013,8 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
       onAddPeople={onAddPeople ? (person) => onAddPeople(item, person) : undefined}
       /* A PHONE HAS NO TERMINAL AND NO ⌘J (QA batch 005, F-118), and it is the
          only way it has of putting a thread off (F-117). */
-      terminal={direct || onPhone() ? null : terminalOpen ? 'open' : 'closed'}
+      // A session started outside Agentbox: ⌘J goes to its own terminal, the bar's Respond in terminal.
+      terminal={direct || onPhone() || agent ? null : terminalOpen ? 'open' : 'closed'}
       onToggleTerminal={() => window.dispatchEvent(new Event('task-terminal-toggle'))}
       onFinish={canFinish ? onResolve : null}
       // An ask is answered by handing it back, so it offers no second way to end it.
@@ -2027,6 +2052,9 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
       onDemand={(id) => placing?.place(item, id)}
       priority={priorityIdOf(shownPriority(item))}
       onPriority={canFinish && !agent && !direct && onPriority ? (id) => onPriority(priorityValueOf(id)) : undefined}
+      outside={agent ? outside : null}
+      onOutside={agent ? onOutside : undefined}
+      onBringIn={barBringsIn ? null : bringIn}
     />
   );
 
@@ -2286,12 +2314,11 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
          */}
         {agent && (
           <AgentThread
-            pid={agent.pid}
-            sessionId={agent.sessionId}
-            cwd={agent.cwd}
-            name={agent.name}
+            agent={agent}
+            title={agent.about?.trim() || item.title}
             movedAt={agent.lastActiveAt ?? 0}
             md={md}
+            onPick={onPick}
           />
         )}
 
@@ -2536,7 +2563,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
        */}
       {((item.start === 'later' && !!onUnschedule)
         || (scheduledHere && !!onUnschedule)
-        || (!!agent && !agentTakesReply && !!onReveal)) && (
+        || (!!agent && !agentTakesReply && !!onReveal && agent.engine !== 'codex')) && (
       <div className="focus-actions">
         {/* ADDED TO LATER (w-afb66e6661): it has no moment to read back, so
             the line says the one thing there is to say and the press starts
@@ -2589,12 +2616,10 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
         {/* Offered on any agent that has not stopped for her, which since
             w-9348b8d148 includes ones she can also write to: a quiet session
             takes a message AND is sometimes just the thing she wants to go sit
-            in. This is honestly named: it brings the APPLICATION the session is
-            running inside to the front, which is the whole of what is actually
-            available. Nothing public focuses one pane inside another app. */}
-        {agent && !agentTakesReply && onReveal && (
-          <><button className="focus-stop" onClick={onReveal}>Take me to it</button>
-          <span className="focus-when">Opens the app it is running in</span></>
+            in. It brings up the very tab the session runs in (main/bring-to-front.mts),
+            in the words the bar under a session uses. */}
+        {agent && !agentTakesReply && onReveal && agent.engine !== 'codex' && (
+          <button className="focus-stop" onClick={onReveal}>Respond in terminal</button>
         )}
         {/* A blocked thread has no buttons here: its reply goes to the agent,
             as on every thread, and asking someone is in Share. "Send back to
@@ -2642,6 +2667,8 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
               Unless they wrote options of their own, which are the better
               answers to their question and are drawn instead. */}
           {!stripShown && <TeamRouteStrip item={item} onHandToAgent={onHandToAgent} items={items} onOpenItem={onOpenItem} />}
+          {/* An agent thread started from a teammate's work: its new version goes back to them. */}
+          <SendBack item={item} items={items ?? []} />
           {/* THE OPTIONS ARE NOT DOWN HERE ANY MORE, EXCEPT IN FULL SCREEN
               (w-560647d4db). They are drawn in the pane, at the foot of the turn
               that offered them, and the note at that call site says why.
@@ -2680,11 +2707,27 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
                THIS IS THE ONLY ONE. A quiet agent used to get this pill too,
                saying there was nothing there to answer, and that was false: it
                is sitting at its prompt and it is listening. w-9348b8d148. */
+            /* The two places it can be answered, side by side: where it runs, or here. */
+            codexAtWork ? null : onReveal ? (
+              <div className="dock-split">
+                <button type="button" className="dock-pill dock-pill-go" onClick={onReveal}>
+                  <span className="dock-pill-icon">{goIcon}</span>
+                  <span className="dock-pill-text">{agent?.engine === 'codex' ? respondIn : 'Respond in terminal'}</span>
+                  <span className="dock-pill-key"><kbd>{chord('⌘J')}</kbd></span>
+                </button>
+                {bringIn && <button type="button" className="dock-pill dock-pill-go" onClick={bringIn}>
+                  <span className="dock-pill-icon">{inIcon}</span>
+                  <span className="dock-pill-text">{BRING_IN}</span>
+                  <span className="dock-pill-key"><kbd>{chord('R')}</kbd></span>
+                </button>}
+              </div>
+            ) : (
             <div className="dock-pill dock-pill-static">
               <span className="dock-pill-text">
                 Answer this one in its own window. A message from here would wait behind the box it is stuck on.
               </span>
             </div>
+            )
           ) : replyOpen ? (
             /* THE STOP RIDES IN THE COMPOSER'S OWN FOOTER, beside Send, rather
                than beside the box: that row is where this card already keeps
@@ -3051,19 +3094,21 @@ function DockComposer({ item, onItsWay = null, runningMode, runningEngine, codex
   const claudeOffered = engineRows.some((e) => e.id === 'claude');
   const antigravityOffered = engineRows.some((e) => e.id === 'antigravity');
   const modelOpts = { codexModels, codexDefault: codexModelDefault };
+  // A harness besides those two that is on offer here, as the new thread card lists it.
+  const further = furtherHarnesses();
+  const furtherIds = further.map((h) => h.id);
   // The agent the row runs on now, as main resolved it, and the one the menu
   // is showing, which is the same until she picks the other.
-  const asHarness = (id: string | null | undefined): Harness | null => (id === 'codex' || id === 'claude' || id === 'antigravity' ? id : null);
-  const engineNow: Harness = asHarness(runningEngine) ?? 'claude';
-  const engineShown: Harness = asHarness(engineChosen) ?? engineNow;
-  const pick: ModelPick = { engine: engineShown, model: model ?? defaultModelFor(engineShown, codexModelDefault) };
+  const { now: engineNow, shown: engineShown } = replyHarness(runningEngine, engineChosen, furtherIds);
+  // A further harness with no model named runs on its own choice, so no row is lit.
+  const pick: ModelPick = { engine: engineShown, model: model ?? (furtherIds.includes(engineShown) ? '' : defaultModelFor(engineShown, codexModelDefault)) };
   // agy's list lands seconds after launch (main/ipc.mts), as a new array, so the rows follow it.
   const agyRows = antigravityModelRows();
   const recent = useMemo(
-    () => recentModels(items, { codexModels, codexDefault: codexModelDefault, codexOffered, claudeOffered, antigravityOffered }),
-    [items, codexModels, codexModelDefault, codexOffered, claudeOffered, antigravityOffered, agyRows],
+    () => recentModels(items, { codexModels, codexDefault: codexModelDefault, codexOffered, claudeOffered, antigravityOffered, further }),
+    [items, codexModels, codexModelDefault, codexOffered, claudeOffered, antigravityOffered, agyRows, further],
   );
-  const every = useMemo(() => allModels({ codexModels, codexOffered, claudeOffered, antigravityOffered }), [codexModels, codexOffered, claudeOffered, antigravityOffered, agyRows]);
+  const every = useMemo(() => allModels({ codexModels, codexOffered, claudeOffered, antigravityOffered, further }), [codexModels, codexOffered, claudeOffered, antigravityOffered, agyRows, further]);
   const effortRows = effortChoicesFor(engineShown, pick.model, modelOpts);
   const effortLit = effortShown(effort, effortRows, defaultEffortFor(engineShown, pick.model, modelOpts));
   // A LEVEL BELONGS TO THE MODEL IT WAS PICKED FOR, so crossing to the other
@@ -3073,7 +3118,7 @@ function DockComposer({ item, onItsWay = null, runningMode, runningEngine, codex
   };
   // What a move costs, said only while it is true (drawn below the box).
   const freshNote = engineShown !== engineNow
-    ? `${engineRows.find((e) => e.id === engineShown)?.label ?? 'It'} starts fresh with this thread.`
+    ? `${[...engineRows, ...further].find((e) => e.id === engineShown)?.label ?? 'It'} starts fresh with this thread.`
     : null;
   const ref = useRef<HTMLTextAreaElement | null>(null);
   // The hidden file input the formatting bar's attach button opens.
@@ -3282,7 +3327,7 @@ function DockComposer({ item, onItsWay = null, runningMode, runningEngine, codex
     // default unpinned the thread rather than pinning it (../reply-pick.ts).
     onSend([named.encode(chat.encode(words)), attachedMd].filter(Boolean).join('\n\n'), prio ? priorityValueOf(prio) : undefined, repeat, sent, mode,
       touched
-        ? pickToSend({ model, effort }, { engine: engineShown, was: engineNow, engineCount: engineRows.length })
+        ? pickToSend({ model, effort }, { engine: engineShown, was: engineNow, engineCount: engineRows.length + further.length })
         : undefined,
       canWait && sendAt > Date.now() ? sendAt : undefined);
   };
@@ -3340,10 +3385,12 @@ function DockComposer({ item, onItsWay = null, runningMode, runningEngine, codex
   // `codexThreadParamsFor` had no field to put it in. It has one, so the
   // control is honest on either engine. An external agent row still has none,
   // because that value is thrown away by the send.
-  const canSetMode = !item.agent;
+  // The permission words and the slash menu are Claude Code's and Codex's; a further harness takes neither.
+  const ownControls = takesModesAndCommands(runningEngine, furtherIds);
+  const canSetMode = !item.agent && ownControls;
   // Commands are provider-specific; canSetMode still gates every permission path.
   // A reply that goes to people reaches no agent, so it offers none of an agent's commands.
-  const toAgent = !item.agent && !talkTo?.length;
+  const toAgent = !item.agent && !talkTo?.length && ownControls;
   const query = toAgent ? slashQuery(text) : null;
   /*
    * ONE LIST, AND IT IS THE ONE THE MENU DRAWS. This was `modeMatches(query)`
@@ -3774,10 +3821,10 @@ function DockComposer({ item, onItsWay = null, runningMode, runningEngine, codex
               every={every}
               more={moreCount(recent, every)}
               labelOf={(p) => engineModelLabel(p.engine, p.model, modelOpts)}
-              engineLabel={(id) => engineRows.find((e) => e.id === id)?.label ?? ENGINES.find((e) => e.id === id)?.label ?? id}
+              engineLabel={(id) => [...engineRows, ...further].find((e) => e.id === id)?.label ?? ENGINES.find((e) => e.id === id)?.label ?? id}
               // The agent is named beside each model only where there are two of
               // them; on every other Mac the menu reads as it always did.
-              engineTags={engineRows.length > 1}
+              engineTags={engineRows.length + further.length > 1}
               effortRows={effortRows}
               effortLit={effortLit}
               // Toggled against HER pick, not against what is lit, so pressing

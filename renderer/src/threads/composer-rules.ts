@@ -10,7 +10,7 @@
 // picking where it runs, and the two can never disagree the way two pickers did
 // (a Claude alias sent to Codex is a run the supervisor refuses outright).
 
-import { antigravityModelRows, claudeModelRows, CODEX_OWN, DEFAULT_MODEL, engineModelPicked, type ModelChoice } from '../models';
+import { antigravityModelRows, claudeModelRows, CODEX_OWN, DEFAULT_MODEL, engineModelPicked, type FurtherHarness, type ModelChoice } from '../models';
 import { splitMessage } from '../message-split';
 import { parseWhen } from '../format';
 import { firstName } from '../team/company';
@@ -21,12 +21,13 @@ import { clockWords, dayDeadline } from '../../../shared/team-tasks.mts';
 import { threadOfLink } from '../../../shared/thread-link.mts';
 import { isAntigravityModel } from '../../../shared/engines.mts';
 
-export type Harness = 'claude' | 'codex' | 'antigravity';
+/** `claude`, `codex`, `antigravity` (Mercury's), or the id of a further harness on offer. */
+export type Harness = string;
 
 /** One model as the card holds it: where it runs, and the word that runs it. */
 export interface ModelPick {
   engine: Harness;
-  /** A Claude Code alias (`opus`), or a Codex slug (`gpt-6-astra`). */
+  /** A Claude Code alias (`opus`), a Codex slug (`gpt-6-astra`), or a further harness's own id for the model. */
   model: string;
 }
 
@@ -84,9 +85,11 @@ const WINDOW = 40;
  */
 export function recentModels(
   items: ReadonlyArray<{ createdAt?: number; model?: string; engine?: string; wrote?: { model?: { ts: number } | undefined } }>,
-  { codexModels = [], codexDefault = null, codexOffered, claudeOffered = true, antigravityOffered = false, limit = 3 }:
-    { codexModels?: readonly CodexRow[]; codexDefault?: string | null; codexOffered: boolean; claudeOffered?: boolean; antigravityOffered?: boolean; limit?: number },
+  { codexModels = [], codexDefault = null, codexOffered, claudeOffered = true, antigravityOffered = false, limit = 3, further = [] }:
+    { codexModels?: readonly CodexRow[]; codexDefault?: string | null; codexOffered: boolean; claudeOffered?: boolean; antigravityOffered?: boolean; limit?: number; further?: readonly FurtherHarness[] },
 ): ModelPick[] {
+  // A thread that ran on a further harness is a recent pick while that harness still lists the model.
+  const lists = (engine: string | undefined, model: string) => !!further.find((h) => h.id === engine)?.models?.some((m) => m.id === model);
   const out: ModelPick[] = [];
   const seen = new Set<string>();
   const add = (p: ModelPick) => {
@@ -99,16 +102,19 @@ export function recentModels(
   const pickedAt = (i: (typeof items)[number]) => Math.max(i.createdAt ?? 0, i.wrote?.model?.ts ?? 0);
   const used = items
     .filter((i) => typeof i.model === 'string' && i.model)
+    // A model of a harness that is gone, or that no longer lists it, is nobody else's to run.
+    // Antigravity's rows stay, and are left out below when it is not offered.
+    .filter((i) => !i.engine || i.engine === 'claude' || i.engine === 'codex' || i.engine === 'antigravity' || lists(i.engine, i.model as string))
     .map((i) => ({ i, at: pickedAt(i) }))
     .sort((a, b) => b.at - a.at)
     .slice(0, WINDOW)
     .map(({ i, at }) => {
       const model = i.model as string;
       // Antigravity's models include Claude's full ids, so only the row's own engine says it.
-      const engine: Harness = i.engine === 'codex' || i.engine === 'claude' || i.engine === 'antigravity' ? i.engine : harnessOf(model, codexModels);
+      const engine: Harness = i.engine === 'codex' || i.engine === 'claude' || i.engine === 'antigravity' || lists(i.engine, model) ? i.engine as string : harnessOf(model, codexModels);
       return { pick: { engine, model: engine === 'claude' ? claudeAliasOf(model) : model }, at };
     })
-    .filter(({ pick }) => (pick.engine === 'codex' ? codexOffered : pick.engine === 'antigravity' ? antigravityOffered : claudeOffered));
+    .filter(({ pick }) => (pick.engine === 'codex' ? codexOffered : pick.engine === 'antigravity' ? antigravityOffered : pick.engine === 'claude' ? claudeOffered : true));
   const tally = new Map<string, { pick: ModelPick; count: number; last: number }>();
   for (const { pick, at } of used) {
     const row = tally.get(keyOf(pick)) ?? { pick, count: 0, last: 0 };
@@ -130,21 +136,38 @@ export function recentModels(
   return out;
 }
 
-/** Everything behind "All models": Claude Code's list and, when offered, Codex's and Antigravity's. */
-export function allModels({ codexModels = [], codexOffered, claudeOffered = true, antigravityOffered = false }: { codexModels?: readonly CodexRow[]; codexOffered: boolean; claudeOffered?: boolean; antigravityOffered?: boolean }): {
-  claude: ModelPick[]; codex: ModelPick[]; antigravity: ModelPick[];
-} {
+export type { FurtherHarness };
+
+/** One more column behind "All models", for a further harness that has models to offer. */
+export interface ModelColumn { engine: string; label: string; models: readonly ModelPick[] }
+
+/** MERCURY: `antigravity` is its own column, drawn beside Codex's (./ModelMenu.tsx). */
+export interface AllModels { claude: readonly ModelPick[]; codex: readonly ModelPick[]; antigravity?: readonly ModelPick[]; others?: readonly ModelColumn[] }
+
+/** Everything behind "All models": Claude Code's list, Codex's and Antigravity's when offered, then a column for each further harness. */
+export function allModels({ codexModels = [], codexOffered, claudeOffered = true, antigravityOffered = false, further = [] }: {
+  codexModels?: readonly CodexRow[]; codexOffered: boolean; claudeOffered?: boolean; antigravityOffered?: boolean; further?: readonly FurtherHarness[];
+}): AllModels {
   return {
     claude: claudeOffered ? claudeModelRows().map((m) => ({ engine: 'claude' as const, model: m.id })) : [],
     codex: codexOffered ? codexModels.map((m) => ({ engine: 'codex' as const, model: m.id })) : [],
     antigravity: antigravityOffered ? antigravityModelRows().map((m) => ({ engine: 'antigravity' as const, model: m.id })) : [],
+    others: further
+      .filter((h) => h.models?.length)
+      .map((h) => ({ engine: h.id, label: h.label, models: h.models!.map((m) => ({ engine: h.id, model: m.id })) })),
   };
 }
 
 /** The "N more" on the All models row: what is in the columns and not in Recent. */
-export function moreCount(recent: readonly ModelPick[], all: { claude: readonly ModelPick[]; codex: readonly ModelPick[]; antigravity?: readonly ModelPick[] }): number {
-  const listed = new Set([...all.claude, ...all.codex, ...(all.antigravity ?? [])].map(keyOf));
+export function moreCount(recent: readonly ModelPick[], all: AllModels): number {
+  const listed = new Set([...all.claude, ...all.codex, ...(all.antigravity ?? []), ...(all.others ?? []).flatMap((c) => c.models)].map(keyOf));
   return listed.size - recent.filter((r) => listed.has(keyOf(r))).length;
+}
+
+/** What a further harness calls one of its models, or the id when it no longer lists it. */
+export function furtherModelLabel(further: readonly FurtherHarness[] | undefined, p: ModelPick): string | null {
+  const harness = further?.find((h) => h.id === p.engine);
+  return harness ? harness.models?.find((m) => m.id === p.model)?.label ?? p.model : null;
 }
 
 export const sameModel = (a: ModelPick | null | undefined, b: ModelPick | null | undefined) =>
@@ -811,7 +834,10 @@ export function taskHandOff({ from, brief, message, nameOf, handFrom, offered = 
   const where = projectOrAsk(handOffProject({ words: `${brief.title ?? ''}\n${brief.body}\n${pressed}`, cards, offered }));
   if (pressed && pressed !== brief.body.trim()) {
     const who = message?.by ? nameOf(message.by) : null;
-    return { to: 'agent', body: `${who ? `${who} wrote: ` : ''}${pressed}\n\n`, attachments, ...from_, ...where };
+    // Named for the task: a message's first line is often the link to the thread it came from.
+    const named = String(brief.title ?? '').trim();
+    const said = `${who ? `${who} wrote: ` : ''}${pressed}\n\n`;
+    return { to: 'agent', body: named ? `${named}\n\n${said}` : said, ...(named ? { named } : {}), attachments, ...from_, ...where };
   }
   // The thread is called what the task is called; who asked is its first words.
   const name = String(brief.title ?? '').trim();

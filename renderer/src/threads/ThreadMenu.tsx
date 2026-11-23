@@ -48,11 +48,13 @@ import type { Person } from '../types';
 import { ChooseList, CopiedSheet, EveryoneMark, GiveSheet, PanelBack, SeeList, SendSheet, ShareList, pointsAtStep } from './SharePanel';
 import { readAskDraft, saveAskDraft, type AskDraft, type ItemRef } from '../drafts';
 import type { SeenBy, ShareFace } from './share-rules';
+import { BRING_IN, OUTSIDE_ALL, OUTSIDE_ASK, OUTSIDE_MODES, OUTSIDE_TITLE, outsideLabel } from '../outside-agents';
+import type { AgentMode } from '../types';
 
 /** ⌘K asking a person: the thread's menu opens its sheet for them. */
 export const ASK_PERSON_EVENT = 'zero:ask-person';
 
-export type ThreadMenuRowId = 'follow' | 'continue' | 'share' | 'run' | 'code' | 'terminal' | 'people' | 'later' | 'priority' | 'demand' | 'pin' | 'rename' | 'move' | 'give' | 'wait' | 'shipped' | 'stop-repeat' | 'close-task' | 'reopen' | 'done';
+export type ThreadMenuRowId = 'follow' | 'continue' | 'share' | 'run' | 'code' | 'terminal' | 'people' | 'later' | 'priority' | 'demand' | 'outside' | 'bring-in' | 'pin' | 'rename' | 'move' | 'give' | 'wait' | 'shipped' | 'stop-repeat' | 'close-task' | 'reopen' | 'done';
 
 /**
  * WHERE THIS THREAD RUNS: in the cloud now (`cloud`), free to go there
@@ -99,7 +101,7 @@ export interface ThreadMenuRow {
  * door to one verb; on a phone there was no door at all and the Later tab
  * could not be filled. It names no key for the same reason.
  */
-export function threadMenuRows({ change, terminal, finish, follow = null, carryOn = false, runNow = false, share = false, shareButton = false, shareSays = null, people = false, later = false, priority = null, demand = null, pin = null, rename = false, move = false, give = false, wait = false, shipped = null, stopRepeat = false, closeTask = false, reopen = false }: {
+export function threadMenuRows({ change, terminal, finish, follow = null, carryOn = false, runNow = false, share = false, shareButton = false, shareSays = null, people = false, later = false, priority = null, demand = null, outside = null, bringIn = false, pin = null, rename = false, move = false, give = false, wait = false, shipped = null, stopRepeat = false, closeTask = false, reopen = false }: {
   /** A teammate's thread: whether you are told when it is done, or null where that cannot change. */
   follow?: 'on' | 'off' | null;
   /** A teammate's thread you can carry on in one of your own. */
@@ -134,10 +136,15 @@ export function threadMenuRows({ change, terminal, finish, follow = null, carryO
   priority?: PriorityId | null;
   /** The demand it serves, by name (null for none), or null where its project has no demand to pick. */
   demand?: { name: string | null } | null;
+  /** On a session started outside Mercury: how many of those the inbox takes. */
+  outside?: AgentMode | null;
+  /** And that it can carry on as a thread here. */
+  bringIn?: boolean;
   pin?: 'pinned' | 'unpinned' | null;
   give?: boolean;
 }): ThreadMenuRow[] {
   const rows: ThreadMenuRow[] = [];
+  if (bringIn) rows.push({ id: 'bring-in', label: BRING_IN, key: null });
   if (follow) rows.push({ id: 'follow', label: 'Tell me when it is done', key: null, on: follow === 'on' });
   if (carryOn) rows.push({ id: 'continue', label: 'Continue it yourself', key: null });
   // One door for both: someone looking to hand it off goes to Share first (founder, 2026-11-21).
@@ -149,6 +156,7 @@ export function threadMenuRows({ change, terminal, finish, follow = null, carryO
   if (later) rows.push({ id: 'later', label: 'Later', key: later === 'key' ? 'L' : null });
   if (priority) rows.push({ id: 'priority', label: 'Priority', key: null, detail: priorityLabelOf(priority) });
   if (demand) rows.push({ id: 'demand', label: 'Demand', key: null, detail: demand.name ?? 'None' });
+  if (outside) rows.push({ id: 'outside', label: OUTSIDE_ALL, key: null, detail: outsideLabel(outside) });
   if (rename) rows.push({ id: 'rename', label: 'Rename', key: null });
   if (move) rows.push({ id: 'move', label: 'Move to another project', key: null });
   if (pin) rows.push({ id: 'pin', label: pin === 'pinned' ? 'Unpin thread' : 'Pin thread', key: null });
@@ -189,7 +197,7 @@ function TerminalMark() {
   return <svg {...mark}><rect x="3" y="4" width="18" height="16" /><path d="m7 9 3 3-3 3m6 0h4" /></svg>;
 }
 /** The two ticks the Done mark was drawn with, now its row's mark. */
-function DoneMark() {
+export function DoneMark() {
   return <svg {...mark}><path d="m3 13 3.6 3.6L13.4 9" /><path d="m10.6 13 3.6 3.6L21 9" /></svg>;
 }
 /** A play mark with a bar in front of it: start this one, ahead of the line. */
@@ -255,11 +263,18 @@ function FollowMark() {
   return <svg {...mark}><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z" /><path d="M10 20.5h4" /></svg>;
 }
 /** An arrow turning off the line: carry it on from here. */
+/** An arrow going in through a door: into here, as the bar under a session draws it. */
+function BringInMark() {
+  return <svg {...mark}><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4" /><path d="m9 16 4-4-4-4" /><path d="M13 12H3" /></svg>;
+}
+function InboxMark() {
+  return <svg {...mark}><path d="M3 13.5h5l1.5 2.5h5l1.5-2.5h5" /><path d="M5.5 5h13L21 13.5V19H3v-5.5z" /></svg>;
+}
 function ContinueMark() {
   return <svg {...mark}><path d="M6 4.5v7a3.5 3.5 0 0 0 3.5 3.5H19" /><path d="m15 11 4 4-4 4" /></svg>;
 }
 const TICK = <svg className="ts-more-tick" {...mark}><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>;
-const MARKS: Record<ThreadMenuRowId, typeof CodeMark> = { follow: FollowMark, continue: ContinueMark, reopen: ReopenMark, share: PeopleMark, run: RunMark, code: CodeMark, terminal: TerminalMark, people: PeopleMark, later: LaterMark, priority: () => <PriorityIcon id="medium" />, demand: DemandMark, pin: () => <PinMark />, rename: RenameMark, move: MoveMark, give: GiveMark, wait: WaitMark, shipped: ShippedMark, 'stop-repeat': StopRepeatMark, 'close-task': CloseTaskMark, done: DoneMark };
+const MARKS: Record<ThreadMenuRowId, typeof CodeMark> = { follow: FollowMark, continue: ContinueMark, reopen: ReopenMark, share: PeopleMark, run: RunMark, code: CodeMark, terminal: TerminalMark, people: PeopleMark, later: LaterMark, priority: () => <PriorityIcon id="medium" />, demand: DemandMark, outside: InboxMark, 'bring-in': BringInMark, pin: () => <PinMark />, rename: RenameMark, move: MoveMark, give: GiveMark, wait: WaitMark, shipped: ShippedMark, 'stop-repeat': StopRepeatMark, 'close-task': CloseTaskMark, done: DoneMark };
 
 /** Three square dots, because every shape in this skin is square. */
 function Dots() {
@@ -315,7 +330,7 @@ function ShareButtonFace({ face }: { face?: ShareFace<Person> }) {
 
 /* ----------------------------------------------------------------- button */
 
-export function ThreadMenu({ thread = null, following = null, onFollow, onContinue = null, share = null, onCopyLink, onSendTo, onSee, onChoose, change = null, codeButton = null, codeOpen = false, onViewChange, addPeople = null, onAddPeople, terminal = null, onToggleTerminal, onFinish = null, onCloseTask = null, onStopRepeating = null, onReopen = null, handedTo = null, onRunNow = null, onLater = null, priority = null, onPriority, demand = null, onDemand, pinned = null, onPin, place = null, placeFacts = {}, onPlace, giveTo = [], onGive, onAsk, onRename = null, onMove = null, shipped = null, onShipped, waitChoices = [], waitsNow = false, onWait, blocks = false, files = null }: {
+export function ThreadMenu({ thread = null, following = null, onFollow, onContinue = null, share = null, onCopyLink, onSendTo, onSee, onChoose, change = null, codeButton = null, codeOpen = false, onViewChange, addPeople = null, onAddPeople, terminal = null, onToggleTerminal, onFinish = null, onCloseTask = null, onStopRepeating = null, onReopen = null, handedTo = null, onRunNow = null, onLater = null, priority = null, onPriority, demand = null, onDemand, outside = null, onOutside, onBringIn = null, pinned = null, onPin, place = null, placeFacts = {}, onPlace, giveTo = [], onGive, onAsk, onRename = null, onMove = null, shipped = null, onShipped, waitChoices = [], waitsNow = false, onWait, blocks = false, files = null }: {
   /** On a teammate's thread: whether you are told when it is done, or null where you cannot be. */
   following?: boolean | null;
   onFollow?: () => void;
@@ -384,6 +399,11 @@ export function ThreadMenu({ thread = null, following = null, onFollow, onContin
   /** The demand it serves and the ones it can be moved to; the row opens them. Null where there is none to pick. */
   demand?: { current: string | null; choices: readonly { id: string; name: string }[] } | null;
   onDemand?: (id: string | null) => void;
+  /** A session started outside Mercury: the setting for all of those, and how to change it. */
+  outside?: AgentMode | null;
+  onOutside?: (mode: AgentMode) => void;
+  /** A session started outside Mercury: makes it one of Mercury's threads. */
+  onBringIn?: (() => void) | null;
   /** Whether the thread is pinned now, or null where it cannot be. */
   pinned?: boolean | null;
   onPin?: (pin: boolean) => void;
@@ -400,7 +420,7 @@ export function ThreadMenu({ thread = null, following = null, onFollow, onContin
   // A phone's bar has no room for it, so there Share is the menu's first row.
   const shareButton = !!share && canGive && !onPhone();
   const shareSays = share?.face && share.face.mark !== 'share' ? share.face.words : null;
-  const { done, menu: rows } = splitDone(threadMenuRows({ follow: following === null || !onFollow ? null : following ? 'on' : 'off', carryOn: !!onContinue, change: !!change && !codeButton, share: !!share, shareButton, shareSays, people: !!addPeople && !!onAddPeople, terminal, finish: !!onFinish, runNow: !!onRunNow, later: onLater ? (onPhone() ? true : 'key') : false, priority: onPriority ? priority : null, demand: demand && onDemand ? { name: demand.choices.find((d) => d.id === demand.current)?.name ?? null } : null, rename: !!onRename, move: !!onMove, pin: pinned === null || !onPin ? null : pinned ? 'pinned' : 'unpinned', give: canGive, wait: waitChoices.length > 0 && !!onWait && !!onFinish ? (blocks ? 'blocked' : true) : false, shipped: shipped === null || !onShipped ? null : shipped ? 'marked' : 'unmarked', stopRepeat: !!onStopRepeating, closeTask: !!onCloseTask, reopen: !!onReopen && !!handedTo }));
+  const { done, menu: rows } = splitDone(threadMenuRows({ follow: following === null || !onFollow ? null : following ? 'on' : 'off', carryOn: !!onContinue, change: !!change && !codeButton, share: !!share, shareButton, shareSays, people: !!addPeople && !!onAddPeople, terminal, finish: !!onFinish, runNow: !!onRunNow, later: onLater ? (onPhone() ? true : 'key') : false, priority: onPriority ? priority : null, demand: demand && onDemand ? { name: demand.choices.find((d) => d.id === demand.current)?.name ?? null } : null, outside: onOutside ? outside : null, bringIn: !!onBringIn, rename: !!onRename, move: !!onMove, pin: pinned === null || !onPin ? null : pinned ? 'pinned' : 'unpinned', give: canGive, wait: waitChoices.length > 0 && !!onWait && !!onFinish ? (blocks ? 'blocked' : true) : false, shipped: shipped === null || !onShipped ? null : shipped ? 'marked' : 'unmarked', stopRepeat: !!onStopRepeating, closeTask: !!onCloseTask, reopen: !!onReopen && !!handedTo }));
   const [open, setOpen] = useState(false);
   const [giving, setGiving] = useState(false);
   const [givingTo, setGivingTo] = useState<{ id: string; name: string } | null>(null);
@@ -410,6 +430,7 @@ export function ThreadMenu({ thread = null, following = null, onFollow, onContin
   const [adding, setAdding] = useState(false);
   const [leveling, setLeveling] = useState(false);
   const [placing, setPlacing] = useState(false);
+  const [showing, setShowing] = useState(false);
   const [sharing, setSharing] = useState<null | 'list' | 'send' | 'copied' | 'see' | 'choose'>(null);
   const [sendTo, setSendTo] = useState<string[]>([]);
   const [step, setStep] = useState<string | null>(null);
@@ -432,6 +453,7 @@ export function ThreadMenu({ thread = null, following = null, onFollow, onContin
     setAdding(false);
     setLeveling(false);
     setPlacing(false);
+    setShowing(false);
     setSharing(null);
     setShareDirect(false);
     if (refocus) button.current?.focus();
@@ -537,7 +559,7 @@ export function ThreadMenu({ thread = null, following = null, onFollow, onContin
   useEffect(() => {
     // Back is not the thing anyone came for, so the first real row takes it.
     if (open) wrap.current?.querySelector<HTMLButtonElement>('[role="menuitem"]:not(.sh-back)')?.focus();
-  }, [open, giving, waiting, adding, leveling, placing, sharing]);
+  }, [open, giving, waiting, adding, leveling, placing, showing, sharing]);
 
   // Enter, Space or the down arrow on the dots opens the menu. Handled here and
   // stopped, because the window reads Enter on a thread as "send the picked
@@ -557,6 +579,8 @@ export function ThreadMenu({ thread = null, following = null, onFollow, onContin
     if (id === 'people') { askToAdd(); return; }
     if (id === 'priority') { setLeveling(true); return; }
     if (id === 'demand') { setPlacing(true); return; }
+    if (id === 'outside') { setShowing(true); return; }
+    if (id === 'bring-in') { close(false); onBringIn?.(); return; }
     if (id === 'share') { setSharing('list'); return; }
     close(id === 'terminal');
     if (id === 'follow') onFollow?.();
@@ -654,7 +678,16 @@ export function ThreadMenu({ thread = null, following = null, onFollow, onContin
           {demandPlaces(demand.choices, demand.current).map((p) => <button key={p.id ?? 'none'} type="button" role="menuitem" aria-current={p.on ? 'true' : undefined} tabIndex={-1} className="row-i ts-more-row" onClick={() => { close(false); if (!p.on) onDemand?.(p.id); }}>
             <span className="ico">{p.id && <DemandMark />}</span>
             <span className="ts-more-label">{p.name}</span>
-            {p.on && <svg className="ts-more-tick" {...mark}><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>}
+            {p.on && TICK}
+          </button>)}
+        </div>
+      )}
+      {open && showing && (
+        <div className="th-menu ts-more-menu" role="menu" aria-label={OUTSIDE_TITLE}>
+          <p className="ts-menu-say">{OUTSIDE_ASK}</p>
+          {OUTSIDE_MODES.map((m) => <button key={m.value} type="button" role="menuitem" aria-current={m.value === outside ? 'true' : undefined} tabIndex={-1} className="row-i ts-more-row" onClick={() => { close(false); if (m.value !== outside) onOutside?.(m.value); }}>
+            <span className="ts-more-label">{m.label}</span>
+            {m.value === outside && TICK}
           </button>)}
         </div>
       )}
@@ -675,7 +708,7 @@ export function ThreadMenu({ thread = null, following = null, onFollow, onContin
       {open && share && sharing === 'see' && <SeeList seen={share.seen} teamName={share.teamName} onBack={() => setSharing('list')}
         onPick={(to) => { if (to === 'people') { setSharing('choose'); return; } close(false); if (to !== share.seen) onSee?.(to); }} />}
       {open && share && sharing === 'choose' && <ChooseList people={share.people} chosen={share.seen === 'people' ? share.chosen ?? [] : []} onPick={(id) => onChoose?.(id)} onBack={() => setSharing('see')} />}
-      {open && !waiting && !adding && !leveling && !placing && !sharing && (giving && givingTo
+      {open && !waiting && !adding && !leveling && !placing && !showing && !sharing && (giving && givingTo
         ? <GiveSheet to={givingTo} step={step} start={giveStart} only={givingFromShare ? giveStart : step ? 'ask' : undefined} onBack={() => setGivingTo(null)} onCancel={() => close(true)}
           threadName={thread?.name ?? null} onMode={setGiveStart}
           note={notes[givingTo.id] ?? ''} onNote={(n) => setNotes((was) => ({ ...was, [givingTo.id]: n }))}

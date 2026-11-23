@@ -35,7 +35,8 @@ describe('agy’s model list, landing after the screen first asked', () => {
     for (const file of ['renderer/src/threads/ThreadComposer.tsx', 'renderer/src/components/Focus.tsx']) {
       const src = read(file);
       expect(src).toMatch(/const agyRows = antigravityModelRows\(\);/);
-      expect(src).toMatch(/allModels\(\{[^}]*\}\), \[[^\]]*agyRows\]/);
+      // Anywhere in its keys: Agentbox's further harnesses are keyed beside it (2026-11-23 sync).
+      expect(src).toMatch(/allModels\(\{[^}]*\}\), \[[^\]]*\bagyRows\b[^\]]*\]/);
     }
     setAntigravityModels([]);
   });

@@ -138,8 +138,10 @@ describe('the shell is asked before any list', () => {
 });
 
 describe('one registry, one strategy', () => {
-  it('holds the engines the app ships with, and nothing else', () => {
-    expect(engineKeys()).toEqual(['claude', 'codex', 'antigravity']);
+  it('holds the engines the app can find, and nothing else', () => {
+    // OpenCode is the third: found the same way, and offered to nobody until it is admitted.
+    // Antigravity is Mercury's fourth, and is offered.
+    expect(engineKeys()).toEqual(['claude', 'codex', 'opencode', 'antigravity']);
   });
 
   // THE POINT OF THE REGISTRY. A third harness is an entry: a bin name, where

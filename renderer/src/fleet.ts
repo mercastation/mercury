@@ -15,6 +15,8 @@ export interface Fleet {
   sessions?: Map<string, RunningSession>;
   /** `supervisor.queued`: a tick spawns these as soon as a slot frees. */
   queued?: string[];
+  /** `supervisor.settingUp`: of those, the ones whose folder is being made now. */
+  settingUp?: string[];
   /** `supervisor.remoteHeld`: sessions of ours open between Remote Control turns. */
   remoteHeld?: string[];
   /** `supervisor.runNow`: the queued ones pushed to the front. */
@@ -45,7 +47,8 @@ export interface Fleet {
 }
 
 /** The harness a thread is on, read as the row's byline reads it (List.tsx `agentRest`, byline.ts `agentAtWork`). */
-export function harnessOn(item: Pick<WorkItem, 'id' | 'labels'>, fleet: Fleet): string {
+export function harnessOn(item: Pick<WorkItem, 'id' | 'labels'> & { agent?: { engine?: string } | null }, fleet: Fleet): string {
+  if (item.agent) return item.agent.engine === 'codex' ? 'codex' : 'claude';
   if ((item.labels ?? []).some((l) => CODEX_LABELS.has(l))) return 'codex';
   return fleet.sessions?.get(item.id)?.engine ?? fleet.engines?.byItem[item.id] ?? fleet.engines?.workspace ?? DEFAULT_ENGINE;
 }

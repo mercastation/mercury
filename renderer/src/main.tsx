@@ -6,6 +6,7 @@ import { ScreenCrash } from './components/ScreenCrash';
 import '@fontsource-variable/source-sans-3';
 import './styles.css';
 import './workspace-navigation.css';
+import './sidebar.css';
 import './phone.css';
 import './soft-corners.css';
 import './narrow-conversation.css';
@@ -20,6 +21,8 @@ import { theDoorNeedsItsKey } from './browser-bridge';
 import { comeBackFromABlankScreen, writeHeldBeforeReload } from './after-a-crash';
 import { installStrayLetters } from './stray-letters';
 import { installFullScreenEscape } from './full-screen-escape';
+import { installWindowHolds } from './window-holds';
+import { installWindowLag } from './window-lag';
 import { onASharedFilePage } from './shared-file/route';
 import { bootSharedFile } from './shared-file/boot';
 import { bootSharedThread } from './shared-thread/boot';
@@ -108,6 +111,8 @@ const boot = () => {
   installPictureWatch();
   installStrayLetters();
   installFullScreenEscape();
+  installWindowHolds();
+  installWindowLag();
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
       <ScreenCrash><AgentUpdates><App /></AgentUpdates></ScreenCrash>

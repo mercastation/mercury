@@ -1,6 +1,6 @@
 import { openSourceFile } from './open-source-file.mts';
 import {submitReply} from './live-replies.mts';
-import { noteToItsAgent, replyWithWaitingNotes, waitingNotes } from './notes-wake.mts';
+import { noteToItsAgent, notesLeftUnsent, notReached, replyWithWaitingNotes, waitingNotes } from './notes-wake.mts';
 import { leftByAMove } from '../shared/move-thread.mts';
 import { moveThread } from './move-thread.mts';
 import { whereTheWorkStands, type WorkStands } from './git-change.mts';
@@ -48,6 +48,7 @@ import { cardsInFront } from '../shared/which-card-is-in-front.mts';
 import { restartNeeded } from './staleness.mts';
 import { artifactRoots, resolveArtifact } from './artifact-path.mts';
 import { filesKeeper, filesSettingsOf, type FilesKeeper, type FilesStorage } from './files-cloud.mts';
+import { answerFileAsks, setFilesComeBack } from './files-come-back.mts';
 import { folderPictures } from './folder-pictures.mts';
 import { docUrl } from './doc-scheme.mts';
 import { readDoc, writeDoc } from './doc-file.mts';
@@ -63,6 +64,7 @@ import { teamForWindow } from './team/index.mts';
 import { isOnTeam } from '../shared/rooms-on.mts';
 import { liveForTheWholeTeam, liveRoomFor } from './team/live-room.mts';
 import { openForThePerson } from './opens-a-program.mts';
+import { appsThatOpen, type AppThatOpens } from './open-with.mts';
 import { addClaudeAccount, addCodexAccount, alphaFeatures, cornerTagTurnedOff, countsTurnedOff, lookAgainFor, outsideAgentsMode, permissionMode, pointAtEngineBin, readSettings, searchForEngineBin, setProjectBaseBranch, setProjectSetting, setWorkspaceSetting } from './settings.mts';
 import { branchesIn, hasBranch } from './project-branches.mts';
 import { finishProjectBrowserSignIn, projectBrowserStatus, signInToProjectBrowser } from './project-browser/app.mts';
@@ -75,6 +77,7 @@ import { usageEngine } from '../shared/usage.mts';
 import { DEFAULT_ENGINE, isEngine } from '../shared/engines.mts';
 import { routedPatch, PICKED_WHY } from '../shared/auto-route.mts';
 import * as agents from './agents.mts';
+import { readCodexLive, codexConversation, revealCodex } from './codex-live.mts';
 import { findAgentFolders, readAgentFiles, readFolderAgents } from './agent-files.mts';
 import { readChatEndsOffThread, readClaudeThreadsOffThread, readCodexThreadsOffThread } from './chat-reader.mts';
 import { appSessionFolders } from './agent-homes.mts';
@@ -85,10 +88,12 @@ import { checkProjectFolder, chooserStartsIn, folderFromChooser } from '../share
 import { openFreshUser } from './fresh-user.mts';
 import { openDemo } from './demo.mts';
 import { AgentSchedule } from './agent-schedule.mts';
-import { agentKey } from '../shared/agents.mts';
+import { agentKey, agentRowId } from '../shared/agents.mts';
+import { chatFromSession, rowForSession } from '../shared/bring-in.mts';
 import { machineryPath } from './store/home.mts';
 import { EVENT_NAMES } from '../shared/analytics-events.mts';
 import { appFinder } from './everything-found.mts';
+import { openedOf } from '../shared/opened-lately.mts';
 import { appFilesPlace } from './files-place.mts';
 import { Name } from '../shared/product-name.mjs';
 import { ghToken, setUpGit, startGhLogin } from './github-browser-sign-in.mts';
@@ -98,11 +103,10 @@ import { closeRefusal, closedAnywayNote } from '../shared/not-shipped.mts';
 import { lightRunning, snapshotSender } from '../shared/snapshot-delta.mts';
 import { wakesItselfAt } from '../shared/answers.mts';
 import type { WasBeforeClose } from '../shared/reopen-as-it-was.mts';
-import { traceAnswer } from '../shared/trace-delta.mts';
 import { saveAttachments } from './save-attachments.mts';
 import { stageAttachment, stageAttachmentPart } from './stage-attachment.mts';
 import type { StagedPart } from './stage-attachment.mts';
-import { readRunTraces } from './run-traces.mts';
+import { newestRunTraces, readRunTraces } from './run-traces.mts';
 import { openInBrowser } from './open-in-browser.mts';
 import type { AnswerInput, ComposeInput, Store, StoreConfig } from './store.mts';
 import type { Supervisor, SupervisorConfig } from './supervisor.mts';
@@ -112,6 +116,7 @@ import type { UpdateTerminals } from './agent-updates.mts';
 import type { AttachmentFile } from './save-attachments.mts';
 import type { PostInput } from './teammates.mts';
 import type { ConversationInput } from './agents.mts';
+import type { FreezeCounter } from './setup-freezes.mts';
 import type { ConnectionTile } from './connections/index.mts';
 import { HEX_SITE } from './hex-meetings.mts';
 import type { Meetings } from './meetings.mts';
@@ -147,6 +152,7 @@ export interface IpcHost<W extends IpcWindow = IpcWindow> {
     quit(): void;
     focus?(options?: { steal: boolean }): void;
     accessibilitySupportEnabled?: boolean;
+    getFileIcon?(path: string, options?: { size?: 'small' | 'normal' | 'large' }): Promise<{ toDataURL(): string }>;
   };
   dialog: { showOpenDialog(window: W, options: IpcOpenDialog): Promise<{ canceled: boolean; noDialog?: boolean; filePaths: string[] }> };
   shell?: IpcShell;
@@ -206,10 +212,14 @@ export interface IpcDeps<W extends IpcWindow = IpcWindow> {
   connections?: IpcConnections | null;
   copies?: IpcCopies | null;
   onCount?: () => void;
+  /** Freezes during setup or an import (main/setup-freezes.mts); the desktop's. */
+  froze?: FreezeCounter | null;
   /** The live relay's address, null when this cloud has none. */
   liveAt?: string | null;
   /** Turns the window's glass on or off when the Alpha switch flips. */
   glass?: (on: boolean) => void;
+  /** The apps that can open a file (main/open-with.mts). */
+  listApps?: (file: string) => Promise<AppThatOpens[]>;
 }
 
 export interface TeammateArgs {
@@ -235,10 +245,12 @@ type WorkspaceSet = { key: string; value?: unknown };
 interface FilesPlace {
   forAgents(): Promise<unknown>;
   list(): Promise<unknown>;
+  listSoon(): Promise<unknown>;
   makeFolder(ask: { project?: string; name?: string; parent: string | null }): Promise<{ id?: string }>;
   renameFolder(ask: { id: string; name?: string }): Promise<{ id?: string }>;
   moveFile(ask: { key: string; folder: string | null }): Promise<{ id?: string }>;
   renameFile(ask: { key: string; name: string }): Promise<{ id?: string }>;
+  setIcon(ask: { key: string; icon: string }): Promise<{ id?: string }>;
   removeFolder(ask: { id: string }): Promise<{ ids: string[] }>;
   restoreFolders(ask: { ids: string[] }): Promise<{ back: number }>;
   newDocument(ask: { project: string; name?: string; kind: 'document' | 'table'; folder: string | null }): Promise<{ key: string; title: string }>;
@@ -301,10 +313,10 @@ const NO_UPDATER: IpcUpdater = {
 };
 
 const TEAMMATE_OPS = new Set(['create', 'describe', 'start', 'update', 'stop', 'remove', 'post', 'goAhead', 'remember', 'forget', 'method', 'unsend']);
-const ROOM_OPS = new Set(['refresh', 'send', 'markRead', 'markDone', 'markUnread', 'react', 'decide','edit', 'deleteMessage', 'putFile', 'putFileFrom', 'file', 'fileOnDisk', 'fileText', 'markFile', 'older', 'saveProfile', 'goInvisible', 'comeBack', 'link', 'revokeLink', 'preview', 'listed', 'invitesSent', 'joinByLink', 'joinListed', 'acceptInvite', 'invite', 'create', 'rename', 'leave', 'remove', 'pin', 'mute'] as const);
+const ROOM_OPS = new Set(['refresh', 'send', 'markRead', 'markDone', 'undoDone', 'later', 'markUnread', 'react', 'decide','edit', 'deleteMessage', 'putFile', 'putFileFrom', 'file', 'fileOnDisk', 'fileText', 'markFile', 'older', 'saveProfile', 'goInvisible', 'comeBack', 'link', 'revokeLink', 'preview', 'listed', 'invitesSent', 'joinByLink', 'joinListed', 'acceptInvite', 'invite', 'create', 'rename', 'leave', 'remove', 'pin', 'mute'] as const);
 type RoomOp = typeof ROOM_OPS extends Set<infer O> ? O : never;
 
-export function registerIpc<W extends IpcWindow>({ store, supervisor, config, window, analytics = NO_ANALYTICS, docGrants = null, updater = NO_UPDATER, host, team = null, connections = null, copies = null, meetings = null, onCount = () => {}, liveAt = null, glass = () => {} }: IpcDeps<W>) {
+export function registerIpc<W extends IpcWindow>({ store, supervisor, config, window, analytics = NO_ANALYTICS, docGrants = null, updater = NO_UPDATER, host, team = null, connections = null, copies = null, meetings = null, onCount = () => {}, froze = null, liveAt = null, glass = () => {}, listApps = (file) => appsThatOpen(file) }: IpcDeps<W>) {
   // The three Electron things, or a plain Node stand-in for them. There is no
   // default: a caller that forgets says so here rather than throwing eighty
   // lines further down on `ipcMain.handle` of undefined.
@@ -427,6 +439,7 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
   ipcMain.handle('zero:track', (_e, { name, count }: { name: string; count?: unknown } = {} as { name: string; count?: unknown }) => {
     if (!EVENT_NAMES.includes(name)) return false;
     onCount();
+    froze?.saw(name, count);
     return analytics.track(name, Number.isFinite(count) ? { count } : undefined);
   });
 
@@ -575,14 +588,46 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
   // seeing the same agent again is a fresh fact about the app being used.
   const seenAgents = new Set<string>();
 
+  const sessionDirsNow = () => appSessionFolders({ config, supervisor });
+  // Every Codex home a person's sessions can be in, as the import reads them, worked out once a minute.
+  let codexHomes: { at: number; dirs: string[] } = { at: 0, dirs: [] };
+  const codexHomesNow = () => {
+    if (Date.now() - codexHomes.at > 60_000) {
+      try { codexHomes = { at: Date.now(), dirs: sessionDirsNow().codexDirs }; } catch { codexHomes = { at: Date.now(), dirs: [] }; }
+    }
+    return codexHomes.dirs;
+  };
+  // The snapshot is built many times a second when things move; Codex's folders are read at most every two seconds.
+  let codexLive: { at: number; agents: ReturnType<typeof readCodexLive> } = { at: 0, agents: [] };
+  const codexLiveNow = () => {
+    if (Date.now() - codexLive.at > 2_000) codexLive = { at: Date.now(), agents: readCodexLive({ products: store.listProducts(), codexDirs: codexHomesNow() }) };
+    return codexLive.agents;
+  };
+  // Codex says nothing when a session moves, so its folders are watched: a
+  // change to where a session stands, or what it says, sends a new snapshot.
+  let codexSeen = '';
+  const codexWatch = setInterval(() => {
+    if (outsideAgentsMode(config) === 'off') return;
+    try {
+      const now = codexLiveNow().map((a) => [a.sessionId, a.status, a.saidAt, a.approval?.command ?? '', a.question?.length ?? 0, a.asked.length].join('|')).join('\n');
+      if (now !== codexSeen) { const first = !codexSeen; codexSeen = now; if (!first) push(); }
+    } catch { /* a reading that failed is tried again next time */ }
+  }, 3_000);
+  codexWatch.unref?.();
   const liveAgents = () => {
     try {
-      const live = agentSchedule.decorate(agents.listAgents({
+      const claude = agents.listAgents({
         zeroPid: process.pid,
         sessionIds: Object.values(supervisor._liveSessions ?? {}).map((s) => s?.sessionId),
         products: store.listProducts(),
         claudeBin: config.claudeBin,
-      }));
+      });
+      let codexRead: typeof claude = [];
+      let codexOk = true;
+      try { codexRead = codexLiveNow(); } catch { codexRead = []; codexOk = false; }
+      // One list, decorated once, and swept only on real readings of both:
+      // the schedule forgets a key it is not shown, which would reopen closed rows.
+      const live = agentSchedule.decorate([...claude, ...codexRead], Date.now(), { sweep: agents.measured() && codexOk });
       // "An agent was seen", ONCE per agent per run of the app. This list is
       // rebuilt every few seconds, so counting it here without the set would
       // send one event per agent per tick, all day. The keys are only ever
@@ -598,6 +643,7 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
         const key = agentKey(agent);
         if (!key || seenAgents.has(key)) continue;
         seenAgents.add(key);
+        if (agent.engine === 'codex') continue;
         analytics.track('agent_seen', { engine: 'claude' });
       }
       return live;
@@ -634,7 +680,7 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
     return taskPlace(product,id);
   }});
   const taskPlace=(product: string,id: string)=>{
-    const agent=id.startsWith('agent:')?liveAgents().find(a=>'agent:'+a.pid===id && (a.product??'')===product):null;
+    const agent=id.startsWith('agent:')?liveAgents().find(a=>agentRowId(a)===id && (a.product??'')===product):null;
     return terminalPlace({store,supervisor,product,id,agent});
   };
   /*
@@ -840,7 +886,8 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
   // anywhere outside its own store, and it writes into a socket rather than to
   // disk. The reader refuses a send to an agent frozen on a permission box, and
   // reports back whether the agent actually moved rather than assuming it did.
-  ipcMain.handle('zero:agent-reply', async (_e, { pid, text }: { pid: unknown; text: string }) => {
+  ipcMain.handle('zero:agent-reply', async (_e, { pid, text, engine }: { pid: unknown; text: string; engine?: unknown }) => {
+    if (engine === 'codex') return { ok: false, reason: 'Answer this one in Codex.' };
     try {
       const out = await agents.reply(Number(pid), text);
       // AND THE ROW REMEMBERS THAT THE USER SPOKE. Only on a delivered message: a
@@ -882,10 +929,50 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
     return { ok: true, repliedAt: mark };
   });
 
-  // For the agent a reply cannot reach: bring the app it is running inside to
-  // the front. Named honestly, because it is the app and not the pane.
-  ipcMain.handle('zero:agent-reveal', async (_e, { pid }: { pid: unknown }) => {
+  // A session started outside Agentbox becomes one of its threads. The row it
+  // had leaves the inbox the way Done takes it out, so a session that moves on
+  // in its terminal afterwards still comes back.
+  ipcMain.handle('zero:bring-in-session', (_e, { pid, engine, sessionId }: { pid?: unknown; engine?: unknown; sessionId?: unknown } = {}) => {
+    const agent = liveAgents().find((a) => (engine === 'codex'
+      ? a.engine === 'codex' && a.sessionId === sessionId
+      : a.engine !== 'codex' && a.pid === Number(pid)));
+    if (!agent) return { ok: false, reason: 'That session has closed.' };
+    const product = agent.product ?? null;
+    if (!product) return { ok: false, reason: `Its folder is not one of your projects, so ${Name} has nowhere to put it.` };
+    const chat = chatFromSession(agent);
+    if (!chat) return { ok: false, reason: `${Name} cannot tell this session from another yet. Try again once it has said something.` };
+    let id: string | null = null;
     try {
+      const had = rowForSession(store.listItems().filter((i) => i.product === product), agent);
+      // Moved before: that thread is brought up to where the session is now, and opened again if it was closed.
+      if (had?.id) {
+        id = had.id;
+        if (chat.source === 'codex') store.answerCodexImport(product, had.id, 'yes', { thread: chat });
+        else {
+          store.recordSessionResult(product, had.id, { result: chat.lastSaid, status: null });
+          // Her press, so it outranks her own close.
+          if (had.status === 'done') store.answerItem(product, had.id, { status: 'open' });
+        }
+      } else {
+        const out = chat.source === 'codex'
+          ? store.importCodexThreads(product, [chat], { land: 'inbox' })
+          : store.importThreadRows(product, [chat], { land: 'inbox' });
+        id = out.ids[0] ?? rowForSession(store.listItems().filter((i) => i.product === product), agent)?.id ?? null;
+      }
+    } catch (err) {
+      return { ok: false, reason: `It could not be brought in: ${(err as Error).message}` };
+    }
+    if (!id) return { ok: false, reason: 'It could not be brought in.' };
+    agentSchedule.close(agentKey(agent), agent.lastActiveAt || Date.now());
+    push();
+    return { ok: true, product, id };
+  });
+
+  // For the agent a reply cannot reach: bring the window it runs in to the
+  // front, the very tab where the app can be told which.
+  ipcMain.handle('zero:agent-reveal', async (_e, { pid, engine, sessionId }: { pid: unknown; engine?: unknown; sessionId?: unknown }) => {
+    try {
+      if (engine === 'codex') return await revealCodex(liveAgents().find((a) => a.engine === 'codex' && a.sessionId === sessionId) ?? null);
       return await agents.reveal(Number(pid));
     } catch {
       return { ok: false, reason: `${Name} cannot tell which window it is running in.` };
@@ -904,6 +991,11 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
       // agent is a rule with one copy of it (shared/agents.mts) and the
       // renderer already hands over both halves it needs.
       const key = agentKey({ sessionId: payload?.sessionId as string | undefined, pid: Number(payload?.pid), startedAt: payload?.startedAt });
+      // The file is looked up here, never taken from the window.
+      if ((payload as { engine?: unknown } | undefined)?.engine === 'codex' || (Number(payload?.pid) === 0 && payload?.sessionId)) {
+        const found = liveAgents().find((a) => a.engine === 'codex' && a.sessionId === payload?.sessionId);
+        return found?.transcript ? codexConversation(found.transcript) : { ok: false, reason: 'That Codex conversation could not be found.' };
+      }
       return await agents.conversation({ ...(payload ?? {}), spoke: agentSchedule.spoke(key) });
     } catch {
       return { ok: false, reason: 'That conversation could not be read.' };
@@ -928,12 +1020,20 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
   // answered at once (supervisor.sendNow).
   ipcMain.handle('zero:send-now', (_e, { product, id }: { product: string; id: string }) => supervisor.sendNow(product, id));
 
-  ipcMain.handle('zero:answer', async (_e, { product, id, answer, status, priority, permissionMode, engine, model, effort, now, inReplyTo, fromPhone, closeUnshipped, runAt, putAway, reopenAs }: AnswerInput & { product: string; id: string; now?: unknown; inReplyTo?: unknown; closeUnshipped?: boolean; runAt?: number; putAway?: unknown; reopenAs?: WasBeforeClose }) => {
+  ipcMain.handle('zero:answer', async (_e, { product, id, answer, status, priority, permissionMode, engine, model, effort, now, inReplyTo, fromPhone, closeUnshipped, runAt, putAway, reopenAs, reopen }: AnswerInput & { product: string; id: string; now?: unknown; inReplyTo?: unknown; closeUnshipped?: boolean; runAt?: number; putAway?: unknown; reopenAs?: WasBeforeClose; reopen?: boolean }) => {
     if (isAgentRow(id)) return { ok: false };
     if (reopenAs && status === 'open' && !answer) {
       const out = store.reopenAsItWas(product, id, reopenAs);
       push();
       if (out?.status === 'open') { supervisor.liftBrakeForHer?.(); supervisor.wake(); }
+      return out;
+    }
+    // Reopen on a done thread puts it back for you; the reply it had already
+    // heard does not run again.
+    if (reopen && status === 'open' && !answer) {
+      const out = store.answerItem(product, id, { status: 'open' });
+      if (out) supervisor.keepReplyHeard({ ...out, product });
+      push();
       return out;
     }
     // Out of your own Needs you, on a task between people: no reply, no close, no run.
@@ -978,7 +1078,7 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
           let thread = null;
           if (choice === 'yes') {
             try {
-              const { codexDirs } = appSessionFolders({ config, supervisor });
+              const { codexDirs } = sessionDirsNow();
               thread = (await readCodexThreadsOffThread({ codexDirs })).threads.find((t) => t.id === codexIdOf(row)) ?? null;
             } catch { thread = null; }
           }
@@ -1343,8 +1443,11 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
       store.fileMark(product, id, mark);
       push();
       void team?.syncNow?.()?.catch?.(() => {});
-      try { await noteToItsAgent({ store, supervisor, product, id, mark: mark as Mark, nameOf: noteBy, people: teamPeople() }); }
+      let handed = false;
+      try { handed = await noteToItsAgent({ store, supervisor, product, id, mark: mark as Mark, nameOf: noteBy, people: teamPeople() }); }
       catch (err) { return { ok: false, error: `The note is saved, but it did not reach the agent: ${(err as Error)?.message ?? err}` }; }
+      const left = handed ? [] : notesLeftUnsent({ store, product, id, mark: mark as Mark, people: teamPeople() });
+      if (left.length) return { ok: false, error: notReached(left) };
       return { ok: true };
     } catch (err) {
       return { ok: false, error: String((err as Error)?.message ?? err) };
@@ -1850,7 +1953,12 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
   // ~/.claude and ~/.codex, which is where the import used to look and nothing
   // else (w-e46f2e9cea).
   const readAllThreads = () => readImportableThreads({ config, supervisor, readCodex: readCodexThreadsOffThread, readClaude: readClaudeThreadsOffThread });
-  ipcMain.handle('zero:agent-threads', async () => {
+  // A freeze while chats come in, or just after, is counted at once (main/setup-freezes.mts).
+  const whileImporting = <A extends unknown[], R>(fn: (...args: A) => R | Promise<R>) => async (...args: A): Promise<R> => {
+    froze?.importing();
+    try { return await fn(...args); } finally { froze?.importing(); }
+  };
+  ipcMain.handle('zero:agent-threads', whileImporting(async () => {
     const threads = await readAllThreads();
     lastThreads = threads;
     // Each one already in the inbox says so, and the card leaves it out
@@ -1858,7 +1966,7 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
     let items: ReturnType<Store['listItems']> = [];
     try { items = store.listItems(); } catch { items = []; }
     return { threads: markImported(threads, items) };
-  });
+  }));
 
   /**
    * EVERY CHAT THE NAME FIELD CAN SEARCH, read once and kept (w-6418318cd5).
@@ -1881,7 +1989,7 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
    *  ending, and its copy would bring the chat in without them.
    */
   let searchable: { threads: ImportableThreads; reached: number } | null = null;
-  ipcMain.handle('zero:search-agent-threads', async (_e, { again = false }: { again?: boolean } = {}) => {
+  ipcMain.handle('zero:search-agent-threads', whileImporting(async (_e: unknown, { again = false }: { again?: boolean } = {}) => {
     if (again) searchable = null;
     if (!searchable) {
       let got: { threads: ImportableThreads; reached: number } = { threads: [], reached: 0 };
@@ -1894,14 +2002,14 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
     let items: ReturnType<Store['listItems']> = [];
     try { items = store.listItems(); } catch { items = []; }
     return { threads: markImported(lastThreads, items), reached: searchable.reached };
-  });
+  }));
 
   // So this is `zero:import-agents` with the agent taken out of it. No ticks are
   // saved, because there is nothing for the card to remember: an imported thread
   // is a row, and a row is what stops it being imported twice
   // (`threadsNeedingRows`). The row's first reply resumes the conversation as a
   // copy (`Supervisor#importedThreadFor`, GitHub #44).
-  ipcMain.handle('zero:import-threads', async (_e, { product, threads, land }: { product?: string; threads?: unknown; land?: string } = {}) => {
+  ipcMain.handle('zero:import-threads', whileImporting(async (_e: unknown, { product, threads, land }: { product?: string; threads?: unknown; land?: string } = {}) => {
     if (!product) return { ok: false, added: 0, already: 0, ids: [] };
     const want = new Set(
       (Array.isArray(threads) ? threads : [])
@@ -1928,7 +2036,7 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
     }
     push();
     return { ok: true, ...out };
-  });
+  }));
 
   // TAKING THEM, which is the half that used to do nothing.
   //
@@ -1947,7 +2055,7 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
   // whole list already, so it could hand the paths over, but a row that names a
   // file on somebody's disk should name a file that was on the disk a moment
   // ago and not one a screen was holding from earlier in the walk.
-  ipcMain.handle('zero:import-agents', (_e, { product, agents }: { product?: string; agents?: unknown } = {}) => {
+  ipcMain.handle('zero:import-agents', whileImporting((_e: unknown, { product, agents }: { product?: string; agents?: unknown } = {}) => {
     if (!product) return { ok: false, added: 0, ids: [] };
     const names = (Array.isArray(agents) ? agents : [])
       .filter((n) => typeof n === 'string' && n.trim())
@@ -1969,6 +2077,19 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
     }
     push();
     return { ok: true, ...out };
+  }));
+
+  // The window says when its own thread held (renderer/src/window-holds.ts).
+  ipcMain.handle('zero:window-held', (event, { ms }: { ms?: unknown } = {}) => {
+    if (event.senderFrame?.parent || (event.sender && event.sender !== window.webContents)) return false;
+    return froze?.held({ ms: Number(ms), part: 'windows' }) ?? false;
+  });
+
+  // And how held it was over the last minute, for the minute log (main/window-lag.mts).
+  // A browser tab's lag is its browser's, so only the desktop window is heard.
+  ipcMain.handle('zero:window-lag', (event, lag: unknown) => {
+    if (event.senderFrame?.parent || event.sender !== window.webContents) return false;
+    return supervisor.windowLag?.add(lag) ?? false;
   });
 
   ipcMain.handle('zero:supervisor-pause', (_e, paused) => {
@@ -2417,6 +2538,15 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
       return { ok: false, error: String((err as Error).message) };
     }
   });
+  ipcMain.handle('zero:sign-in-keep', (_e, { product, id, ask, keep } = {}) => {
+    try {
+      store.chooseSignInKeep(product, id, { id: ask, keep: keep !== false });
+      push();
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: String((err as Error).message) };
+    }
+  });
   // GitHub's own sign-in for this computer's git, started from the card on a ship that could not push.
   let ghLogin: GhLogin | null = null;
   ipcMain.handle('zero:github-browser-sign-in', async () => {
@@ -2757,9 +2887,9 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
   // first ask, read ahead when the search opens.
   let finder: ReturnType<typeof appFinder> | null = null;
   const finderNow = () => (finder ??= appFinder({ store, team, readableProducts, accountRoot: config.accountRoot, storeRoot: config.storeRoot }));
-  ipcMain.handle('zero:find-in-threads', async (_e, { query, limit }: { query?: unknown; limit?: { lines?: number; files?: number; comments?: number } } = {}) => {
-    try { return { ok: true, ...(await finderNow().search(String(query ?? '').slice(0, 200), limit)) }; }
-    catch (err) { return { ok: false, error: String((err as Error)?.message ?? err), lines: [], files: [], comments: [], total: { lines: 0, files: 0, comments: 0 } }; }
+  ipcMain.handle('zero:find-in-threads', async (_e, { query, limit, opened }: { query?: unknown; limit?: { lines?: number; files?: number; comments?: number }; opened?: unknown } = {}) => {
+    try { return { ok: true, ...(await finderNow().search(String(query ?? '').slice(0, 200), { ...limit, opened: openedOf(opened) })) }; }
+    catch (err) { return { ok: false, error: String((err as Error)?.message ?? err), lines: [], files: [], comments: [], total: { lines: 0, files: 0, comments: 0 }, threads: [] }; }
   });
   ipcMain.handle('zero:warm-find-in-threads', () => { finderNow().warm().catch(() => {}); return true; });
   const cloudHome = () => ({ home: supervisor.config.home || os.homedir() });
@@ -2801,6 +2931,14 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
   supervisor.onStarting = (item) => { void filesPlaceNow().bringBackFor({ product: item.product, id: item.id }).catch(() => {}); };
   // Files is read when it is open; the keeper also passes while it is not.
   if (config.accountRoot) setInterval(() => { void filesPlaceNow().list().catch(() => {}); }, 15 * 60_000).unref?.();
+  // Made once soon after a start, so the first time Files opens it has a list to draw at once.
+  if (config.accountRoot) setTimeout(() => { void filesPlaceNow().list().catch(() => {}); }, 30_000).unref?.();
+  // A cloud run asking for a file, and an agent's bring_back_files, get what the keeper took off this computer.
+  setFilesComeBack(keeperNow);
+  if (config.accountRoot) {
+    const asks = path.join(config.accountRoot, '.files-cloud', 'asks');
+    setInterval(() => { void answerFileAsks({ dir: asks, bases: () => store.listProducts().map((p) => p.dir).filter(Boolean) }); }, 2000).unref?.();
+  }
   ipcMain.handle('zero:files-place-trash', async (_e, { keys, older }: { keys?: unknown; older?: unknown } = {}) => {
     try {
       const out = await filesPlaceNow().trash({ keys: Array.isArray(keys) ? keys.map(String) : [], older: older === true });
@@ -2818,16 +2956,20 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
   ipcMain.handle('zero:files-cloud', () => keeperNow()?.look() ?? null);
   // An agent's team_read reads folders from the view the reach tick writes.
   if (store.teammates) store.teammates.foldersForAgents = () => filesPlaceNow().forAgents();
-  ipcMain.handle('zero:files-place', async () => {
-    try { return await filesPlaceNow().list(); } catch { return { files: [], projects: [], folders: [] }; }
+  ipcMain.handle('zero:files-place', async (_e, { soon }: { soon?: unknown } = {}) => {
+    try {
+      const place = filesPlaceNow();
+      return await (soon === true ? place.listSoon() : place.list());
+    } catch { return { files: [], projects: [], folders: [] }; }
   });
-  ipcMain.handle('zero:files-place-folder', async (_e, { do: what, ...p }: { do?: string; project?: string; name?: string; parent?: string | null; id?: unknown; ids?: unknown; key?: unknown; folder?: string | null } = {}) => {
+  ipcMain.handle('zero:files-place-folder', async (_e, { do: what, ...p }: { do?: string; project?: string; name?: string; parent?: string | null; id?: unknown; ids?: unknown; key?: unknown; folder?: string | null; icon?: unknown } = {}) => {
     try {
       const place = filesPlaceNow();
       const out = what === 'make' ? await place.makeFolder({ project: p.project, name: p.name, parent: p.parent ?? null })
         : what === 'rename' ? await place.renameFolder({ id: String(p.id ?? ''), name: p.name })
           : what === 'move' ? await place.moveFile({ key: String(p.key ?? ''), folder: p.folder ?? null })
             : what === 'name' ? await place.renameFile({ key: String(p.key ?? ''), name: String(p.name ?? '') })
+              : what === 'icon' ? await place.setIcon({ key: String(p.key ?? ''), icon: String(p.icon ?? '') })
               : what === 'remove' ? await place.removeFolder({ id: String(p.id ?? '') })
                 : what === 'restore' ? await place.restoreFolders({ ids: Array.isArray(p.ids) ? p.ids.map(String) : [] })
                   : null;
@@ -2872,8 +3014,11 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
     const { wrote, ...out } = await filesPlaceNow().mark(String(key ?? ''), mark);
     if (out.ok) { push(); void team?.syncNow?.()?.catch?.(() => {}); }
     if (out.ok && wrote) {
-      try { await noteToItsAgent({ store, supervisor, ...wrote, mark: mark as Mark, nameOf: noteBy, people: teamPeople() }); }
+      let handed = false;
+      try { handed = await noteToItsAgent({ store, supervisor, ...wrote, mark: mark as Mark, nameOf: noteBy, people: teamPeople() }); }
       catch (err) { return { ok: false, error: `The note is saved, but it did not reach the agent: ${(err as Error)?.message ?? err}` }; }
+      const left = handed ? [] : notesLeftUnsent({ store, ...wrote, mark: mark as Mark, people: teamPeople() });
+      if (left.length) return { ok: false, error: notReached(left) };
     }
     return out;
   });
@@ -2933,15 +3078,8 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
     return true;
   });
   ipcMain.handle('zero:connections-accept', async (_e, { id }: { id?: unknown } = {}) => { await connections?.acceptTools(String(id ?? '')); push(); return true; });
-  ipcMain.handle('zero:open-artifact', async (_e, { product, src, mode, thread }: { product: string; src?: unknown; mode?: string; thread?: unknown }) => {
-    const shell = await shellNow();
-    if (typeof src !== 'string' || !src) return { ok: false, error: 'no path' };
-    if (/^https?:/.test(src)) {
-      if (mode === 'resolve') return { ok: true, opened: src };
-      const opened = await openInBrowser(src, { shell });
-      return opened.ok ? { ok: true, opened: src } : opened;
-    }
-    let found = await resolveArtifact({
+  const findToOpen = async (product: string, src: string, thread: unknown) => {
+    const found = await resolveArtifact({
       src,
       product,
       thread: typeof thread === 'string' ? thread : null,
@@ -2950,11 +3088,43 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
       storeRoot: config.storeRoot,
       nameOf: team?.firstNameOf,
     });
-    if (!found.ok) {
-      // A document's picture can name a version that was sent under another name.
-      const inFiles = await filesPlaceNow().pictureNamed(src).catch(() => null);
-      if (!inFiles) return found;
-      found = { ...found, ok: true, path: inFiles };
+    if (found.ok) return found;
+    // A document's picture can name a version that was sent under another name.
+    const inFiles = await filesPlaceNow().pictureNamed(src).catch(() => null);
+    return inFiles ? { ...found, ok: true as const, path: inFiles } : found;
+  };
+  // THE OPEN MARK'S MENU: the apps this Mac offers for the file, default first.
+  // A copy whose shell cannot open files offers none, as its mark opened nothing.
+  ipcMain.handle('zero:open-with', async (_e, { product, src, thread }: { product?: string; src?: unknown; thread?: unknown } = {}) => {
+    if (typeof src !== 'string' || !src || /^https?:/.test(src)) return { ok: false, apps: [] };
+    const shell = await shellNow();
+    const found = await findToOpen(String(product ?? ''), src, thread);
+    if (!found.ok) return { ok: false, apps: [] };
+    const apps = shell.openPath ? await listApps(found.path) : [];
+    const icon = async (p: string) => {
+      try { return (await host.app.getFileIcon?.(p, { size: 'normal' }))?.toDataURL() ?? null; } catch { return null; }
+    };
+    return {
+      ok: true,
+      apps: await Promise.all(apps.map(async (a) => ({ ...a, icon: await icon(a.path) }))),
+      reveal: !!shell.showItemInFolder,
+      finder: process.platform === 'darwin',
+    };
+  });
+  ipcMain.handle('zero:open-artifact', async (_e, { product, src, mode, thread, app }: { product: string; src?: unknown; mode?: string; thread?: unknown; app?: unknown }) => {
+    const shell = await shellNow();
+    if (typeof src !== 'string' || !src) return { ok: false, error: 'no path' };
+    if (/^https?:/.test(src)) {
+      if (mode === 'resolve') return { ok: true, opened: src };
+      const opened = await openInBrowser(src, { shell });
+      return opened.ok ? { ok: true, opened: src } : opened;
+    }
+    const found = await findToOpen(product, src, thread);
+    if (!found.ok) return found;
+    if (mode === 'reveal') {
+      if (!shell.showItemInFolder) return { ok: false, error: 'This copy cannot show files in a folder.' };
+      shell.showItemInFolder(found.path);
+      return { ok: true, opened: found.path };
     }
     if (mode === 'resolve') {
       // RESOLVING FOR THE PANE IS WHAT OPENS THE DOOR. An html page is drawn
@@ -2974,7 +3144,11 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
       try { await openSourceFile(found.path); return { ok: true, opened: found.path }; }
       catch (error) { return { ok: false, error: (error as Error).message || 'The text editor could not be opened.' }; }
     }
-    const err = await openForThePerson(shell, found.path);
+    // An app is opened only if the Mac offers it for this very file.
+    if (typeof app === 'string' && app && !(await listApps(found.path)).some((a) => a.path === app)) {
+      return { ok: false, error: 'That app does not open this kind of file.' };
+    }
+    const err = await openForThePerson(shell, found.path, typeof app === 'string' && app ? { app } : {});
     return err ? { ok: false, error: err } : { ok: true, opened: found.path };
   });
 
@@ -3199,21 +3373,12 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
   // (main/run-traces.mts). Otherwise the newest, and `have` holds the stamps
   // of the logs the screen already has (shared/trace-delta.mts).
   ipcMain.handle('zero:session-trace', async (_e, { product, id, have, whole }: { product: string; id: string; have?: Record<string, string>; whole?: boolean } = {} as { product: string; id: string }) => {
-    const fs = await import('node:fs');
     const path = await import('node:path');
     const dir = store.listProducts().find((p) => p.slug === product)?.dir;
     if (!dir || !/^[\w-]+$/.test(String(id ?? ''))) return { ok: false, sessions: [] };
     const traceDir = machineryPath(dir, path.join('sessions', id));
     if (whole) return { ok: true, sessions: readRunTraces(traceDir, { whole: true }) };
-    let files: string[] = [];
-    try {
-      files = fs.readdirSync(traceDir).filter((f) => f.endsWith('.log')).sort();
-    } catch { return { ok: true, sessions: [] }; }
-    const sessions = files.slice(-20).map((f) => {
-      const startedAt = Number(f.replace('.log', '')) || 0;
-      return traceAnswer({ fs, file: path.join(traceDir, f), startedAt, had: have?.[startedAt] });
-    });
-    return { ok: true, sessions };
+    return { ok: true, sessions: newestRunTraces(traceDir, have) };
   });
 
   // The thread history behind the time under a task's title. Raw ledger lines,

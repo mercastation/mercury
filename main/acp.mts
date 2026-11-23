@@ -19,8 +19,9 @@
  *
  * - A PERMISSION REQUEST IS ALWAYS ANSWERED. The agent is blocked on us while
  *   it waits, so a dropped answer is not a missing card, it is a task parked
- *   forever with nothing on the row. If the asker throws, or never comes back
- *   inside the deadline, the answer is a refusal rather than silence.
+ *   forever with nothing on the row. If the asker throws, the answer is a
+ *   refusal rather than silence. No clock answers for the person: a card
+ *   settles on their answer, a cancelled turn, or the connection closing.
  * - A REFUSAL IS SPOKEN IN THE AGENT'S OWN WORDS. Option ids belong to the
  *   tool, so "deny" means finding the option whose KIND rejects. If it offered
  *   none, the answer is `cancelled`: we never invent an id, and we never
@@ -52,12 +53,10 @@ export const CLIENT_CAPABILITIES = Object.freeze({
 export const PERMISSION_KINDS = Object.freeze(['allow_once', 'allow_always', 'reject_once', 'reject_always']);
 const REJECTIONS = Object.freeze(['reject_once', 'reject_always']);
 
-// How long a question may stand before it is refused on the person's behalf.
-// Matches the Codex spool, because it is the same person and the same patience.
-export const PERMISSION_TIMEOUT_MS = 15 * 60_000;
 export const REQUEST_TIMEOUT_MS = 2 * 60_000;
 // A line that never ends is not a message, it is a leak.
 export const MAX_FRAME_LENGTH = 16 * 1024 * 1024;
+const EXIT_DRAIN_MS = 250;
 
 type RpcId = string | number;
 
@@ -95,14 +94,14 @@ interface Negotiated {
 }
 
 interface AcpChild {
-  stdin: { write(line: string, callback?: (error?: Error | null) => void): unknown; end(): unknown };
+  stdin: { write(line: string, callback?: (error?: Error | null) => void): unknown; end(): unknown; on?(event: 'error', listener: (error: Error) => void): unknown };
   stdout?: {
     on(event: 'data', listener: (chunk: Buffer) => void): unknown;
     on(event: 'end', listener: () => void): unknown;
   } | null;
   stderr?: { on(event: 'data', listener: (chunk: Buffer | string) => void): unknown } | null;
   on?(event: 'error', listener: (error: Error) => void): unknown;
-  on?(event: 'exit', listener: (code: number | null) => void): unknown;
+  on?(event: 'exit' | 'close', listener: (code: number | null) => void): unknown;
   kill?(): unknown;
 }
 
@@ -112,7 +111,6 @@ interface AcpClientOptions {
   clientInfo?: { name: string; version: string };
   onNotification?: ((method: string, params: unknown) => void) | null;
   onPermission?: ((request: PermissionParams & { requestId: RpcId }) => Chosen | PromiseLike<Chosen>) | null;
-  permissionTimeoutMs?: number;
   requestTimeoutMs?: number;
   maxFrameLength?: number;
   stderrLimit?: number;
@@ -121,14 +119,13 @@ interface AcpClientOptions {
 interface PendingRequest {
   resolve: (result: unknown) => void;
   reject: (error: Error) => void;
-  timer: NodeJS.Timeout;
+  timer: NodeJS.Timeout | null;
   method: string;
 }
 
 interface StandingPermission {
   sessionId: string | null;
   options: PermissionOption[];
-  timer: NodeJS.Timeout;
 }
 
 /**
@@ -158,7 +155,6 @@ export function createAcpClient({
   clientInfo = { name: 'agentbox', version: '1.0.0' },
   onNotification = null,
   onPermission = null,
-  permissionTimeoutMs = PERMISSION_TIMEOUT_MS,
   requestTimeoutMs = REQUEST_TIMEOUT_MS,
   maxFrameLength = MAX_FRAME_LENGTH,
   stderrLimit = 64 * 1024,
@@ -193,24 +189,20 @@ export function createAcpClient({
     return true;
   }
 
-  // `timeoutMs` of 0 waits for as long as the connection lives. That is right
-  // for exactly one request, `session/prompt`, which answers only when the
-  // whole turn is over: a real task runs for minutes and a deadline would end
-  // it in the middle. Its ways out are a cancel, which the protocol answers
-  // with `cancelled`, and the connection closing, which rejects it below.
-  function request(method: string, params: unknown, timeoutMs: number = requestTimeoutMs) {
+  // `timeoutMs` null is a request with no deadline of its own: a prompt stays
+  // open for the whole turn, and the connection closing is what ends it.
+  function request(method: string, params: unknown, timeoutMs: number | null = requestTimeoutMs) {
     if (gone) return Promise.reject(Error(gone));
     const id = nextId++;
     return new Promise<unknown>((resolve, reject) => {
-      const timer = setTimeout(() => {
+      const timer = timeoutMs === null ? null : setTimeout(() => {
         pending.delete(id);
         reject(Error(`${method} did not answer within ${timeoutMs}ms`));
-      }, timeoutMs > 0 ? timeoutMs : 2 ** 31 - 1);
-      timer.unref?.();
-      if (!(timeoutMs > 0)) clearTimeout(timer);
+      }, timeoutMs);
+      timer?.unref?.();
       pending.set(id, { resolve, reject, timer, method });
       if (!write({ jsonrpc: '2.0', id, method, params })) {
-        clearTimeout(timer);
+        if (timer) clearTimeout(timer);
         pending.delete(id);
         reject(Error(gone ?? 'The agent connection is gone'));
       }
@@ -227,28 +219,20 @@ export function createAcpClient({
    * `optionId` when the person chose one of the offered options; null for
    * `cancelled`, which is what a cancelled turn and an agent that offered no
    * refusal both come to. The entry is dropped before the write, so a late
-   * answer from a card, a deadline and a cancellation racing each other still
-   * only ever put one response on the wire.
+   * answer from a card and a cancellation racing each other still only ever
+   * put one response on the wire.
    */
   function settlePermission(id: RpcId, optionId: Chosen) {
-    const entry = permissions.get(id);
-    if (!entry) return false;
-    permissions.delete(id);
-    clearTimeout(entry.timer);
+    if (!permissions.delete(id)) return false;
     const outcome = optionId ? { outcome: 'selected', optionId } : { outcome: 'cancelled' };
     write({ jsonrpc: '2.0', id, result: { outcome } });
     return true;
   }
 
-  // `permissionTimeoutMs` of 0 lets a question wait for its person, as the
-  // inbox's cards do: a cancel, the connection closing or their answer ends it.
   function askPermission(id: RpcId, params: PermissionParams | null | undefined) {
     const options = Array.isArray(params?.options) ? params.options : [];
     const deny = () => settlePermission(id, rejectionOption(options));
-    const timer = setTimeout(deny, permissionTimeoutMs > 0 ? permissionTimeoutMs : 2 ** 31 - 1);
-    timer.unref?.();
-    if (!(permissionTimeoutMs > 0)) clearTimeout(timer);
-    permissions.set(id, { sessionId: params?.sessionId ?? null, options, timer });
+    permissions.set(id, { sessionId: params?.sessionId ?? null, options });
     if (!onPermission) return deny();
     // The asker may answer whenever: the reading loop is not waiting on it.
     (async () => onPermission({ requestId: id, ...params }))()
@@ -264,7 +248,7 @@ export function createAcpClient({
       const waiting = pending.get(message.id);
       if (!waiting) return;                       // a response to something we gave up on
       pending.delete(message.id);
-      clearTimeout(waiting.timer);
+      if (waiting.timer) clearTimeout(waiting.timer);
       if (message.error) waiting.reject(Error(`${waiting.method}: ${message.error.message ?? 'failed'}`));
       else waiting.resolve(message.result);
       return;
@@ -288,7 +272,8 @@ export function createAcpClient({
       if (!line) continue;
       let message: unknown = null;
       try { message = JSON.parse(line); } catch { continue; } // a line we cannot read is not a reason to die
-      if (message && typeof message === 'object') handle(message as RpcMessage);
+      // Nor is one its reader cannot take: a throw here would leave this listener as an uncaught exception.
+      try { if (message && typeof message === 'object') handle(message as RpcMessage); } catch { continue; }
     }
     if (buffer.length > maxFrameLength) close(`A frame longer than ${maxFrameLength} bytes was too long to be a message`);
   }
@@ -298,14 +283,10 @@ export function createAcpClient({
     gone = reason;
     // Every question still standing goes with the connection: an answer whose
     // asker has quit is worth nothing, and the agent is already gone.
-    for (const id of [...permissions.keys()]) {
-      const entry = permissions.get(id);
-      permissions.delete(id);
-      clearTimeout(entry?.timer);
-    }
+    permissions.clear();
     for (const [id, waiting] of [...pending]) {
       pending.delete(id);
-      clearTimeout(waiting.timer);
+      if (waiting.timer) clearTimeout(waiting.timer);
       waiting.reject(Error(reason));
     }
     try { child.stdin.end(); } catch {}
@@ -319,7 +300,15 @@ export function createAcpClient({
     if (stderrText.length < stderrLimit) stderrText += chunk.toString().slice(0, stderrLimit - stderrText.length);
   });
   child.on?.('error', error => close(`The agent could not be run: ${error.message}`));
-  child.on?.('exit', code => close(gone ?? `The agent exited with code ${code}`));
+  // What the agent printed as it died is all in once its pipes close, which can be after its exit.
+  // Something it started can hold them open, so the wait is short.
+  child.on?.('exit', code => {
+    const say = () => close(gone ?? `The agent exited with code ${code}`);
+    const cap = setTimeout(say, EXIT_DRAIN_MS);
+    child.on?.('close', () => { clearTimeout(cap); say(); });
+  });
+  // A write to an agent that has gone also fails as an `error` on the pipe, and one nobody hears ends the app.
+  child.stdin.on?.('error', error => close(`Write failed: ${error.message}`));
 
   /* -------------------------------- the API -------------------------------- */
 
@@ -378,10 +367,12 @@ export function createAcpClient({
     },
     setMode: ({ sessionId, modeId }: { sessionId: string; modeId: string }) => request('session/set_mode', { sessionId, modeId }),
     setModel: ({ sessionId, modelId }: { sessionId: string; modelId: string }) => request('session/set_model', { sessionId, modelId }),
-    setConfigOption: ({ sessionId, configId, value }: { sessionId: string; configId: string; value: unknown }) => request('session/set_config_option', { sessionId, configId, value }),
-    // No deadline: the answer is the end of the turn (see `request`).
+    /** One of the choices the session offered, such as its model. */
+    setConfigOption: ({ sessionId, configId, value }: { sessionId: string; configId: string; value: string }) =>
+      request('session/set_config_option', { sessionId, configId, value }),
+    // No deadline: a 2-minute one here would cancel every long turn with nothing in the logs.
     prompt: ({ sessionId, text, blocks = null }: { sessionId: string; text?: string; blocks?: unknown[] | null }) =>
-      request('session/prompt', { sessionId, prompt: blocks ?? [{ type: 'text', text }] }, 0),
+      request('session/prompt', { sessionId, prompt: blocks ?? [{ type: 'text', text }] }, null),
     /**
      * Stop the turn, and answer what it was parked on. The protocol says a
      * cancelled turn MUST be answered `cancelled`, and this is the only place

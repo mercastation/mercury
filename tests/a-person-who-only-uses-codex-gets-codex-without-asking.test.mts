@@ -101,7 +101,8 @@ describe('an install that already has a config', () => {
   });
 
   it('stays as it was when Codex is not found', () => {
-    const d = withConfig({ codexBin: MISSING });
+    // MERCURY: nor Antigravity, whose agy a Mac running this may have.
+    const d = withConfig({ codexBin: MISSING, antigravityBin: MISSING });
     expect(engineChoiceSince(loadConfig(d, { home: d }))).toBeNull();
     expect(saved(d).engineChoice).toBeUndefined();
   });

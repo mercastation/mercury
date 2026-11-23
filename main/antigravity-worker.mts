@@ -128,6 +128,10 @@ export function createAntigravityWorker(o: AntigravityWorkerOptions): Antigravit
   let heard = 0;
   let newest: 'usage' | 'done' | 'work' = 'work';
   let poke = () => {};
+  // Set when agy's process exits. The client marks itself closed only once
+  // agy's pipes have closed or a short drain has passed (main/acp.mts), so a
+  // wait woken by the exit reads this rather than `client.closed()`.
+  let agyGone: string | null = null;
   let stopped: BackgroundTask[] = [];
   const jobs = (all = false): BackgroundTask[] => [...running].filter(([id]) => all || outlived.has(id)).map(([task_id, description]) => ({ task_id, description }));
 
@@ -163,7 +167,6 @@ export function createAntigravityWorker(o: AntigravityWorkerOptions): Antigravit
   const client = createAcpClient({
     transport: child,
     clientInfo: { name: 'mercury', version: '1.0.0' },
-    permissionTimeoutMs: 0,
     onNotification: (method, params) => {
       if (replaying) return;
       const u = (params as { update?: AcpUpdate | null } | null)?.update;
@@ -273,7 +276,7 @@ export function createAntigravityWorker(o: AntigravityWorkerOptions): Antigravit
     const look = () => {
       clearTimeout(timer);
       if (stopping) return end('stopped');
-      if (client.closed()) return end('gone');
+      if (client.closed() || agyGone) return end('gone');
       if (heard > from && newest === 'usage') after(IDLE_SETTLE_MS, 'idle');
       else if (client.openPermissions()) return;
       else if (!running.size) after(QUIET_END_MS, 'quiet');
@@ -306,7 +309,7 @@ export function createAntigravityWorker(o: AntigravityWorkerOptions): Antigravit
         const why = await settled();
         flush();
         if (why === 'stopped') return { ...answer, stopReason: 'cancelled' };
-        if (why === 'gone') throw Error(client.closed() || 'Antigravity went while it was waiting on a command.');
+        if (why === 'gone') throw Error(client.closed() || agyGone || 'Antigravity went while it was waiting on a command.');
         // Closing agy, as the run ends, stops them.
         if (why === 'cap') { stopped = jobs(true); return answer; }
         if (why === 'quiet') return answer;
@@ -372,8 +375,8 @@ export function createAntigravityWorker(o: AntigravityWorkerOptions): Antigravit
     }
   };
 
-  // agy going ends a wait too; its own handlers have marked the client closed by now.
-  child.once?.('exit', () => poke());
+  // agy going ends a wait too.
+  child.once?.('exit', (code: number | null) => { agyGone = `Antigravity exited with code ${code}`; poke(); });
   child.stdout?.on('end', () => poke());
 
   worker.kill = () => {

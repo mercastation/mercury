@@ -195,6 +195,7 @@ export const REQUEST_CHANNELS: Readonly<Record<string, string>> = {
   gitHubCloudSignIn: 'zero:github-cloud-sign-in',
   // The answer to a sign-in link an agent is waiting on (shared/sign-in-ask.mjs).
   signInAnswer: 'zero:sign-in-answer',
+  signInKeep: 'zero:sign-in-keep',
   // A file or a one-time code a cloud run asked for (shared/cloud-needs.mts).
   cloudSendFile: 'zero:cloud-send-file',
   cloudSendCode: 'zero:cloud-send-code',
@@ -228,9 +229,14 @@ export const REQUEST_CHANNELS: Readonly<Record<string, string>> = {
   glassTone: 'zero:glass-tone',
   windowButtons: 'zero:window-buttons',
   track: 'zero:track',
+  // How long the window's own thread held (renderer/src/window-holds.ts).
+  windowHeld: 'zero:window-held',
+  // And how held it was over the last minute (renderer/src/window-lag.ts). Main takes it from the desktop window only.
+  windowLag: 'zero:window-lag',
   sessionTrace: 'zero:session-trace',
   itemHistory: 'zero:item-history',
   openArtifact: 'zero:open-artifact',
+  openWith: 'zero:open-with',
   folderPictures: 'zero:folder-pictures',
   readDoc: 'zero:read-doc',
   fileLink: 'zero:file-link',
@@ -254,6 +260,7 @@ export const REQUEST_CHANNELS: Readonly<Record<string, string>> = {
   saveRailNote: 'zero:save-rail-note',
   agentReply: 'zero:agent-reply',
   agentReveal: 'zero:agent-reveal',
+  bringInSession: 'zero:bring-in-session',
   agentConversation: 'zero:agent-conversation',
   scheduleAgent: 'zero:schedule-agent',
   closeAgent: 'zero:close-agent',
@@ -304,6 +311,7 @@ export const PUSH_CHANNELS: Readonly<Record<string, string>> = {
 export const WRAPPED_ARGS: Readonly<Record<string, string[]>> = {
   notify: ['arrivals', 'needsYou'],
   track: ['name', 'count'],
+  windowHeld: ['ms'],
   instructionWrite: ['id', 'text'],
   instructionVersion: ['id', 'at'],
 };

@@ -30,7 +30,7 @@ function fakeAgent() {
 }
 
 async function ready(child: ReturnType<typeof fakeAgent>, capabilities: Record<string, unknown>) {
-  const client = createAcpClient({ transport: child, requestTimeoutMs: 1_000, permissionTimeoutMs: 0 });
+  const client = createAcpClient({ transport: child, requestTimeoutMs: 1_000 });
   const init = client.initialize();
   await vi.waitFor(() => expect(child.lastCall('initialize')).toBeTruthy());
   child.reply(child.lastCall('initialize')!.id!, { protocolVersion: 1, agentCapabilities: capabilities });
@@ -64,10 +64,12 @@ describe('a turn on an ACP agent', () => {
     await outcome;
   });
 
-  it('lets a permission question wait for its person when told to', async () => {
+  // Since the 2026-11-23 sync Agentbox's transport has no question timer at
+  // all, so this holds without being asked for.
+  it('lets a permission question wait for its person', async () => {
     const child = fakeAgent();
     const seen: unknown[] = [];
-    const client = createAcpClient({ transport: child, permissionTimeoutMs: 0, onPermission: req => { seen.push(req); return new Promise(() => {}); } });
+    const client = createAcpClient({ transport: child, onPermission: req => { seen.push(req); return new Promise(() => {}); } });
     vi.useFakeTimers();
     child.say({ jsonrpc: '2.0', id: 9, method: 'session/request_permission', params: { sessionId: 's-1', options: [{ optionId: 'deny', kind: 'reject_once' }] } });
     await vi.advanceTimersByTimeAsync(24 * 60 * 60_000);

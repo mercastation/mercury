@@ -23,7 +23,7 @@ import path from 'node:path';
 import { artifactRoots, resolveArtifact } from '../artifact-path.mts';
 import { bytesOf, hideSecrets } from '../../shared/phone-snapshot.mts';
 import { isShared, runnerOf } from '../../shared/team-rules.mts';
-import { cleanMark, editedWords, familyName, fileNewsFor, filesInLines, isBookkeepingMark, marksOf, threadFiles } from '../../shared/artifact-marks.mts';
+import { cleanMark, editedWords, familyName, fileNewsFor, filesInLines, isBookkeepingMark, marksOf, TEAMMATE_MARK, threadFiles } from '../../shared/artifact-marks.mts';
 import { saveNextVersion } from '../file-version.mts';
 import { MAX_MESSAGE_FILE_BYTES } from './sync.mts';
 import { MAX_SHARED_SENT_BYTES as MAX_SENT_BYTES, PART_BYTES } from '../../shared/carried-files.mts';
@@ -129,7 +129,8 @@ export interface ThreadShareOptions {
 }
 
 export interface ThreadShare {
-  pass(teamId: string | null | undefined): Promise<void>;
+  /** `cards`: the list the caller has just read, so this reads none of its own. */
+  pass(teamId: string | null | undefined, cards?: readonly SyncCard[]): Promise<void>;
   read(owner: string, threadId: string): SharedThreadView;
   folders(): { ownerId: string; threadId: string; version: string }[];
   products(): { slug: string; name: string; dir: string }[];
@@ -330,7 +331,8 @@ export function createThreadShare({
       if (!inside) real = null;
     }
     if (!real && meant) {
-      const hit = await findFileToSend({ ref: src, meant: true, products: listProducts() });
+      // This look repeats every minute for every thread, so it takes the folder lists already made.
+      const hit = await findFileToSend({ ref: src, meant: true, products: listProducts(), fresh: false });
       real = hit?.file ?? null;
     }
     if (!real || looksSecret(src) || looksSecret(path.basename(real))) return null;
@@ -402,9 +404,9 @@ export function createThreadShare({
     goingUp.set(key, run);
   }
 
-  async function publish(teamId: string, heads: ThreadHead[]) {
+  async function publish(teamId: string, heads: ThreadHead[], known?: readonly SyncCard[]) {
     const mine = new Map(heads.filter((h) => h.personId === me).map((h) => [h.threadId, h.hash]));
-    const cards = listCards() ?? [];
+    const cards = known ?? listCards() ?? [];
     readers = new Map(cards.map((c) => [c.threadId, Array.isArray(c.people) ? c.people.filter((p): p is string => typeof p === 'string') : null]));
     if (!cards.length) { built.clear(); return; }
     const threads = listThreads();
@@ -528,7 +530,7 @@ export function createThreadShare({
 
   const asLine = (row: ThreadFileMark): (SharedLine & { uid: string; patch: { artifact: Mark } }) | null => {
     const artifact = cleanMark(row.mark);
-    return artifact ? { id: row.threadId, ts: row.at, source: 'system', by: row.by, uid: `mark-${row.id}`, patch: { artifact } } : null;
+    return artifact ? { id: row.threadId, ts: row.at, source: 'system', by: row.by, uid: `${TEAMMATE_MARK}${row.id}`, patch: { artifact } } : null;
   };
 
   /** Everything marked on one teammate's thread: what its owner published, what the cloud holds, what is waiting to go. */
@@ -685,11 +687,11 @@ export function createThreadShare({
 
   return {
     /** One pass. Nothing here may stop a sync. */
-    async pass(teamId) {
+    async pass(teamId, cards) {
       if (!backend.threadWorkHeads || !teamId) return;
       const heads = await quietly('reading what is shared', () => backend.threadWorkHeads!());
       if (!heads) return;
-      await publish(teamId, heads);
+      await publish(teamId, heads, cards);
       await take(heads);
       if (backend.fileMarks) await sendWaiting(heads);
       comments = await quietly('reading comments', () => backend.threadComments(), comments);

@@ -46,7 +46,8 @@ describe('the Codex opt-in on a new install', () => {
   // from that launch (tests/a-person-who-only-uses-codex-gets-codex-without-asking).
   it('is not written into an install that already has a config and no Codex', () => {
     const d = dir();
-    fs.writeFileSync(path.join(d, 'zero.config.json'), JSON.stringify({ accountId: 'existing', codexBin: '/nonexistent/codex/codex' }));
+    // MERCURY: nor Antigravity, whose agy a Mac running this may have.
+    fs.writeFileSync(path.join(d, 'zero.config.json'), JSON.stringify({ accountId: 'existing', codexBin: '/nonexistent/codex/codex', antigravityBin: '/nonexistent/agy' }));
     expect(engineChoiceSince(loadConfig(d, { home: d }))).toBeNull();
     expect(saved(d).engineChoice).toBeUndefined();
   });
