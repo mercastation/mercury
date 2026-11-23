@@ -69,6 +69,14 @@ pub struct ThreadPlace {
     pub news: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub top: Option<f32>,
+    /// Where they had scrolled it to, as the row of the conversation at the top of the page and
+    /// how far the page's top was into it: rows away from the screen are not laid out, so how
+    /// far down a row stands is not known until it is, and an offset alone would land on
+    /// another line. Kept beside `top`, which a place written before has alone.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub row: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub into: Option<f32>,
     /// The earlier messages shown, and the middle asked back.
     pub earlier: bool,
     pub whole: bool,
@@ -200,8 +208,13 @@ mod tests {
     #[test]
     fn where_a_conversation_was_left_is_read_by_the_next_window() {
         let file = scratch("places");
-        let place = ThreadPlace { thread: "shop/w-1".into(), news: 7.0, top: Some(900.0), earlier: true, whole: true, runs: vec!["shop/w-1|run>m5".into()], lines: vec![("shop/w-1|line>w9:ran:npm test".into(), 2)] };
+        let place = ThreadPlace { thread: "shop/w-1".into(), news: 7.0, top: Some(900.0), row: Some("said>m5".into()), into: Some(40.0), earlier: true, whole: true, runs: vec!["shop/w-1|run>m5".into()], lines: vec![("shop/w-1|line>w9:ran:npm test".into(), 2)] };
         Kept::at(Some(file.clone())).change(|p| p.thread_places.push(place.clone()));
-        assert_eq!(Kept::at(Some(file)).get().thread_places, vec![place]);
+        assert_eq!(Kept::at(Some(file.clone())).get().thread_places, vec![place]);
+        // A place written before rows were kept has its offset alone, and still reads.
+        std::fs::write(&file, r#"{"thread_places":[{"thread":"shop/w-1","news":7.0,"top":900.0,"earlier":true,"whole":false,"runs":[],"lines":[]}]}"#).unwrap();
+        let older = Kept::at(Some(file.clone())).get().thread_places.clone();
+        assert_eq!((older[0].top, older[0].row.as_deref(), older[0].into), (Some(900.0), None, None));
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
     }
 }

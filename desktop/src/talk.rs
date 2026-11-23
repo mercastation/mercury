@@ -983,6 +983,8 @@ pub struct Page<'a> {
     pub alone: Option<&'a Message>,
     /// Otherwise the conversation from here on, with the outcome under it.
     pub said: &'a [Said],
+    /// Where `said` starts in the whole conversation (`Talk::said`).
+    pub from: usize,
     /// The line for a long conversation's missing middle: after which of `said`, and how many.
     pub gap: Option<(usize, usize)>,
     /// How many messages the conversation drawn leaves out, as `ItemThread` tells `Thread`
@@ -1029,11 +1031,11 @@ impl Talk {
             None
         };
         if alone && !unfolded && !short {
-            return Page { toggle, alone: newest, said: &[], gap: None, omitted: 0 };
+            return Page { toggle, alone: newest, said: &[], from: 0, gap: None, omitted: 0 };
         }
         match (short || unfolded, start) {
-            (false, Some(from)) => Page { toggle, alone: None, said: &self.said[from..], gap: None, omitted: 0 },
-            _ => Page { toggle, alone: None, said: &self.said, gap: gap.map(|g| (g, self.omitted)), omitted: self.omitted },
+            (false, Some(from)) => Page { toggle, alone: None, said: &self.said[from..], from, gap: None, omitted: 0 },
+            _ => Page { toggle, alone: None, said: &self.said, from: 0, gap: gap.map(|g| (g, self.omitted)), omitted: self.omitted },
         }
     }
 }
