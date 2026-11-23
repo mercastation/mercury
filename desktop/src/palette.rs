@@ -212,6 +212,12 @@ fn own_lines(s: &State, threads: Vec<rules::Row>) -> Vec<Line> {
         let at = commands.iter().position(|r| r.id == "open" || r.id == "view-home").unwrap_or(commands.len());
         commands.insert(at, rules::stop_row(s.run_on(item), (item.id.clone(), item.product.clone())));
     }
+    // The code its run changed, on the conversation whose page draws the button for it.
+    if let Some((item, true)) = under
+        && crate::change::has_a_change(s, item)
+    {
+        rules::with_code_row(&mut commands, (item.id.clone(), item.product.clone()));
+    }
     let listed = rules::listed(commands, threads, query);
     let keys = rules::row_keys(&listed.rows);
     let headings: Vec<Option<String>> = (0..listed.rows.len()).map(|at| listed.label_over(at).map(str::to_string)).collect();
@@ -560,6 +566,8 @@ fn run(s: &mut State, does: Does, tx: &mut Tx) {
         }
         Does::Stop((id, product)) => s.stop_agent(&id, &product),
         Does::Nothing => {}
+        // It opens the change, and never closes one already open (`setOpenDoc`).
+        Does::Code((id, _)) => s.open_change(&crate::rules::change::change_path_for(&id), None),
     }
 }
 

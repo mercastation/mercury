@@ -42,6 +42,12 @@ picture, a film, a PDF, a page or a deck opens big over the window, its versions
 beside it a key away ("A file opened big"), and the rail's Files is the place of every file the
 threads made ("The Files place").
 
+A thread whose run changed code carries the code button in its head strip, with the lines added
+and removed, which opens the change beside the conversation: its files as a tree, every file's
+hunks in one running column, the lines between two hunks a press away, its own keys, lines to
+select and copy, and the lines now in the file to type into and save with ⌘S. A file a run's
+step edited is a chip that opens the change at that file ("The code a thread changed", below).
+
 ⌘K opens the command bar from anywhere: it finds threads by their words, as the web window's bar
 does, and offers every row of the web's whose doing this window has, under its words, in its
 order, writing what the web's row writes ("The command bar", below; `docs/parity-command-bar.md`
@@ -1488,7 +1494,8 @@ what this window does of each and why a row is left out:
   an outside agent's row, or Reopen on a finished thread, written at once and taken back by Z
   ("Reopened: … · press Z to undo", `reopenDone`); Reply (R); Resume this agent, where Try again
   would not stand for it; Mark read on an unread thread, told to the web window as a phone tells
-  it; Back to Inbox (E) or "Let it run now"; Later (L); Pin thread or Unpin thread; where it runs,
+  it; Back to Inbox (E) or "Let it run now"; Later (L); View code changes on the open thread
+  while its strip draws the code button, which opens the change; Pin thread or Unpin thread; where it runs,
   in the place button panel's words with the place said as its hint; three models, the other
   agent's first where this Mac offers it ("Sonnet 5.5 picks this up next"); Move to each other
   project, or Move to another project saying why it cannot, the move taken back by Z and the
@@ -1827,6 +1834,132 @@ the file and coming back puts it back until a new answer; the newest answer's fi
 itself, Escape then leaves the thread, and once closed it stays shut; a card under a thousand
 points gives the file all of it with no head and the reply box under it; a file rewritten on
 disk is read again once its time has come round; and the rules' own cases, from the web's tests.
+
+## The code a thread changed
+
+A run that changed code leaves the change it made (`runs/<thread>/the-change-it-made.change`),
+and the web window shows it in full: a button in the thread's head strip, the change beside the
+conversation, and a chip on each step that edited one of its files (`Focus.tsx`,
+`ThreadMenu.tsx`, `DocPane.tsx`, `CodeArtifact.tsx` with `code-artifact.ts`, `code-keys.ts`,
+`code-copy.ts` and `code-edit.ts`). Here it is `src/change.rs`, its rules `src/rules/change.rs`
+with the web's own test cases, and every behaviour is a line of `docs/parity-code-changes.md`,
+ticked with how it was checked.
+
+**The button.** A thread whose change adds or removes a line carries it after the Files button:
+the code mark and the figures, `+36` green and `−88` red, each only when not zero, thousands
+separated, in Done's frame, lit while the change is open beside the thread. A press opens the
+change at its top, and puts it away when it is open. Its figures are the change without its rows
+(`zero:code-change` with `summary`), asked when the conversation opens, when the thread's row
+changes and when a run starts on it; then every four seconds while a run is up, and for two
+minutes after its answer was written, when the folder may still move (`asks_for_the_figures`).
+A person's own agent session is never asked.
+
+**Beside the conversation.** The change opens in the pane every file opens in, with its split,
+divider and Escape. Its card is flush, on the code's own ground, under a head that says "The
+change", with the corners (the whole workspace), "Open this file in your editor" (the file at the
+top of the column, found as the engine finds it) and close. While it is read, the skeleton that
+holds a document's place; when it cannot be, the engine's reason. It is read once per opening, as
+in the web window, which does not read it again while open. Sent to the whole workspace by its
+corners, the conversation is hidden and the reply box stays; the marks over it wake when the
+pointer moves, sleep 1.8 seconds after, and lie under the card, so only their eight points past
+its edge show or take a press. A change a narrow window leaves the whole card to has no marks,
+and Escape is its way out.
+
+**The files.** A tree, 232 points down its left, whose head says how many files and lines, "not
+committed" while the work is loose in the folder and how long the run took; folders first, a
+chain of single folders one row, each folder's count; a press shuts a folder or jumps the column
+to a file, and the arrows then walk the files. In a pane 800 points wide or less a picker stands
+over the column instead, naming the file at its top. The file at the top of the column is lit.
+
+**The column.** Every file in one running column, its head stuck at the top while its file is in
+view and pushed off by the next; a press on a head folds the file, and folds are kept while the
+window runs. Each row is its number, its mark and its line, on a green or red bed, the words that
+changed between a removed line and its replacement on a stronger bed, coloured as a script is.
+Between two hunks, "N lines not shown": a press reads the file through the engine
+(`zero:code-file`) and draws the lines in place. ] and [ go to the next and previous change, the
+arrows a row, Page Up and Down a screenful, Home and End the ends, and J and K do nothing, as
+the web window keeps them from the app's own. A large change builds the rows of the files near
+the view and holds the height of the rest, as the web window's unfilled files do, so nothing
+waits on the rows out of sight.
+
+**Selecting, typing, saving.** The words select, never the numbers or marks; a drag from the
+margin starts at a line's front, a shifted press extends across lines, and ⌘C copies the lines
+with no gutter, the removed ones left out unless they are all that is selected, built or not. A
+line that is in the file now takes typing as an editor's does: a press puts the caret where it
+landed; Return is refused and a paste comes in as one line; the arrows cross to the lines above
+and below; a selection over several lines refuses a keystroke. Typed words are kept while the
+window runs and mark the file Unsaved on its head, in the tree and in the picker. ⌘S reads each
+such file, puts each typed line back exactly where the run left it and writes it through the
+engine (`zero:code-file`, `zero:save-code-file`), saying "Saved name.ts, 2 lines." or why not.
+
+**From a run's step.** In an opened run, a step that edited or wrote a file the change holds wears
+it as a chip, which opens the change at that file. ⌘K offers View code changes on a thread whose
+strip draws the button.
+
+**How it was checked.** Each behaviour is a test on an invented change: 24 on the window
+(`src/change.rs`), the rules' own 21 (`src/rules/change.rs`) and the bar's row
+(`src/rules/palette.rs`). Two more are ignored, as they need a large change or a running engine.
+The save was tried against a running scratch engine (`MERCURY_SCRATCH_DOOR`,
+`MERCURY_SCRATCH_TOKEN`, `MERCURY_SCRATCH_DIR`): both hunks written in place, a change whose
+folders do not hold the file refused in the engine's words, and a file moved between the read
+and the write refused as stale. The scenes `thread-change`, `-open`, `-full`, `-full-marks`, `-chip`, `-hover`,
+`-loading`, `-failed`, `-folded`, `-at`, `-gap`, `-typed` and `-shut`
+(`tools/scenes/thread-change*.mjs`, the change in `tools/scenes/change.mjs`) are the web window
+in each state; a fixture says what the page had done (`changeFolded`, `changeShut`,
+`changeTyped`, `changeGaps`, `changeAt`, `docFull`). They plant their files in
+`MERCURY_PLANTED`, which the next reference run plants again.
+
+At 2x, dark, of 255, the whole window, the conversation beside the change, the card, the tree or
+picker, and the column under them:
+
+| Scene | Window | Whole | Conversation | Card | Tree or picker | Column |
+|---|---|---|---|---|---|---|
+| `thread-change` | 1280 by 760 | 0.41 | the strip 0.49, the button 0.59 | | | |
+| `thread-change-open` | 1280 by 760 | 0.66 | 1.11 | 0.42 | | 0.41 |
+| `thread-change-loading` | 1280 by 760 | 0.78 | 1.11 | 0.68 | | |
+| `thread-change-failed` | 1280 by 760 | 0.58 | 1.11 | 0.25 | | |
+| `thread-change-folded` | 1280 by 760 | 0.71 | 1.11 | 0.53 | | 0.55 |
+| `thread-change-at` | 1280 by 760 | 0.71 | 1.11 | 0.52 | | 0.55 |
+| `thread-change-gap` | 1280 by 760 | 0.73 | 1.11 | 0.57 | | 0.61 |
+| `thread-change-typed` | 1280 by 760 | 0.67 | 1.11 | 0.43 | | 0.43 |
+| `thread-change-shut` | 1280 by 760 | 0.66 | 1.11 | 0.42 | | 0.41 |
+| `thread-change-full` | 1280 by 760 | 0.39 | the reply box 0.48 | 0.37 | | 0.37 |
+| `thread-change-chip` | 1280 by 760 | 1.28 | the thread 1.42, the chip 1.82 | | | |
+| `thread-change` | 1600 by 1000 | 0.34 | 0.38 | | | |
+| `thread-change-open` | 1600 by 1000 | 0.63 | 0.81 | 0.61 | 0.32 | 0.71 |
+| `thread-change-folded` | 1600 by 1000 | 0.63 | 0.81 | 0.61 | 0.28 | 0.72 |
+| `thread-change-at` | 1600 by 1000 | 0.65 | 0.81 | 0.65 | 0.31 | 0.77 |
+| `thread-change-gap` | 1600 by 1000 | 0.65 | 0.81 | 0.65 | 0.31 | 0.76 |
+| `thread-change-typed` | 1600 by 1000 | 0.63 | 0.81 | 0.61 | 0.32 | 0.71 |
+| `thread-change-shut` | 1600 by 1000 | 0.62 | 0.81 | 0.60 | 0.27 | 0.71 |
+| `thread-change-full` | 1600 by 1000 | 0.36 | | 0.36 | | |
+| `thread-change-open` | 900 by 760 | 0.42 | | 0.42 | 0.41 | 0.44 |
+| `thread-change-typed` | 900 by 760 | 0.43 | | 0.44 | 0.54 | 0.43 |
+| `thread-change-at` | 900 by 760 | 0.46 | | 0.48 | 0.24 | 0.53 |
+
+Under the pointer (`tools/hover.py`), the button 1.06 against 0.58 at rest, and the line the
+pointer wakes the whole workspace's marks from 0.22 and 0.22. The chip's step reads 1.82
+where the run's opened lines are text set a fraction of a pixel apart; the chip itself, its mark
+and its path stand where the web window's do.
+
+The figures differ most where text does: the conversation's prose and the change's mono lines,
+whose glyphs sit a fraction of a pixel apart; every row, gap and head stands where the web
+window's does. Under the pointer, every point of the button, the tree, the picker, the heads,
+the gaps, the lines and the chip takes the web window's shape (`MERCURY_FEEL`); the probe reads
+an I-beam in the twelve points under the card, where words clipped by the card lie, and the web
+window shows the arrow there as this one does. The pointer tool runs no poll, so a scene that
+opens at a file (`thread-change-at`, `-gap`) was walked again with the jump landed.
+
+**How fast.** Measured in a release build on an invented change of 80 files with lines two
+thousand characters long (`MERCURY_BIG_CHANGE=<rows> cargo test --release a_big_change_opens_in
+-- --ignored --nocapture`), at sizes well past what a run usually leaves.
+
+| Rows | Opened (two frames) | A frame at rest | A frame scrolling, median and slowest | To the last file |
+|---|---|---|---|---|
+| 5,000 | 14.5 ms | 0.42 ms | 0.66 ms, 5.6 ms | 6.9 ms |
+| 20,000 | 14.7 ms | 0.37 ms | 0.82 ms, 8.1 ms | 12.7 ms |
+
+Opened, 100 and 52 lines are built: the files near the view, whatever the change's size.
 
 ## A file opened big
 
@@ -2533,8 +2666,7 @@ release or a second login.
     down the right, which the big view here does not draw. It counts no notes on its mark.
   - A page, a PDF or a film the thread sets beside itself is a card saying what it is, with Open
     outside, where the web window draws the page in a frame, the PDF's pages and the film's player:
-    Rune draws no web page, PDF or film inside a window. A change a run made (`.change`) is the
-    same card; the web window draws the change itself.
+    Rune draws no web page, PDF or film inside a window.
   - A table's search, Filter and Sort say, when pressed, that they are the web window's; its
     column menus are drawn and do nothing yet, the first column
     and the row numbers do not stay put while the rest scrolls sideways, a date column is told
@@ -2552,6 +2684,28 @@ release or a second login.
     the app says something changed, at most that often.
   - A conversation beside a file at 560 points or less sets its code blocks smaller and wrapped
     in the web window (`@container talk`); here they keep their size and scroll.
+- **The code a thread changed, where it still differs** (see "The code a thread changed"; each
+  line is in `docs/parity-code-changes.md`). The first three come from one gap in Rune as pinned: a
+  window can select inside one text (`Tx::select_text`) but cannot set a selection that runs
+  across two, and the line holding the caret is a field, not one of the texts a selection runs
+  through.
+  - Shift with an arrow, Home or End inside the line holding the caret extends the selection in
+    that line only. The web window carries it into the lines above and below, keeping its column
+    (`extendHead`, ported here with the web's cases and not called). A drag or a shifted press
+    does cross lines.
+  - From the line holding the caret, a shifted press on another line lets go of the line and
+    selects nothing, and a drag stays inside the line. The web window selects from where the
+    caret was. From anywhere else, a press on a removed line, a gap's line, a line not yet
+    holding the caret or the margin, a shifted press and a drag cross lines as in the web window.
+  - A double press on a line that takes typing and does not hold the caret yet puts the caret
+    there, and the word comes with the next press, the line with the one after: the first press
+    makes the line a field, and Rune counts a field's presses from the field's own first. A press
+    on a field reaches no handler of the window's, so the count cannot be carried over. Once
+    the caret is in the line a double press takes the word and a triple press the line. A removed
+    line and a gap's line take them at once.
+  - A press on a line puts the caret by counting the mono face's characters, and where it
+    wraps, where the browser finds the glyph under the pointer: the same place for the code's own
+    letters, off where wide characters (an emoji, a CJK letter) stand before it.
 - **A file opened big, where it still differs:**
   - No comments down the right, no box to write one, no Approve and no Share, which are not used
     where this window runs, so the stage takes the whole width, and everything on it
@@ -2610,8 +2764,11 @@ release or a second login.
   - The thread's menu leaves out every row this window cannot do, which are also the ones never
     used: Open terminal (⌘J; this window has no terminal), Rename, Move to another project, Pin
     thread, Share…, Add people and Ask or hand off… (teammates), Waits on… and Blocked by…, Mark as
-    shipped, Stop repeating, Close task, Run now, View code changes and Demand. On a finished
-    thread, where the web's menu holds only the first two, the dots say where they are.
+    shipped, Stop repeating, Close task, Run now and Demand. On a finished thread, where the web's
+    menu holds only the first two, the dots say where they are. Its View code changes row is not
+    left out: the web window draws it only on a thread whose corner has no code button, which is
+    never while the button is drawn (`change: !!change && !codeButton` in `ThreadMenu.tsx`), so
+    there is nothing to draw.
   - Codex's own model is held as no model, and the web window holds it as an empty one: the reply
     sends `null` where the web's sends `""`, and the store writes both as `""`.
   - One row of a menu is lit, by the arrows or the pointer. The web window can light two, the
@@ -2805,8 +2962,6 @@ release or a second login.
   - A command the column cuts gets its mark a frame after the line is first laid out: it is
     measured where Rune lays it out, after the frame is drawn, where the browser measures it
     before it paints.
-  - A file a run changed is not a chip into the code. The web window makes it one when the
-    thread's change holds that file (`zero:code-change`, not read yet).
   - Where the cloud says why a run is on this Mac, and on a row whose Status word carries that
     card, the web window shows the help pointer (`cursor: help`). Rune's pointers have no help
     shape, and Chromium's is a picture of its own, not one the system has; this window shows the
@@ -2930,6 +3085,15 @@ release or a second login.
   split, Escape, and the file the newest answer opens by itself. `src/table.rs`: a sheet drawn as
   its table, each column told what it holds and each tag its colour.
   `tools/scenes/thread-pane.mjs`: the scenes that open it, answering the page's reads of a file.
+- `src/change.rs`: the code a thread changed: the strip's button and when its figures are read,
+  the change in the pane (its tree or picker, its running column, gaps, keys, copying, typing and
+  saving), the marks over the whole workspace, the chip on a run's step, and what a picture had
+  done to it. `src/rules/change.rs`: the change read off the engine's answer, its figures and
+  words, the tree, the words that changed, the gaps, the keys, the copy, the typed lines put back
+  in a file, and which step's file the change holds. `tools/scenes/change.mjs` and
+  `tools/scenes/thread-change*.mjs`: the invented change and the scenes that show it.
+  `docs/parity-code-changes.md`: every behaviour of the web window's view, ticked with how it was
+  checked.
 - `src/files_page.rs`: the Files place. `src/rules/files_shown.rs`: what it shows, in what order,
   and what a tile says.
   `src/rules/paths.rs`, `mentions.rs`, `roots.rs`: which words name a file, what kind it is and

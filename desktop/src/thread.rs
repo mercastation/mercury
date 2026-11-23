@@ -328,6 +328,8 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
     if !files.is_empty() {
         group = group.child(crate::feel::hinted(files_button(files.len(), s.files_open()), "thread-files", FILES_BUTTON, crate::feel::Align::Right, None));
     }
+    // The code its run changed, with the figures, beside the files (`change.rs`).
+    group = group.children(item(s, id, product).and_then(|i| crate::change::button(s, i)));
     let group = group.children(place).child(close).child(more);
     let actions = actions.child(group.ml(10.0));
     // The arrows at the strip's left end take `--film-strong` under the pointer, and only while
@@ -1011,6 +1013,8 @@ const OUTPUT_LINES: usize = 6;
 /// behind it, its verb, what it acted on in the code face, and, shut, how many lines came back.
 /// A tool that said no wears the stopped colour on its verb. `key` names it, `state` is how far
 /// it is open, and `clipped` says the column cut its command, which then opens onto itself.
+/// `chip` is the file it changed, where the thread's change holds it: a chip into the code, in
+/// place of the path (`.did-file`).
 ///
 /// It opens when something came back, when its words were shortened from the whole command, or
 /// when the column cut them; otherwise it takes no press and does not answer the pointer. Open,
@@ -1018,7 +1022,7 @@ const OUTPUT_LINES: usize = 6;
 /// in another (`.did-out`), and "show all N lines" when there are more, which opens all of them
 /// (`.did-more`); all open, what the log did not keep is said under them (`outputCut`). A press
 /// on its line shuts it from either. A run past its cap says how many more it ran, always.
-fn work_line(w: &Work, key: String, state: u8, clipped: bool) -> El {
+fn work_line(w: &Work, key: String, state: u8, clipped: bool, chip: Option<El>) -> El {
     let all: Vec<&str> = {
         let mut lines: Vec<&str> = w.output.split('\n').collect();
         if lines.last() == Some(&"") {
@@ -1030,13 +1034,18 @@ fn work_line(w: &Work, key: String, state: u8, clipped: bool) -> El {
     let whole = if !w.full.is_empty() { w.full.as_str() } else if clipped { w.subject.as_str() } else { "" };
     let small = TextStyle::new(12.0, 400.0).lh(18.0);
     let mut head = row().min_w(0.0).items_start().gap(8.0);
+    // A chip stands 23.2 tall, and the verb sits on its words' baseline, 1.5 lower.
+    let lift = if chip.is_some() { 1.5 } else { 0.0 };
     if opens {
         let mark = if state == SHUT { &icons::WORK_MARK } else { &icons::WORK_MARK_OPEN };
-        head = head.child(icon(mark, 8.0).color(muted()).group_color(dim()).mt(5.75));
+        head = head.child(icon(mark, 8.0).color(muted()).group_color(dim()).mt(5.75 + lift));
     }
-    let verb = text(w.verb.as_str()).font(TextStyle::new(13.0, 400.0).lh(19.5)).color(if w.failed { stopped() } else { dim() });
+    let verb = text(w.verb.as_str()).font(TextStyle::new(13.0, 400.0).lh(19.5)).color(if w.failed { stopped() } else { dim() }).mt(lift);
     head = head.child(if opens { verb.group_color(ink()) } else { verb });
-    if !w.subject.is_empty() {
+    // A file the thread's change holds is a chip into it, in place of the path (`.did-file`).
+    if let Some(chip) = chip {
+        head = head.child(chip);
+    } else if !w.subject.is_empty() {
         // The command is measured where it is laid out: wider than its box, the column cut it.
         let measured = key.clone();
         let subject = w.subject.clone();
@@ -1092,8 +1101,10 @@ fn work_line(w: &Work, key: String, state: u8, clipped: bool) -> El {
 /// folded shows only then, a step brighter (`.did-head:hover .did-verb`, `.did-run-head:hover >
 /// .did-run-mark`), and the run's whole tally is its title (`runSummary`). `names` are its
 /// lines' names, which their open state is kept under; `pictured` the lines a fixture's picture
-/// was taken with open, by their place in the fold, and how far.
-fn run_line(s: &State, items: &[&Work], names: &[String], open: bool, key: String, thread: &str, pictured: &[(usize, u8)], m: &Measure) -> El {
+/// was taken with open, by their place in the fold, and how far; `chips` each line's chip into
+/// the code, where it changed a file of the thread's change.
+#[allow(clippy::too_many_arguments)]
+fn run_line(s: &State, items: &[&Work], names: &[String], chips: Vec<Option<El>>, open: bool, key: String, thread: &str, pictured: &[(usize, u8)], m: &Measure) -> El {
     let summary = work::activity_summary(items.iter().map(|w| (w.verb.as_str(), w.subject.as_str())));
     let tally = work::run_summary(items.iter().map(|w| w.verb.as_str()));
     let failed = work::run_failures(items.iter().filter(|w| w.failed).count());
@@ -1114,11 +1125,11 @@ fn run_line(s: &State, items: &[&Work], names: &[String], open: bool, key: Strin
         return run;
     }
     // The lines inside step in by the mark and its gap, so the nested marks land on the fold's words.
-    let lines = items.iter().zip(names).enumerate().map(|(at, (w, name))| {
+    let lines = items.iter().zip(names).zip(chips).enumerate().map(|(at, ((w, name), chip))| {
         let key = format!("{thread}|line>{name}");
         let state = s.reading.lines_open.get(&key).copied().or_else(|| pictured.iter().find(|(line, _)| *line == at).map(|(_, state)| *state)).unwrap_or(SHUT);
         let clipped = s.reading.clipped.contains(&key);
-        work_line(w, key, state, clipped)
+        work_line(w, key, state, clipped, chip)
     });
     run.child(col().pt(5.0).pb(2.0).pl(16.0).gap(5.0).children(lines))
 }
@@ -1227,7 +1238,8 @@ fn conversation(s: &State, thread: &str, page: &Page, now: f64, m: &Measure, fil
                 let open = s.reading.runs_open.contains(&key) != pictured.contains(&runs);
                 let lines: Vec<(usize, u8)> = pictured_lines(s).into_iter().filter(|(run, _, _)| *run == runs).map(|(_, line, state)| (line, state)).collect();
                 runs += 1;
-                (run_line(s, &items, &ids[from..i], open, key, thread, &lines, m), Holds::Run)
+                let chips = items.iter().map(|w| s.open_item().and_then(|item| crate::change::chip(s, item, &w.file, &w.subject, mono(12.0, 19.2)))).collect();
+                (run_line(s, &items, &ids[from..i], chips, open, key, thread, &lines, m), Holds::Run)
             }
             Said::Message(msg) => {
                 name_above = ids[i].clone();

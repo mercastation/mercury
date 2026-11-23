@@ -13,6 +13,7 @@ pub mod answering;
 pub mod answers;
 pub mod attach;
 pub mod calendar;
+pub mod change;
 pub mod cloud;
 pub mod code;
 pub mod compose;

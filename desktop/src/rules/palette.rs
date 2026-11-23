@@ -101,6 +101,16 @@ pub enum Does {
     ResumeStopped,
     /// The key hints turned on or off (`setHints`).
     KeyHints(bool),
+    /// Opens the code its run changed beside the conversation.
+    Code(Thread),
+}
+
+/// "View code changes", on the open conversation while its page draws the code button
+/// (`f.open?.change` in `renderer/src/thread-commands.ts`): after Later, where the web's thread
+/// commands follow it, and before the places.
+pub fn with_code_row(rows: &mut Vec<Row>, thread: Thread) {
+    let at = rows.iter().position(|r| r.id == "snooze").map_or(rows.len(), |at| at + 1);
+    rows.insert(at, Row::command("code", "View code changes", Does::Code(thread)).found_by("code changes diff files what changed"));
 }
 
 /// One row of the bar (`Command` in `Palette.tsx`).
@@ -1247,6 +1257,24 @@ mod tests {
 
     fn open_thread() -> Item {
         item(json!({ "id": "w-1", "product": "shop", "status": "open", "title": "Fix the export" }))
+    }
+
+    #[test]
+    fn a_thread_with_a_change_has_its_code_row_after_later_and_found_by_diff() {
+        let mut rows = World::empty().on(&open_thread(), false);
+        with_code_row(&mut rows, ("w-1".to_string(), "shop".to_string()));
+        let at = ids(&rows).iter().position(|id| *id == "code").expect("the row");
+        assert_eq!(ids(&rows)[at - 1], "snooze");
+        let code = rows.iter().find(|r| r.id == "code").unwrap();
+        assert_eq!(code.label, "View code changes");
+        assert_eq!(code.does, Does::Code(("w-1".to_string(), "shop".to_string())));
+        for words in ["diff", "what changed", "files", "code"] {
+            assert!(typed(words, &rows).contains(&"code".to_string()), "{words} finds it");
+        }
+        // With no Later row to follow, it goes at the end.
+        let mut bare = vec![cmd("home", "Go to Home", "")];
+        with_code_row(&mut bare, ("w-1".to_string(), "shop".to_string()));
+        assert_eq!(ids(&bare), ["home", "code"]);
     }
 
     #[test]
