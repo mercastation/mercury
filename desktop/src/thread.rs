@@ -822,6 +822,10 @@ impl State {
     /// a second to go (`revealLine`). A look finds it only on the conversation it is in, once
     /// that conversation has landed. True when what is drawn changed.
     pub fn tend_the_found_line(&mut self, tx: &mut Tx) -> bool {
+        // Nearly every turn has no line to look for, and reads nothing more than this.
+        if self.reading.reveal.is_none() {
+            return false;
+        }
         let now = tx.clock();
         let on = self.thread_on_screen();
         let landed = self.reading.landed.clone();
@@ -843,19 +847,22 @@ impl State {
                 tx.wake_at(unmark);
                 return true;
             }
+            // Each of the two moments is asked for once, as it is set: Rune gives every wake it
+            // is asked for a turn, so one asked again on every turn in between would come due as
+            // many times over. A moment due within a thousandth of a second has come, since the
+            // turn it wakes may read the clock a hair before it (`wake.rs`).
             let gone = unmark + found::MARK_FADE_MS / 1000.0;
-            if r.marked && now >= unmark {
+            if r.marked && now >= unmark - 0.001 {
                 r.marked = false;
                 // The mark fades as it came, on its own curve, in a turn nothing pressed.
                 tx.animated();
                 tx.wake_at(gone);
                 return true;
             }
-            if !r.marked && now >= gone {
+            if !r.marked && now >= gone - 0.001 {
                 self.reading.reveal = None;
                 return true;
             }
-            tx.wake_at(if r.marked { unmark } else { gone });
             return false;
         }
         // A look due within a thousandth of a second has come: the turn it wakes may read the
