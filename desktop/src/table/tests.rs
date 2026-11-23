@@ -721,6 +721,18 @@ fn load_the_new_one_reads_the_file_again() {
     done(dir);
 }
 
+// A5: a sheet larger than the app opens one is not read, so never worked cut short and saved.
+#[test]
+fn a_sheet_too_big_to_open_says_so_and_is_never_worked() {
+    let row = format!("Lead,{}\n", "x".repeat(90));
+    let big: String = std::iter::once("Name,Note\n".to_string()).chain(std::iter::repeat_n(row, 17_000)).collect();
+    assert!(big.len() as u64 > crate::viewer::TABLE_MOST_BYTES);
+    let (rt, dir) = open("tbl-too-big", &big);
+    assert!(rt.state.tables.pane.is_none(), "no sheet is worked");
+    assert!(rt.elements().iter().any(|e| e.text.as_deref() == Some("That file is too big to open here. It opened outside instead.")));
+    done(dir);
+}
+
 // A8 D16: a view with no rows says why.
 #[test]
 fn a_view_with_no_rows_says_why() {

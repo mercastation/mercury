@@ -147,6 +147,8 @@ fn heard(at: ScrollPos) {
 /// The most of a file read as words, and the longest line drawn whole.
 const MOST_BYTES: u64 = 4 << 20;
 const LONGEST_LINE: usize = 4000;
+/// The most a sheet opened big may be (`MAX_DOC_BYTES` in `main/doc-file.mts`).
+pub(crate) const TABLE_MOST_BYTES: u64 = 1_500_000;
 /// Lines to a piece of a script's sheet.
 const PIECE: usize = 200;
 
@@ -249,7 +251,13 @@ impl Open {
             Some(match kind {
                 Some("markdown") => Words::Doc(Rc::from(text.as_ref())),
                 Some("table") => {
-                    let mtime = std::fs::metadata(found).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0.0, |d| d.as_millis() as f64);
+                    // Read as the app reads a sheet for the web window (`readDoc`): one larger than
+                    // it opens is not opened, so a sheet is never cut short and then saved so.
+                    let meta = std::fs::metadata(found).ok()?;
+                    if meta.len() > TABLE_MOST_BYTES {
+                        return None;
+                    }
+                    let mtime = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0.0, |d| d.as_millis() as f64);
                     Words::Table(Rc::from(text.as_ref()), mtime)
                 }
                 _ => Words::Code(Rc::new(code_of(&text, kind == Some("code")))),

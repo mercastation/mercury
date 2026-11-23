@@ -47,6 +47,9 @@ enum Read {
     Lines(Rc<viewer::Code>),
     /// A sheet's words, which `table.rs` reads into its table and works.
     Table(Rc<str>),
+    /// A sheet larger than the app opens one (`readDoc`'s `MAX_DOC_BYTES`): not read, so it is
+    /// never worked cut short and then saved so.
+    TooBig,
 }
 
 /// The file open beside a conversation.
@@ -85,10 +88,15 @@ impl Doc {
         self.found = viewer::place_of(&self.roots, &self.src);
         self.mtime = self.found.as_deref().map_or(0.0, modified);
         let kind = self.kind();
-        self.read = self.found.as_deref().filter(|_| matches!(kind, Kind::Markdown | Kind::Text | Kind::Table)).and_then(viewer::read_text).map(|text| match kind {
-            Kind::Markdown => Read::Doc(Rc::from(text.as_str())),
-            Kind::Table => Read::Table(Rc::from(text.as_str())),
-            _ => Read::Lines(Rc::new(viewer::code_of(&text, true))),
+        self.read = self.found.as_deref().filter(|_| matches!(kind, Kind::Markdown | Kind::Text | Kind::Table)).and_then(|found| {
+            if matches!(kind, Kind::Table) && std::fs::metadata(found).is_ok_and(|m| m.len() > viewer::TABLE_MOST_BYTES) {
+                return Some(Read::TooBig);
+            }
+            viewer::read_text(found).map(|text| match kind {
+                Kind::Markdown => Read::Doc(Rc::from(text.as_str())),
+                Kind::Table => Read::Table(Rc::from(text.as_str())),
+                _ => Read::Lines(Rc::new(viewer::code_of(&text, true))),
+            })
         });
     }
     /// Asked of the disk again: read again when it has a newer time than the copy on screen, or
@@ -510,6 +518,8 @@ fn body(s: &State, doc: &Doc, w: f32, h: f32) -> El {
             })
         }
         (Kind::Table, Some(Read::Table(_))) => crate::table::view(s, crate::table::Where::Pane, (w, h)),
+        // The app's own words for it (`readDoc`), as the web window's pane shows them.
+        (Kind::Table, Some(Read::TooBig)) => missing("That file is too big to open here. It opened outside instead.", w),
         (Kind::Image, _) => picture(s, doc, w, h),
         (Kind::Markdown | Kind::Text | Kind::Table, None) => missing(&format!("{name} could not be read."), w),
         // A page, a PDF, a film, a change or a site: the web window draws each in a frame or a
