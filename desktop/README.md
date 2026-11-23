@@ -2755,6 +2755,32 @@ archive taken back with Undo; each came back in the engine's next reading. Not t
 phone's menu, Check for updates, Sign out and switching an account, which need an account, a
 release or a second login.
 
+## What an agent did in its project's browser
+
+The web window has no such thing: this one is the first to show it. A project's browser is
+hidden and signed in as its owner, so what an agent presses there is done in their name and
+was only ever a line of text. Its host keeps a film of each thread
+(`main/project-browser/film.mts`): `steps.jsonl` (a line when a step starts, with the tool,
+what it acted on and where on the page it pressed, and one when it ends), a picture before
+each press and after each step that changes the page, and `live.jpg`, the newest, replaced at
+most four times a second while a step runs. Nothing is filmed between steps; reading steps
+take no picture. `film.rs` draws it, with the rules in `rules/film.rs`:
+
+- while the run is up and used the browser in the last 45 seconds, a card over the line at
+  the conversation's foot: the page, Mercury's pointer gliding to each press (drawn over the
+  picture, never in the page), a balloon with the agent's own words for what it pressed;
+- in a run's steps, a tile with the last page and how many steps, folded or not, and each
+  browser line in words (`clicked New issue button`), which open the film there;
+- the film opened big, ← and → through its steps, Escape back.
+
+Where the films are comes from `zero:project-browser`'s `film`. What it costs, measured
+2026-11-23: a click through the host takes about 45 ms longer filmed (580 against 535 ms);
+eight steps keep about 360 KB; a live picture of a busy page (72 KB) is read and decoded in
+1.1 ms off the main thread, and a look that finds nothing new in 0.01 ms; the window looks
+every quarter second only while a run is in the browser, every two seconds while one is up,
+and never for a finished run once read. A picture of the window with no app behind it is told
+the films' folder by `MERCURY_FILM_ROOT`.
+
 ## What still differs from the web app, and why
 
 - **A hint's plate and the zoom bar over a picture opened big still ask Rune to blur what is

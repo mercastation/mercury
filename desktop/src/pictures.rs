@@ -301,6 +301,11 @@ impl Pictures {
         Pictures { shelf: Mutex::default(), desk: Arc::default(), scale: Mutex::new(scale), still, never, looked: Mutex::new(0.0), budget: BUDGET }
     }
 
+    /// Whether a still picture is being taken, which reads on the spot.
+    pub fn is_still(&self) -> bool {
+        self.still
+    }
+
     /// Who to wake when a picture has been read.
     pub fn set_waker(&self, wake: Waker) {
         self.desk.0.lock().unwrap().waker = Some(wake);

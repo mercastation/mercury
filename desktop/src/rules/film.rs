@@ -18,6 +18,8 @@ pub struct Step {
     pub at: f64,
     pub end: Option<f64>,
     pub url: String,
+    /// The page it left the browser on, when that is another.
+    pub went_to: String,
     /// Where it pressed, in the page's pixels, and the page's size.
     pub mark: Option<[f32; 4]>,
     pub view: [f32; 2],
@@ -39,9 +41,13 @@ impl Step {
     pub fn point(&self) -> Option<(f32, f32)> {
         self.mark.map(|[x, y, w, h]| (x + w / 2.0, y + h / 2.0))
     }
-    /// The site it was on, as a person names it.
+    /// The page it ended on: where it went, or where it was.
+    pub fn ended_on(&self) -> &str {
+        if self.went_to.is_empty() { &self.url } else { &self.went_to }
+    }
+    /// The site it ended on, as a person names it.
     pub fn site(&self) -> String {
-        site_of(&self.url)
+        site_of(self.ended_on())
     }
 }
 
@@ -88,9 +94,7 @@ pub fn take_lines(steps: &mut Vec<Step>, text: &str) {
             step.end = Some(end);
             step.after = word(&v, "after");
             step.failed = v.get("failed").and_then(Value::as_bool).unwrap_or(false);
-            if let Some(url) = word(&v, "url") {
-                step.url = url;
-            }
+            step.went_to = word(&v, "url").unwrap_or_default();
         }
     }
 }
@@ -124,10 +128,20 @@ pub fn words(step: &Step, now_doing: bool) -> (String, String) {
     (if now_doing { doing } else { did }.to_string(), what)
 }
 
-/// The balloon's words while a step runs, or over its picture afterwards.
+/// The balloon's words while a step runs, or over its picture afterwards, starting as a
+/// sentence does.
 pub fn balloon(step: &Step, now_doing: bool) -> String {
     let (verb, what) = words(step, now_doing);
-    if what.is_empty() { verb } else { format!("{verb} {what}") }
+    let said = if what.is_empty() { verb } else { format!("{verb} {what}") };
+    let mut chars = said.chars();
+    chars.next().map_or(String::new(), |c| c.to_uppercase().chain(chars).collect())
+}
+
+/// The page's address as a person reads it: host and path, no scheme.
+pub fn address(url: &str) -> String {
+    let Some((_, rest)) = url.split_once("://") else { return String::new() };
+    let rest = rest.strip_prefix("www.").unwrap_or(rest);
+    rest.trim_end_matches('/').to_string()
 }
 
 /// The conversation's own verb for a browser tool's line (`work_verb` of
@@ -244,7 +258,8 @@ mod tests {
         assert_eq!(steps[0].site(), "gitlab.example.com");
         assert_eq!(steps[2].mark, Some([600.0, 400.0, 80.0, 32.0]));
         assert_eq!(steps[2].point(), Some((640.0, 416.0)));
-        assert_eq!(steps[2].url, "https://gitlab.example.com/group/issues/new");
+        assert_eq!(steps[2].url, "https://gitlab.example.com/group");
+        assert_eq!(steps[2].ended_on(), "https://gitlab.example.com/group/issues/new");
         // The last line was still being written: the step is still running.
         assert!(steps[3].running());
         // Read on from there, it finishes.
@@ -259,7 +274,8 @@ mod tests {
         assert_eq!(balloon(&steps[2], true), "Clicking New issue");
         assert_eq!(words(&steps[2], false), ("clicked".to_string(), "New issue".to_string()));
         assert_eq!(balloon(&steps[1], true), "Reading the page");
-        assert_eq!(balloon(&steps[0], false), "opened gitlab.example.com/group");
+        assert_eq!(balloon(&steps[0], false), "Opened gitlab.example.com/group");
+        assert_eq!(address("https://www.acme.dev/a/b/"), "acme.dev/a/b");
     }
 
     #[test]

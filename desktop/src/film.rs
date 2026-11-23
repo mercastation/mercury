@@ -144,6 +144,24 @@ fn look(key: String, dir: String, offset: u64, had_live: Option<Stamp>, want_liv
     found
 }
 
+/// What a look found, put where the page finds it. Says whether anything changed.
+fn land(s: &mut State, found: Found) -> bool {
+    let Some(log) = s.films.log.as_mut().filter(|l| l.key == found.key) else { return false };
+    let mut changed = false;
+    if found.offset != log.offset {
+        rules::take_lines(&mut log.steps, &found.lines);
+        log.offset = found.offset;
+        changed = true;
+    }
+    if let Some((at, w, h, rgba)) = found.live {
+        log.live = Some(at);
+        s.films.live.set(w, h, rgba);
+        s.films.live_size = (w, h);
+        changed = true;
+    }
+    changed
+}
+
 /// The run up on the open thread, if any.
 fn run_on(s: &State, id: &str, product: &str) -> Option<live::Session> {
     live::session_of(&s.snap.supervisor, id).filter(|run| run.product == product)
@@ -160,19 +178,7 @@ pub fn tend(s: &mut State, tx: &mut Tx) -> bool {
     }
     if let Some(found) = s.films.reading.take() {
         s.films.busy = false;
-        if let Some(log) = s.films.log.as_mut().filter(|l| l.key == found.key) {
-            if found.offset != log.offset {
-                rules::take_lines(&mut log.steps, &found.lines);
-                log.offset = found.offset;
-                changed = true;
-            }
-            if let Some((at, w, h, rgba)) = found.live {
-                log.live = Some(at);
-                s.films.live.set(w, h, rgba);
-                s.films.live_size = (w, h);
-                changed = true;
-            }
-        }
+        changed |= land(s, found);
     }
     let View::Thread { id, product } = s.view.clone() else {
         if s.films.log.take().is_some() || s.films.open.take().is_some() {
@@ -184,6 +190,12 @@ pub fn tend(s: &mut State, tx: &mut Tx) -> bool {
     if s.films.open.as_ref().is_some_and(|o| o.key != key) {
         s.films.open = None;
         changed = true;
+    }
+    // A picture of the window with no app behind it is told where the films are
+    // (`MERCURY_FILM_ROOT`), as it is told everything else by its fixture.
+    if !matches!(s.source, Source::Door(_)) && !s.films.roots.contains_key(&product) {
+        let root = std::env::var("MERCURY_FILM_ROOT").ok().filter(|r| !r.is_empty());
+        s.films.roots.insert(product.clone(), root);
     }
     // The project's films folder, asked of the app once.
     let Some(root) = s.films.roots.get(&product).cloned() else {
@@ -230,10 +242,16 @@ pub fn tend(s: &mut State, tx: &mut Tx) -> bool {
     }
     let (dir, offset, had_live) = (log.dir.clone(), log.offset, log.live);
     let want_live = run.is_some();
-    s.films.busy = true;
     if let Some(log) = s.films.log.as_mut() {
         log.asked = now;
     }
+    // A still picture cannot wait for a look off the main thread: it looks on the spot.
+    if s.pictures.is_still() {
+        let found = look(key, dir, offset, had_live, want_live);
+        land(s, found);
+        return true;
+    }
+    s.films.busy = true;
     s.films.reading.request((), move |_| look(key, dir, offset, had_live, want_live));
     changed
 }
@@ -485,10 +503,14 @@ pub fn layer(s: &State) -> Option<El> {
     let (w, h) = s.size;
     let stage = (w - 120.0, (h - TOP - FOOT - 24.0).max(1.0));
     // The page fitted to the stage, at its own shape.
-    let fit = (stage.0 / step.view[0].max(1.0)).min(stage.1 / step.view[1].max(1.0)).min(1.5);
+    // Never larger than the page was: its pictures are taken at its own size.
+    let fit = (stage.0 / step.view[0].max(1.0)).min(stage.1 / step.view[1].max(1.0)).min(1.0);
     let room = ((step.view[0] * fit).round(), (step.view[1] * fit).round());
     let words = rules::balloon(step, false);
-    let picture = match rules::picture_of(&log.steps, open.step) {
+    let shown_at = rules::picture_of(&log.steps, open.step);
+    // The address the picture was taken at: before a press, the page it pressed on.
+    let at_url = if shown_at.as_ref().is_some_and(|(_, pointed)| *pointed) { step.url.clone() } else { step.ended_on().to_string() };
+    let picture = match shown_at {
         Some((file, pointed)) => {
             let places = vec![format!("{}/{file}", log.dir)];
             let want = Want::Within(s.pictures.pixels(room.0), s.pictures.pixels(room.1));
@@ -540,7 +562,8 @@ pub fn layer(s: &State) -> Option<El> {
         .gap(10.0)
         .items_center()
         .justify_center()
-        .child(text(words).font(sans(14.0, 400.0)).color(if step.failed { rgb(232, 120, 104) } else { ink() }))
+        .children(step.failed.then(|| label("This step failed", 14.0, 400.0, rgb(232, 120, 104))))
+        .child(row().min_w(0.0).shrink().child(text(rules::address(&at_url)).font(sans(14.0, 400.0)).color(dim()).truncate()))
         .child(text(when).font(mono(12.0, 16.0)).color(muted()));
     let view = el()
         .absolute(0.0, 0.0)
@@ -588,5 +611,30 @@ mod tests {
         assert_eq!((live.1, live.2), (4, 3));
         assert!(look("k".into(), d.clone(), 0, Some(live.0), true).live.is_none());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod cost {
+    use super::*;
+
+    /// What one live picture costs this window, on a real one (`MERCURY_FILM_DIR`): a
+    /// measurement, run by hand with `--ignored --nocapture` in a release build.
+    #[test]
+    #[ignore]
+    fn one_live_picture_read_and_decoded() {
+        let Ok(dir) = std::env::var("MERCURY_FILM_DIR") else { return };
+        let n = 40;
+        let t0 = std::time::Instant::now();
+        for _ in 0..n {
+            assert!(look("k".into(), dir.clone(), 0, None, true).live.is_some());
+        }
+        let each = t0.elapsed().as_secs_f64() * 1000.0 / n as f64;
+        let t1 = std::time::Instant::now();
+        for _ in 0..n {
+            let _ = look("k".into(), dir.clone(), 1 << 20, Some((0, 0)), false);
+        }
+        let quiet = t1.elapsed().as_secs_f64() * 1000.0 / n as f64;
+        eprintln!("a live picture read and decoded: {each:.2} ms; a look that finds nothing new: {quiet:.3} ms");
     }
 }
