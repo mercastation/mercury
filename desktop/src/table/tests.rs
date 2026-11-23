@@ -467,6 +467,23 @@ fn a_header_and_a_cell_open_their_menus_and_the_keys_walk_them() {
     rt.frame(1.0 / 60.0);
     key(&mut rt, Key::Escape);
     assert!(sheet(&rt).float.is_none());
+    // L6: after a choice the keys are the table's again.
+    rt.secondary_down(x, y);
+    rt.secondary_up(x, y);
+    rt.frame(1.0 / 60.0);
+    key(&mut rt, Key::Down);
+    key(&mut rt, Key::Enter);
+    rt.frame(1.0 / 60.0);
+    assert!(sheet(&rt).sort.is_some(), "the first row, Sort A to Z");
+    let focused: Vec<String> = rt.elements().into_iter().filter(|e| e.focused).filter_map(|e| e.key).collect();
+    assert_eq!(focused, ["tbl-scroll-pane"]);
+    // L5: the window losing the keys closes a menu.
+    rt.secondary_down(x, y);
+    rt.secondary_up(x, y);
+    rt.frame(1.0 / 60.0);
+    assert!(sheet(&rt).float.is_some());
+    super::window_focus(&mut rt.state, false);
+    assert!(sheet(&rt).float.is_none());
     done(dir);
 }
 
