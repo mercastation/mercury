@@ -634,6 +634,8 @@ fn grid(s: &State, sh: &Sheet, inner: f32, frame_h: f32) -> El {
         .on_scroll_offset(move |at| super::heard(w, at))
         .on_layout(move |_: &mut State, rect| VIEWPORT.with(|v| _ = v.borrow_mut().insert(w, rect)))
         .focusable(true)
+        // No ring for the keys, as the web window draws none (`.tbl:focus { outline: none }`).
+        .no_focus_ring()
         .on_key(move |s: &mut State, e: &KeyEvent, tx: &mut Tx| super::grid_key(s, w, e, tx))
         .child(content);
     // The keys are kept on the viewport itself, which a press anywhere in it gives them to.
@@ -672,6 +674,10 @@ fn header(_s: &State, sh: &Sheet, ws: &[f32], stuck_at: f32) -> El {
         }
         if i == first {
             cell = cell.sticky_left(sh.rn_w());
+        }
+        // A column picked whole can be picked up (`.tbl.cols-move .tbl-th.sel { cursor: grab }`).
+        if on && editable {
+            cell = cell.cursor(Cursor::Grab);
         }
         if sh.renaming == Some(i) {
             let field = text_input(&sh.rename, head_font())
@@ -744,7 +750,6 @@ fn header(_s: &State, sh: &Sheet, ws: &[f32], stuck_at: f32) -> El {
                 }
             });
         let cell = cell.child(resize);
-        let _ = editable;
         head = head.child(cell);
     }
     head
@@ -1047,7 +1052,7 @@ fn editor(s: &State, sh: &Sheet) -> Option<El> {
         readable(text(e.draft.text.as_str()).font(TextStyle::new(14.0, 400.0).lh(20.0)).color(ink()).wrap()).w_full()
     };
     let shell = col().key(w.key("edit-box")).w(p.w).min_h(46.0).max_h(320.0).fill(ground()).box_shadow(ring).box_shadow(lifted()).child(el().w_full().shrink().min_h(0.0).scroll(rune::ScrollSpec { stick_bottom: false }).child(el().w_full().px(16.0).py(13.0).child(body)));
-    let shell = if sh.editable { shell } else { shell.focusable(true).key(w.key("edit")).on_key(move |s: &mut State, e: &KeyEvent, tx: &mut Tx| edit_key(s, w, e, tx)) };
+    let shell = if sh.editable { shell } else { shell.focusable(true).no_focus_ring().key(w.key("edit")).on_key(move |s: &mut State, e: &KeyEvent, tx: &mut Tx| edit_key(s, w, e, tx)) };
     Some(shell.absolute(p.left - EDGE, p.top))
 }
 
@@ -1369,7 +1374,7 @@ fn tag_pick_mut(s: &mut State, w: Where, whose: PickFor) -> Option<&mut TagPick>
     let sh = s.tables.get_mut(w)?;
     let pop = match whose {
         PickFor::Cell => sh.editing.as_mut()?.pop.as_mut()?,
-        PickFor::Field => sh.fields.as_mut()?.pick.as_mut()?,
+        PickFor::Field => &mut sh.fields.as_mut()?.pick,
     };
     match pop {
         Pop::Tag(t) => Some(t),
@@ -1481,8 +1486,8 @@ fn close_pick(s: &mut State, w: Where, whose: PickFor, tx: &mut Tx) {
     match whose {
         PickFor::Cell => super::end_edit(s, w, None, Then::Stay, tx),
         PickFor::Field => {
-            if let Some(f) = s.tables.get_mut(w).and_then(|sh| sh.fields.as_mut()) {
-                f.pick = None;
+            if let Some(sh) = s.tables.get_mut(w) {
+                sh.fields = None;
             }
             tx.focus(w.key("sheet"), false);
         }
@@ -1493,7 +1498,7 @@ fn date_pick_mut(s: &mut State, w: Where, whose: PickFor) -> Option<&mut DatePic
     let sh = s.tables.get_mut(w)?;
     let pop = match whose {
         PickFor::Cell => sh.editing.as_mut()?.pop.as_mut()?,
-        PickFor::Field => sh.fields.as_mut()?.pick.as_mut()?,
+        PickFor::Field => &mut sh.fields.as_mut()?.pick,
     };
     match pop {
         Pop::Date(d) => Some(d),
@@ -1664,7 +1669,7 @@ fn sheet_panel(s: &State, sh: &Sheet, inner: f32, frame_h: f32) -> Option<El> {
     let name = file::shown_text(cells.at(name_at));
     let wide = 460.0_f32.min(inner * 0.92);
     let step = |glyph: &'static rune::Icon, words: &'static str, title: &'static str, off: bool, by: isize| {
-        let b = row().size(30.0, 30.0).center().label(words).help(title).child(icon(glyph, 14.0).color(dim()));
+        let b = row().key(w.key(if by < 0 { "row-above" } else { "row-below" })).size(30.0, 30.0).center().label(words).help(title).child(icon(glyph, 14.0).color(dim()));
         if off { b.opacity(0.35) } else { b.hover(hovered()).cursor(Cursor::Pointer).on_press_tx(move |s: &mut State, tx| step_row(s, w, by, tx)) }
     };
     let title = match &link {
@@ -1687,11 +1692,14 @@ fn sheet_panel(s: &State, sh: &Sheet, inner: f32, frame_h: f32) -> Option<El> {
         .child(step(&BELOW, "Row below", "Row below (↓)", r + 1 >= count, 1))
         .child(row().size(30.0, 30.0).center().hover(hovered()).cursor(Cursor::Pointer).label("Close").help("Close (esc)").child(icon(&CLOSE, 14.0).color(dim())).on_press_tx(move |s: &mut State, tx| close_sheet(s, w, tx)));
     let from = sh.pick.map(|p| p.a.c);
-    let mut body = col().px(24.0).pt(10.0).pb(28.0);
+    // As wide as the panel inside its edge: a scroll sizes what it holds to its words otherwise,
+    // and the fields' boxes are the panel's width, long words wrapping in them.
+    let mut body = col().w(wide - 1.0).px(24.0).pt(10.0).pb(28.0);
     for (i, c) in table.columns.iter().enumerate() {
         let tone = if Some(i) == from { ink() } else { muted() };
         let name_line = row().items_center().child(icon(kind_mark(c.kind), 13.0).color(muted()).mr(7.0)).child(text(c.name.as_str()).font(head_font()).text_case(TextCase::Uppercase).color(tone));
-        let field = field_el(s, sh, i, cells.at(i), sh.editable && !(table.ranked && i == 0));
+        // A field's box reaches 9 points past the words on each side (`margin: 0 -9px`).
+        let field = field_el(s, sh, i, cells.at(i), sh.editable && !(table.ranked && i == 0), wide - 1.0 - 48.0 + 18.0);
         body = body.child(col().key(format!("{}-{i}", w.key("field"))).py(10.0).gap(5.0).child(name_line).child(field));
     }
     let panel = col()
@@ -1703,6 +1711,7 @@ fn sheet_panel(s: &State, sh: &Sheet, inner: f32, frame_h: f32) -> Option<El> {
         .border_layout()
         .box_shadow(lifted())
         .focusable(true)
+        .no_focus_ring()
         .on_key(move |s: &mut State, e: &KeyEvent, tx: &mut Tx| sheet_key(s, w, e, tx))
         .child(head)
         .child(el().key(w.key("sheet-body")).w_full().grow(1.0).min_h(0.0).scroll(rune::ScrollSpec { stick_bottom: false }).child(body))
@@ -1712,7 +1721,7 @@ fn sheet_panel(s: &State, sh: &Sheet, inner: f32, frame_h: f32) -> Option<El> {
 }
 
 /// One field of the row opened whole (`Field`).
-fn field_el(s: &State, sh: &Sheet, c: usize, value: &str, editable: bool) -> El {
+fn field_el(s: &State, sh: &Sheet, c: usize, value: &str, editable: bool, box_w: f32) -> El {
     let w = sh.at;
     let column = &sh.table().columns[c];
     let open = sh.fields.as_ref().filter(|f| f.c == c);
@@ -1720,7 +1729,7 @@ fn field_el(s: &State, sh: &Sheet, c: usize, value: &str, editable: bool) -> El 
     if column.kind == Kind::Date && editable {
         let button = row().py(4.0).cursor(Cursor::Pointer).child(if js::trim(value).is_empty() { none("Pick a date") } else { text(js::trim(value).to_string()).font(TextStyle::new(14.0, 400.0).lh(20.0)).color(ink()) }).on_press_tx(move |s: &mut State, tx| toggle_field_pick(s, w, c, PopKind::Date, tx));
         let mut f = col().child(button);
-        if let Some(Field { pick: Some(Pop::Date(d)), .. }) = open {
+        if let Some(Field { pick: Pop::Date(d), .. }) = open {
             f = f.child(col().mt(4.0).w(260.0).padding(4.0).fill(pop()).border(1.0, rule()).border_layout().box_shadow(lifted()).child(calendar(s, sh, value, d, PickFor::Field, c)));
         }
         return f;
@@ -1732,7 +1741,7 @@ fn field_el(s: &State, sh: &Sheet, c: usize, value: &str, editable: bool) -> El 
             button = button.cursor(Cursor::Pointer).on_press_tx(move |s: &mut State, tx| toggle_field_pick(s, w, c, PopKind::Tag, tx));
         }
         let mut f = col().child(button);
-        if let Some(Field { pick: Some(Pop::Tag(t)), .. }) = open {
+        if let Some(Field { pick: Pop::Tag(t), .. }) = open {
             f = f.child(col().mt(4.0).w(260.0).padding(4.0).fill(pop()).border(1.0, rule()).border_layout().box_shadow(lifted()).child(tag_list(sh, column, value, t, PickFor::Field, c, 250.0)));
         }
         return f;
@@ -1740,30 +1749,26 @@ fn field_el(s: &State, sh: &Sheet, c: usize, value: &str, editable: bool) -> El 
     if !editable {
         return readable(if value.is_empty() { none("Empty") } else { text(value.to_string()).font(TextStyle::new(14.0, 400.0).lh(20.0)).color(ink()).wrap() });
     }
-    let draft = match open {
-        Some(f) if f.pick.is_none() => f.draft.clone(),
-        _ => TextEdit::new(value),
-    };
-    let field = text_input(&draft, TextStyle::new(14.0, 400.0).lh(20.0))
+    let spare = TextEdit::new(value);
+    let draft = sh.drafts.get(c).unwrap_or(&spare);
+    // The box is the field, its room inside it too: a press anywhere in it puts the caret in.
+    let field = text_input(draft, TextStyle::new(14.0, 400.0).lh(20.0))
         .key(w.key(&format!("field{c}")))
-        .w_full()
+        .grow(1.0)
+        .min_w(0.0)
+        .px(8.0)
+        .py(5.0)
         .color(ink())
         .caret(ink(), rgba(110, 165, 255, 0.3))
-        .on_edit(move |s: &mut State| {
-            // The field opens for writing as the keys come to it.
-            if let Some(sh) = s.tables.get_mut(w)
-                && sh.fields.as_ref().is_none_or(|f| f.c != c || f.pick.is_some())
-            {
-                let value = sh.sheet.map(|r| sh.value(At { r, c }).to_string()).unwrap_or_default();
-                sh.fields = Some(Field { c, draft: TextEdit::new(value), pick: None, held: false });
-            }
-            super::edit_of(s, w, Box_::Field)
-        })
+        .on_edit(move |s: &mut State| super::edit_of(s, w, Box_::Draft(c)))
         .on_input_key(move |s: &mut State, e: &KeyEvent, tx: &mut Tx| match e.key {
-            // Escape drops the typing, as it does in the grid.
+            // Escape drops the typing, as it does in the grid; leaving after it writes nothing.
             Key::Escape => {
                 if let Some(sh) = s.tables.get_mut(w) {
-                    sh.fields = None;
+                    let value = sh.sheet.map(|r| sh.value(At { r, c }).to_string()).unwrap_or_default();
+                    if let Some(d) = sh.drafts.get_mut(c) {
+                        *d = TextEdit::new(value);
+                    }
                 }
                 tx.focus(w.key("sheet"), false);
                 true
@@ -1774,18 +1779,20 @@ fn field_el(s: &State, sh: &Sheet, c: usize, value: &str, editable: bool) -> El 
             }
             _ => false,
         });
-    let focused = open.is_some_and(|f| f.pick.is_none() && f.draft.focused);
+    let focused = draft.focused;
     // Its edge shows under the pointer, and stronger while it has the keys (`.tbl-field-box`).
     let frame = el().absolute(0.0, 0.0).w_full().h_full().border(1.0, line()).group_opacity(0.0, 1.0);
-    // 32 points tall for a line, as the web's box sizes itself to its words (`GrowingText`).
-    let b = row().w_full().ml(-9.0).mr(-9.0).px(8.0).py(5.0).max_h(360.0).hover_group().border(1.0, if focused { rule() } else { rgba(0, 0, 0, 0.0) }).border_layout().cursor(Cursor::Text).child(field);
+    // 32 points tall for a line, as the web's box sizes itself to its words (`GrowingText`); its
+    // edge drawn over its outer point, where the frame under the pointer lies too.
+    let b = row().w(box_w).ml(-9.0).max_h(360.0).padding(1.0).hover_group().border(1.0, if focused { rule() } else { rgba(0, 0, 0, 0.0) }).cursor(Cursor::Text).child(field);
     if focused { b } else { b.child(frame) }
 }
 
 fn toggle_field_pick(s: &mut State, w: Where, c: usize, kind: PopKind, tx: &mut Tx) {
     let now = s.now;
+    super::leave_field(s, w);
     let Some(sh) = s.tables.get_mut(w) else { return };
-    let open = sh.fields.as_ref().is_some_and(|f| f.c == c && f.pick.is_some());
+    let open = sh.fields.as_ref().is_some_and(|f| f.c == c);
     if open {
         sh.fields = None;
         tx.focus(w.key("sheet"), false);
@@ -1800,10 +1807,11 @@ fn toggle_field_pick(s: &mut State, w: Where, c: usize, kind: PopKind, tx: &mut 
         }
         PopKind::Date => Pop::Date(DatePick::new(&value, now)),
     };
-    sh.fields = Some(Field { c, draft: TextEdit::new(value), pick: Some(pick), held: false });
+    sh.fields = Some(Field { c, pick });
 }
 
 fn close_sheet(s: &mut State, w: Where, tx: &mut Tx) {
+    super::leave_field(s, w);
     if let Some(sh) = s.tables.get_mut(w) {
         sh.sheet = None;
         sh.fields = None;
@@ -1813,6 +1821,7 @@ fn close_sheet(s: &mut State, w: Where, tx: &mut Tx) {
 
 /// The row above or below opened, the pick following it.
 fn step_row(s: &mut State, w: Where, by: isize, tx: &mut Tx) {
+    super::leave_field(s, w);
     let Some(sh) = s.tables.get(w) else { return };
     let Some(r) = sh.sheet else { return };
     let n = sh.order().len();
@@ -1822,6 +1831,7 @@ fn step_row(s: &mut State, w: Where, by: isize, tx: &mut Tx) {
     if let Some(sh) = s.tables.get_mut(w) {
         sh.sheet = Some(to);
         sh.fields = None;
+        super::fill_drafts(sh);
     }
 }
 
@@ -2086,17 +2096,9 @@ pub(crate) fn press_row(s: &mut State, w: Where, act: Act, tx: &mut Tx) {
         }
         Act::Paste => {
             close(s);
-            tx.read_clipboard(move |s: &mut State, content: &rune::ClipboardContent, tx: &mut Tx| {
-                let words = content.text();
-                if words.is_empty() {
-                    if let Some(sh) = s.tables.get_mut(w) {
-                        sh.problem = Some(Problem { error: "Press ⌘V to paste here.".to_string(), stale: false });
-                    }
-                    let _ = tx;
-                    return;
-                }
-                super::paste(s, w, words);
-            });
+            // What the clipboard holds, pasted as ⌘V pastes it. Rune hands over what it read and
+            // never a refusal, so the web's "Press ⌘V to paste here." has nothing to answer.
+            tx.read_clipboard(move |s: &mut State, content: &rune::ClipboardContent, _tx: &mut Tx| super::paste(s, w, content.text()));
         }
         Act::OpenLink(href) => {
             close(s);

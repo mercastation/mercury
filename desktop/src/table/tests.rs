@@ -609,3 +609,122 @@ fn a_ranked_file_shows_its_rank_as_the_row_number() {
     assert_eq!(sheet(&rt).table().rows.iter().map(|r| r.at(0).to_string()).collect::<Vec<_>>(), ["1", "2", "3", "4"]);
     done(dir);
 }
+
+/// A drag from `from` to `to`, in steps, as a hand drags.
+fn drag(rt: &mut Runtime<State>, from: (f32, f32), to: (f32, f32)) {
+    rt.pointer_move(from.0, from.1);
+    rt.pointer_down(from.0, from.1);
+    for k in 1..=8 {
+        let f = k as f32 / 8.0;
+        rt.pointer_move(from.0 + (to.0 - from.0) * f, from.1 + (to.1 - from.1) * f);
+        rt.frame(1.0 / 60.0);
+    }
+    rt.pointer_up(to.0, to.1);
+    rt.frame(1.0 / 60.0);
+}
+
+// E3 D20 N4: rows picked whole are picked up and moved by a drag, a line showing where.
+#[test]
+fn rows_picked_whole_are_dragged_to_where_they_land() {
+    let (mut rt, dir) = open("tbl-drag", LEADS);
+    tap(&mut rt, |rt| row_number_at(rt, 0));
+    let from = row_number_at(&rt, 0);
+    let to = row_number_at(&rt, 3);
+    rt.pointer_move(from.0, from.1);
+    rt.pointer_down(from.0, from.1);
+    for k in 1..=8 {
+        rt.pointer_move(from.0, from.1 + (to.1 + 10.0 - from.1) * k as f32 / 8.0);
+        rt.frame(1.0 / 60.0);
+    }
+    assert!(sheet(&rt).dropping.is_some_and(|d| !d.cols && d.place == 4), "the line shows where they land");
+    rt.pointer_up(to.0, to.1 + 10.0);
+    rt.frame(1.0 / 60.0);
+    assert_eq!((value(&rt, 0, 0), value(&rt, 3, 0)), ("Globex".to_string(), "Acme Robotics".to_string()));
+    assert!(sheet(&rt).whole_rows() && sheet(&rt).sel().map(|b| b.r0) == Some(3), "and stay picked where they landed");
+    done(dir);
+}
+
+// E12 N7: a header's grip widens the column, kept for the file; a double press fits it.
+#[test]
+fn a_headers_grip_widens_its_column_and_a_double_press_fits_it() {
+    let (mut rt, dir) = open("tbl-grip", LEADS);
+    let [vx, vy, _, _] = rect_of(&rt, "tbl-scroll-pane").expect("the grid");
+    let (x, w) = draw::column_x(&rt.state, sheet(&rt), 1);
+    let edge = (vx + x + w - 1.0, vy + HEAD_H / 2.0);
+    drag(&mut rt, edge, (edge.0 + 60.0, edge.1));
+    let wide = sheet(&rt).sized.get("Status").copied().expect("a width the hand set");
+    assert!((wide - (w + 60.0)).abs() < 1.5, "{wide} against {}", w + 60.0);
+    assert_eq!(rt.state.picks.get().tables.get("storefront/exports/leads.csv").and_then(|k| k.widths.get("Status")).copied(), Some(wide));
+    let (x, w) = draw::column_x(&rt.state, sheet(&rt), 1);
+    let edge = (vx + x + w - 1.0, vy + HEAD_H / 2.0);
+    press(&mut rt, edge.0, edge.1);
+    press(&mut rt, edge.0, edge.1);
+    let fitted = sheet(&rt).sized.get("Status").copied().expect("fitted");
+    assert!(fitted < wide, "fitted to what it holds: {fitted}");
+    done(dir);
+}
+
+// D13 L3: Wrap text shows three lines a cell, every row taller, and is kept for the file.
+#[test]
+fn a_column_set_to_wrap_makes_every_row_three_lines_tall() {
+    let (mut rt, dir) = open("tbl-wrap", LEADS);
+    assert_eq!(sheet(&rt).row_h(), ROW_H);
+    super::toggle_wrap(&mut rt.state, Where::Pane, 7);
+    rt.frame(1.0 / 60.0);
+    assert_eq!(sheet(&rt).row_h(), ROW_WRAPPED);
+    assert_eq!(rt.state.picks.get().tables.get("storefront/exports/leads.csv").and_then(|k| k.looks.wrap.get("Note")).copied(), Some(true));
+    super::toggle_wrap(&mut rt.state, Where::Pane, 7);
+    assert_eq!(sheet(&rt).row_h(), ROW_H);
+    done(dir);
+}
+
+// D15 D2: only the rows in view are built, however long the sheet; a thousand rows and more
+// widen the row numbers.
+#[test]
+fn a_long_sheet_builds_only_the_rows_in_view() {
+    let long: String = std::iter::once("Name,Status\n".to_string()).chain((0..5000).map(|i| format!("Lead {i},{}\n", if i % 3 == 0 { "New" } else { "Won" }))).collect();
+    let (rt, dir) = open("tbl-long", &long);
+    assert_eq!(sheet(&rt).order().len(), 5000);
+    assert_eq!(sheet(&rt).rn_w(), RN_W_WIDE);
+    let built = rt.elements().into_iter().filter(|e| e.path.ends_with(&format!("tbl-rows-pane/{}", e.key.as_deref().unwrap_or("-")))).count();
+    assert!(built > 5 && built < 120, "{built} rows built");
+    done(dir);
+}
+
+// K2: a field of the row opened whole is written when it is left.
+#[test]
+fn a_field_of_the_row_opened_whole_is_written_when_left() {
+    let (mut rt, dir) = open("tbl-field", LEADS);
+    tap(&mut rt, |rt| cell_at(rt, 1, 0));
+    key(&mut rt, Key::Text(" ".into()));
+    let [x, y, w, h] = rect_of(&rt, "tbl-field7-pane").expect("the note's box");
+    press(&mut rt, x + w - 4.0, y + h / 2.0);
+    key_with(&mut rt, Key::End, cmd());
+    typed(&mut rt, " soon");
+    assert_eq!(sheet(&rt).drafts[7].text, "Replied to the second note soon", "the field takes the typing");
+    assert_eq!(value(&rt, 1, 7), "Replied to the second note", "nothing is written while the field has the keys");
+    key(&mut rt, Key::Escape);
+    run(&mut rt, 0.05);
+    assert_eq!(value(&rt, 1, 7), "Replied to the second note", "Escape drops what was typed");
+    assert_eq!(sheet(&rt).drafts[7].text, "Replied to the second note");
+    let [x, y, w, h] = rect_of(&rt, "tbl-field7-pane").expect("the note's box");
+    press(&mut rt, x + w - 4.0, y + h / 2.0);
+    key_with(&mut rt, Key::End, cmd());
+    typed(&mut rt, " again");
+    key_with(&mut rt, Key::Enter, cmd());
+    run(&mut rt, 0.05);
+    assert_eq!(value(&rt, 1, 7), "Replied to the second note again", "leaving the box writes it");
+    // Typed into and left by stepping to the next row: the press on the step takes the keys
+    // first, so the field is written before the row below opens with its own words.
+    let [x, y, w, h] = rect_of(&rt, "tbl-field7-pane").expect("the note's box");
+    press(&mut rt, x + w - 4.0, y + h / 2.0);
+    key_with(&mut rt, Key::End, cmd());
+    typed(&mut rt, ", twice");
+    let [x, y, w, h] = rect_of(&rt, "tbl-row-below-pane").expect("the step down");
+    press(&mut rt, x + w / 2.0, y + h / 2.0);
+    run(&mut rt, 0.05);
+    assert_eq!(value(&rt, 1, 7), "Replied to the second note again, twice");
+    assert_eq!(sheet(&rt).sheet, Some(2));
+    assert_eq!(sheet(&rt).drafts[7].text, value(&rt, 2, 7), "the row below starts from its own words");
+    done(dir);
+}

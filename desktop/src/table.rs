@@ -188,13 +188,10 @@ pub struct Problem {
     pub stale: bool,
 }
 
-/// One field of the row opened whole while it is being written or picked in (`Field`).
+/// A field of the row opened whole with its tag list or calendar open under it (`picking`).
 pub struct Field {
     pub c: usize,
-    pub draft: TextEdit,
-    /// Its tag list or calendar, open under it.
-    pub pick: Option<Pop>,
-    held: bool,
+    pub pick: Pop,
 }
 
 /// One sheet open.
@@ -230,9 +227,13 @@ pub struct Sheet {
     pub sort: Option<Sort>,
     pub pick: Option<Pick>,
     pub editing: Option<Editing>,
-    /// The row opened whole, by its place in the view, and its fields being written.
+    /// The row opened whole, by its place in the view; a field's list or calendar open under it;
+    /// each field's own words as they are being written, and the field that has the keys.
     pub sheet: Option<usize>,
     pub fields: Option<Field>,
+    pub drafts: Vec<TextEdit>,
+    draft_from: Vec<String>,
+    pub field_held: Option<usize>,
     pub float: Option<Float>,
     pub bar: Option<Bar>,
     /// The Filter menu's box, and the bar menu's lit row.
@@ -318,7 +319,55 @@ pub(crate) struct Scrolled {
 }
 
 pub(crate) fn heard(w: Where, at: ScrollPos) {
-    SCROLLED.with(|s| s.borrow_mut().insert(w, Scrolled { offset: at.offset, max: at.max, viewport: at.viewport }));
+    let was = SCROLLED.with(|s| s.borrow_mut().insert(w, Scrolled { offset: at.offset, max: at.max, viewport: at.viewport }));
+    if was.is_some_and(|was| (was.offset[0] - at.offset[0]).abs() > 0.01) {
+        SIDEWAYS.with(|m| m.borrow_mut().insert(w, (std::time::Instant::now(), false)));
+    }
+}
+
+thread_local! {
+    /// When each sheet last moved sideways, and whether it has been settled on a column since.
+    static SIDEWAYS: RefCell<HashMap<Where, (std::time::Instant, bool)>> = RefCell::new(HashMap::new());
+}
+
+/// Scrolling sideways settles on a column's edge, none left half under the frozen ones
+/// (`scroll-snap-type: x proximity`, `scroll-padding-left: var(--tbl-stuck)`): once the sheet has
+/// stood still a moment, it goes to the nearest column's start when that is within a third of the
+/// view, as Chromium's proximity takes it, and stays where it is otherwise.
+fn snap_sideways(s: &State, w: Where, tx: &mut Tx) {
+    let Some((when, done)) = SIDEWAYS.with(|m| m.borrow().get(&w).copied()) else { return };
+    if done {
+        return;
+    }
+    let still = std::time::Duration::from_millis(150);
+    if when.elapsed() < still {
+        tx.wake_after(still - when.elapsed() + std::time::Duration::from_millis(5));
+        return;
+    }
+    SIDEWAYS.with(|m| m.borrow_mut().insert(w, (when, true)));
+    let Some(sh) = s.tables.get(w) else { return };
+    let at = scrolled(w);
+    let ws = draw::widths(s, sh);
+    let first = sh.first();
+    let stuck = sh.rn_w() + ws.get(first).copied().unwrap_or(0.0);
+    let mut left = 1.0 + sh.rn_w();
+    let mut best: Option<f32> = None;
+    for (c, wide) in ws.iter().enumerate() {
+        if *wide <= 0.0 {
+            continue;
+        }
+        let point = (left - stuck).clamp(0.0, at.max[0].max(0.0));
+        if c != first && best.is_none_or(|b| (point - at.offset[0]).abs() < (b - at.offset[0]).abs()) {
+            best = Some(point);
+        }
+        left += wide;
+    }
+    if let Some(point) = best {
+        let d = (point - at.offset[0]).abs();
+        if d > 0.5 && d <= at.viewport[0] / 3.0 {
+            tx.scroll_to(w.key("scroll"), point, at.offset[1]);
+        }
+    }
 }
 
 pub(crate) fn scrolled(w: Where) -> Scrolled {
@@ -367,6 +416,9 @@ impl Sheet {
             editing: None,
             sheet: None,
             fields: None,
+            drafts: Vec::new(),
+            draft_from: Vec::new(),
+            field_held: None,
             float: None,
             bar: None,
             filter_find: TextEdit::new(""),
@@ -1452,10 +1504,56 @@ fn bar_key(s: &mut State, w: Where, e: &KeyEvent, tx: &mut Tx) -> Option<bool> {
 
 /// The row opened whole (`setSheet`), the keys in it.
 pub fn open_row(s: &mut State, w: Where, r: usize, tx: &mut Tx) {
+    leave_field(s, w);
     let Some(sh) = sheet(s, w) else { return };
     sh.sheet = Some(r);
     sh.fields = None;
+    fill_drafts(sh);
+    let from = sh.pick.map(|p| p.a.c).filter(|c| *c > 0);
     tx.focus(w.key("sheet"), false);
+    // Opened from a cell, the row shows that cell's field in its middle, however far down a long
+    // row it is (`scrollIntoView({ block: 'center' })`).
+    if let Some(c) = from {
+        tx.scroll_center_in(w.key("sheet-body"), format!("{}-{c}", w.key("field")));
+    }
+}
+
+/// Each field of the row opened whole starts as the row holds it (`useState(value)`).
+pub(crate) fn fill_drafts(sh: &mut Sheet) {
+    let cells = open_values(sh).unwrap_or_default();
+    sh.drafts = cells.iter().cloned().map(TextEdit::new).collect();
+    sh.draft_from = cells;
+    sh.field_held = None;
+}
+
+/// The value of each column in the row opened whole (`row[i] ?? ''`).
+fn open_values(sh: &Sheet) -> Option<Vec<String>> {
+    let cells = sh.row_at(sh.sheet?)?;
+    Some((0..sh.table().columns.len()).map(|c| cells.at(c).to_string()).collect())
+}
+
+/// The field that has the keys written before its row goes (the web's blur comes first: a press
+/// on a button of the sheet takes the keys from the field).
+pub(crate) fn leave_field(s: &mut State, w: Where) {
+    let Some(sh) = sheet(s, w) else { return };
+    let Some(c) = sh.field_held.take() else { return };
+    if let Some(d) = sh.drafts.get_mut(c) {
+        d.focused = false;
+        let v = d.text.clone();
+        write_field(s, w, c, v);
+    }
+}
+
+/// The window losing the keys closes a menu at a point, as the web's does on `blur`.
+pub fn window_focus(s: &mut State, focused: bool) {
+    if focused {
+        return;
+    }
+    for w in [Where::Pane, Where::Big] {
+        if let Some(sh) = s.tables.get_mut(w) {
+            sh.float = None;
+        }
+    }
 }
 
 /* ------------------------------ the pointer ------------------------------ */
@@ -1782,6 +1880,8 @@ pub fn tend(s: &mut State, now: f64, tx: &mut Tx) -> bool {
             tx.wake_after(std::time::Duration::from_millis(30));
         }
         changed |= tend_focus(s, w, tx);
+        changed |= s.tables.get_mut(w).is_some_and(follow_values);
+        snap_sideways(s, w, tx);
     }
     scroll_asked(tx);
     changed
@@ -1842,21 +1942,40 @@ fn tend_focus(s: &mut State, w: Where, tx: &mut Tx) -> bool {
         }
     }
     let Some(sh) = sheet(s, w) else { return changed };
-    // A field of the row opened whole: leaving it writes it.
-    if let Some(f) = sh.fields.as_ref() {
-        let key = format!("field{}", f.c);
-        if mine(&key) {
-            if let Some(f) = sh.fields.as_mut() {
-                f.held = true;
-            }
-        } else if f.held && f.pick.is_none() {
-            let (c, v) = (f.c, f.draft.text.clone());
-            sh.fields = None;
+    // A field of the row opened whole: leaving it writes what it holds, if that differs.
+    let here = focused.as_deref().and_then(|f| f.strip_prefix("tbl-field")?.strip_suffix(w.tail())?.strip_suffix('-')?.parse::<usize>().ok());
+    if sh.field_held != here {
+        let left = sh.field_held.take();
+        sh.field_held = here;
+        if let Some(c) = left
+            && let Some(d) = sh.drafts.get_mut(c)
+        {
+            d.focused = false;
+            let v = d.text.clone();
             write_field(s, w, c, v);
             changed = true;
         }
     }
     changed
+}
+
+/// The row's values changed under the fields (`useEffect(() => setDraft(value), [value])`): a
+/// field whose value moved starts again from it.
+fn follow_values(sh: &mut Sheet) -> bool {
+    let Some(cells) = open_values(sh) else { return false };
+    if sh.draft_from == cells {
+        return false;
+    }
+    sh.drafts.resize_with(cells.len(), || TextEdit::new(""));
+    for (c, v) in cells.iter().enumerate() {
+        if sh.draft_from.get(c) != Some(v) {
+            let focused = sh.drafts[c].focused;
+            sh.drafts[c] = TextEdit::new(v.clone());
+            sh.drafts[c].focused = focused;
+        }
+    }
+    sh.draft_from = cells;
+    true
 }
 
 /// A field of the row opened whole written (`onWrite`).
@@ -1928,16 +2047,16 @@ pub(crate) fn edit_of(s: &mut State, w: Where, which: Box_) -> &mut TextEdit {
             Some(Pop::Date(d)) => Some(&mut d.words),
             _ => None,
         },
-        Box_::Field => match sh.fields.as_mut() {
-            Some(Field { pick: Some(Pop::Tag(t)), .. }) => Some(&mut t.find),
-            Some(Field { pick: Some(Pop::Date(d)), .. }) => Some(&mut d.words),
-            Some(Field { draft, .. }) => Some(draft),
+        Box_::Field => match sh.fields.as_mut().map(|f| &mut f.pick) {
+            Some(Pop::Tag(t)) => Some(&mut t.find),
+            Some(Pop::Date(d)) => Some(&mut d.words),
             None => None,
         },
-        Box_::FieldName => match sh.fields.as_mut().and_then(|f| f.pick.as_mut()) {
+        Box_::FieldName => match sh.fields.as_mut().map(|f| &mut f.pick) {
             Some(Pop::Tag(TagPick { page: Some((_, name)), .. })) => Some(name),
             _ => None,
         },
+        Box_::Draft(c) => sh.drafts.get_mut(c),
     };
     found.unwrap_or(spare)
 }
@@ -1952,8 +2071,11 @@ pub enum Box_ {
     TagFind,
     TagName,
     Date,
+    /// A field's tag list box or calendar words, and the new tag's name in its list.
     Field,
     FieldName,
+    /// The words of a field of the row opened whole.
+    Draft(usize),
 }
 
 #[cfg(test)]

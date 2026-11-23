@@ -101,7 +101,9 @@ pub fn reach(window: AppHandle<State>) {
 }
 
 /// `App::on_focus`: the window gained or lost focus.
-pub fn focus_changed(_s: &mut State, focused: bool, _tx: &mut Tx) {
+pub fn focus_changed(s: &mut State, focused: bool, _tx: &mut Tx) {
+    // A sheet's menu at a point closes as the window loses the keys (`table.rs`).
+    crate::table::window_focus(s, focused);
     if let Some(tell) = TELL.get() {
         let _ = tell.send(Heard::Focus(focused));
     }
