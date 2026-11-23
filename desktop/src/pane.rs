@@ -20,7 +20,8 @@
 //! What is drawn is read off this Mac's disk, as a picture in a message is: a document as the
 //! big view lays one out, a script or any text as its lines, a table as its grid, a picture fitted
 //! into the card. It is read again when it changes on disk while it is open (`FOLLOW_FILE_MS`).
-//! Nothing here is written: the web window's pane lets a person type into a document.
+//! A document is not written here (the web window's pane lets a person type into one); a table is
+//! worked and saved through the app as the web window's is (`table.rs`).
 
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
