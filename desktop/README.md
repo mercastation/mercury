@@ -2441,6 +2441,41 @@ rest (5.36 to 1.51 over them). The Inbox is 0.265 and 0.266, its strip's buttons
 scrolled, and a window half way through being dragged larger, the soft sky before it was
 saturated and Rune's blur were within 12 of 255 everywhere.
 
+## What the allocator keeps
+
+The installed window was seen past 700 MB in a day's use where 275 to 350 MB was its ordinary
+figure. What does it is a conversation's earlier messages unfolded: the conversation is then
+laid out whole (7,923 elements where 232 stood) and the pictures the budget allows are read,
+each read whole to be shrunk to the size it is drawn at. Measured headless on such a
+conversation (53 pictures, `[{"t": 1.5, "type": "tap", "key": "thread-earlier"}]` as the
+`--script`, `--realtime`, 1920 by 1050 at 2x, the footprint read every third of a second), it
+went from 242 MB to 601 MB and stayed there.
+
+Not all of that is in use. `heap -s <pid>` counted 218 MB allocated, and `vmmap --summary <pid>`
+220 MB of "Malloc Large (empty)": large blocks the program had freed, which macOS's allocator
+keeps mapped, and counted against the program, to hand out again. It keeps up to that much
+and returns it only when the whole system runs short; over a minute and a half it gave none
+back. Asking for it (`malloc_zone_pressure_relief`) gives nothing on a current macOS.
+
+The allocator has a setting for a program that would rather have the space, read once from
+the environment as the program starts: `MallocSpaceEfficient=1`. So the window starts itself
+again with it (`start_again_frugal` in `main.rs`: the same file and words, under the same
+process number, before anything else has run), however it was launched.
+
+| At 1920 by 1050, at rest | As it was | Frugal |
+|---|---|---|
+| `home` | 314 MB | 304 MB |
+| `inbox` | 269 MB | 233 MB |
+| `files` | 365 MB | 292 MB |
+| A long conversation with a sheet beside it | 266 MB | 207 MB |
+| A conversation of 53 pictures, as it opens | 241 MB | 196 MB |
+| The same, its earlier messages unfolded | 601 MB | 318 MB |
+| The most it reached while unfolding | 611 MB | 463 MB |
+
+It costs the first frame about a sixth more (53 ms to 63 ms on `home`) and nothing that shows
+in a whole frame; starting twice adds nothing that `/usr/bin/time` can tell apart. Every
+picture is the picture it was. `MallocLargeCache=0` alone gives most of it (339 MB unfolded).
+
 ## What moves on its own
 
 The web window's conversation page moves in few places, and this window moves in the same ones.

@@ -1754,7 +1754,36 @@ fn watch_door(args: &[String]) -> bool {
     true
 }
 
+/// Starts the program again with macOS's allocator told to favour space over speed
+/// (`MallocSpaceEfficient=1`), unless it was started so already.
+///
+/// The allocator otherwise keeps up to 220 MB of the large blocks a program frees, mapped and
+/// counted against it, and returns them only when the whole system runs short. The window frees
+/// a great deal in bursts (a picture is read whole to be shrunk to the size it is drawn at, a
+/// sky is painted over, a conversation's logs are parsed), so a conversation unfolded onto fifty
+/// pictures stood at 600 MB where 315 MB was in use. The setting is read once, as a program
+/// starts, from its environment and nowhere else, which is why the program starts itself again:
+/// the same file, the same words, under the same number, before anything else has run. Asking
+/// the allocator for the blocks back later (`malloc_zone_pressure_relief`) gives nothing on a
+/// current macOS.
+#[cfg(target_os = "macos")]
+fn start_again_frugal() {
+    use std::os::unix::process::CommandExt;
+    const SETTING: &str = "MallocSpaceEfficient";
+    if std::env::var_os(SETTING).is_some() {
+        return;
+    }
+    let mut words = std::env::args_os();
+    let (Some(name), Ok(file)) = (words.next(), std::env::current_exe()) else { return };
+    // This only comes back when it could not start: the window then opens as it is.
+    let _ = std::process::Command::new(file).arg0(name).args(words).env(SETTING, "1").exec();
+}
+
+#[cfg(not(target_os = "macos"))]
+fn start_again_frugal() {}
+
 fn main() {
+    start_again_frugal();
     // `--rows <out.json>` writes the lists a fixture gives and opens no window.
     if let Some(written) = rules::rows_from_args(&std::env::args().collect::<Vec<_>>()) {
         return written.unwrap_or_else(|e| {
