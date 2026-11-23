@@ -533,6 +533,69 @@ fn space_opens_the_row_whole_and_its_keys_walk_the_rows() {
     done(dir);
 }
 
+// A4 G5 G6 L4 M2 M3 D19 F5: a sheet that cannot be changed is read, and offers nothing that
+// changes it.
+#[test]
+fn a_sheet_that_cannot_be_changed_is_read_and_never_written() {
+    let (mut rt, dir) = open("tbl-read-only", LEADS);
+    assert!(rect_of(&rt, "tbl-add-pane").is_some(), "New row, where the sheet can be changed");
+    rt.update(|s, _| {
+        if let Some(sh) = s.tables.pane.as_mut() {
+            sh.editable = false;
+        }
+    });
+    run(&mut rt, 0.05);
+    assert!(rect_of(&rt, "tbl-add-pane").is_none(), "no New row");
+    // Enter opens the cell's words read only.
+    tap(&mut rt, |rt| cell_at(rt, 1, 7));
+    key(&mut rt, Key::Enter);
+    assert!(sheet(&rt).editing.is_some(), "Read cell");
+    key(&mut rt, Key::Escape);
+    // A tag cell never opens, and Delete empties nothing.
+    tap(&mut rt, |rt| cell_at(rt, 1, 1));
+    key(&mut rt, Key::Enter);
+    assert!(sheet(&rt).editing.is_none());
+    key(&mut rt, Key::Delete);
+    assert_eq!(value(&rt, 1, 1), "Replied");
+    // The menus hold only what reads.
+    let (x, y) = cell_at(&rt, 1, 4);
+    rt.pointer_move(x, y);
+    rt.secondary_down(x, y);
+    rt.secondary_up(x, y);
+    rt.frame(1.0 / 60.0);
+    let rows: Vec<String> = draw::float_rows(&rt.state, Where::Pane).iter().filter(|l| !l.sep).map(|l| l.words.clone()).collect();
+    assert_eq!(rows, ["Open row", "Read cell", "Copy", "Open link"]);
+    key(&mut rt, Key::Escape);
+    let (x, y) = header_at(&rt, 7);
+    rt.pointer_move(x, y);
+    rt.secondary_down(x, y);
+    rt.secondary_up(x, y);
+    rt.frame(1.0 / 60.0);
+    let rows: Vec<String> = draw::float_rows(&rt.state, Where::Pane).iter().filter(|l| !l.sep).map(|l| l.words.clone()).collect();
+    assert_eq!(rows, ["Sort A to Z", "Sort Z to A", "Fit to its contents", "Wrap text"]);
+    key(&mut rt, Key::Escape);
+    run(&mut rt, 0.5);
+    assert!(rt.state.tables.wrote.is_empty(), "nothing is written");
+    done(dir);
+}
+
+// E7 E11: a double press on a cell edits it; a press elsewhere on the table ends the edit,
+// keeping the words, and picks what it pressed.
+#[test]
+fn a_double_press_edits_and_a_press_elsewhere_keeps_the_words() {
+    let (mut rt, dir) = open("tbl-double", LEADS);
+    let (x, y) = cell_at(&rt, 2, 0);
+    press(&mut rt, x, y);
+    press(&mut rt, x, y);
+    assert!(sheet(&rt).editing.is_some(), "a double press edits");
+    typed(&mut rt, " Inc");
+    tap(&mut rt, |rt| cell_at(rt, 4, 7));
+    assert!(sheet(&rt).editing.is_none());
+    assert_eq!(value(&rt, 2, 0), "Initech Inc");
+    assert_eq!(sheet(&rt).pick, Some(Pick::one(At { r: 4, c: 7 })));
+    done(dir);
+}
+
 // F7: a letter is the app's, not the cell's.
 #[test]
 fn a_letter_goes_on_to_the_conversation() {
@@ -557,6 +620,13 @@ fn a_cut_off_cell_picked_shows_its_words_whole_until_escape() {
     // A short cell shows nothing more.
     tap(&mut rt, |rt| cell_at(rt, 1, 0));
     assert!(draw::peek(&rt.state, sheet(&rt)).is_none());
+    // E13: a press on the words shown whole goes to the cell under it.
+    tap(&mut rt, |rt| cell_at(rt, 0, 7));
+    let [x, y, _, h] = rect_of(&rt, "tbl-peek-pane").expect("shown again for another pick");
+    let (_, below) = cell_at(&rt, 1, 7);
+    assert!(y + h > below - 20.0, "the words reach over the row below");
+    press(&mut rt, x + 20.0, y + h - 4.0);
+    assert_eq!(sheet(&rt).pick, Some(Pick::one(At { r: 1, c: 7 })));
     done(dir);
 }
 
@@ -592,6 +662,47 @@ fn a_sheet_rewritten_on_disk_is_read_again() {
     assert_eq!(value(&rt, 1, 0), "Globex West");
     assert_eq!(sheet(&rt).pick, None);
     done(dir);
+}
+
+// A7 O4: refused because the file moved on, Load the new one reads it again, the edit dropped.
+#[test]
+fn load_the_new_one_reads_the_file_again() {
+    let (mut rt, dir) = open("tbl-load", LEADS);
+    rt.state.tables.answer = Some(serde_json::json!({ "ok": false, "stale": true, "error": "changed" }));
+    tap(&mut rt, |rt| cell_at(rt, 1, 7));
+    key(&mut rt, Key::Delete);
+    written(&mut rt);
+    assert!(sheet(&rt).problem.as_ref().is_some_and(|p| p.stale));
+    let file = dir.join("exports/leads.csv");
+    std::fs::write(&file, LEADS.replace("Globex", "Globex West")).expect("rewritten");
+    rt.state.tables.answer = None;
+    rt.update(|s, _| super::reload(s, Where::Pane));
+    run(&mut rt, 0.1);
+    assert_eq!(value(&rt, 1, 0), "Globex West");
+    assert_eq!(value(&rt, 1, 7), "Replied to the second note", "the edit refused is dropped");
+    assert_eq!(sheet(&rt).problem, None);
+    done(dir);
+}
+
+// A8 D16: a view with no rows says why.
+#[test]
+fn a_view_with_no_rows_says_why() {
+    let shows = |rt: &Runtime<State>, words: &str| rt.elements().iter().any(|e| e.text.as_deref() == Some(words));
+    let (mut rt, dir) = open("tbl-none", LEADS);
+    rt.update(|s, _| {
+        if let Some(sh) = s.tables.pane.as_mut() {
+            sh.search = TextEdit::new("nothing like this");
+        }
+        super::searched(s, Where::Pane);
+    });
+    run(&mut rt, 0.05);
+    assert!(shows(&rt, "No rows match."));
+    done(dir);
+    for (name, csv) in [("tbl-headed", "Name,Status\n"), ("tbl-blank", "")] {
+        let (rt, dir) = open(name, csv);
+        assert!(shows(&rt, "This table has no rows yet."), "{name}");
+        done(dir);
+    }
 }
 
 // D3 D2 B5: a ranked file's rank is the row number, and never edited.
@@ -641,6 +752,31 @@ fn rows_picked_whole_are_dragged_to_where_they_land() {
     rt.frame(1.0 / 60.0);
     assert_eq!((value(&rt, 0, 0), value(&rt, 3, 0)), ("Globex".to_string(), "Acme Robotics".to_string()));
     assert!(sheet(&rt).whole_rows() && sheet(&rt).sel().map(|b| b.r0) == Some(3), "and stay picked where they landed");
+    done(dir);
+}
+
+// E4: columns picked whole are picked up and moved by a drag the same way.
+#[test]
+fn columns_picked_whole_are_dragged_to_where_they_land() {
+    let (mut rt, dir) = open("tbl-drag-cols", LEADS);
+    tap(&mut rt, |rt| header_at(rt, 2));
+    assert!(sheet(&rt).whole_cols(), "a header picks its column");
+    let from = header_at(&rt, 2);
+    let [vx, _, _, _] = rect_of(&rt, "tbl-scroll-pane").expect("the grid");
+    let (x4, w4) = draw::column_x(&rt.state, sheet(&rt), 4);
+    let to = (vx + x4 + w4 - 10.0, from.1);
+    rt.pointer_move(from.0, from.1);
+    rt.pointer_down(from.0, from.1);
+    for k in 1..=8 {
+        rt.pointer_move(from.0 + (to.0 - from.0) * k as f32 / 8.0, from.1);
+        rt.frame(1.0 / 60.0);
+    }
+    assert!(sheet(&rt).dropping.is_some_and(|d| d.cols && d.place == 5), "the line shows where it lands");
+    rt.pointer_up(to.0, to.1);
+    rt.frame(1.0 / 60.0);
+    let names: Vec<&str> = sheet(&rt).table().columns.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(names[..5], ["Company", "Status", "Next call", "Website", "Owner"]);
+    assert!(sheet(&rt).whole_cols() && sheet(&rt).sel().map(|b| b.c0) == Some(4), "and stays picked where it landed");
     done(dir);
 }
 

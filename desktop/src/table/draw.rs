@@ -475,6 +475,7 @@ fn bar(_s: &State, sh: &Sheet, inner: f32) -> El {
     let total = sh.table().rows.len();
     let search = text_input(&sh.search, sans(13.0, 400.0))
         .key(w.key("search"))
+        .label(format!("Search {}", rows_word(total)))
         .single_line()
         .grow(1.0)
         .color(ink())
@@ -636,6 +637,8 @@ fn grid(s: &State, sh: &Sheet, inner: f32, frame_h: f32) -> El {
         .focusable(true)
         // No ring for the keys, as the web window draws none (`.tbl:focus { outline: none }`).
         .no_focus_ring()
+        // Named as the web's keys box is (`aria-label="Table"`).
+        .label("Table")
         .on_key(move |s: &mut State, e: &KeyEvent, tx: &mut Tx| super::grid_key(s, w, e, tx))
         .child(content);
     // The keys are kept on the viewport itself, which a press anywhere in it gives them to.
@@ -682,6 +685,7 @@ fn header(_s: &State, sh: &Sheet, ws: &[f32], stuck_at: f32) -> El {
         if sh.renaming == Some(i) {
             let field = text_input(&sh.rename, head_font())
                 .key(w.key("rename"))
+                .label("Column name")
                 .single_line()
                 .grow(1.0)
                 .color(ink())
@@ -953,6 +957,7 @@ pub(crate) fn logos_landed() -> bool {
 fn new_row(sh: &Sheet, grid_w: f32) -> El {
     let w = sh.at;
     row()
+        .key(w.key("add"))
         .w(grid_w)
         .h(42.0)
         .items_center()
@@ -1030,6 +1035,7 @@ fn editor(s: &State, sh: &Sheet) -> Option<El> {
     let body: El = if sh.editable {
         text_input(&e.draft, TextStyle::new(14.0, 400.0).lh(20.0))
             .key(w.key("edit"))
+            .label(sh.table().columns.get(e.c).map(|c| c.name.clone()).unwrap_or_default())
             .w_full()
             .color(ink())
             .caret(ink(), rgba(110, 165, 255, 0.3))
@@ -1278,6 +1284,7 @@ fn tag_list(sh: &Sheet, column: &file::Column, value: &str, t: &TagPick, whose: 
         let tag_c = tag.clone();
         let field = text_input(name, sans(12.5, 400.0))
             .key(w.key("tagname"))
+            .label("Tag name")
             .single_line()
             .grow(1.0)
             .color(ink())
@@ -1314,6 +1321,7 @@ fn tag_list(sh: &Sheet, column: &file::Column, value: &str, t: &TagPick, whose: 
     let next = super::edit::new_tone(column, js::trim(&t.find.text));
     let field = text_input(&t.find, sans(12.5, 400.0))
         .key(w.key("tagfind"))
+        .label("Find or add a tag")
         .single_line()
         .grow(1.0)
         .color(ink())
@@ -1526,6 +1534,7 @@ fn calendar(s: &State, sh: &Sheet, value: &str, d: &DatePick, whose: PickFor, c:
     let weeks = ((lead + in_month) as f32 / 7.0).ceil() as i64;
     let field = text_input(&d.words, sans(12.5, 400.0))
         .key(w.key("date"))
+        .label("Date")
         .single_line()
         .grow(1.0)
         .color(ink())
@@ -1754,6 +1763,7 @@ fn field_el(s: &State, sh: &Sheet, c: usize, value: &str, editable: bool, box_w:
     // The box is the field, its room inside it too: a press anywhere in it puts the caret in.
     let field = text_input(draft, TextStyle::new(14.0, 400.0).lh(20.0))
         .key(w.key(&format!("field{c}")))
+        .label(column.name.clone())
         .grow(1.0)
         .min_w(0.0)
         .px(8.0)
@@ -2188,7 +2198,7 @@ fn filter_menu(sh: &Sheet) -> El {
     let filtering = sh.picked.values().any(|v| !v.is_empty());
     let mut out = col().gap(1.0);
     if many {
-        let field = text_input(&sh.filter_find, sans(12.5, 400.0)).key(w.key("filterfind")).single_line().grow(1.0).color(ink()).placeholder("Find a value", muted()).caret(ink(), rgba(110, 165, 255, 0.3)).on_edit(move |s: &mut State| super::edit_of(s, w, Box_::FilterFind));
+        let field = text_input(&sh.filter_find, sans(12.5, 400.0)).key(w.key("filterfind")).label("Find a value").single_line().grow(1.0).color(ink()).placeholder("Find a value", muted()).caret(ink(), rgba(110, 165, 255, 0.3)).on_edit(move |s: &mut State| super::edit_of(s, w, Box_::FilterFind));
         out = out.child(type_row(field));
     }
     if filtering {

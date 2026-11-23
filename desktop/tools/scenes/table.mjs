@@ -83,6 +83,16 @@ function hands(h) {
       script.push({ t: next(0.1 + text.length * 0.04), type: 'type', text, every: 0.035 });
       next(0.25);
     },
+    /** A wheel turned over `x`, `y` by `dx`, `dy` points (the page's sense: positive goes right
+     *  and down), then a second for the sheet to settle. */
+    async wheel(x, y, dx, dy = 0) {
+      await mouse('mouseMoved', x, y);
+      await mouse('mouseWheel', x, y, { deltaX: dx, deltaY: dy });
+      await h.wait(1000);
+      const at = next(1.0);
+      // Rune moves the content by a wheel's points, the other way round.
+      script.push({ t: at - 0.03, type: 'move', x, y }, { t: at, type: 'wheel', x, y, dx: -dx, dy: -dy });
+    },
     async wait(ms) { await h.wait(ms); },
     /** The middle of what `css` finds, the part of it inside the table's viewport. */
     async at(css) {

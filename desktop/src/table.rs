@@ -1881,6 +1881,7 @@ pub fn tend(s: &mut State, now: f64, tx: &mut Tx) -> bool {
         }
         changed |= tend_focus(s, w, tx);
         changed |= s.tables.get_mut(w).is_some_and(follow_values);
+        changed |= s.tables.get_mut(w).is_some_and(follow_shut);
         snap_sideways(s, w, tx);
     }
     scroll_asked(tx);
@@ -1957,6 +1958,17 @@ fn tend_focus(s: &mut State, w: Where, tx: &mut Tx) -> bool {
         }
     }
     changed
+}
+
+/// Words shown whole put away stay away only while their cell is the one picked: the next cell
+/// picked shows its own again (`if (shut && shut !== oneKey) setShut(null)`).
+fn follow_shut(sh: &mut Sheet) -> bool {
+    let one = sh.pick.filter(|p| p.a == p.b).map(|p| p.a);
+    if sh.shut.is_some() && sh.shut != one {
+        sh.shut = None;
+        return true;
+    }
+    false
 }
 
 /// The row's values changed under the fields (`useEffect(() => setDraft(value), [value])`): a
