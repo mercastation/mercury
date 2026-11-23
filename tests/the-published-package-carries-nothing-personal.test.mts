@@ -128,7 +128,10 @@ describe('the tarball npm would publish', () => {
     // will move this much. Well under the 204.8 MB it was, and the ceiling is
     // set where a regression means somebody shipped a folder, not a file.
     expect(manifest.unpackedSize).toBeLessThan(80 * 1024 * 1024);
-    expect(manifest.entryCount).toBeLessThan(600);
+    // MERCURY: 700, for Mercury's own modules beside Agentbox's (Antigravity,
+    // demands, meetings, the project browser); 617 with the built screen at the
+    // 2026-11-23 sync. This copy is not published to npm.
+    expect(manifest.entryCount).toBeLessThan(700);
   });
 });
 
