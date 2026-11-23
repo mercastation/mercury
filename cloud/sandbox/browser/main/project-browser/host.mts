@@ -32,6 +32,7 @@ import { guardPage, type KeptFrom } from './guard.mts';
 import { settled, watchRequests } from './settle.mts';
 import { openSignIn, type SignInWindow } from './sign-in.mts';
 import { threadViews, type ThreadViews } from './view.mts';
+import { projectFilm } from './film.mts';
 
 export const BROWSER_HOST_ALREADY_THERE = 3;
 const MAX_LINE = 1024 * 1024;
@@ -97,7 +98,7 @@ const keptFromWords = ({ host, how }: KeptFrom, sites: readonly string[]): strin
   ? `The page tried to go to ${host}, which is not one of this project's sites (${sites.join(', ')}), so it was stopped and nothing was sent there.`
   : `The site sent this page on to ${host}, which is not one of this project's sites (${sites.join(', ')}), so the page was emptied. When that is a sign-in service, the sign-in has ended: stop, and tell the owner to sign in again under Settings, Projects, this project, Browser.`);
 
-export function serveBrowser({ dir, sock, appPid, chrome = testBrowser, launch = launchHidden, keep, signInUrls = (sites) => sites.map((site) => `https://${site}/`), signInExtraArgs = [], settle = {}, idleMs = 15 * 60_000, callMs = 3 * 60_000, checkMs = 5_000, log = () => {}, onIdle = () => {} }: {
+export function serveBrowser({ dir, sock, appPid, chrome = testBrowser, launch = launchHidden, keep, film = false, signInUrls = (sites) => sites.map((site) => `https://${site}/`), signInExtraArgs = [], settle = {}, idleMs = 15 * 60_000, callMs = 3 * 60_000, checkMs = 5_000, log = () => {}, onIdle = () => {} }: {
   dir: string;
   /** The socket the app chose for this host. */
   sock: string;
@@ -106,6 +107,8 @@ export function serveBrowser({ dir, sock, appPid, chrome = testBrowser, launch =
   launch?: Launch;
   /** Run after each call and before the browser closes: a copy in the cloud keeps what its sites renewed here (cloud-host.mts). */
   keep?: (context: BrowserContext) => Promise<void>;
+  /** Keep a film of what each thread does in the browser, for the native window (film.mts). The Mac's host does; a copy in the cloud does not. */
+  film?: boolean;
   /** The pages the sign-in window opens on. */
   signInUrls?: (sites: readonly string[]) => string[];
   /** For a test, which opens the sign-in browser with no window. */
@@ -133,6 +136,9 @@ export function serveBrowser({ dir, sock, appPid, chrome = testBrowser, launch =
   const queues = new Map<string, Promise<void>>();
   const keptFrom = new Map<string, KeptFrom>();
   const quietOf = new WeakMap<Page, () => boolean>();
+  /** The page each thread is on: the one it opened last, or the tab it chose. */
+  const chosen = new Map<string, Page>();
+  const filming = film ? projectFilm({ pages: () => readProject(dir)?.pages ?? null, log }) : null;
 
   const mcpConfig = (): McpConfig => ({
     outputDir: readProject(dir)?.pages ?? path.join(dir, 'pages'),
@@ -164,6 +170,7 @@ export function serveBrowser({ dir, sock, appPid, chrome = testBrowser, launch =
 
   function forget(): void {
     context = null;
+    chosen.clear();
     views = null;
     for (const { client } of threads.values()) client.close().catch(() => {});
     threads.clear();
@@ -182,6 +189,7 @@ export function serveBrowser({ dir, sock, appPid, chrome = testBrowser, launch =
       context = opened;
       views = threadViews(opened, {
         prepare: (page: Page, thread: string) => {
+          chosen.set(thread, page);
           quietOf.set(page, watchRequests(page));
           return guardPage(opened, page, {
             allows: (url) => siteAllows(sitesNow(), url),
@@ -218,9 +226,18 @@ export function serveBrowser({ dir, sock, appPid, chrome = testBrowser, launch =
   async function dropThread(thread: string): Promise<void> {
     const had = threads.get(thread);
     threads.delete(thread);
+    chosen.delete(thread);
     keptFrom.delete(thread);
     await views?.closeThread(thread);
     await had?.client.close().catch(() => {});
+  }
+
+  /** The page a thread's next call acts on, as far as the host can tell: Playwright MCP keeps its own. */
+  function pageOf(thread: string): Page | null {
+    const had = chosen.get(thread);
+    if (had && !had.isClosed()) return had;
+    const open = views?.viewFor(thread).pages() ?? [];
+    return open[open.length - 1] ?? null;
   }
 
   /** The page a navigation opened, read again once it has stopped changing (settle.mts), as the file an agent is handed. */
@@ -251,15 +268,23 @@ export function serveBrowser({ dir, sock, appPid, chrome = testBrowser, launch =
     }
     let client: Client;
     try { client = await threadClient(thread); } catch (err) { return said((err as Error).message); }
+    // Filming starts before the call, so the page is seen the moment before a press.
+    const take = filming ? await filming.begin(thread, pageOf(thread), name, args).catch(() => null) : null;
     let result: CallToolResult;
     try {
       result = await client.callTool({ name, arguments: args }, undefined, { timeout: callMs }) as CallToolResult;
     } catch (err) {
+      take?.end(null, true);
       // What the thread had open is not trusted after a call that never answered.
       await dropThread(thread).catch(() => {});
       return said(`The browser did not finish this: ${(err as Error).message}. This thread's tabs were closed; open the page again.`);
     }
     if (name === 'browser_navigate' && !result.isError && !keptFrom.has(thread)) result = await onceFilledIn(thread, client, result);
+    if (name === 'browser_tabs' && args.action === 'select' && !result.isError) {
+      const tab = views?.viewFor(thread).pages()[Number(args.index)];
+      if (tab) chosen.set(thread, tab);
+    }
+    take?.end(pageOf(thread), !!result.isError || keptFrom.has(thread));
     if (keep && context) await keep(context).catch(() => {});
     const from = keptFrom.get(thread);
     keptFrom.delete(thread);
@@ -387,6 +412,7 @@ export function serveBrowser({ dir, sock, appPid, chrome = testBrowser, launch =
     close: async () => {
       clearInterval(sweep);
       signIn?.close();
+      await filming?.settled();
       await closeBrowser();
       await new Promise<void>((resolve) => { if (server.listening) server.close(() => resolve()); else resolve(); });
       try { if (JSON.parse(fs.readFileSync(path.join(dir, 'host.json'), 'utf8')).pid === process.pid) fs.rmSync(path.join(dir, 'host.json'), { force: true }); } catch { /* not ours to remove */ }
@@ -404,7 +430,7 @@ async function main(): Promise<void> {
     ending = true;
     host.close().catch(() => {}).finally(() => process.exit(code));
   };
-  const host = serveBrowser({ dir, sock, appPid: Number(appPidArg), log, onIdle: () => end(0) });
+  const host = serveBrowser({ dir, sock, appPid: Number(appPidArg), log, film: true, onIdle: () => end(0) });
   try { await host.started; } catch (err) {
     log((err as Error).message);
     process.exit((err as { code?: unknown }).code === BROWSER_HOST_ALREADY_THERE ? BROWSER_HOST_ALREADY_THERE : 1);

@@ -100,9 +100,15 @@ describe('signing in', () => {
 
   it('reads as closed, and finishing is nothing, while no host is running', async () => {
     const d = deps(['acme.dev']);
-    expect(await projectBrowserStatus(d, 'oms', { hasBrowser: () => true })).toEqual({ state: 'closed', canRun: true, threads: 0 });
-    expect(await projectBrowserStatus(d, 'oms', { hasBrowser: () => false })).toEqual({ state: 'closed', canRun: false, threads: 0 });
+    // Where its threads' films are kept, for the native window (main/project-browser/film.mts).
+    const film = path.join(d.config.storeRoot, '.browser', 'oms', 'film');
+    expect(await projectBrowserStatus(d, 'oms', { hasBrowser: () => true })).toEqual({ state: 'closed', canRun: true, threads: 0, film });
+    expect(await projectBrowserStatus(d, 'oms', { hasBrowser: () => false })).toEqual({ state: 'closed', canRun: false, threads: 0, film });
     await finishProjectBrowserSignIn(d, 'oms');
+  });
+
+  it('names no film folder for a project with no browser', async () => {
+    expect(await projectBrowserStatus(deps([]), 'oms', { hasBrowser: () => true })).toEqual({ state: 'closed', canRun: true, threads: 0 });
   });
 });
 

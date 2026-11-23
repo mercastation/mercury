@@ -22,6 +22,7 @@ export const BROWSER_FILES = [
   'main/project-browser/settle.mts',
   'main/project-browser/sign-in.mts',
   'main/project-browser/view.mts',
+  'main/project-browser/film.mts',
   'mcp/project-browser.mts',
   'shared/project-browser.mts',
   'shared/hidden-browser.mts',

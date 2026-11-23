@@ -15,6 +15,7 @@ import { stripTypesFlags } from '../strip-types.mts';
 import type { ConnectionServers } from '../codex-session.mts';
 import { askHost, browserDir, pagesDir, readHost, socketPath, writeProject } from './place.mts';
 import type { BrowserStatus } from './host.mts';
+import { filmRoot } from './film.mts';
 
 export interface BrowserConfig {
   storeRoot: string;
@@ -112,11 +113,13 @@ function installTestBrowser({ ms = INSTALL_MS }: { ms?: number } = {}): Promise<
 
 const hasTestBrowser = (): boolean => chromesForTesting().length > 0;
 
-export async function projectBrowserStatus(deps: Pick<BrowserDeps, 'userDir'>, slug: string, { hasBrowser = hasTestBrowser }: { hasBrowser?: () => boolean } = {}): Promise<BrowserStatus> {
+export async function projectBrowserStatus(deps: Pick<BrowserDeps, 'userDir'> & { config?: BrowserConfig }, slug: string, { hasBrowser = hasTestBrowser }: { hasBrowser?: () => boolean } = {}): Promise<BrowserStatus & { film?: string }> {
+  // Where its threads' films are kept (film.mts), for the native window to read them off the disk.
+  const film = deps.config && sitesOfProject(deps.config, slug).length ? { film: filmRoot(pagesDir(deps.config.storeRoot, slug)) } : {};
   const closed: BrowserStatus = { state: 'closed', canRun: hasBrowser(), threads: 0 };
   const host = readHost(browserDir(deps.userDir, slug));
-  if (!host) return closed;
-  return (await askHost<BrowserStatus>(host.sock, { method: 'status' }, { ms: 3_000 })) ?? closed;
+  if (!host) return { ...closed, ...film };
+  return { ...((await askHost<BrowserStatus>(host.sock, { method: 'status' }, { ms: 3_000 })) ?? closed), ...film };
 }
 
 export type SignInAnswer = { ok: true } | { ok: false; error: string };
