@@ -338,7 +338,7 @@ describe("the native window's Mark unread", () => {
   });
 
   it('takes a project and a thread by their plain names, and nothing that is not one', async () => {
-    expect(markUnreadScript({ product: 'propegi-upe', id: 'w-4c6fedcd6c' })).toContain('"id":"w-4c6fedcd6c"');
+    expect(markUnreadScript({ product: 'shop-front', id: 'w-0a1b2c3d4e' })).toContain('"id":"w-0a1b2c3d4e"');
     const scripts: string[] = [];
     const handler = markUnread(async (script) => { scripts.push(script); return true; });
     for (const asked of [null, {}, { product: 'shop' }, { id: 'w-1' }, { product: 'shop', id: 7 }, { product: 'shop', id: '' }, { product: 'shop', id: 'w-1"}); localStorage.clear(); ({"' }, { product: 'a b', id: 'w-1' }, { product: 'shop', id: 'w-1 x' }, { product: 'shop', id: 'x'.repeat(200) }]) {
