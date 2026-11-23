@@ -71,6 +71,10 @@ impl Doc {
     pub fn kind(&self) -> Kind {
         rules::pane_kind(&self.src)
     }
+    /// Where the file was found on this Mac, if it was.
+    pub fn found(&self) -> Option<&str> {
+        self.found.as_deref()
+    }
     /// Finds the file and reads what is drawn as words.
     fn land(&mut self, now: f64) {
         self.looked = now;

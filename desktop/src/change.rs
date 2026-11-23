@@ -1496,15 +1496,25 @@ pub fn current_file(s: &State) -> Option<(String, String)> {
 }
 
 /// The open mark over a change: the file at the top of the column, in the app that owns it
-/// (`openArtifactExternally({ src: fileAt })`); a file nowhere on this Mac says so.
+/// (`openArtifactExternally({ src: fileAt ?? doc.src })`); before the change is read, or when it
+/// cannot be, no file is at the top and the change file itself is opened. A file nowhere on this
+/// Mac says so.
 pub fn open_outside(s: &mut State, tx: &mut Tx) {
-    let Some((path, found)) = current_file(s) else { return };
+    match opened_outside(s) {
+        Some(Ok(found)) => crate::files::open_with_system(&found),
+        Some(Err(why)) => s.tell(&why, tx),
+        None => {}
+    }
+}
+
+/// What the open mark opens, or what it says instead.
+fn opened_outside(s: &State) -> Option<Result<String, String>> {
+    let Some((path, found)) = current_file(s) else { return s.beside().and_then(|d| d.found()).map(|f| Ok(f.to_string())) };
     if found.is_empty() {
         let project = s.changes.here.as_ref().and_then(|h| s.snap.products.iter().find(|p| p.slug == h.product)).map(|p| p.name.clone()).unwrap_or_else(|| "this project".to_string());
-        s.tell(&format!("{path} is not in {project}. Nothing was opened."), tx);
-        return;
+        return Some(Err(format!("{path} is not in {project}. Nothing was opened.")));
     }
-    crate::files::open_with_system(&found);
+    Some(Ok(found))
 }
 
 /* ------------------------------ the keys ------------------------------ */
@@ -1993,6 +2003,12 @@ mod tests {
         assert!(rt.state.shown().is_some(), "the whole change is read when it opens");
         // Opened from the button it stands at its top, on its first file.
         assert_eq!(rt.state.changes.here.as_ref().map(|h| h.at), Some(0));
+        // The open mark opens the file at the top of the column: the deleted note is nowhere on
+        // this Mac and says so; once the column stands on `src/a.ts`, that file.
+        assert_eq!(opened_outside(&rt.state), Some(Err("docs/gone.md is not in Storefront. Nothing was opened.".to_string())));
+        rt.update(|s, tx| jump(s, 1, tx));
+        run(&mut rt, 0.5);
+        assert!(matches!(opened_outside(&rt.state), Some(Ok(p)) if p.ends_with("code/src/a.ts")), "{:?}", opened_outside(&rt.state));
         // Pressed while open, it puts the change away.
         open_it(&mut rt);
         assert!(the_open_change(&rt).is_none());
@@ -2007,6 +2023,23 @@ mod tests {
         let (rt, dir) = with_a_change("no-change", (1280.0, 760.0), Some(json!({ "ok": false, "error": "no change was recorded for this thread" })));
         assert!(rect_of(&rt, "thread-code").is_none());
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn an_agent_session_is_never_asked_and_has_no_button() {
+        let dir = std::env::temp_dir().join(format!("mercury-change-agent-{}", std::process::id()));
+        let summary = json!({ "ok": true, "change": { "files": [{ "path": "src/a.ts", "plus": 1, "minus": 0 }], "plus": 1, "minus": 0 } });
+        let mut rt = window_dressed("agent", &["--thread"], &dir.to_string_lossy(), "Done, and tested.", |f| {
+            let mut threads = serde_json::Map::new();
+            for i in 0..4 {
+                f["snapshot"]["items"][i]["agent"] = json!({ "id": "a-session" });
+                threads.insert(format!("storefront/w-feel{i}"), json!({ "zero:code-change": summary }));
+            }
+            f["threads"] = Value::Object(threads);
+        });
+        run(&mut rt, 0.1);
+        assert!(rect_of(&rt, "thread-code").is_none());
+        assert!(rt.state.changes.summaries.is_empty() && rt.state.changes.asked.is_none(), "never asked");
     }
 
     #[test]
@@ -2507,6 +2540,12 @@ mod tests {
     #[test]
     fn a_change_that_cannot_be_read_says_why_and_one_on_its_way_holds_its_place() {
         let (mut rt, dir) = with_a_change("refused", (1280.0, 760.0), None);
+        // The change files themselves, where the pane finds a thread's run.
+        for i in 0..4 {
+            let file = dir.join(rules::change_path_for(&format!("w-feel{i}")));
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(&file, "{}").unwrap();
+        }
         rt.update(|s, _| {
             for v in s.fixture.get_mut("codeChanges").and_then(Value::as_object_mut).expect("answers").values_mut() {
                 *v = json!({ "ok": false, "error": "that change could not be read (an invented reason)" });
@@ -2514,6 +2553,9 @@ mod tests {
         });
         open_it(&mut rt);
         assert!(rt.elements().iter().any(|e| e.text.as_deref() == Some("that change could not be read (an invented reason)")));
+        // No file is at the top of a change that was not read: the open mark opens the change
+        // file itself (`fileAt ?? doc.src`).
+        assert!(matches!(opened_outside(&rt.state), Some(Ok(p)) if p.ends_with("the-change-it-made.change")), "{:?}", opened_outside(&rt.state));
         open_it(&mut rt);
         rt.update(|s, _| {
             for v in s.fixture.get_mut("codeChanges").and_then(Value::as_object_mut).expect("answers").values_mut() {
