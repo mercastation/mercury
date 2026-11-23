@@ -964,6 +964,30 @@ mod tests {
         assert_eq!(rt.state.toast.as_ref().map(|t| t.line.as_str()), Some("Cloud off: new threads run on this Mac"));
     }
 
+    /// The system shows a control's title by the pointer, over the key hint hung under it. One
+    /// that only says what the plate says stands aside while key hints are on.
+    #[test]
+    fn a_title_that_only_says_what_the_key_hint_says_stands_aside_while_hints_are_on() {
+        let titles = |rt: &Runtime<State>| rt.elements().into_iter().filter_map(|e| e.help).collect::<Vec<_>>();
+        let mut rt = inbox("titles", cloud_on(), None);
+        let said = titles(&rt);
+        assert!(!said.iter().any(|t| t == "New thread (N)" || t.starts_with("Cloud o")), "{said:?}");
+        // The button beside them has no key hint, and keeps its title.
+        assert!(said.iter().any(|t| t == "View and filters"), "{said:?}");
+        // With the hints turned off the titles are all that name the keys.
+        rt.update(|s, _| s.picks.change(|p| p.key_hints = Some(false)));
+        rt.frame(2.0 / 60.0);
+        let said = titles(&rt);
+        assert!(said.iter().any(|t| t == "New thread (N)") && said.iter().any(|t| t == "Cloud on (⌘C)"), "{said:?}");
+        // A cloud that asks for something says what in its title, which no plate does: it
+        // stays, hints or no hints.
+        let mut cloud = cloud_on();
+        cloud["accounts"].as_array_mut().unwrap().push(json!({ "engine": "codex", "key": "a-2", "ready": false, "state": "broken" }));
+        let rt = inbox("titles-broken", cloud, None);
+        let said = titles(&rt);
+        assert!(said.iter().any(|t| t == crate::rules::cloud::BROKEN) && !said.iter().any(|t| t == "New thread (N)"), "{said:?}");
+    }
+
     #[test]
     fn a_stopped_account_stops_asking_once_the_menu_was_opened_on_it_and_closed() {
         let mut cloud = cloud_on();

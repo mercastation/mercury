@@ -115,6 +115,20 @@ fn caps_of(key: &str) -> Vec<String> {
     key.chars().map(|c| c.to_string()).collect()
 }
 
+/// Settings' "Show keyboard shortcut hints": on until turned off.
+pub fn key_hints_on(s: &State) -> bool {
+    s.picks.get().key_hints.unwrap_or(true)
+}
+
+/// A control's own title (the web element's `title`), for one whose key hint says the same
+/// thing: the key and what it does. The system shows a title by the pointer a moment after it
+/// rests there, which is over the plate hung under the control, to say it again. So the title
+/// stands only while key hints are off, when it is all that names the key. The web window
+/// shows both at once, its title being the browser's to draw.
+pub fn titled_unless_hinted(s: &State, e: El, title: &str) -> El {
+    if key_hints_on(s) { e } else { e.help(title) }
+}
+
 /// The control `e`, carrying the hint `id` (`data-hint`): 700 ms after the pointer moves onto
 /// it its plate is drawn beside it (`plate`), and the plate goes the moment the pointer leaves.
 /// A pointer that moved, as the web window listens for `mousemove` and not `mouseover`: a
@@ -222,7 +236,7 @@ pub fn hint_due(s: &mut State, at: f64) -> bool {
 pub fn plate(s: &State) -> Option<El> {
     let hint = s.pointed.hint.as_ref()?;
     // Settings' "Show keyboard shortcut hints", turned off, draws none; every key still works.
-    if s.palette.open || s.compose.card || s.later.on.is_some() || s.replying || !s.picks.get().key_hints.unwrap_or(true) {
+    if s.palette.open || s.compose.card || s.later.on.is_some() || s.replying || !key_hints_on(s) {
         return None;
     }
     // Nor beside a control whose menu is open, which it would cover.

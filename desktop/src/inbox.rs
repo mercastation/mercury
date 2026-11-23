@@ -160,7 +160,13 @@ fn cloud_button(s: &State, b: cloud::Button) -> El {
         None if b.lit => "Cloud on (⌘C)",
         None => "Cloud off (⌘C)",
     };
-    let e = e.help(title).expanded(open).on_press(|s: &mut State| {
+    // On or off with its key is what its plate says too ("⌘C", "Cloud on or off"), and which of
+    // the two is the cloud's own colour. What it asks for, a setup or a sign-in, only the title says.
+    let e = match b.word {
+        None => crate::feel::titled_unless_hinted(s, e, title),
+        Some(_) => e.help(title),
+    };
+    let e = e.expanded(open).on_press(|s: &mut State| {
         crate::feel::pressed(s);
         s.toggle_head(head::Menu::Cloud)
     });
@@ -183,12 +189,13 @@ pub fn strip(s: &State) -> El {
         .px(13.0)
         .child(icon(&icons::PEN, 15.0).color(dim()))
         .child(shaded(|shadow| pen(label("New thread", 13.5, 400.0, if shadow { under(1.0) } else { ink() }), 13.5)))
-        .help("New thread (N)")
         .on_press_tx(|s: &mut State, tx| {
             crate::feel::pressed(s);
             s.close_head();
             s.open_card(tx);
         });
+    // Its plate says N and "New thread": the title would say them again over it.
+    let new_thread = crate::feel::titled_unless_hinted(s, new_thread, "New thread (N)");
     // View and filters: its menu opens under it, the sliders brighter while it is open
     // (`.th-disp.open`), and the accent dot while a filter is on (`isFiltered`).
     let open = s.head_open() == Some(head::Menu::Display);

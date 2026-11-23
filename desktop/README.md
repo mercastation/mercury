@@ -2995,6 +2995,15 @@ the films' folder by `MERCURY_FILM_ROOT`.
   - With the list of a thread's files or a box's menu open, the page under it shows the arrow: the
     layer that catches a press outside them covers the page.
   - A key hint is not taken away when the page scrolls under the pointer, as the web window's is.
+  - A control's own title steps aside for its key hint. New thread and the cloud's button carry a
+    title in the web window (`title="New thread (N)"`, "Cloud on (⌘C)") as well as a hint, and
+    the browser draws the title by the pointer a moment after the plate, over it, to say the
+    same thing. Here the two titles stand only while key hints are off
+    (`feel::titled_unless_hinted`); a cloud that asks for a setup or a sign-in keeps its title,
+    which says what no plate does. A real macOS window never drew Rune's own tooltip for these:
+    there `.help` is AppKit's, by the pointer as the browser's is. A headless picture draws
+    Rune's, centred under the control, which is where the plate hangs: `inbox-hint-new`
+    measured 37.5 of 255 over its plate for that alone, and 2.65 since.
   - A right press's menu opens as the button comes up, where the web window's, as any Mac app's,
     opens as it goes down, so pressing, moving onto an item and letting go picks nothing here.
     Words selected before a right press on a link are not offered as Copy above the link's items,
