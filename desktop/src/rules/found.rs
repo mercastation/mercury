@@ -159,13 +159,16 @@ fn first_name(snap: &Snapshot, id: &str) -> String {
     said("name").or_else(|| said("email")).unwrap_or("Someone").split_whitespace().next().unwrap_or("Someone").to_string()
 }
 
-/// Who wrote it (`who` in `insideGroups`): the person is "You", a teammate their first name;
-/// with no one named, the agent's line is "Agent" and any other the person's.
+/// Who wrote it (`who` in `insideGroups`): an agent's line is "Agent", whoever's account its
+/// record names (a run on a signed-in account is filed under that person's id); of the rest
+/// the person is "You", a teammate their first name, and one with no one named the person's.
 fn who(snap: &Snapshot, by: Option<&str>, source: &str) -> String {
+    if source == "agent" {
+        return "Agent".to_string();
+    }
     match by {
         Some(by) if me(snap) == Some(by) => "You".to_string(),
         Some(by) => first_name(snap, by),
-        None if source == "agent" => "Agent".to_string(),
         None => "You".to_string(),
     }
 }
@@ -446,6 +449,14 @@ mod tests {
         let alone = snap(json!({ "products": [{ "slug": "lumen", "name": "Lumen" }], "items": [{ "id": "t1", "product": "lumen", "status": "open", "title": "Launch week" }], "supervisor": {} }));
         let theirs = Answer { lines: vec![line(json!({ "uid": "u1", "by": null, "at": 1, "text": "render" }))], files: vec![] };
         assert_eq!(lines_of(&groups("render", &theirs, &alone))[0].who, "You");
+        // An agent's line is the agent's, whoever's account its record names: a run on a
+        // signed-in account is filed under that person's id, their own or a teammate's.
+        for by in ["p-maya", "p-dev"] {
+            let filed = Answer { lines: vec![line(json!({ "uid": "u1", "by": by, "source": "agent", "at": 1, "text": "render" }))], files: vec![] };
+            assert_eq!(lines_of(&groups("render", &filed, &inbox()))[0].who, "Agent", "{by}");
+        }
+        let noted = Answer { lines: vec![line(json!({ "uid": "u1", "by": "p-maya", "source": "agent", "comment": true, "at": 1, "text": "render" }))], files: vec![] };
+        assert_eq!(lines_of(&groups("render", &noted, &inbox()))[0].who, "Agent commented");
         // A name the window cannot put to anyone, and a comment's line.
         let stranger = Answer { lines: vec![line(json!({ "uid": "u1", "by": "p-gone", "at": 1, "comment": true, "text": "render" }))], files: vec![] };
         assert_eq!(lines_of(&groups("render", &stranger, &alone))[0].who, "Someone commented");

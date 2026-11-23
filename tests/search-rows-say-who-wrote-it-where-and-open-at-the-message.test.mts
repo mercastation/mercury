@@ -48,6 +48,16 @@ describe('a line found inside a thread', () => {
     expect(rowsOf(run({ found: mine }), 'lines')[0].who).toBe('You');
   });
 
+  it('says "Agent" for an agent\'s line filed under a person\'s account, the searcher\'s or a teammate\'s', () => {
+    // A run on a signed-in account writes its lines under that person's id.
+    for (const by of ['p-maya', 'p-dev']) {
+      const filed = { ...found, lines: [{ ...found.lines[1], by }] };
+      expect(rowsOf(run({ found: filed }), 'lines')[0].who).toBe('Agent');
+    }
+    const noted = { ...found, lines: [{ ...found.lines[1], by: 'p-maya', comment: true }] };
+    expect(rowsOf(run({ found: noted }), 'lines')[0].who).toBe('Agent commented');
+  });
+
   it('names a conversation by its people, not "Conversation"', () => {
     const rows = rowsOf(run({ found }), 'lines');
     expect(rows[2].where).toBe('Sofia, Dev');
