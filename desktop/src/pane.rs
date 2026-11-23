@@ -20,7 +20,8 @@
 //! What is drawn is read off this Mac's disk, as a picture in a message is: a document as the
 //! big view lays one out, a script or any text as its lines, a table as its grid, a picture fitted
 //! into the card. It is read again when it changes on disk while it is open (`FOLLOW_FILE_MS`).
-//! Nothing here is written: the web window's pane lets a person type into a document.
+//! A document is not written here (the web window's pane lets a person type into one); a table is
+//! worked and saved through the app as the web window's is (`table.rs`).
 
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -45,7 +46,11 @@ pub const SHARE_NOT_HERE: &str = "A link to share this file is made in Mercury's
 enum Read {
     Doc(Rc<str>),
     Lines(Rc<viewer::Code>),
-    Table(Rc<crate::table::Grid>),
+    /// A sheet's words, which `table.rs` reads into its table and works.
+    Table(Rc<str>),
+    /// A sheet larger than the app opens one (`readDoc`'s `MAX_DOC_BYTES`): not read, so it is
+    /// never worked cut short and then saved so.
+    TooBig,
 }
 
 /// The file open beside a conversation.
@@ -78,16 +83,28 @@ impl Doc {
     pub fn found(&self) -> Option<&str> {
         self.found.as_deref()
     }
+    /// A sheet beside the conversation: where it is, its words and its time on disk.
+    pub fn table_read(&self) -> Option<(&str, Rc<str>, f64)> {
+        match (&self.read, self.found.as_deref()) {
+            (Some(Read::Table(text)), Some(found)) => Some((found, text.clone(), self.mtime)),
+            _ => None,
+        }
+    }
     /// Finds the file and reads what is drawn as words.
     fn land(&mut self, now: f64) {
         self.looked = now;
         self.found = viewer::place_of(&self.roots, &self.src);
         self.mtime = self.found.as_deref().map_or(0.0, modified);
         let kind = self.kind();
-        self.read = self.found.as_deref().filter(|_| matches!(kind, Kind::Markdown | Kind::Text | Kind::Table)).and_then(viewer::read_text).map(|text| match kind {
-            Kind::Markdown => Read::Doc(Rc::from(text.as_str())),
-            Kind::Table => Read::Table(Rc::new(crate::table::Grid::read(&text, &self.src))),
-            _ => Read::Lines(Rc::new(viewer::code_of(&text, true))),
+        self.read = self.found.as_deref().filter(|_| matches!(kind, Kind::Markdown | Kind::Text | Kind::Table)).and_then(|found| {
+            if matches!(kind, Kind::Table) && std::fs::metadata(found).is_ok_and(|m| m.len() > viewer::TABLE_MOST_BYTES) {
+                return Some(Read::TooBig);
+            }
+            viewer::read_text(found).map(|text| match kind {
+                Kind::Markdown => Read::Doc(Rc::from(text.as_str())),
+                Kind::Table => Read::Table(Rc::from(text.as_str())),
+                _ => Read::Lines(Rc::new(viewer::code_of(&text, true))),
+            })
         });
     }
     /// Asked of the disk again: read again when it has a newer time than the copy on screen, or
@@ -154,6 +171,12 @@ fn crumb_roots(s: &State, product: &str) -> Vec<String> {
     out
 }
 
+/// The project's own folders, which a sheet beside the conversation is written inside of only
+/// (`docRoots`, `paneCanSave`).
+pub(crate) fn project_roots(s: &State, product: &str) -> Vec<String> {
+    crumb_roots(s, product)
+}
+
 /// The newest version of the file a path is one version of, by the edits saved in the app
 /// (`newestOfFamily`).
 fn newest_of_family(path: &str, item: &crate::data::Item, now: f64) -> String {
@@ -204,6 +227,13 @@ impl State {
         // A change is read from the engine each time it opens (`change.rs`).
         if let Some((product, src)) = change {
             self.change_opened(&product, &src);
+        }
+        crate::table::sync(self);
+    }
+    /// The file beside the conversation read again off the disk (Load the new one).
+    pub fn reread_beside(&mut self) {
+        if let Some(doc) = self.pane.doc.as_mut() {
+            doc.land(crate::clock());
         }
     }
     /// A file pressed in a message or in the Files list, opened beside at its newest version.
@@ -526,7 +556,9 @@ fn body(s: &State, doc: &Doc, w: f32, h: f32) -> El {
                 el().size(w, h).child(el().key(STAGE_KEY).size(w, h).scroll_xy().child(lines))
             })
         }
-        (Kind::Table, Some(Read::Table(grid))) => crate::table::view(s, grid, &doc.src, (w, h)),
+        (Kind::Table, Some(Read::Table(_))) => crate::table::view(s, crate::table::Where::Pane, (w, h)),
+        // The app's own words for it (`readDoc`), as the web window's pane shows them.
+        (Kind::Table, Some(Read::TooBig)) => missing("That file is too big to open here. It opened outside instead.", w),
         (Kind::Image, _) => picture(s, doc, w, h),
         (Kind::Markdown | Kind::Text | Kind::Table, None) => missing(&format!("{name} could not be read."), w),
         // A page, a PDF, a film, a change or a site: the web window draws each in a frame or a

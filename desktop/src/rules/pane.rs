@@ -92,9 +92,9 @@ pub fn is_plain_text(path: &str) -> bool {
     ends_with_any(path, &["py", "ipynb", "js", "mjs", "cjs", "ts", "mts", "cts", "tsx", "jsx", "rb", "go", "rs", "sh", "sql", "css", "txt", "csv", "tsv", "json", "yaml", "yml", "xml"])
 }
 
-/// A sheet (`isTablePath`).
+/// A sheet (`isTablePath`), as the table's own rules tell one.
 pub fn is_table_path(path: &str) -> bool {
-    ends_with_any(path, &["csv", "tsv"])
+    super::table_file::is_table_path(path)
 }
 
 /// Whether the pane opens this path at all (`opensInPane`).
@@ -220,6 +220,16 @@ pub const FOLLOW_FILE_MS: f64 = 3000.0;
 /// Whether a fresh read is newer than what is on screen (`newerOnDisk`).
 pub fn newer_on_disk(shown: f64, read: Option<f64>) -> bool {
     read.is_some_and(|at| at > shown)
+}
+
+/// Whether the file found can be written from the pane (`paneCanSave`): one inside the
+/// project's own folders, or any while there is nothing to tell it by.
+pub fn pane_can_save(resolved: Option<&str>, roots: &[String]) -> bool {
+    let Some(resolved) = resolved.filter(|r| !r.is_empty()) else { return true };
+    if roots.is_empty() {
+        return true;
+    }
+    roots.iter().any(|root| resolved == root || resolved.starts_with(&format!("{}/", root.trim_end_matches('/'))))
 }
 
 /// Whether Escape closes the file or leaves the thread (`escapeClosesDoc`): a file the person
@@ -471,5 +481,19 @@ mod tests {
         assert_eq!(edited_words(now - 30.0 * 3_600_000.0, now), "Edited yesterday");
         assert_eq!(edited_words(now - 4.0 * 86_400_000.0, now), "Edited 4 days ago");
         assert!(newer_on_disk(10.0, Some(11.0)) && !newer_on_disk(10.0, Some(10.0)) && !newer_on_disk(10.0, None));
+    }
+
+    // tests/a-file-a-finished-cloud-thread-committed-opens-as-its-branch-has-it.test.mts
+    #[test]
+    fn saves_only_a_file_inside_the_project() {
+        let roots = ["/docs".to_string(), "/repo/".to_string()];
+        assert!(!pane_can_save(Some("/tmp/agentbox-branch-files/abc/w-1/README.md"), &roots));
+        assert!(!pane_can_save(Some("/repo-old/README.md"), &roots));
+        assert!(pane_can_save(Some("/repo/README.md"), &roots));
+        assert!(pane_can_save(Some("/repo/.claude/worktrees/w-1/README.md"), &roots));
+        assert!(pane_can_save(Some("/docs/designs/w-1/plan.md"), &roots));
+        // Not yet found, or no project to compare with: as before.
+        assert!(pane_can_save(None, &roots) && pane_can_save(Some(""), &roots));
+        assert!(pane_can_save(Some("/anywhere/x.md"), &[]));
     }
 }

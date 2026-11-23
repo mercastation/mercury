@@ -146,6 +146,11 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
         }
         return true;
     }
+    // A sheet's open menu, and Escape clearing what its search box holds, come before the page
+    // and the view it is in, as the web window's listeners on the window do (`table.rs`).
+    if let Some(taken) = crate::table::key(s, e, tx) {
+        return taken;
+    }
     // A file open big over the window has every key but a chord, and the page under it none.
     if let Some(taken) = crate::viewer::key(s, e, tx) {
         return taken;

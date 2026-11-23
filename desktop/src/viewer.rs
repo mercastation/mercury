@@ -85,6 +85,8 @@ pub struct Code {
 pub enum Words {
     Doc(Rc<str>),
     Code(Rc<Code>),
+    /// A sheet's words and its time on disk, which `table.rs` reads into its table and works.
+    Table(Rc<str>, f64),
 }
 
 /// A file open big.
@@ -109,6 +111,9 @@ pub struct Open {
     sent_in: Vec<SentIn>,
     /// What the thread called the version in hand, read once as it lands (`labelSaidFor`).
     said_as: Option<String>,
+    /// From Files: the project its first place belongs to, which a sheet's save names
+    /// (`view.sentIn[0].product ?? view.product`).
+    product: Option<String>,
 }
 
 /// The view, open or not.
@@ -142,6 +147,8 @@ fn heard(at: ScrollPos) {
 /// The most of a file read as words, and the longest line drawn whole.
 const MOST_BYTES: u64 = 4 << 20;
 const LONGEST_LINE: usize = 4000;
+/// The most a sheet opened big may be (`MAX_DOC_BYTES` in `main/doc-file.mts`).
+pub(crate) const TABLE_MOST_BYTES: u64 = 1_500_000;
 /// Lines to a piece of a script's sheet.
 const PIECE: usize = 200;
 
@@ -217,7 +224,7 @@ impl Open {
         let families = thread_files::thread_files(&named, now);
         let at = rules::where_a_press_lands(&families, path, now)?;
         let latest = rules::latest_pictures_said(&lines);
-        let mut open = Open { from, lines, families, at, handed, latest, roots, found: None, words: None, zoom: 1.0, title: None, sent_in: Vec::new(), said_as: None };
+        let mut open = Open { from, lines, families, at, handed, latest, roots, found: None, words: None, zoom: 1.0, title: None, sent_in: Vec::new(), said_as: None, product: None };
         open.land();
         Some(open)
     }
@@ -243,10 +250,31 @@ impl Open {
             let text = read_text(found)?;
             Some(match kind {
                 Some("markdown") => Words::Doc(Rc::from(text.as_ref())),
+                Some("table") => {
+                    // Read as the app reads a sheet for the web window (`readDoc`): one larger than
+                    // it opens is not opened, so a sheet is never cut short and then saved so.
+                    let meta = std::fs::metadata(found).ok()?;
+                    if meta.len() > TABLE_MOST_BYTES {
+                        return None;
+                    }
+                    let mtime = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0.0, |d| d.as_millis() as f64);
+                    Words::Table(Rc::from(text.as_ref()), mtime)
+                }
                 _ => Words::Code(Rc::new(code_of(&text, kind == Some("code")))),
             })
         });
         STAGE.with(|at| at.set(At { offset: [0.0; 2], ..at.get() }));
+    }
+    /// A sheet open big: its project, the path it opened from, where it is, its words, its time
+    /// on disk, and the thread it was opened over.
+    pub fn table_read(&self) -> Option<(String, String, &str, Rc<str>, f64, Option<String>)> {
+        let Some(Words::Table(text, mtime)) = &self.words else { return None };
+        let found = self.found.as_deref()?;
+        let (product, thread) = match &self.from {
+            From::Thread(id, product) => (product.clone(), Some(id.clone())),
+            From::Files(_) => (self.product.clone().unwrap_or_default(), None),
+        };
+        Some((product, self.version().path.clone(), found, text.clone(), *mtime, thread))
     }
     /// What the arrows step through.
     fn steps(&self, now: f64) -> Vec<Step> {
@@ -295,6 +323,7 @@ impl State {
         }).unwrap_or_default();
         let Some(mut open) = Open::new(From::Files(key.to_string()), lines, None, Vec::new(), Vec::new(), self.now) else { return };
         open.title = view.get("title").and_then(Value::as_str).map(str::to_string);
+        open.product = sent_in.first().and_then(|p| p.product.clone()).or_else(|| view.get("product").and_then(Value::as_str).map(str::to_string));
         open.sent_in = sent_in;
         self.show_big(open);
     }
@@ -304,6 +333,13 @@ impl State {
         self.leave_the_strip();
         self.pointed.hint = None;
         self.viewer.open = Some(open);
+        crate::table::sync(self);
+    }
+    /// The version in hand read again off the disk (Load the new one).
+    pub fn reread_big(&mut self) {
+        if let Some(open) = self.viewer.open.as_mut() {
+            open.land();
+        }
     }
     /// Escape, Back or the close mark: back to where it was opened from.
     pub fn close_big(&mut self) {
@@ -999,6 +1035,8 @@ pub fn layer(s: &State) -> Option<El> {
         (_, _) if open.found.is_none() => said(&format!("{} could not be found.", open.version().name)),
         (Some("image"), _) => picture_stage(s, open, stage),
         (Some("markdown"), Some(Words::Doc(words))) => doc_stage(s, open, words, stage),
+        // A sheet big is the full table (`TableStage`), worked as beside a conversation.
+        (Some("table"), Some(Words::Table(..))) => crate::table::view(s, crate::table::Where::Big, stage),
         (Some("code" | "table"), Some(Words::Code(code))) => code_stage(open, code, stage),
         (Some("markdown" | "code" | "table"), _) => said(&format!("{} could not be opened.", open.version().name)),
         _ => outside_stage(open, stage),

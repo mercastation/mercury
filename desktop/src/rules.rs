@@ -45,6 +45,8 @@ pub mod search;
 pub mod settings;
 pub mod shipping;
 pub mod status;
+pub mod table_edit;
+pub mod table_file;
 pub mod thread_files;
 pub mod title;
 pub mod trace;

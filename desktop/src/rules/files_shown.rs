@@ -113,8 +113,8 @@ fn fold(s: &str) -> String {
     s.to_lowercase().chars().filter(|c| !('\u{300}'..='\u{36f}').contains(c)).map(bare_letter).collect()
 }
 
-/// A Latin letter without its accent, or the letter as it is.
-fn bare_letter(c: char) -> char {
+/// A Latin letter without its accent, or the letter as it is (a sheet's sort reads it too).
+pub(crate) fn bare_letter(c: char) -> char {
     const ACCENTED: [(&str, char); 19] = [
         ("àáâãäåāăą", 'a'),
         ("çćĉċč", 'c'),

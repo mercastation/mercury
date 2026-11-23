@@ -200,6 +200,8 @@ pub struct State {
     /// The code the threads' runs changed: the strip's figures and a change open in the pane
     /// (`change.rs`).
     pub changes: change::Changes,
+    /// A sheet open beside the conversation or big, worked as a spreadsheet (`table.rs`).
+    pub tables: table::Sheets,
     /// The Files place's list and how it is narrowed (`files_page.rs`).
     pub files: files_page::Place,
     /// Settings, a screen over everything while it is open (`settings.rs`).
@@ -1221,6 +1223,7 @@ fn init_from(args: &[String]) -> State {
         viewer: viewer::Viewer::default(),
         pane: pane::Pane::default(),
         changes: change::Changes::default(),
+        tables: table::Sheets::default(),
         files: files_page::Place::default(),
         settings: settings::Screen::default(),
         retries: foot::Retries::default(),
@@ -1524,6 +1527,8 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
     changed |= pane::tend(s, clock(), tx);
     // The code a thread changed: its figures read, the change read, a save landing.
     changed |= change::tend(s, clock(), stale, tx);
+    // A sheet beside it or big: its saves, where its keys are, its logos (`table.rs`).
+    changed |= table::tend(s, clock(), tx);
     changed |= chrome::rail_moves(s, at, tx);
     changed |= usage::tend(s, at, tx);
     changed |= feel::hint_due(s, at);
@@ -1647,6 +1652,8 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
     // A file open big covers all of that, the line about the last thing done included, as the
     // web window's view covers its own notices.
     let root = root.children(viewer::layer(s));
+    // A sheet's menus, over it wherever it is open.
+    let root = root.children(table::layer(s));
     // And the command bar, which never stands with it: opening one closes the other.
     let root = match palette::view(s) {
         Some(bar) => root.child(bar),

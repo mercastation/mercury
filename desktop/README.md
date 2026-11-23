@@ -1807,6 +1807,9 @@ the file under the head:
 | `thread-pane-dragged` | 1600 by 1000 | 0.92 | 0.45 | 1.90 | 0.96 | 1.96 |
 | `thread-pane-wide` | 1800 by 870 | 0.62 | 0.29 | 1.61 | 0.95 | 1.66 |
 
+The `thread-pane-table` rows were measured before the sheet was worked as a spreadsheet; its own
+scenes, measured since, are under "A sheet, worked as the web window works it" below.
+
 At 900 by 760 the card is all the card has, its head given up (see above). The conversation
 is what differs most where its answer names a script: the web window breaks the mention
 `round-tax.ts` at its hyphen and this window moves it whole to the next line (see what still
@@ -1834,6 +1837,59 @@ the file and coming back puts it back until a new answer; the newest answer's fi
 itself, Escape then leaves the thread, and once closed it stays shut; a card under a thousand
 points gives the file all of it with no head and the reply box under it; a file rewritten on
 disk is read again once its time has come round; and the rules' own cases, from the web's tests.
+
+### A sheet, worked as the web window works it
+
+A `.csv` or `.tsv` beside a conversation or open big is the web window's `TableView`, every one of
+its behaviours: what a press, a drag, a right press, a key and a menu row do, the row opened
+whole, a tag's list and page, a date's calendar, the words of a cut cell shown whole, undo, and
+saving. `docs/parity-tables.md` lists them line by line, read off the web window's code, with how
+each was checked here and the few not done and why. `src/rules/table_file.rs` reads a sheet
+(`table-file.ts`) and `src/rules/table_edit.rs` changes it and writes it back (`table-edit.ts`),
+both ported with the web's own test cases; `src/table.rs` holds an open sheet (its pick, edit,
+menus, row opened whole, undo and saves) and answers its keys; `src/table/draw.rs` draws it and
+answers the pointer; `src/table/tests.rs` works an invented sheet with presses and keys.
+
+- **Saving.** A change is written 400 ms after the last one through the engine's door,
+  `zero:write-doc` with `{ product, src, text, mtime }` (and `thread` when big), in the file's own
+  shape; refused, the bar says why, with Save mine and Load the new one when the file moved on,
+  else Try again; a sheet put down with an edit not yet written writes it. Beside a conversation
+  only a file inside the project's own folders is written (`paneCanSave`); any other is read
+  only, as the web window's is. A sheet larger than the app opens one (1.5 MB, `readDoc`) is
+  not opened, beside a conversation or big, so one is never worked cut short and saved so. What
+  is sent is the web window's, byte for byte: the scenes below compare the two windows' saves
+  word for word, and one run against a scratch engine left the web window's bytes on disk.
+- **What is kept for a file** (the filter, the sort, widths set by hand, a column's type, a tag's
+  colour, wrapping) is kept in this window's own picks: the web window keeps its in its browser
+  storage, which this window cannot read.
+- **Logos** are asked of the favicon service the web window asks, on a worker, and only in a
+  window on the app; a picture of a fixture has no network and shows the letters.
+- **Focus.** The keys live on the grid's viewport, as the web window's live on its hidden box; a
+  box of the sheet that loses them ends what it was for, as the web's `onBlur` does, and the
+  window losing them closes a menu at a point (`front.rs`).
+
+The scenes (`tools/scenes/table*.mjs`) press, type and key into the invented list of leads in the
+web window and leave the same steps in the native window's script (`tableScript`) and what the
+page would have written (`wrote`); `tools/table.py <shots> <scene>` drives the native window
+through them, photographs it and prints the difference whole and in the sheet's card, and whether
+what it would have written is the web window's. At 1280 by 760, 2x, of 255:
+
+| Scene | Whole | The sheet | | Scene | Whole | The sheet |
+|---|---|---|---|---|---|---|
+| `table` | 0.77 | 0.33 | | `table-filter-menu` | 0.78 | 0.37 |
+| `table-picked` | 0.77 | 0.35 | | `table-filtered` | 0.72 | 0.24 |
+| `table-block` | 0.78 | 0.38 | | `table-sort-menu` | 0.76 | 0.32 |
+| `table-rows` | 0.79 | 0.39 | | `table-sorted` | 0.78 | 0.36 |
+| `table-editing` | 0.78 | 0.36 | | `table-column-menu` | 0.81 | 0.44 |
+| `table-typed` (4 saves, the same) | 0.55 | 0.73 | | `table-type-menu` | 0.90 | 0.63 |
+| `table-tags` | 0.99 | 0.81 | | `table-cell-menu` | 1.61 | 1.51 |
+| `table-tag-page` | 0.87 | 0.57 | | `table-row` | 0.98 | 0.80 |
+| `table-date` | 0.79 | 0.39 | | `table-field` (1 save, the same) | 1.04 | 0.92 |
+| `table-searched` | 0.71 | 0.21 | | `table-sideways` | 1.07 | 0.99 |
+
+`table-cell-menu` differs by the web window's Comment row ("What still differs"); the rest is
+fonts, anti-aliasing and the rail. `table-sideways` turns a wheel 150 points over the sheet: the
+web window settles at 129, on a column's edge, and this window on the same edge.
 
 ## The code a thread changed
 
@@ -2025,7 +2081,8 @@ never the arrows'. One with nowhere to go is not drawn.
 - A script or any text: its lines numbered and coloured as an editor colours them
   (`tokenize` in `code-artifact.ts`, ported as `src/rules/code.rs` with the web's test cases) on
   its sheet, at most 980 points and as wide as its widest line, the stage scrolling both ways.
-  A table (`.csv`, `.tsv`) is drawn the same way, its lines uncoloured.
+- A table (`.csv`, `.tsv`): the whole sheet, worked as it is beside a conversation (`TableStage`,
+  "A sheet, worked as the web window works it" above), its count saying how many columns too.
 - A page, a film, a PDF or a deck: what the web window draws it in is a frame or a player this
   window does not have, so the stage says what the file is and offers Open outside, which opens
   it in the browser or the app that owns it, as the bar's mark does.
@@ -2653,11 +2710,11 @@ release or a second login.
     until more of it shows: Rune reports an element on screen from half of it.
 - **A file opened beside the conversation, where it still differs** (see "A file opened beside
   the conversation"):
-  - Nothing is typed into it. The web window's pane is an editor: a document takes typing,
-    saved where it opened from when that is the project's own (`paneCanSave`, `DocText`), a
-    table's cells are edited and its rows added (New row), and a teammate on the same thread
-    types into the same copy. Here it is read only, and a link in a document opens at once,
-    where the web window's first shows a small card with Visit, Copy, Edit and Remove.
+  - A document is not typed into. The web window's pane is an editor: a document takes typing,
+    saved where it opened from when that is the project's own (`paneCanSave`, `DocText`), and a
+    teammate on the same thread types into the same copy. Here a document is read only (a table
+    is worked and saved as the web window's is), and a link in a document opens at once, where
+    the web window's first shows a small card with Visit, Copy, Edit and Remove.
   - The globe is drawn where the app says it shares files, and takes the pointer, but its panel
     (who can open the link, Copy link, Update link, Stop sharing, the people added, the link's
     comments) is not drawn: making a link anyone can open is a write to the cloud that could not
@@ -2667,10 +2724,20 @@ release or a second login.
   - A page, a PDF or a film the thread sets beside itself is a card saying what it is, with Open
     outside, where the web window draws the page in a frame, the PDF's pages and the film's player:
     Rune draws no web page, PDF or film inside a window.
-  - A table's search, Filter and Sort say, when pressed, that they are the web window's; its
-    column menus are drawn and do nothing yet, the first column
-    and the row numbers do not stay put while the rest scrolls sideways, a date column is told
-    only by the ISO day, and a link, an email or a logo in a cell is its words.
+  - A table (every line of `docs/parity-tables.md` but three, see "A sheet, worked as the web
+    window works it"):
+    - A cell's menu has no Comment: the web window offers it where the file takes notes, and
+      this window keeps no notes on files (nor draws them big, below), so the row would lead
+      nowhere.
+    - A table is never one live copy shared with teammates, and shows no teammates' faces or
+      picks: this window has no live connection to teammates at all. Its copy is always the one
+      that writes the file.
+    - "Press ⌘V to paste here." never shows: the web window says it when the browser refuses to
+      read the clipboard, and Rune reads it without asking.
+    - Scrolling sideways settles on a column's edge by this window's own rule, as Rune has no
+      scroll snapping: once the sheet stands still, the nearest column's edge within a third of
+      the view. Chromium's proximity is its own guess; the two settled on the same edge in the
+      one scene that tries it.
   - A document's outline does not light the section being read.
   - The split is this window's own, kept with its picks: the web window keeps its own in its
     storage, which this window cannot read, so a split dragged in one is not the other's. Where
@@ -2717,8 +2784,7 @@ release or a second login.
     a file sent to more than one thread can count one version more there.
   - A page, a film, a PDF and a deck are a card with Open outside: the web window draws the page
     in a frame, plays the film with its marks, and draws the PDF's pages and the deck's slides.
-  - A table is its lines, as a script's are; the web window draws it as a table to sort, search
-    and edit. A line longer than four thousand characters is cut there, and only the first 4 MB
+  - A script's line longer than four thousand characters is cut there, and only the first 4 MB
     of a file is read.
   - The pointer does not pan a zoomed picture by dragging it (the wheel and the trackpad scroll
     it), and a picture shows the arrow where the web window's crosshair offers a pin.
@@ -3082,8 +3148,7 @@ release or a second login.
   picture's fit and zoom. `src/rules/code.rs`: a script's colours.
 - `src/pane.rs`: a file opened beside a conversation, its card, marks and divider, what opens it
   and what it keeps. `src/rules/pane.rs`: which press opens what where, the path's crumb, the
-  split, Escape, and the file the newest answer opens by itself. `src/table.rs`: a sheet drawn as
-  its table, each column told what it holds and each tag its colour.
+  split, Escape, and the file the newest answer opens by itself.
   `tools/scenes/thread-pane.mjs`: the scenes that open it, answering the page's reads of a file.
 - `src/change.rs`: the code a thread changed: the strip's button and when its figures are read,
   the change in the pane (its tree or picker, its running column, gaps, keys, copying, typing and
@@ -3094,6 +3159,13 @@ release or a second login.
   `tools/scenes/thread-change*.mjs`: the invented change and the scenes that show it.
   `docs/parity-code-changes.md`: every behaviour of the web window's view, ticked with how it was
   checked.
+- `src/table.rs`: a sheet open beside a conversation or big, worked as a spreadsheet: its pick,
+  edits, menus, the row opened whole, undo, what is kept for the file, and its saves through the
+  door. `src/table/draw.rs`: how it is drawn and what the pointer does to it. `src/table/tests.rs`:
+  an invented sheet worked with presses and keys. `src/rules/table_file.rs`: reading a sheet;
+  `src/rules/table_edit.rs`: changing one and writing it back in its own shape.
+  `docs/parity-tables.md`: every behaviour of the web window's table, and how each was checked.
+  `tools/scenes/table*.mjs` with `tools/table.py`: the sheet worked in both windows and measured.
 - `src/files_page.rs`: the Files place. `src/rules/files_shown.rs`: what it shows, in what order,
   and what a tile says.
   `src/rules/paths.rs`, `mentions.rs`, `roots.rs`: which words name a file, what kind it is and
