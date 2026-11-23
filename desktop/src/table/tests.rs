@@ -596,6 +596,26 @@ fn a_double_press_edits_and_a_press_elsewhere_keeps_the_words() {
     done(dir);
 }
 
+// G4: rows copied from a spreadsheet, pasted into an empty cell's box, go across the table.
+#[test]
+fn rows_pasted_into_an_empty_box_go_across_the_table() {
+    let (mut rt, dir) = open("tbl-paste-box", LEADS);
+    tap(&mut rt, |rt| cell_at(rt, 2, 5));
+    key(&mut rt, Key::Enter);
+    assert!(sheet(&rt).editing.is_some());
+    rt.paste("ines@initech.example\t$900\nari@umbrella.example\t$3,150\n");
+    rt.frame(1.0 / 60.0);
+    assert!(sheet(&rt).editing.is_none(), "the box closes");
+    assert_eq!([value(&rt, 2, 5), value(&rt, 2, 6), value(&rt, 3, 5)], ["ines@initech.example", "$900", "ari@umbrella.example"]);
+    // Into a box that holds words, a paste is the box's own.
+    tap(&mut rt, |rt| cell_at(rt, 0, 0));
+    key(&mut rt, Key::Enter);
+    rt.paste("a\tb");
+    rt.frame(1.0 / 60.0);
+    assert!(sheet(&rt).editing.as_ref().is_some_and(|e| e.draft.text == "Acme Roboticsa\tb"));
+    done(dir);
+}
+
 // F7: a letter is the app's, not the cell's.
 #[test]
 fn a_letter_goes_on_to_the_conversation() {
@@ -752,6 +772,27 @@ fn rows_picked_whole_are_dragged_to_where_they_land() {
     rt.frame(1.0 / 60.0);
     assert_eq!((value(&rt, 0, 0), value(&rt, 3, 0)), ("Globex".to_string(), "Acme Robotics".to_string()));
     assert!(sheet(&rt).whole_rows() && sheet(&rt).sel().map(|b| b.r0) == Some(3), "and stay picked where they landed");
+    done(dir);
+}
+
+// E5: a drag near the table's foot scrolls it 18 points a move, the block stretching with it.
+#[test]
+fn a_drag_near_the_foot_scrolls_the_table() {
+    let long: String = std::iter::once("Name,Note\n".to_string()).chain((0..80).map(|i| format!("Lead {i},note {i}\n"))).collect();
+    let (mut rt, dir) = open("tbl-drag-edge", &long);
+    let from = cell_at(&rt, 0, 1);
+    let [_, vy, _, vh] = rect_of(&rt, "tbl-scroll-pane").expect("the grid");
+    rt.pointer_move(from.0, from.1);
+    rt.pointer_down(from.0, from.1);
+    for k in 0..6 {
+        rt.pointer_move(from.0 + (k % 2) as f32, vy + vh - 6.0);
+        rt.frame(1.0 / 60.0);
+    }
+    let down = scrolled(Where::Pane).offset[1];
+    rt.pointer_up(from.0, vy + vh - 6.0);
+    rt.frame(1.0 / 60.0);
+    assert!(down >= 18.0 * 4.0, "scrolled {down}");
+    assert!(sheet(&rt).sel().is_some_and(|b| b.r0 == 0 && b.r1 > 12), "the block reaches the rows scrolled into view");
     done(dir);
 }
 
