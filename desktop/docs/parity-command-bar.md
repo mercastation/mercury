@@ -195,7 +195,7 @@ the rows are drawn and run in `src/palette.rs`; the landing on a line is `src/th
 | F21 | A line: its thread opens and is counted as read (`setFocused`, `markSeen`), and the window looks for that message (`revealLine`). | done |
 | F22 | It looks for the message every 50 ms, sixty times after the first (about three seconds). A message is looked for by its line's uid, or `at-<when>` for a line with none; only the conversation's own message blocks carry it (`data-line` in `Thread.tsx`): not what a run ran, not the newest answer drawn alone, not the agent's last word at the foot. | done |
 | F23 | Not found after six looks (300 ms), once, the conversation is asked to draw itself whole when its middle is left out (`LINE_MISSING`, heard by `Thread.tsx` only while it leaves messages out, and `setWhole(true)`); a line under the earlier fold under the title is not unfolded by this (`ItemThread.tsx` draws no conversation then). | done |
-| F24 | Found: brought to the middle of the page at once (`scrollIntoView({ block: 'center' })`, no glide), and marked for 2600 ms: the wash behind it and the accent two points down its left edge (`[data-line].line-found`), coming in and going over half a second on `ease` (`transition: background-color .5s ease, box-shadow .5s ease`). | done |
+| F24 | Found: brought to the middle of the page at once (`scrollIntoView({ block: 'center' })`, no glide), and marked for 2600 ms: the wash behind it and the accent two points down its left edge (`[data-line].line-found`), coming in and going over half a second on `ease` (`transition: background-color .5s ease, box-shadow .5s ease`). | done, with two differences a frame or a point wide: the mark goes on the turn after the scroll (Rune lands at once a change made to what was off the screen), its curve counted from the find, so each frame shows what the browser's does (held to `ease` frame by frame in the tests); and the accent fades in at its two points, where the browser also grows the inset shadow from nothing to two points as it fades |
 | F25 | Never found: it stops quietly, nothing said. | done |
 | F26 | A file: its thread opens and is counted as read; the file opens beside the conversation when it is one that opens beside (`whereAFileOpens`) and the row is not an outside agent's, else big over the window. | done |
 | F27 | Comments found (`comment-…`): the comment after its file's name, the `comment` drawing, opening the file big at the comment. | out: this window draws no comments on files, so the row would open the file without the comment it names; left out with the owner's agreement |
@@ -204,9 +204,24 @@ the rows are drawn and run in `src/palette.rs`; the landing on a line is `src/th
 | F30 | Lines and files in a teammate's shared thread (`kind: 'shared'`), opening their card at the line. | out: no teammates here |
 | F31 | A second row pressed while the first still looks: the web window looks for both, each on its own timer. | done, as one look at a time: the second press takes over from the first, whose thread is no longer the one on screen |
 
-What the rows look like was held against the web window's own picture with words that find lines
-and files (`palette-found`), and a line brought to the middle of its conversation and marked
-against the web's (`thread-found-line`): see the README's "Compare a screen with the real one".
+A message here is a block that says when it is laid out (`on_layout`, once, while it is looked
+for), which is what a look finds; the middle of the page is worked out from its height and the
+page's, so a message taller than the page has its top above it, as a browser centres one. While
+it is not yet found its thread's landing on the last message goes on as the web window's does,
+and stops when it is found. Nothing of it runs on a frame's turn once it is let go: the looks are
+fifty-millisecond wakes for three seconds at most, and the mark two moments known ahead.
+
+What the rows look like was held against the web window's own pictures: words that find a thread,
+three lines and two files (`palette-found`, "tax"), and words that find only files
+(`palette-found-files`); and a line brought to the middle of its conversation and marked against
+the web's (`thread-found-line`). The numbers are in the README's "Compare a screen with the real
+one". `the_rows_are_the_webs` lines up both bar scenes row for row.
+
+| Done by this window, not the web's own way | Why |
+|---|---|
+| F15 and F28: a conversation's people named in their record's order | this window does not read what waits in a conversation |
+| F24: the accent fades in at its full two points | Rune fades an element; it does not grow an inset shadow |
+| F31: one look at a time | the first look's conversation is no longer the one on screen once a second row is pressed |
 
 ## What the rows were checked against
 

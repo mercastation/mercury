@@ -1,0 +1,9 @@
+[
+  ["the box, frame included", [329, 185.75, 622, 198.5]],
+  ["search row", [331, 187.75, 618, 56]],
+  ["the file found by its name, lit", [331, 249.75, 618, 75]],
+  ["the file found by what it says", [331, 324.75, 618, 51.5]],
+  ["backdrop, left", [0, 0, 329, 760]],
+  ["backdrop, right", [951, 0, 329, 760]],
+  ["backdrop, under the box", [329, 384.25, 622, 375.75]]
+]

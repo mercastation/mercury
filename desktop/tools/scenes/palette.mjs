@@ -16,13 +16,14 @@ export const commandK = async (h) => {
 const drawings = async () => (await import(pathToFileURL(path.join(process.argv[2], 'renderer/src/palette-glyphs.ts')).href)).ICONS;
 
 // The bar's rows as its page drew them, for the fixture: a heading, a command with the name of
-// its drawing, its name, hint and key, or only the place of a thread, which the native window
-// fills from its own search. It lists commands it cannot do yet, so a like-for-like picture
-// draws these instead.
+// its drawing, its name, hint and key, or only the place of a thread or of something found
+// inside one, which the native window fills from its own search and from what the app found.
+// It lists commands it cannot do yet, so a like-for-like picture draws these instead.
 export const rowsOnScreen = async (h) => {
   const rows = await h.evaluate(`[...document.querySelectorAll('.palette-k .palette-list > *')].map((row) => {
     const text = (sel) => row.querySelector(sel)?.textContent ?? '';
     if (row.classList.contains('palette-section')) return { section: row.textContent };
+    if (row.classList.contains('palette-found')) return { found: true };
     if (row.classList.contains('palette-thread')) return { thread: true };
     if (!row.classList.contains('palette-item')) return null;
     const paths = [...row.querySelectorAll('.palette-glyph path')].map((p) => p.getAttribute('d'));

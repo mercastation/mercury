@@ -391,6 +391,23 @@ whole window, the box (read off the web window's dump), its search row and the r
 
 What is left is glyphs' edges, the caret, and the box's height on a quarter point.
 
+What the words find inside threads, with the app's answer handed to both windows from the scene
+(`zero:find-in-threads` in the fixture): `palette-found` ("tax": a thread, three lines, two
+files, the list scrolled at its cap) and `palette-found-files` ("rounded": a file by its name, lit
+as it came, and one by what it says, its name before the line). And a line pressed in the bar,
+brought to the middle of its open conversation and marked, a second on (`thread-found-line`,
+drawn with `--thread --at 1.5`; a message taller than the page, so its middle is the page's):
+
+| Scene, at 1280 by 760 | Whole | The box, or the page | The rows found, or the line marked |
+|---|---|---|---|
+| `palette-found` | 0.19 | 0.37 | thread 0.20, lines 0.57, files 0.17 |
+| `palette-found-files` | 0.16 | 0.50 | by name 0.25, by what it says 0.84 |
+| `thread-found-line` | 0.49 | 0.57 | 0.85 |
+
+The same conversation unmarked at its foot (`thread`) is 0.41 whole; the marked line lands
+within a twentieth of a point of the browser's place. Landed on at the very foot of a page, the
+browser scrolls half a point further than its own landing rests, and this window does not.
+
 The backdrop is the Inbox under the scrim, whose rows have changed in the web window too (their
 harness marks); the box itself is where it was. The empty bar is 0.20 at 900 by 760 and 0.14 at
 1600 by 1000, its parts as at 1280. What is left is the caret (see what still differs), glyphs,
@@ -1527,6 +1544,20 @@ words only touch by a keyword after, under Commands (`paletteOrder`). With nothi
 line says what was searched for. The rules are `src/rules/palette.rs`, tested on the web's own
 cases.
 
+After every other row come what the words find inside threads (`src/rules/found.rs`, from
+`renderer/src/found-inside.ts`): 90 ms after the words rest the app is asked
+(`zero:find-in-threads`, an answer to older words dropped, as `rune::Latest` drops it), having
+been asked to read the threads ahead as the bar opened, and up to three lines, newest first, and
+three files are listed under Lines and Files, each with who, where and how long ago under it and
+the typed words lit; the last answer's rows stay until the next lands, and words cleared take
+them away. A line opens its thread and is looked for every 50 ms (`thread.rs`, `revealLine`): once
+its block is laid out it is brought to the middle of the page and marked for 2.6 seconds, the
+mark coming and going over half a second on `ease`; a conversation that leaves its middle out is
+asked to draw itself whole after 300 ms, and a line never drawn is given up on after three
+seconds with nothing said. A file opens its thread with the file beside it, or big. Comments on
+files are left out, as this window draws none (`docs/parity-command-bar.md`, "Found inside
+things").
+
 New thread is drawn first, with N beside it (the web has it after New project, which this bar
 does not offer): it opens the New thread card, Home included, with the caret in its words
 (`starts_a_thread` in `src/palette.rs`). The bar and the card stand over the page one at a
@@ -2594,6 +2625,10 @@ What its stylesheets animate there, and what became of each:
   the half-dot and the cloud fade to 45% and back every 1.6 s, `ease-in-out`, all in step.
 - **A box's menu** (`tc-in`): the reply box's model menu, and the menus of the box a thread is
   started in, fade in as they rise their last three points over 0.13 s, and go at once.
+
+- **A found line's mark** (`[data-line].line-found`): the wash and the accent down its edge come
+  in over half a second on `ease`, stay 2.6 seconds from the find and go the same way, as a tween
+  on the mark's opacity (`opacity_motion`), not a loop; nothing of it is left once it has gone.
 
 Messages arriving, the reply box opening and folding, the options strip, a run's fold and its
 mark, the Files list, the strip's menus and the toasts have no transition in the web window: they

@@ -1,0 +1,10 @@
+[
+  ["the box, frame included", [329, 95, 622, 380]],
+  ["search row", [331, 97, 618, 56]],
+  ["the thread found", [331, 159, 618, 75]],
+  ["lines found", [331, 234, 618, 184]],
+  ["files found, as far as the list shows", [331, 418, 618, 55]],
+  ["backdrop, left", [0, 0, 329, 760]],
+  ["backdrop, right", [951, 0, 329, 760]],
+  ["backdrop, under the box", [329, 475, 622, 285]]
+]

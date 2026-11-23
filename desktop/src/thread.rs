@@ -86,6 +86,9 @@ pub struct Reading {
     /// scrolled, which `on_scroll_offset` keeps up to date with no view run.
     touched: Option<String>,
     scrolled: Rc<std::cell::Cell<f32>>,
+    /// How tall the open conversation's scrolling page is, kept up to date the same way: what a
+    /// found line is centred in.
+    viewport: Rc<std::cell::Cell<f32>>,
     /// The block, by its line's name, under the line for a long conversation's missing middle
     /// when that line was pressed: it is held in place as the middle comes in (`openGap`).
     gap_anchor: Option<String>,
@@ -103,8 +106,10 @@ pub struct Reveal {
     looking: found::Looking,
     /// When the next look is, on the window's clock in seconds; the first is the next turn.
     next_look: f64,
-    /// Whether the message's block has been laid out on the page, as a look finds it there.
+    /// Whether the message's block has been laid out on the page, as a look finds it there, and
+    /// how tall it is.
     drawn: bool,
+    tall: f32,
     /// When it was found, on the window's clock in seconds, then when it was marked; whether it
     /// has been marked, and whether it is marked still.
     found_at: Option<f64>,
@@ -788,17 +793,26 @@ impl State {
     /// message whose line is `line` (`revealLine`). One looking at a time: a second line pressed
     /// takes over from the first.
     pub fn reveal_line(&mut self, id: &str, product: &str, line: &str) {
-        self.reading.reveal = Some(Reveal { thread: key(product, id), line: line.to_string(), looking: found::Looking::default(), next_look: f64::NEG_INFINITY, drawn: false, found_at: None, shown: false, marked: false });
+        self.reading.reveal = Some(Reveal { thread: key(product, id), line: line.to_string(), looking: found::Looking::default(), next_look: f64::NEG_INFINITY, drawn: false, tall: 0.0, found_at: None, shown: false, marked: false });
+    }
+    /// What a picture taken after a found line was pressed says of it (`foundLine`, its name):
+    /// the open conversation looks for it, as the press had it do.
+    pub(crate) fn picture_found_line(&mut self) {
+        let Some(line) = self.fixture.remove("foundLine") else { return };
+        if let (View::Thread { id, product }, Some(line)) = (self.view.clone(), line.as_str()) {
+            self.reveal_line(&id, &product, line);
+        }
     }
     /// The found line looked for, as its conversation and its name.
     #[cfg(test)]
     pub fn reading_reveal(&self) -> Option<(String, String)> {
         self.reading.reveal.as_ref().map(|r| (r.thread.clone(), r.line.clone()))
     }
-    /// The block a found line names was laid out on the page.
-    fn found_line_drawn(&mut self) {
+    /// The block a found line names was laid out on the page, this tall.
+    fn found_line_drawn(&mut self, tall: f32) {
         if let Some(r) = self.reading.reveal.as_mut() {
             r.drawn = true;
+            r.tall = tall;
         }
     }
     /// The found line's part of each turn of the window, before the landing's: a look every
@@ -855,7 +869,14 @@ impl State {
                 r.found_at = Some(now);
                 // In the middle of the page at once, where the landing would have held it.
                 self.reading.landing = None;
-                tx.scroll_center_in_instant("thread-said", REVEALED);
+                // Its middle on the page's, however tall it is: a block taller than the page has
+                // its top above it, as a browser centres one (`block: 'center'`).
+                let page = self.reading.viewport.get();
+                if page > 0.0 {
+                    tx.scroll_key_to(REVEALED, (page - r.tall) / 2.0);
+                } else {
+                    tx.scroll_center_in_instant("thread-said", REVEALED);
+                }
                 tx.wake_after(std::time::Duration::ZERO);
                 true
             }
@@ -1354,7 +1375,7 @@ fn found_mark(block: El, marked: bool, looked_for: bool) -> El {
     let block = col().key(REVEALED).child(mark).child(block);
     // Told once that it is laid out, and no more: a report comes on every frame of a scroll, and
     // each would build the page again.
-    if looked_for { block.on_layout(|s: &mut State, _| s.found_line_drawn()) } else { block }
+    if looked_for { block.on_layout(|s: &mut State, [_, _, _, tall]| s.found_line_drawn(tall)) } else { block }
 }
 
 /// The conversation: each thing said or done under the last, 22 points apart, with what
@@ -2271,7 +2292,7 @@ pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
     // (`tend_the_reading`), and stays at its foot while it is there; a page that leads with the
     // answer alone opens at its top. The person's own scrolling ends the landing, and how far
     // they scrolled is kept for coming back.
-    let scrolled = s.reading.scrolled.clone();
+    let (scrolled, viewport) = (s.reading.scrolled.clone(), s.reading.viewport.clone());
     let thread = thread.clone();
     let reading = col()
         .key(if unfolded { "thread-whole" } else { "thread-newest" })
@@ -2283,7 +2304,10 @@ pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
         // What is read stays put when something over it changes height, as a browser keeps it
         // (`overflow-anchor`), off the foot.
         .scroll_anchor()
-        .on_scroll_offset(move |at| scrolled.set(at.offset[1]))
+        .on_scroll_offset(move |at| {
+            scrolled.set(at.offset[1]);
+            viewport.set(at.viewport[1]);
+        })
         .on_wheel(move |s: &mut State, _, tx| {
             if s.reading.touched.as_deref() == Some(thread.as_str()) {
                 tx.live_only();

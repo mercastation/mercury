@@ -1461,6 +1461,8 @@ fn press_what_the_picture_pressed(s: &mut State, tx: &mut Tx) {
         s.open_files();
     }
     s.picture_live();
+    // And one taken a moment after a line found from the command bar was pressed (`foundLine`).
+    s.picture_found_line();
     // A file beside the conversation, before one opened big over it.
     pane::pictured(s);
     change::pictured(s);
