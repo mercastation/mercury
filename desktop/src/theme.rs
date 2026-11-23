@@ -79,7 +79,17 @@ pub fn bars(heights: &[f32], c: Color) -> El {
 /// `.hm-glass` and the composer: the page behind, blurred, under a dark wash and a faint
 /// white gradient. The caller adds its own border and shadows.
 pub fn glass(e: El) -> El {
-    e.backdrop_blur(20.0).fill(rgba(17, 16, 15, 0.42)).gradient(white(0.075), white(0.024))
+    glass_wash(e.backdrop_blur(GLASS_BLUR))
+}
+
+/// How far the glass blurs what is behind it, in points, and how much stronger it makes its
+/// colours (`backdrop-filter: blur(20px) saturate(1.5)`). Rune's own blur does only the first.
+pub const GLASS_BLUR: f32 = 20.0;
+pub const GLASS_SATURATES: f32 = 1.5;
+
+/// The glass's own dark wash and faint white gradient, over whatever is behind it.
+pub fn glass_wash(e: El) -> El {
+    e.fill(rgba(17, 16, 15, 0.42)).gradient(white(0.075), white(0.024))
 }
 
 /// Lands a text's glyphs where Chromium lands them, to a fraction of a pixel. Rune in this font

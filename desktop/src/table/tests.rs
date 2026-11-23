@@ -111,9 +111,22 @@ fn value(rt: &Runtime<State>, r: usize, c: usize) -> String {
     sheet(rt).value(At { r, c }).to_string()
 }
 
+/// Frames until the save an edit owes has gone out. A save waits its 400 ms on the machine's
+/// clock, which a run of frames does not move: half a second of frames was enough only for as
+/// long as drawing them took that long.
+fn until_saved(rt: &mut Runtime<State>) {
+    let owed = |rt: &Runtime<State>| [Where::Pane, Where::Big].into_iter().any(|w| rt.state.tables.get(w).is_some_and(|sh| sh.due.is_some()));
+    let give_up = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while owed(rt) && std::time::Instant::now() < give_up {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        run(rt, 0.05);
+    }
+    run(rt, 0.1);
+}
+
 /// What the last save sent the app, once its 400 ms have gone by.
 fn written(rt: &mut Runtime<State>) -> Value {
-    run(rt, 0.5);
+    until_saved(rt);
     rt.state.tables.wrote.last().cloned().expect("a save went out")
 }
 
@@ -680,7 +693,7 @@ fn a_sheet_opened_big_is_the_full_table() {
     press(&mut rt, x + 100.0, y + HEAD_H + 46.0 * 1.5);
     assert_eq!(rt.state.tables.big.as_ref().and_then(|b| b.pick).map(|p| p.a), Some(At { r: 1, c: 0 }));
     key(&mut rt, Key::Delete);
-    run(&mut rt, 0.5);
+    until_saved(&mut rt);
     assert_eq!(rt.state.tables.wrote.last().and_then(|w| w["thread"].as_str()), Some("w-feel0"), "big, the save names the thread");
     done(dir);
 }

@@ -196,6 +196,46 @@ pub fn sky_box(s: &State) -> (f32, f32) {
     folded_card_size(s)
 }
 
+/// How many times smaller each way a soft sky is kept than its sky (`sky::soft`): Home's glass
+/// blurs by 20 points, which leaves nothing finer than an eighth of the painting holds, and
+/// the strip's buttons by 6, a quarter.
+pub const SOFT_HOME: u32 = 8;
+pub const SOFT_STRIP: u32 = 4;
+
+/// Where a painted sky stands in the window: on the card's right edge, from the card's top.
+pub fn sky_in_the_window(s: &State) -> [f32; 4] {
+    let (w, h) = sky_box(s);
+    [s.size.0 - CARD[2] - w, CARD[1], w, h]
+}
+
+/// What a pane of glass keyed `key` has behind it, drawn instead of blurred: `soft`, a sky
+/// blurred when it was painted, standing where that sky stands in the window (`at`) and cut
+/// to the pane's corners. The pane lays its wash over this and asks Rune for no blur. `painted`
+/// is the sky's own size in pixels, `shrink` how much smaller the soft one was kept, and `edge`
+/// the width of the pane's own edge, which takes room in its layout.
+///
+/// Rune blurs what is behind an element from copies of the whole window, some 180 MB of
+/// textures at 1900 by 1040 points for as long as one such element is on screen. What Home's
+/// glass and the strip's buttons have behind them is a sky that only changes when it is
+/// painted, so it is blurred then, once, off the main thread, into a picture of half a megabyte.
+///
+/// None until the pane has been laid out, since its place is what says which part of the sky
+/// shows through it: the caller asks Rune's blur for that one build, which is never drawn,
+/// because the page is built again with the place before its first frame.
+pub fn sky_through(key: &str, soft: &rune::Pixels, at: [f32; 4], painted: (u32, u32), shrink: u32, radius: f32, edge: f32) -> Option<El> {
+    let (soft_w, soft_h) = soft.size();
+    if soft_w == 0 || painted.0 == 0 || painted.1 == 0 {
+        return None;
+    }
+    let [x, y, _, _] = rune::memo::window_layout(key)?;
+    // The soft sky's last block may stand for less than a whole one: it is drawn as far past
+    // the sky's edge as that block reaches, so every block lands where it was taken from.
+    let wide = at[2] * (soft_w * shrink) as f32 / painted.0 as f32;
+    let tall = at[3] * (soft_h * shrink) as f32 / painted.1 as f32;
+    // The pane's children are laid out inside its edge, and the glass runs under the edge too.
+    Some(el().pin(Some(-edge), Some(-edge), Some(-edge), Some(-edge)).radius(radius).clip_rounded(radius).inert().a11y_hidden().child(el().absolute(at[0] - x, at[1] - y).size(wide, tall).pixels(soft)))
+}
+
 /// The main card. The sky fills the card as it is with the rail folded, stretched while a
 /// window is being resized and painted again once it holds still. It stands on the card's right
 /// edge, so the rail opening covers its left edge.

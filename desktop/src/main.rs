@@ -76,6 +76,9 @@ struct Painted {
     home: (u32, u32, Vec<u8>),
     /// The Inbox's band alone, turned over (`inbox::band`).
     inbox: (u32, u32, Vec<u8>),
+    /// Each as glass over it shows it, blurred here and kept small (`sky::soft`).
+    home_soft: (u32, u32, Vec<u8>),
+    inbox_soft: (u32, u32, Vec<u8>),
     points: (f32, f32),
 }
 
@@ -86,6 +89,10 @@ pub struct State {
     /// (`inbox::band`).
     pub sky_home: Pixels,
     pub sky_inbox: Pixels,
+    /// The same two as the glass over them shows them: blurred when they were painted, so no
+    /// pane of glass has to ask Rune to blur what is behind it (`chrome::sky_through`).
+    pub sky_home_soft: Pixels,
+    pub sky_inbox_soft: Pixels,
     /// The card size the skies on screen were painted for.
     pub sky_size: (f32, f32),
     painting: Latest<Painted>,
@@ -1111,6 +1118,8 @@ impl State {
     fn hang(&mut self, p: Painted) {
         self.sky_home.set(p.home.0, p.home.1, p.home.2);
         self.sky_inbox.set(p.inbox.0, p.inbox.1, p.inbox.2);
+        self.sky_home_soft.set(p.home_soft.0, p.home_soft.1, p.home_soft.2);
+        self.sky_inbox_soft.set(p.inbox_soft.0, p.inbox_soft.1, p.inbox_soft.2);
         self.sky_size = p.points;
     }
 }
@@ -1128,7 +1137,10 @@ fn paint_skies(points: (f32, f32)) -> Painted {
     // which only the rows behind the head are kept.
     let start = (h - 190.0).round();
     let inbox = inbox::band(sky::draw(&art, w, h, start, 120.0, start - 60.0, sky::PER_POINT));
-    Painted { home, inbox, points }
+    // What Home's glass and the strip's buttons have behind them, blurred as each blurs it.
+    let home_soft = sky::saturated(sky::soft(&home, theme::GLASS_BLUR * sky::PER_POINT as f32, chrome::SOFT_HOME), theme::GLASS_SATURATES);
+    let inbox_soft = sky::soft(&inbox::band_under_the_strip(&inbox), inbox::STRIP_BLUR * sky::PER_POINT as f32, chrome::SOFT_STRIP);
+    Painted { home, inbox, home_soft, inbox_soft, points }
 }
 
 const DEFAULT_SIZE: (f32, f32) = (1280.0, 760.0);
@@ -1164,6 +1176,8 @@ fn init_from(args: &[String]) -> State {
         size,
         sky_home: Pixels::new(),
         sky_inbox: Pixels::new(),
+        sky_home_soft: Pixels::new(),
+        sky_inbox_soft: Pixels::new(),
         sky_size: (0.0, 0.0),
         // A sky is painted again once the card has held still (`STILL`), never on each step of
         // a window being dragged larger: every step painted two full skies off the main thread

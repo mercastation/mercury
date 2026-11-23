@@ -36,6 +36,8 @@ use crate::{State, View, attach, chrome, home, icons, write};
 pub const FIELD: &str = "compose";
 /// The box on Home's page, whose height Home's column makes room for.
 pub const BOX: &str = "compose-box";
+/// The place Home's box stands on, under its glass (`home::glass`).
+const BOX_PLACE: &str = "compose-box-place";
 /// And of the open menu's rows, whose width decides whether it has to slide.
 const MENU: &str = "compose-menu";
 /// The card, which a press outside closes.
@@ -408,7 +410,8 @@ fn notes(s: &State, pad: impl Fn(El) -> El) -> Vec<El> {
 pub fn inline(s: &State) -> El {
     // `caret-color: var(--accent)` on the box drawn on a page.
     let field = words_field(s, TextStyle::new(22.0, 400.0).lh(30.0), accent());
-    glass(col())
+    home::glass(s, BOX_PLACE, 10.0, |glass| {
+        glass
         .key(BOX)
         .pt(16.0)
         .px(18.0)
@@ -430,6 +433,7 @@ pub fn inline(s: &State) -> El {
         .children(attach::rows(s, Holder::Compose, |r| r.pt(12.0), attach::compose_note))
         .children(notes(s, |n| n.pt(12.0)))
         .child(bar(s))
+    })
 }
 
 /* -------------------------------- the card -------------------------------- */

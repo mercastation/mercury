@@ -2394,6 +2394,53 @@ as Home's sky, is let go in the worker: 25 MB less at 1900 by 1040, the picture 
 pixel. The three screens that draw a sky still cost 125 to 180 MB more than a conversation at
 that size, which the skies' own pixels do not account for; what does was not looked for.
 
+## A sky seen through glass
+
+Home's box, its two cards and its doors are glass over the sky (`.hm-glass`,
+`backdrop-filter: blur(20px) saturate(1.5)`), and the buttons of the Inbox's strip are the
+sky's dark over the sky blurred (`blur(6px)`). Rune blurs what is behind an element from
+copies of the whole window: a copy of the frame, the frame drawn where it can be copied from,
+and a pyramid of smaller ones, held for as long as one blurred element is on screen. At 1900 by
+1040 points that was 175 MB of textures, on the two screens the window opens on.
+
+What those panes have behind them is a sky, which changes only when it is painted. So it is
+blurred then, once, off the main thread: `sky::soft` shrinks the painting eight times each way
+(a blur of twenty points holds nothing finer) and blurs that, a picture of half a megabyte, and
+`sky::saturated` gives it the half again of colour that Rune's blur has no step for. A pane
+shows the part of it that lies behind itself (`chrome::sky_through`, which reads where the pane
+was laid out), under its own wash, edge and light, drawn over it in the web window's order: the
+soft sky is a thing of its own under the pane, never the pane's child, because an element's
+children are drawn over its own edge. The strip's buttons are one element each that others add
+to, so there the dark and the edge are drawn over the soft band inside the button. The band is
+blurred as the buttons have it behind them, faded into the card's ground where the card's mask
+fades it.
+
+Rune's own blur stands in for the one build before a pane has a place, which is never drawn:
+the page is built again with the place before its first frame. Under the pointer a button of
+the strip gives up its blur, as before.
+
+Measured headless in a release build (`--features rune/tooling`, `--realtime`, the footprint
+read four seconds in with `footprint <pid>`), each screen at rest:
+
+| Screen | 1900 by 1040, before | after | 1280 by 760, before | after |
+|---|---|---|---|---|
+| `home` | 497 MB | 314 MB | 357 MB | 225 MB |
+| `inbox` | 455 MB | 269 MB | 344 MB | 208 MB |
+| `files` | 368 MB | 365 MB | 298 MB | 293 MB |
+| `thread` | 236 MB | 229 MB | 178 MB | 174 MB |
+
+The Files place never asked for a blur. What it holds over a conversation is its tiles'
+pictures, each held three times while it is drawn (its own bytes, Rune's atlas page and the
+texture).
+
+Against the web window, whole, at 1280 by 760 and 2x: Home 0.858 with Rune's blur, 0.579 with
+the soft sky. The saturation is most of that (the composer 2.09 to 1.10, the second card 1.80
+to 0.78), and the doors, which Rune could not blur at four blurred surfaces a frame, are the
+rest (5.36 to 1.51 over them). The Inbox is 0.265 and 0.266, its strip's buttons within 19 of
+255 of what they were at a few pixels of their corners. With the rail open, a short window
+scrolled, and a window half way through being dragged larger, the soft sky before it was
+saturated and Rune's blur were within 12 of 255 everywhere.
+
 ## What moves on its own
 
 The web window's conversation page moves in few places, and this window moves in the same ones.
@@ -2475,8 +2522,39 @@ headless in real time, which draws every frame whole, 600 frames at 60 a second 
 the process's time in 10 s with the line moving and 0.69 s with nothing moving: drawn whole, the
 conversation costs 7% of a core at 60 frames a second, and the loops add about a tenth of a
 percent to that. A window draws no frame at rest, and while the line moves draws only the steps.
-A window's own figure was not taken here, since none may be opened: with a working thread on
-screen in the installed window, `top -pid <pid>` gives it.
+
+**What it cost in a window, and why.** That last sentence was the design, and the installed
+window did not keep to it: maximised, with a working conversation and a sheet beside it,
+`top -pid <pid>` gave 15% of a core over half a minute, and `sample <pid> 5` showed every frame
+drawn whole, its turn of the window (`poll`) included. Three things did it.
+
+- **A timer due on every frame.** Rune keeps every wake it is asked for and gives each a turn.
+  The window asked for its repeating timers again on every turn (the clock's twenty seconds,
+  the open conversation read again every eight, its pictures every two, the open file every
+  three), so any second of frames came back a period later as a second of turns, each asking
+  again, and soon every frame had a timer due, which is the one thing a loop-only step cannot
+  be drawn over. Each repeating timer is now asked for once and again when it has come due
+  (`wake.rs`). `RUNE_LOOP_CHECK=1` on the conversation for six seconds, 360 frames: 326 refused
+  for a timer due before, 28 after, all of them in the first three seconds, where a
+  conversation just opened lands on its foot. (`--trace` refuses every step as "not live": the
+  check is run with `--at` and `--snap`.)
+- **The thread's words read on every turn.** Whether the newest answer's file opens beside it was
+  worked out each turn, the folders its words name included, before looking whether anything it
+  is worked out from had changed: a third of a frame. It looks first now (`pane::Seen`).
+- **An element a dot.** The page's dotted ground was 1,888 elements under a window of 1900 by
+  1040 points, and Rune walks every element on every whole frame. It is one drawing on one
+  element (`chrome::backdrop`), each dot a round stroke too short to have a length, which is
+  also the web window's own disc where the element was a box snapped to the pixels: every
+  screen measures a little nearer the web window for it.
+
+A whole frame of that conversation, forced in a headless run in real time
+(`--realtime --frames 300 --fps 60`, the `forced cpu p50` it prints, in a release build with
+`--features rune/tooling`): 1.78 ms before, 0.53 ms after, with 986 elements laid out where
+there were 2,874. At rest on Home the installed window takes 0.2% of a core.
+
+The sheets' tests waited half a second of frames for a save that goes out 400 ms later by the
+machine's clock, and passed only while those frames took that long to draw. They wait for the
+save now (`until_saved`).
 
 The Inbox drawn whole costs far more, 2.27 s in the same 10 s (23% of a core). A ring's border,
 which no step can draw, breathing at thirty frames a second would have cost about half of that for
@@ -2679,11 +2757,10 @@ release or a second login.
 
 ## What still differs from the web app, and why
 
-- **Glass is less saturated.** The web app's glass is `blur(20px) saturate(1.5)`; Rune's
-  `backdrop_blur` has no saturation. Up to 6 of 255 warmer in the real one, inside the composer.
-- **Four blurred surfaces a frame.** Rune's `MAX_BACKDROP_BLURS` is 4 and Home has five, so the two
-  small doors go unblurred. With the constant raised to 8 in a local copy all five blur. The code
-  here turns their blur on by itself when Rune allows it.
+- **A hint's plate and the zoom bar over a picture opened big still ask Rune to blur what is
+  behind them**, which is anything, so nothing can be blurred for them ahead of time (see "A sky
+  seen through glass"). While one is up the window holds Rune's copies of itself, and gives them
+  back when it next rests.
 - **A cut-off title loses its last space.** The browser keeps the space before the ellipsis. An
   aside cut short does the same. And the selected row's underline runs under the three dots of a
   title cut short, where the browser's stops before them.
@@ -3230,7 +3307,9 @@ release or a second login.
   the scenes are photographed with.
 - `tools/pictures.mjs`: the invented project folder the scenes that name files are drawn from.
 - `tools/install-mac.sh`: builds the app and puts it in `~/Applications` as "Mercury Native".
-- `src/sky.rs`: the dithered sky, ported from `renderer/src/home/sky.ts` with the same seed.
+- `src/sky.rs`: the dithered sky, ported from `renderer/src/home/sky.ts` with the same seed, and
+  the same sky blurred for the glass over it (`soft`, `saturated`).
+- `src/wake.rs`: the window's repeating timers, each asked of Rune once.
 - `src/icons.rs`: the icons, with the web app's own paths and strokes; the makers' marks once
   each, for a row's tile (`HARNESS_*`) and a chip (`ENGINE_*`).
 - `assets/fonts`: Geist and Geist Mono (SIL Open Font License), the files the web app ships.

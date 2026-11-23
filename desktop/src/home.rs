@@ -79,18 +79,18 @@ fn greeting(now_ms: f64, name: Option<&str>) -> String {
     name.map_or(part.to_string(), |first| format!("{part}, {first}"))
 }
 
-/// `.hm-glass`: a faint white wash over the page. The web app also blurs the page behind it;
-/// Rune blurs four surfaces a frame (`MAX_BACKDROP_BLURS`) and Home has five, so the three
-/// cards take the blur, where the sky's streak runs, and the two small doors go without.
+/// `.hm-glass`: a faint white wash over the page, which the web app also blurs behind it. The
+/// blur is the soft sky shown where the door stands, as the cards' is (`glass`): it is under
+/// the door's face, and fades with it to the nine tenths the door rests at. Rune's own blur
+/// could not give the doors theirs, at four surfaces a frame with Home holding five.
 /// A door with nothing behind it shows no number (`doors` in `home-model.ts`), nor does Team.
 /// Under the pointer the door is whole where it stood at .9, and its edge brighter
 /// (`.hm-door:hover`): its look is a layer the door's hover lifts, and its translucent edge two,
 /// the one at rest giving way to the other. Its corner is the small one things pressed wear
 /// (`--artifact-corner-small`).
-fn door(glyph: &'static Icon, name: &str, count: Option<usize>, hot: bool) -> El {
-    // A Rune that blurs five or more gives the doors theirs back with no change here.
-    let glass = if rune::MAX_BACKDROP_BLURS >= 5 { row().backdrop_blur(20.0) } else { row() };
-    let face = glass
+fn door(s: &State, key: &'static str, glyph: &'static Icon, name: &str, count: Option<usize>, hot: bool) -> El {
+    let behind = crate::chrome::sky_through(key, &s.sky_home_soft, crate::chrome::sky_in_the_window(s), s.sky_home.size(), crate::chrome::SOFT_HOME, 6.0, 0.0);
+    let face = row()
         .h(32.0)
         .items_center()
         .gap(8.0)
@@ -109,7 +109,7 @@ fn door(glyph: &'static Icon, name: &str, count: Option<usize>, hot: bool) -> El
         Some(n) => face.child(text(n.to_string()).font(figures(12.0, 400.0)).color(if hot { ink() } else { muted() })),
         None => face,
     };
-    row().hover_group().cursor(Cursor::Pointer).child(face)
+    row().key(key).hover_group().cursor(Cursor::Pointer).children(behind.map(|sky| sky.group_opacity(0.9, 1.0))).child(face)
 }
 
 /// One of the small framed words under a box to write in (`.tc-chip`): here and in a
@@ -309,11 +309,33 @@ fn fitted(rows: usize) -> f32 {
     2.0 + 44.0 + 4.0 + body + 4.0
 }
 
+/// The two cards, by the names their glass is laid out under.
+const NEEDS_CARD: &str = "home-needs";
+const SECOND_CARD: &str = "home-second";
+
+/// A pane of Home's glass, with corners of `radius`: the sky behind it blurred, under the
+/// glass's dark wash (`.hm-glass`, the composer). `pane` makes the pane of the glass it is
+/// handed, and what comes back is the pane on the place it stands, keyed `key`.
+///
+/// The blur is the soft sky, painted with the sky and shown where the pane stands
+/// (`chrome::sky_through`), so nothing on Home asks Rune to blur what is behind it. It is a
+/// thing of its own under the pane, which is why the place is one element and the pane
+/// another: the pane's wash, its edge and the light along its top are then drawn over the
+/// blurred sky, in the order the web window draws them. Rune's own blur stands in for the one
+/// build before the place has been laid out.
+pub fn glass(s: &State, key: &'static str, radius: f32, pane: impl FnOnce(El) -> El) -> El {
+    let place = col().key(key);
+    match crate::chrome::sky_through(key, &s.sky_home_soft, crate::chrome::sky_in_the_window(s), s.sky_home.size(), crate::chrome::SOFT_HOME, radius, 0.0) {
+        Some(behind) => place.child(behind).child(pane(glass_wash(col()))),
+        None => place.child(pane(crate::theme::glass(col()))),
+    }
+}
+
 /// One of Home's two cards: a head with a link out, and what is in it. The link is the text's
 /// own colour under the pointer (`.hm-link:hover`). Holding more rows than three, the rows fade
 /// out into its foot; with three or fewer it is as tall as they are and has no fade
 /// (`.hm-two.fits`).
-fn home_card(title: &str, count: Option<usize>, link: &str, to: Option<Tab>, body: El, height: f32, fits: bool) -> El {
+fn home_card(s: &State, key: &'static str, title: &str, count: Option<usize>, link: &str, to: Option<Tab>, body: El, height: f32, fits: bool) -> El {
     let mut name = row().items_center().child(label(title, 14.0, 500.0, ink()));
     if let Some(n) = count {
         name = name.child(text(n.to_string()).font(figures(14.0, 400.0)).color(muted()).ml(8.0));
@@ -328,21 +350,23 @@ fn home_card(title: &str, count: Option<usize>, link: &str, to: Option<Tab>, bod
         .border_layout()
         .child(name)
         .child(row().hover_group().cursor(Cursor::Pointer).child(label(link, 13.0, 400.0, dim()).group_color(ink())).on_press(door_to(to)));
-    let card = glass(col())
-        .h(height)
-        .radius(10.0)
-        .clip_rounded(10.0)
-        .border(1.0, white(0.13))
-        .border_layout()
-        .box_shadow(shadow(0.0, 1.0, 0.0, 0.0, white(0.16), true))
-        .box_shadow(shadow(0.0, 12.0, 40.0, 0.0, rgba(0, 0, 0, 0.3), false))
-        .child(head)
-        .child(col().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(col().pt(4.0).pb(if fits { 4.0 } else { 28.0 }).child(body)));
-    if fits {
-        return card;
-    }
-    // The rows fade out into the card's foot.
-    card.child(el().pin(Some(1.0), None, Some(1.0), Some(1.0)).h(56.0).gradient(rgba(24, 21, 26, 0.0), rgba(24, 21, 26, 0.9)))
+    glass(s, key, 10.0, |glass| {
+        let card = glass
+            .h(height)
+            .radius(10.0)
+            .clip_rounded(10.0)
+            .border(1.0, white(0.13))
+            .border_layout()
+            .box_shadow(shadow(0.0, 1.0, 0.0, 0.0, white(0.16), true))
+            .box_shadow(shadow(0.0, 12.0, 40.0, 0.0, rgba(0, 0, 0, 0.3), false))
+            .child(head)
+            .child(col().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(col().pt(4.0).pb(if fits { 4.0 } else { 28.0 }).child(body)));
+        if fits {
+            return card;
+        }
+        // The rows fade out into the card's foot.
+        card.child(el().pin(Some(1.0), None, Some(1.0), Some(1.0)).h(56.0).gradient(rgba(24, 21, 26, 0.0), rgba(24, 21, 26, 0.9)))
+    })
 }
 
 pub fn view(s: &State) -> El {
@@ -398,18 +422,18 @@ pub fn view(s: &State) -> El {
         .mt(16.0)
         .gap(8.0)
         // Only the Inbox's count is lit (`.hm-door.hot`), and neither shows a zero.
-        .child(door(&icons::DOOR_INBOX, "Inbox", count(needs.len()), !needs.is_empty()).on_press(door_to(Some(Tab::Needs))))
-        .child(door(&icons::DOOR_PROGRESS, "In progress", count(working_count), false).on_press(door_to(Some(Tab::Progress))));
+        .child(door(s, "home-door-inbox", &icons::DOOR_INBOX, "Inbox", count(needs.len()), !needs.is_empty()).on_press(door_to(Some(Tab::Needs))))
+        .child(door(s, "home-door-progress", &icons::DOOR_PROGRESS, "In progress", count(working_count), false).on_press(door_to(Some(Tab::Progress))));
     if team {
-        doors = doors.child(feel::answers(door(&icons::DOOR_TEAM, "Team", None, false)));
+        doors = doors.child(feel::answers(door(s, "home-door-team", &icons::DOOR_TEAM, "Team", None, false)));
     }
     let second = if team {
         // The team's rows are the Team page's, which this window does not have yet: the card
         // says so when nobody else is on the team, and is bare otherwise.
         let nobody = if window::team_has_others(&s.snap) { el() } else { el().py(14.0).px(18.0).child(label("Nobody else on your team yet.", 13.5, 400.0, dim())) };
-        home_card("Team this week", None, "Open Team →", None, nobody, second_h, fits)
+        home_card(s, SECOND_CARD, "Team this week", None, "Open Team →", None, nobody, second_h, fits)
     } else {
-        home_card("In progress", count(working_count), "Open →", Some(Tab::Progress), working, second_h, fits)
+        home_card(s, SECOND_CARD, "In progress", count(working_count), "Open →", Some(Tab::Progress), working, second_h, fits)
     };
 
     let page = col()
@@ -432,13 +456,13 @@ pub fn view(s: &State) -> El {
             el().mt(22.0).child(crate::compose::inline(s).w_full())
         })
         .child(if stacked {
-            col().mt(24.0).gap(22.0).child(home_card("Needs you", count(needs.len()), "Open inbox →", Some(Tab::Needs), rows, needs_h, fits).w(column)).child(second.w(column))
+            col().mt(24.0).gap(22.0).child(home_card(s, NEEDS_CARD, "Needs you", count(needs.len()), "Open inbox →", Some(Tab::Needs), rows, needs_h, fits).w(column)).child(second.w(column))
         } else {
             row()
                 .mt(24.0)
                 .gap(22.0)
                 // `grid-template-columns: 1.35fr 1fr`: the shares are of the row less its gap.
-                .child(home_card("Needs you", count(needs.len()), "Open inbox →", Some(Tab::Needs), rows, needs_h, fits).w((column - 22.0) * 1.35 / 2.35))
+                .child(home_card(s, NEEDS_CARD, "Needs you", count(needs.len()), "Open inbox →", Some(Tab::Needs), rows, needs_h, fits).w((column - 22.0) * 1.35 / 2.35))
                 .child(second.w((column - 22.0) / 2.35))
         });
     row().w_full().justify_center().child(page)

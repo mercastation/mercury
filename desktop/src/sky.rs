@@ -147,3 +147,119 @@ pub fn draw(art: &Art, w: f64, h: f64, from: f64, span: f64, curve_top: f64, dpr
     }
     (pw, ph, out)
 }
+
+/// A painting as a pane of glass over it shows it: each pixel a Gaussian's worth of its
+/// neighbours, `sigma` pixels wide (the length CSS's `blur()` takes is that deviation), and
+/// the whole kept `shrink` times smaller each way. A blur that wide holds nothing finer than
+/// the smaller picture can, so drawn back at the painting's size it is the blur, for a
+/// sixty-fourth of the pixels at a `shrink` of 8. The bytes are blurred as they are, sRGB,
+/// which is how a browser blurs what is behind an element. Past the painting's edges it reads
+/// the edge again.
+///
+/// This is what lets glass over a sky ask Rune for no blur of its own, which costs a window
+/// some 180 MB of textures at 1900 by 1040 points for as long as one blurred thing is on screen.
+pub fn soft((w, h, rgba): &(u32, u32, Vec<u8>), sigma: f32, shrink: u32) -> (u32, u32, Vec<u8>) {
+    let (w, h, k) = (*w as usize, *h as usize, shrink.max(1) as usize);
+    if w == 0 || h == 0 {
+        return (0, 0, Vec::new());
+    }
+    let (sw, sh) = (w.div_ceil(k), h.div_ceil(k));
+    // Each smaller pixel is the mean of the block it stands for.
+    let mut small = vec![[0f32; 3]; sw * sh];
+    for sy in 0..sh {
+        let rows = (sy * k)..((sy + 1) * k).min(h);
+        for sx in 0..sw {
+            let cols = (sx * k)..((sx + 1) * k).min(w);
+            let mut sum = [0u32; 3];
+            for y in rows.clone() {
+                let line = &rgba[(y * w + cols.start) * 4..(y * w + cols.end) * 4];
+                for px in line.chunks_exact(4) {
+                    sum[0] += u32::from(px[0]);
+                    sum[1] += u32::from(px[1]);
+                    sum[2] += u32::from(px[2]);
+                }
+            }
+            let n = (rows.len() * cols.len()) as f32;
+            small[sy * sw + sx] = [sum[0] as f32 / n, sum[1] as f32 / n, sum[2] as f32 / n];
+        }
+    }
+    // The Gaussian, in the smaller picture's pixels, across and then down.
+    let s = (sigma / k as f32).max(0.01);
+    let reach = (3.0 * s).ceil() as isize;
+    let weights: Vec<f32> = (-reach..=reach).map(|d| (-(d * d) as f32 / (2.0 * s * s)).exp()).collect();
+    let whole: f32 = weights.iter().sum();
+    let pass = |from: &[[f32; 3]], across: bool| {
+        let mut to = vec![[0f32; 3]; sw * sh];
+        for y in 0..sh {
+            for x in 0..sw {
+                let mut sum = [0f32; 3];
+                for (i, weight) in weights.iter().enumerate() {
+                    let d = i as isize - reach;
+                    let at = if across { y * sw + (x as isize + d).clamp(0, sw as isize - 1) as usize } else { (y as isize + d).clamp(0, sh as isize - 1) as usize * sw + x };
+                    let px = from[at];
+                    sum[0] += px[0] * weight;
+                    sum[1] += px[1] * weight;
+                    sum[2] += px[2] * weight;
+                }
+                to[y * sw + x] = [sum[0] / whole, sum[1] / whole, sum[2] / whole];
+            }
+        }
+        to
+    };
+    let blurred = pass(&pass(&small, true), false);
+    let mut out = Vec::with_capacity(sw * sh * 4);
+    for px in blurred {
+        out.extend_from_slice(&[px[0].round().clamp(0.0, 255.0) as u8, px[1].round().clamp(0.0, 255.0) as u8, px[2].round().clamp(0.0, 255.0) as u8, 255]);
+    }
+    (sw as u32, sh as u32, out)
+}
+
+/// A painting with its colours made `by` times as strong, as CSS's `saturate()` makes them
+/// (the filter's own matrix, on the bytes as they are). The web window's glass is
+/// `blur(20px) saturate(1.5)`, and Rune's blur has no such step: a sky blurred here can take it.
+pub fn saturated((w, h, mut rgba): (u32, u32, Vec<u8>), by: f32) -> (u32, u32, Vec<u8>) {
+    let (r, g, b) = (0.213, 0.715, 0.072);
+    for px in rgba.chunks_exact_mut(4) {
+        let (x, y, z) = (f32::from(px[0]), f32::from(px[1]), f32::from(px[2]));
+        let grey = r * x + g * y + b * z;
+        px[0] = (grey + (x - grey) * by).round().clamp(0.0, 255.0) as u8;
+        px[1] = (grey + (y - grey) * by).round().clamp(0.0, 255.0) as u8;
+        px[2] = (grey + (z - grey) * by).round().clamp(0.0, 255.0) as u8;
+    }
+    (w, h, rgba)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn saturating_leaves_grey_alone_and_pulls_a_colour_from_its_grey() {
+        let (_, _, px) = saturated((2, 1, vec![90, 90, 90, 255, 200, 100, 50, 255]), 1.5);
+        assert_eq!(&px[..4], &[90, 90, 90, 255]);
+        // 200, 100, 50 has a grey of 117.7: each channel moves half as far again from it.
+        assert_eq!(&px[4..], &[241, 91, 16, 255]);
+    }
+
+    #[test]
+    fn a_soft_painting_is_smaller_and_keeps_a_flat_colour_and_spreads_a_bright_spot() {
+        // A flat painting stays the colour it was, at an eighth of its size each way.
+        let flat: Vec<u8> = [40u8, 30, 20, 255].repeat(64 * 32);
+        let (w, h, px) = soft(&(64, 32, flat), 8.0, 8);
+        assert_eq!((w, h), (8, 4));
+        assert!(px.chunks_exact(4).all(|p| p == [40, 30, 20, 255]));
+        // One bright square in the dark spreads: fainter where it was, and seen beside it.
+        let mut spot = vec![0u8; 64 * 64 * 4];
+        for y in 24..40 {
+            for x in 24..40 {
+                spot[(y * 64 + x) * 4..(y * 64 + x) * 4 + 4].copy_from_slice(&[255, 255, 255, 255]);
+            }
+        }
+        let (w, _, px) = soft(&(64, 64, spot), 8.0, 4);
+        let at = |x: usize, y: usize| px[(y * w as usize + x) * 4];
+        assert!(at(7, 7) < 255 && at(7, 7) > at(4, 7) && at(4, 7) > at(1, 7));
+        // A size that is no whole number of blocks keeps its last, narrower block.
+        assert_eq!(soft(&(10, 3, vec![9; 120]), 2.0, 4).0, 3);
+        assert_eq!(soft(&(0, 0, Vec::new()), 2.0, 4), (0, 0, Vec::new()));
+    }
+}
