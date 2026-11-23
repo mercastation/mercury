@@ -3113,10 +3113,13 @@ the films' folder by `MERCURY_FILM_ROOT`.
   - The scroll bar's thumb stands for a page of estimated height: 3.8% short on the invented
     conversation, and it moves by the difference as rows above the screen are laid out, what is
     read staying put. The browser knows every height.
-  - Text selection, Tab and assistive technology see only the rows built, those within two pages
-    of the screen, as Rune says of `El::virtual_rows`; the rest of a long conversation is not in
-    the window until it comes near. Not tried: a selection dragged past two pages, and ⌘A then ⌘C
-    on a long conversation, which in the web window copies all of it.
+  - Tab and assistive technology see only the rows built, those within two pages of the screen,
+    as Rune says of `El::virtual_rows`; the rest of a long conversation is not in the window
+    until it comes near. Selecting and copying are not cut short by it: ⌘A then ⌘C on a long
+    conversation copies all of it in order, as the web window's page does, Rune reading the
+    words of the rows not built as it copies and building none
+    (`select_all_and_copy_take_the_whole_of_a_long_conversation`). Not tried: a selection
+    dragged by hand past two pages.
 - **Under the pointer, where it still differs** (see "How it answers the pointer and the hands"):
   - The I-beam shows over the whole box of a run of words, past the last word of a short line too,
     where the web window's shows it over the words' lines only: Rune finds selectable words by

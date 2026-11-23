@@ -2955,6 +2955,29 @@ mod tests {
         assert!(message[1] > strip + 20.0 && message[1] + message[3] < rt.state.size.1, "{message:?}");
     }
 
+    /// ⌘A and ⌘C on a long conversation copy all of it, as the web window's page does, the rows
+    /// far from the screen among them: Rune reads their words as it copies, and builds none.
+    #[test]
+    fn select_all_and_copy_take_the_whole_of_a_long_conversation() {
+        let mut rt = long_talk("copy-long", 200, true);
+        run(&mut rt, 0.5);
+        let clip = rune::clipboard::memory();
+        rt.use_clipboard(&clip);
+        let built = rows(&rt).len();
+        assert!(built < rows_in_all() / 3, "{built} rows built");
+        for letter in ['a', 'c'] {
+            rt.key(rune::KeyEvent { key: Key::Command(letter), mods: rune::Mods { cmd: true, ..Default::default() } });
+            rt.frame(1.0 / 60.0);
+        }
+        let copied = clip.text().map(|t| t.to_string()).unwrap_or_default();
+        for said in ["Message number 0, the ask.", "Message number 1,", "Message number 100,", "Message number 199,", "Thanks."] {
+            assert!(copied.contains(said), "{said:?} is not in what was copied ({} letters)", copied.len());
+        }
+        // In the order they were said, and with no more rows on the page for it.
+        assert!(copied.find("Message number 1,") < copied.find("Message number 100,") && copied.find("Message number 100,") < copied.find("Message number 199,"));
+        assert!(rows(&rt).len() <= built + 3, "{} rows built after copying", rows(&rt).len());
+    }
+
     /// A run's fold pressed open in the middle of a long conversation, and shut again: the fold's
     /// line stays where it was on the page, and so does the row at the top.
     #[test]
