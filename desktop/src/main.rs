@@ -51,6 +51,7 @@ mod thread;
 mod usage;
 mod viewer;
 mod wake;
+mod window;
 mod write;
 
 use std::collections::{HashMap, HashSet};
@@ -202,6 +203,8 @@ pub struct State {
     reading_models: Latest<Result<Value, String>>,
     /// What was last picked in that box, kept from one window to the next.
     pub picks: picks::Kept,
+    /// Where the window stood on the desktop and how large, kept the same way (`window.rs`).
+    pub window: window::Kept,
     /// The threads sent from here and taken back with Z, and when: a send taken back is closed
     /// on the ledger, and is not finished work (`withdrawnSend` in
     /// `renderer/src/withdraw-send.ts`).
@@ -1159,6 +1162,15 @@ fn init() -> State {
     init_from(rune::tooling::extra_args())
 }
 
+/// Where this window's frame on the desktop is kept: beside the note about the app's door, or
+/// where the command line says (`window::file`).
+fn window_file(args: &[String], source: &Source) -> Option<std::path::PathBuf> {
+    window::file(args, match source {
+        Source::Door(door) => door.note(),
+        _ => None,
+    })
+}
+
 /// The state a window opens on, from its command line; a test opens one on a fixture this way.
 fn init_from(args: &[String]) -> State {
     let source = source::from_args(args);
@@ -1173,6 +1185,8 @@ fn init_from(args: &[String]) -> State {
         Source::Door(door) => drafts::file(args, door.note()),
         _ => drafts::file(args, None),
     });
+    // And where the window stood on the desktop.
+    let stood = window::Kept::at(window_file(args, &source));
     // A headless picture has its size before the first frame; a window reports its own.
     let size = rune::tooling::headless_run().map_or(DEFAULT_SIZE, |run| run.size());
     let mut s = State {
@@ -1246,6 +1260,7 @@ fn init_from(args: &[String]) -> State {
         models: rules::compose::Models::built(),
         reading_models: Latest::default(),
         picks,
+        window: stood,
         withdrawn: HashMap::new(),
         viewer: viewer::Viewer::default(),
         films: film::Films::default(),
@@ -1804,11 +1819,47 @@ fn main() {
         min_size: Some((720.0, 520.0)),
         ..AppSpec::new("Mercury", DEFAULT_SIZE, init, view)
     };
+    // Where the window stood when it was last open, which it opens at again (`window.rs`). A
+    // headless picture has the size it was asked for.
+    let args = rune::tooling::extra_args();
+    let stood = match rune::tooling::headless_run() {
+        None => window::Kept::at(window_file(args, &source::from_args(args))).get(),
+        Some(_) => None,
+    };
     // The web app sets `-webkit-font-smoothing: antialiased`; `Off` is that rendering.
     // What waits its three seconds is written before the window goes, and the boxes are written
     // down (`pagehide` in `renderer/src/App.tsx`).
-    let app = App::new(spec).font_smoothing(FontSmoothing::Off).on_focus(front::focus_changed).on_close(answer::on_close);
+    let mut app = App::new(spec)
+        .font_smoothing(FontSmoothing::Off)
+        .on_focus(focus_changed)
+        .on_close(closing)
+        .on_rest(rested)
+        .on_window(move |made| window::opened(made, stood));
+    if let Some(frame) = stood {
+        app = app.window_options(frame.options()).maximized(frame.maximized);
+    }
     // The desktop app's banner and tray bring this window forward from another thread.
     front::reach(app.handle());
     app.run();
+}
+
+/// The window's frame is kept at the three moments it can have changed and nothing is being
+/// drawn for it: as the keys leave it, as it closes (an install closes it to replace it), and
+/// as it rests (ten seconds after its last frame, or covered, hidden or in the Dock).
+fn focus_changed(s: &mut State, focused: bool, tx: &mut Tx) {
+    if !focused {
+        window::keep(s);
+    }
+    front::focus_changed(s, focused, tx);
+}
+
+fn closing(s: &mut State, tx: &mut Tx) {
+    // First, since what waits to be sent may take its seconds to go.
+    window::keep(s);
+    answer::on_close(s, tx);
+}
+
+fn rested(s: &mut State, _tx: &mut Tx) -> bool {
+    window::keep(s);
+    false
 }

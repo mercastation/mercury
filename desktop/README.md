@@ -2346,6 +2346,48 @@ failing) 0.43 whole, its steps 0.38. Every other conversation scene measured bef
 (`thread`, `-folded`, `-steps*`, `-options`, `-pictures-large`, `-reply-attached`,
 `-getting-ready`, `-working`) draws as it did, to the pixel.
 
+## Where the window stood
+
+The web window keeps nothing of where it was: it opens at one size, centred, every time
+(`openingSize` in `main/app-size.mts`, 1440 by 900 on a laptop's screen). This window is
+replaced whole at each install, which quits it and opens it again, so a window made large came
+back at its first 1280 by 760 after every one. It keeps its frame now and opens at it
+(`src/window.rs`).
+
+- **What is kept**: the frame's corner and the content's size in the display's own pixels, the
+  display's scale, and whether the window filled the screen (the green button's zoom, a title
+  bar pressed twice, a tile that fills). One filling the screen keeps the frame it goes back to
+  as well, the last it stood at before. One left full screen or in the Dock keeps what it had
+  before either, and opens as it stood then.
+- **When**: as the keys leave the window, as it closes (an install's quit, ⌘Q, the red button)
+  and as it rests (ten seconds after its last frame, or covered, hidden or put away). Rune
+  reads it off the window then (`WindowHandle::placement`). Nothing is read on a frame's turn
+  and no timer is asked for it.
+- **Where**: `native-window.json` beside the note about the app's door, written only when the
+  frame changed. A fixture's picture and a window pointed by hand at some engine keep nothing
+  on disk unless `--window-file <file>` (or `MERCURY_WINDOW`) says where; `--window` is Rune's.
+  A headless picture never opens at it: `--size` is its size.
+- **Opening**: Rune opens the window at the kept pixels (`WindowOptions::position` and
+  `physical_size`) and filling the screen when it did (`App::maximized`), before it is shown.
+  Once it is on a display, a frame that no longer suits the displays there are is put right
+  (`Frame::settle`): larger than its display, it is brought down to it; kept on a display of
+  another scale, it takes the same points; with too little of its top band on any display, it
+  goes to the middle. macOS itself pulls back a window asked for far off every screen.
+
+Tried in a window opened without coming forward on the invented inbox, quit the way an install
+quits it, with `CGWindowListCopyWindowInfo` saying where it stood:
+
+| Kept | It opened at, in points |
+|---|---|
+| Nothing | 1280 by 760, where macOS puts a first window, and kept that |
+| 1000 by 700 at 300, 200 | 1000 by 700 at 300, 200, and again the time after |
+| The same, filling the screen | 1920 by 1050 at 0, 30, keeping 1000 by 700 to go back to |
+| 9000 pixels off to the right | 1000 by 700 at 20, 200, where macOS pulled it back |
+| 2000 by 1400 pixels on a display of one pixel to the point | 1920 by 1050 at 0, 30: no larger than the screen |
+
+Not seen: a second display, and one of another scale for real (the last row is a file written
+by hand).
+
 ## A window dragged larger
 
 The web window does not draw its sky again on each step of a window being resized. Any new size
@@ -2881,6 +2923,9 @@ the films' folder by `MERCURY_FILM_ROOT`.
 
 ## What still differs from the web app, and why
 
+- **The window opens where it was left, and as large.** The web window opens at one size,
+  centred, every time. This one keeps its frame, since each install closes and opens it (see
+  "Where the window stood").
 - **A hint's plate stands on the ground, not on what is behind it blurred.** The web window's
   plate is its film over whatever is behind it, blurred by 18 points; this one is the film over
   the ground's own colour, and over a sky the sky as it was blurred when painted (see "A sky
@@ -3437,6 +3482,8 @@ the films' folder by `MERCURY_FILM_ROOT`.
 - `src/sky.rs`: the dithered sky, ported from `renderer/src/home/sky.ts` with the same seed, and
   the same sky blurred for the glass over it (`soft`, `saturated`).
 - `src/wake.rs`: the window's repeating timers, each asked of Rune once.
+- `src/window.rs`: where the window stood on the desktop and how large, kept from one launch to
+  the next.
 - `src/icons.rs`: the icons, with the web app's own paths and strokes; the makers' marks once
   each, for a row's tile (`HARNESS_*`) and a chip (`ENGINE_*`).
 - `assets/fonts`: Geist and Geist Mono (SIL Open Font License), the files the web app ships.
