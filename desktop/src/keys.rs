@@ -151,6 +151,10 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
     if let Some(taken) = crate::table::key(s, e, tx) {
         return taken;
     }
+    // The browser's film open big, the same way (`film.rs`).
+    if let Some(taken) = crate::film::key(s, e, tx) {
+        return taken;
+    }
     // A file open big over the window has every key but a chord, and the page under it none.
     if let Some(taken) = crate::viewer::key(s, e, tx) {
         return taken;

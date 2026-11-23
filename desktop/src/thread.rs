@@ -1120,7 +1120,10 @@ fn run_line(s: &State, items: &[&Work], names: &[String], chips: Vec<Option<El>>
         head.child(icon(&icons::WORK_MARK, 8.0).color(dim()).mt(5.75).group_opacity(0.0, 1.0))
     };
     let head = row().key(key.clone()).hover_group().cursor(rune::Cursor::Pointer).help(tally.as_str()).child(head).on_press(move |s: &mut State| s.toggle_run(&key, !open));
-    let run = col().child(head);
+    // Steps taken in the project's browser show the page they left, folded or not, and each
+    // says what it pressed (`film.rs`).
+    let film = crate::film::steps_of_lines(s, thread, &items.iter().map(|w| (w.at, w.verb.as_str())).collect::<Vec<_>>());
+    let run = col().child(head).children(crate::film::run_tile(s, thread, &film));
     if !open {
         return run;
     }
@@ -1129,7 +1132,10 @@ fn run_line(s: &State, items: &[&Work], names: &[String], chips: Vec<Option<El>>
         let key = format!("{thread}|line>{name}");
         let state = s.reading.lines_open.get(&key).copied().or_else(|| pictured.iter().find(|(line, _)| *line == at).map(|(_, state)| *state)).unwrap_or(SHUT);
         let clipped = s.reading.clipped.contains(&key);
-        work_line(w, key, state, clipped, chip)
+        match film[at].and_then(|step| Some((step, crate::film::line_words(s, thread, step)?))) {
+            Some((step, (verb, subject))) => crate::film::step_line(&verb, &subject, w.failed, thread, step),
+            None => work_line(w, key, state, clipped, chip),
+        }
     });
     run.child(col().pt(5.0).pb(2.0).pl(16.0).gap(5.0).children(lines))
 }
@@ -2073,6 +2079,10 @@ pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
         // The line's two points under it are its own (`.live-brief`), and its steps, open, end
         // the block with none.
         let under = if s.reading.live_open.as_deref() == Some(run.as_str()) { 0.0 } else { 2.0 };
+        // While the run is in the project's browser, the page it is on, over the line (`film.rs`).
+        if let Some(card) = crate::film::live_card(s, id, product, m.column) {
+            blocks.push(markdown::block(18.0, 0.0, card));
+        }
         blocks.push(markdown::block(14.0, under, live_line(s, item, &thread, run, &line, &steps, &m, still)));
     }
     // The question before throwing the change away, at the conversation's foot (`closeAskStrip`).

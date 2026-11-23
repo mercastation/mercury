@@ -20,6 +20,7 @@ pub mod compose;
 pub mod display;
 pub mod engine;
 pub mod files_shown;
+pub mod film;
 pub mod folded;
 pub mod format;
 pub mod js;

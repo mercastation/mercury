@@ -22,6 +22,7 @@ mod data;
 mod drafts;
 mod feel;
 mod files;
+mod film;
 mod files_page;
 mod foot;
 mod front;
@@ -207,6 +208,8 @@ pub struct State {
     withdrawn: HashMap<String, f64>,
     /// A file opened big over the whole window (`viewer.rs`).
     pub viewer: viewer::Viewer,
+    /// What agents did in their project's browser, for the open conversation (`film.rs`).
+    pub films: film::Films,
     /// A file opened beside the conversation (`pane.rs`).
     pub pane: pane::Pane,
     /// The code the threads' runs changed: the strip's figures and a change open in the pane
@@ -1245,6 +1248,7 @@ fn init_from(args: &[String]) -> State {
         picks,
         withdrawn: HashMap::new(),
         viewer: viewer::Viewer::default(),
+        films: film::Films::default(),
         pane: pane::Pane::default(),
         changes: change::Changes::default(),
         tables: table::Sheets::default(),
@@ -1444,6 +1448,7 @@ fn setup(s: &mut State, wake: Waker) {
     s.settings.wake_with(wake.clone());
     s.pictures.set_waker(wake.clone());
     s.files.set_waker(wake.clone());
+    s.films.set_waker(wake.clone());
     // The replies the last window never saw land are looked for (`answer.rs`).
     s.look_for_unsent(wake.clone());
     s.retries.wake_with(wake.clone());
@@ -1558,6 +1563,8 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
     changed |= feel::hint_due(s, at);
     // What Try again came back with, and the line at a conversation's foot kept counting.
     changed |= foot::tend(s, tx);
+    // The open conversation's film of its browser, read as often as it can change.
+    changed |= film::tend(s, tx);
     // Where the person was in the conversation they left, and where they land in this one.
     changed |= s.tend_the_reading(tx);
     if let Some((key, answer)) = s.asking.take() {
@@ -1675,7 +1682,7 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
     };
     // A file open big covers all of that, the line about the last thing done included, as the
     // web window's view covers its own notices.
-    let root = root.children(viewer::layer(s));
+    let root = root.children(viewer::layer(s)).children(film::layer(s));
     // A sheet's menus, over it wherever it is open.
     let root = root.children(table::layer(s));
     // And the command bar, which never stands with it: opening one closes the other.
