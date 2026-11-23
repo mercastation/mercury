@@ -309,7 +309,7 @@ impl State {
                     toast.until = toast.until.max(at + 1.0);
                 }
                 self.answering.sent_line = Some(clock);
-                tx.wake_after(std::time::Duration::from_millis(33));
+                self.wakes.every(tx, "a sent line's ring", std::time::Duration::from_millis(33));
                 true
             }
             (None, Some(was)) => {

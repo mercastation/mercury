@@ -756,7 +756,7 @@ impl State {
             None => tx.scroll_key_to(LAST_MESSAGE, ABOVE_THE_FIRST_LINE),
         }
         // Until it settles, each turn lands it again.
-        tx.wake_after(std::time::Duration::from_millis(100));
+        self.wakes.every(tx, "the landing", std::time::Duration::from_millis(100));
         changed
     }
     fn item_by_key(&self, thread: &str) -> Option<&Item> {

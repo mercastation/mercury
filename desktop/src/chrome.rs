@@ -4,7 +4,7 @@
 
 use std::time::Duration;
 
-use rune::{Cursor, Easing, El, Icon, TextCase, TextStyle, Tx, col, el, icon, row, spacer, text};
+use rune::{Cursor, Easing, El, Icon, LineCap, Shape, TextCase, TextStyle, Tx, col, el, icon, row, spacer, text};
 
 use crate::rules::window;
 use crate::theme::*;
@@ -161,14 +161,20 @@ pub fn page_top(view: &View) -> f32 {
     }
 }
 
-/// The page under everything: a warm glow from the upper right and a dot every 32 points.
+/// The page under everything: a warm glow from the upper right and a dot every 32 points
+/// (`--skin-image`'s pattern: a disc of 1.15 points in the middle of each 32-point square).
+///
+/// The dots are one drawing on this one element, each a round stroke too short to have a length.
+/// They were an element apiece, 1,900 of them under a maximised window, and Rune walks every
+/// element on every frame it draws: while a line was working they were most of what it walked.
 pub fn backdrop(w: f32, h: f32) -> El {
-    let mut dots = Vec::new();
+    let mut dots = Shape::new();
     let mut y = 16.0;
     while y < h {
         let mut x = 16.0;
         while x < w {
-            dots.push(el().absolute(x - 1.15, y - 1.15).size(2.3, 2.3).radius(1.15).fill(white(0.055)));
+            // A stroke needs two points apart to have a direction: a hundredth of a point.
+            dots = dots.line([x - 0.005, y], [x + 0.005, y], 2.3, LineCap::Round, white(0.055));
             x += 32.0;
         }
         y += 32.0;
@@ -176,7 +182,7 @@ pub fn backdrop(w: f32, h: f32) -> El {
     el().absolute(0.0, 0.0)
         .size(w, h)
         .radial_gradient([0.72, 0.28], [0.7 * w, 0.7 * h], [(0.0, rgba(238, 96, 24, 0.075)), (1.0, rgba(238, 96, 24, 0.0))])
-        .children(dots)
+        .shape(dots)
 }
 
 /// How long the card holds still before a sky stretched by a new size is painted again

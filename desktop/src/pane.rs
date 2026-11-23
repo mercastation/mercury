@@ -141,6 +141,9 @@ pub struct Pane {
     /// What last decided whether the newest answer's file opens by itself: it is asked again
     /// only when the thread, its answer or the room beside it changes, as the web window's effect.
     auto_asked: Option<String>,
+    /// What that was last worked out from, so a turn of the window that changed none of it
+    /// reads nothing (`Seen`).
+    auto_seen: Option<Seen>,
     /// What the app says of sharing the open file (`zero:file-link`), by `product/path`, and
     /// its answers landing from the thread that asked.
     links: HashMap<String, Value>,
@@ -148,6 +151,28 @@ pub struct Pane {
     /// A change given the whole workspace by its corners, which keeps the pane's own full
     /// screen rather than the big view (`artifactMode` 'focus', `change.rs`).
     pub full: bool,
+}
+
+/// Everything `open_by_itself` reads to decide: the thread, its newest answer, the edits saved
+/// in the app (which say a file's newest version), the project's folder, and whether the card
+/// has room for a file beside the conversation. These are what the web window's effect waits on.
+struct Seen {
+    product: String,
+    id: String,
+    result: Option<String>,
+    artifacts: Option<Value>,
+    dir: Option<String>,
+    room: bool,
+}
+
+impl Seen {
+    fn of(item: &crate::data::Item, dir: Option<&str>, room: bool) -> Seen {
+        Seen { product: item.product.clone(), id: item.id.clone(), result: item.result.clone(), artifacts: item.rest.get("artifacts").cloned(), dir: dir.map(str::to_string), room }
+    }
+    /// Whether these are still what there is to read. Compared in place: nothing is copied.
+    fn is(&self, item: &crate::data::Item, dir: Option<&str>, room: bool) -> bool {
+        self.room == room && self.id == item.id && self.product == item.product && self.dir.as_deref() == dir && self.result == item.result && self.artifacts.as_ref() == item.rest.get("artifacts")
+    }
 }
 
 /// The newest answer of a thread, which a place left is kept against (`arrivedAt`).
@@ -265,6 +290,7 @@ impl State {
         self.pane.places.insert(key, (at, doc));
         self.pane.dragging = None;
         self.pane.auto_asked = None;
+        self.pane.auto_seen = None;
     }
     /// Coming back to a thread with nothing new since puts its file back (`placeToReturnTo`).
     pub(crate) fn come_back_to_the_pane(&mut self) {
@@ -397,7 +423,7 @@ pub fn tend(s: &mut State, now: f64, tx: &mut Tx) -> bool {
     changed |= open_by_itself(s);
     if s.pane.doc.is_some() {
         changed |= follow_the_file(s, now);
-        tx.wake_after(std::time::Duration::from_millis(rules::FOLLOW_FILE_MS as u64));
+        s.wakes.every(tx, "the open file", std::time::Duration::from_millis(rules::FOLLOW_FILE_MS as u64));
     }
     changed
 }
@@ -417,16 +443,30 @@ fn follow_the_file(s: &mut State, now: f64) -> bool {
 fn open_by_itself(s: &mut State) -> bool {
     let Some(item) = s.open_item() else {
         s.pane.auto_asked = None;
+        s.pane.auto_seen = None;
         return false;
     };
-    let dir = s.snap.products.iter().find(|p| p.slug == item.product).and_then(|p| p.rest.get("dir")).and_then(Value::as_str).map(str::to_string);
-    let Some(named) = rules::beside_document(item.result.as_deref().unwrap_or(""), dir.as_deref()) else { return false };
-    let src = newest_of_family(&named, item, s.now);
+    let dir = s.snap.products.iter().find(|p| p.slug == item.product).and_then(|p| p.rest.get("dir")).and_then(Value::as_str);
     let room = rules::artifact_placement(s.page_size().0) == Placement::Beside;
+    // This runs on the window's every turn, sixty a second while a line is working. Nothing
+    // below is worked out again until the thread, its answer or the room beside it changes:
+    // reading the thread's words for the folders they name, each turn, was a third of what
+    // a working conversation cost the processor.
+    if s.pane.auto_seen.as_ref().is_some_and(|seen| seen.is(item, dir, room)) {
+        return false;
+    }
+    let seen = Seen::of(item, dir, room);
+    let dir = dir.map(str::to_string);
+    let Some(named) = rules::beside_document(item.result.as_deref().unwrap_or(""), dir.as_deref()) else {
+        s.pane.auto_seen = Some(seen);
+        return false;
+    };
+    let src = newest_of_family(&named, item, s.now);
     let asked = format!("{}\n{}\n{}\n{}\n{room}", item.product, item.id, item.result.as_deref().unwrap_or(""), src);
     let closed = s.pane.closed_beside.contains(&closed_key(item, &src));
     // Found first: a path the agent got wrong would open half a window saying it is nowhere.
     let found = viewer::place_of(&Files::of(s, item).roots, &src).is_some();
+    s.pane.auto_seen = Some(seen);
     if s.pane.auto_asked.as_deref() == Some(asked.as_str()) {
         return false;
     }

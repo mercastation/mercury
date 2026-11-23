@@ -1877,7 +1877,7 @@ pub fn tend(s: &mut State, now: f64, tx: &mut Tx) -> bool {
             tx.wake_after(std::time::Duration::from_millis((due - now).max(0.0) as u64 + 1));
         }
         if sh.saving {
-            tx.wake_after(std::time::Duration::from_millis(30));
+            s.wakes.every(tx, "a sheet's save", std::time::Duration::from_millis(30));
         }
         changed |= tend_focus(s, w, tx);
         changed |= s.tables.get_mut(w).is_some_and(follow_values);

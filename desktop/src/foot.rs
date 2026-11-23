@@ -258,7 +258,7 @@ pub fn tend(s: &mut State, tx: &mut Tx) -> bool {
         && let Some(item) = s.snap.items.iter().find(|i| &i.id == id && &i.product == product)
         && live::counting(&facts(s, item))
     {
-        tx.wake_after(std::time::Duration::from_millis(live::TICK_MS as u64));
+        s.wakes.every(tx, "the line's count", std::time::Duration::from_millis(live::TICK_MS as u64));
     }
     changed
 }

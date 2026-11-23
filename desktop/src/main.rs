@@ -49,6 +49,7 @@ mod theme;
 mod thread;
 mod usage;
 mod viewer;
+mod wake;
 mod write;
 
 use std::collections::{HashMap, HashSet};
@@ -88,6 +89,8 @@ pub struct State {
     /// The card size the skies on screen were painted for.
     pub sky_size: (f32, f32),
     painting: Latest<Painted>,
+    /// The window's repeating timers, each asked of Rune once (`wake.rs`).
+    pub wakes: wake::Wakes,
     pub snap: Snapshot,
     /// What the screens draw, worked out from `snap` whenever it or the minute changes.
     pub lists: Lists,
@@ -1166,6 +1169,7 @@ fn init_from(args: &[String]) -> State {
         // a window being dragged larger: every step painted two full skies off the main thread
         // and hung them, which took a window from 0.4 GB to 1.6 GB while it was resized.
         painting: Latest::default().debounce(chrome::STILL),
+        wakes: wake::Wakes::default(),
         snap: Snapshot::default(),
         lists: Lists::default(),
         local: Local::default(),
@@ -1462,7 +1466,7 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
     // The bar along the foot of a line that names a thread runs out with the time left to
     // open it, so the line is drawn again while it is up.
     if s.toast.as_ref().is_some_and(|t| t.goes.is_some()) {
-        tx.wake_after(std::time::Duration::from_millis(33));
+        s.wakes.every(tx, "a line's bar", std::time::Duration::from_millis(33));
         changed = true;
     }
     changed |= s.say_if_not_taken(at, tx);
@@ -1501,7 +1505,7 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
         let now = clock();
         stale |= (now / 60_000.0).floor() != (s.now / 60_000.0).floor();
         s.now = now;
-        tx.wake_after(std::time::Duration::from_secs(20));
+        s.wakes.every(tx, "the clock", std::time::Duration::from_secs(20));
     }
     if stale {
         s.refresh();
@@ -1558,7 +1562,7 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
     s.ask_for_the_open_thread(stale);
     // While a run is up on the open conversation, it is read again every eight seconds at least.
     if matches!(&s.view, View::Thread { id, product } if s.snap.supervisor.running.iter().any(|r| &r.item_id == id && &r.product == product)) {
-        tx.wake_after(std::time::Duration::from_millis(reads::AGAIN_MS as u64));
+        s.wakes.every(tx, "the open conversation", std::time::Duration::from_millis(reads::AGAIN_MS as u64));
     }
     // The open conversation's pictures: what was read lands, another conversation's are let
     // go, and while any is on the page the disk is looked at again every two seconds.
@@ -1569,7 +1573,7 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
     };
     let (landed, again) = s.pictures.tend(open.as_deref(), clock());
     if again {
-        tx.wake_after(std::time::Duration::from_millis(pictures::AGAIN_MS as u64));
+        s.wakes.every(tx, "the pictures", std::time::Duration::from_millis(pictures::AGAIN_MS as u64));
     }
     changed || stale || landed
 }

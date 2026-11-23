@@ -330,7 +330,7 @@ fn ask_for_the_summary(s: &mut State, pushed: bool, now: f64, tx: &mut Tx) -> bo
     }
     let result_at = item.wrote_at("result");
     if run.is_some() || rules::folder_may_still_move(result_at, now) {
-        tx.wake_after(std::time::Duration::from_millis(rules::FIGURES_AGAIN_MS as u64));
+        s.wakes.every(tx, "the change's figures", std::time::Duration::from_millis(rules::FIGURES_AGAIN_MS as u64));
     }
     let asked_at = s.changes.asked.as_ref().map(|(_, _, _, at)| *at);
     if !rules::asks_for_the_figures(fresh, run.is_some(), result_at, asked_at, pushed, now) {
