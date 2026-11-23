@@ -51,6 +51,16 @@ pub struct Files<'a> {
     pub now: f64,
 }
 
+/// What `Files` holds of its own (`Files::owned`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Owned {
+    dir: String,
+    thread: String,
+    folder: Option<String>,
+    roots: Vec<String>,
+    draws_pictures: bool,
+}
+
 impl<'a> Files<'a> {
     /// For one thread: its project's folders off the snapshot, and the folders its own words
     /// name (`place` in `Focus.tsx`, which reads the row's four fields).
@@ -71,6 +81,27 @@ impl<'a> Files<'a> {
             snap: &s.snap,
             dir,
             thread: item.id.clone(),
+            pictures: &s.pictures,
+            window_h: s.size.1,
+            now: s.now,
+        }
+    }
+
+    /// What it holds of its own, without what it borrows from the window: kept by a long
+    /// conversation, whose rows are built one by one as they come near the screen (`thread.rs`).
+    pub fn owned(&self) -> Owned {
+        Owned { dir: self.dir.clone(), thread: self.thread.clone(), folder: self.folder.clone(), roots: self.roots.clone(), draws_pictures: self.draws_pictures }
+    }
+
+    /// The same files again, from what `owned` kept, against the window as it is now.
+    pub fn again(s: &'a State, kept: &Owned) -> Files<'a> {
+        Files {
+            dir: kept.dir.clone(),
+            thread: kept.thread.clone(),
+            folder: kept.folder.clone(),
+            roots: kept.roots.clone(),
+            draws_pictures: kept.draws_pictures,
+            snap: &s.snap,
             pictures: &s.pictures,
             window_h: s.size.1,
             now: s.now,

@@ -81,7 +81,7 @@ pub struct Reading {
     /// Since when, on the window's clock in milliseconds, the open conversation is landing: on
     /// the top of its last message, or on the place it was left at (`holdAtBottom`'s landing,
     /// `resumeTo`). The person's own scroll ends it, as do 2.5 seconds.
-    landing: Option<(String, f64, Option<f32>)>,
+    landing: Option<(String, f64, Back)>,
     /// Whether the person has scrolled the open conversation themselves, and how far it is
     /// scrolled, which `on_scroll_offset` keeps up to date with no view run.
     touched: Option<String>,
@@ -89,9 +89,13 @@ pub struct Reading {
     /// How tall the open conversation's scrolling page is, kept up to date the same way: what a
     /// found line is centred in.
     viewport: Rc<std::cell::Cell<f32>>,
-    /// The block, by its line's name, under the line for a long conversation's missing middle
-    /// when that line was pressed: it is held in place as the middle comes in (`openGap`).
-    gap_anchor: Option<String>,
+    /// The row of the open conversation at the top of its page, which the stack says as it
+    /// changes (`on_visible_rows`), and where the window last drew each row it built and the
+    /// page itself (under `PAGE`), which Rune writes as it draws them: what tells where the
+    /// person was in a conversation they leave. Rows away from the screen are not laid out,
+    /// so an offset alone cannot say it.
+    top_row: Option<String>,
+    drawn: Rc<std::cell::RefCell<HashMap<String, rune::Live<[f32; 4]>>>>,
     /// A line found from the command bar, looked for in its conversation, then brought to the
     /// middle of the page and marked for a moment (`revealLine`).
     reveal: Option<Reveal>,
@@ -106,10 +110,6 @@ pub struct Reveal {
     looking: found::Looking,
     /// When the next look is, on the window's clock in seconds; the first is the next turn.
     next_look: f64,
-    /// Whether the message's block has been laid out on the page, as a look finds it there, and
-    /// how tall it is.
-    drawn: bool,
-    tall: f32,
     /// When it was found, on the window's clock in seconds, then when it was marked; whether it
     /// has been marked, and whether it is marked still.
     found_at: Option<f64>,
@@ -120,6 +120,25 @@ pub struct Reveal {
 /// The key of the block a found line lands on, and of the mark behind it.
 pub const REVEALED: &str = "found-line";
 const MARK: &str = "found-line-mark";
+/// A point with no size halfway down the found line's block: landed on the middle of the page,
+/// it centres the block however tall it is, in one request that also builds its row when the
+/// row is away from the screen (`Tx::scroll_key_to` with `"row/mark"`).
+const FOUND_MIDDLE: &str = "found-line-middle";
+
+/// What a conversation that opens lands on while its page settles.
+#[derive(Clone, Debug, PartialEq)]
+enum Back {
+    /// Twenty points over the top of its last message, or its foot.
+    Foot,
+    /// The place it was left at, as how far it was scrolled: a page that is not a conversation,
+    /// laid out whole, or a place written before rows were kept.
+    Offset(f32),
+    /// The place it was left at, as the row at the top of the page and how far into it.
+    Row(String, f32),
+}
+
+/// The key `Reading::drawn` keeps where the page itself was drawn under.
+const PAGE: &str = "page";
 
 /// How long a conversation keeps landing where it opens while its page settles
 /// (`RESUME_WINDOW_MS`).
@@ -155,6 +174,7 @@ fn key(product: &str, id: &str) -> String {
 /// The page's measures, which follow the card's width (`one-thing-at-a-time.css`): the type
 /// grows a little with the card, the column is a fixed measure of that type, and it starts a
 /// third of the way into the room left over.
+#[derive(Clone, Copy)]
 struct Measure {
     /// The reading size: 16 points on a 1280 window, at most 18.
     size: f32,
@@ -719,25 +739,37 @@ impl State {
         if on != self.reading.landed {
             if let Some(was) = self.reading.landed.take() {
                 let news = self.item_by_key(&was).map_or(0.0, arrived_at);
-                let top = (self.reading.touched.as_deref() == Some(was.as_str())).then(|| self.reading.scrolled.get());
+                let touched = self.reading.touched.as_deref() == Some(was.as_str());
+                let top = touched.then(|| self.reading.scrolled.get());
+                // And the row at the top of the page, with how far the page's top was into it,
+                // where the page drawn last was this conversation's rows.
+                let row = touched.then(|| self.row_at_the_top(&was)).flatten();
                 let prefix = format!("{was}|");
                 let r = &self.reading;
                 let mut runs: Vec<String> = r.runs_open.iter().filter(|k| k.starts_with(&prefix)).cloned().collect();
                 runs.sort();
                 let mut lines: Vec<(String, u8)> = r.lines_open.iter().filter(|(k, _)| k.starts_with(&prefix)).map(|(k, v)| (k.clone(), *v)).collect();
                 lines.sort();
-                let place = crate::picks::ThreadPlace { thread: was.clone(), news, top, earlier: r.unfolded.contains(&was), whole: r.whole.contains(&was), runs, lines };
+                let (row, into) = row.map_or((None, None), |(row, into)| (Some(row), Some(into)));
+                let place = crate::picks::ThreadPlace { thread: was.clone(), news, top, row, into, earlier: r.unfolded.contains(&was), whole: r.whole.contains(&was), runs, lines };
                 // Written down for this window and the next (`leavePlace`); leaving it again
                 // without scrolling keeps the place it had.
                 self.picks.change(|p| {
-                    let kept = p.thread_places.iter().position(|k| k.thread == was).map(|at| p.thread_places.remove(at));
-                    let top = place.top.or_else(|| kept.filter(|k| k.news == news).and_then(|k| k.top));
-                    p.thread_places.push(crate::picks::ThreadPlace { top, ..place });
+                    let kept = p.thread_places.iter().position(|k| k.thread == was).map(|at| p.thread_places.remove(at)).filter(|k| k.news == news);
+                    let place = match (place.top, kept) {
+                        (None, Some(kept)) => crate::picks::ThreadPlace { top: kept.top, row: kept.row, into: kept.into, ..place },
+                        _ => place,
+                    };
+                    p.thread_places.push(place);
                     if p.thread_places.len() > PLACES_KEPT {
                         p.thread_places.remove(0);
                     }
                 });
             }
+            // What was drawn of the conversation left is let go of with it.
+            self.reading.top_row = None;
+            self.reading.drawn.borrow_mut().clear();
+            SHOWN.with(|shown| *shown.borrow_mut() = None);
             self.reading.visit_runs.clear();
             self.reading.visit_lines.clear();
             self.reading.visit_at = None;
@@ -770,20 +802,34 @@ impl State {
                     self.picks.change(|p| p.thread_places.retain(|k| k.thread != *thread));
                 }
                 // A picture taken scrolled says how far (`scrolledTo`).
-                let top = kept.and_then(|k| k.top).or_else(|| self.fixture.get("scrolledTo").and_then(Value::as_f64).map(|top| top as f32));
-                self.reading.landing = Some((thread.clone(), since, top));
+                let back = match kept {
+                    Some(crate::picks::ThreadPlace { row: Some(row), into: Some(into), .. }) => Back::Row(row, into),
+                    Some(crate::picks::ThreadPlace { top: Some(top), .. }) => Back::Offset(top),
+                    _ => self.fixture.get("scrolledTo").and_then(Value::as_f64).map_or(Back::Foot, |top| Back::Offset(top as f32)),
+                };
+                self.reading.landing = Some((thread.clone(), since, back));
             }
             self.reading.landed = on.clone();
             changed = true;
         }
-        let Some((thread, since, top)) = self.reading.landing.clone() else { return changed };
+        let Some((thread, since, back)) = self.reading.landing.clone() else { return changed };
         if on.as_deref() != Some(thread.as_str()) || self.reading.touched.is_some() || tx.clock() * 1000.0 - since > LANDING_MS {
             self.reading.landing = None;
             return changed;
         }
-        match top {
-            Some(top) => tx.scroll_to_y("thread-said", top),
-            None => tx.scroll_key_to(LAST_MESSAGE, ABOVE_THE_FIRST_LINE),
+        match back {
+            Back::Offset(top) => tx.scroll_to_y("thread-said", top),
+            // The row lands as far over the page's top as the page's top was into it, built
+            // first when it is away from the screen.
+            Back::Row(row, into) => tx.scroll_key_to(row, -into),
+            Back::Foot => {
+                // The last message's row is reached when it is away from the screen; asked after
+                // it, the message itself wins wherever it is built, the newest the page has.
+                if let Some(row) = shown_row(&thread, |plan| plan.rows.iter().rposition(|r| r.last)) {
+                    tx.scroll_key_to(format!("{row}/{LAST_MESSAGE}"), ABOVE_THE_FIRST_LINE);
+                }
+                tx.scroll_key_to(LAST_MESSAGE, ABOVE_THE_FIRST_LINE);
+            }
         }
         // Until it settles, each turn lands it again.
         self.wakes.every(tx, "the landing", std::time::Duration::from_millis(100));
@@ -793,7 +839,7 @@ impl State {
     /// message whose line is `line` (`revealLine`). One looking at a time: a second line pressed
     /// takes over from the first.
     pub fn reveal_line(&mut self, id: &str, product: &str, line: &str) {
-        self.reading.reveal = Some(Reveal { thread: key(product, id), line: line.to_string(), looking: found::Looking::default(), next_look: f64::NEG_INFINITY, drawn: false, tall: 0.0, found_at: None, shown: false, marked: false });
+        self.reading.reveal = Some(Reveal { thread: key(product, id), line: line.to_string(), looking: found::Looking::default(), next_look: f64::NEG_INFINITY, found_at: None, shown: false, marked: false });
     }
     /// What a picture taken after a found line was pressed says of it (`foundLine`, its name):
     /// the open conversation looks for it, as the press had it do.
@@ -808,12 +854,15 @@ impl State {
     pub fn reading_reveal(&self) -> Option<(String, String)> {
         self.reading.reveal.as_ref().map(|r| (r.thread.clone(), r.line.clone()))
     }
-    /// The block a found line names was laid out on the page, this tall.
-    fn found_line_drawn(&mut self, tall: f32) {
-        if let Some(r) = self.reading.reveal.as_mut() {
-            r.drawn = true;
-            r.tall = tall;
-        }
+    /// The row at the top of the conversation `thread`'s page as it was last drawn, and how far
+    /// the page's top is into it: read off where the window drew them, for the row the stack
+    /// last said was at the top, on the conversation's own rows.
+    fn row_at_the_top(&self, thread: &str) -> Option<(String, f32)> {
+        let row = self.reading.top_row.clone()?;
+        shown_row(thread, |plan| plan.rows.iter().position(|r| r.key == row))?;
+        let drawn = self.reading.drawn.borrow();
+        let ([_, y, _, h], [_, page, _, _]) = (drawn.get(&row)?.get(), drawn.get(PAGE)?.get());
+        (h > 0.0).then_some((row, page - y))
     }
     /// The found line's part of each turn of the window, before the landing's: a look every
     /// 50 ms while it is not on the page, the whole conversation asked for once after six, and
@@ -871,7 +920,10 @@ impl State {
             return false;
         }
         let here = on.as_deref() == Some(r.thread.as_str()) && landed.as_deref() == Some(r.thread.as_str());
-        match r.looking.look(here && r.drawn) {
+        // On the page as the conversation was last drawn, whether or not its row is built: one
+        // away from the screen is built as it is landed on.
+        let row = here.then(|| shown_row(&r.thread, |plan| plan.found(&r.line))).flatten();
+        match r.looking.look(row.is_some()) {
             found::Look::Found => {
                 r.found_at = Some(now);
                 // In the middle of the page at once, where the landing would have held it.
@@ -879,10 +931,11 @@ impl State {
                 // Its middle on the page's, however tall it is: a block taller than the page has
                 // its top above it, as a browser centres one (`block: 'center'`).
                 let page = self.reading.viewport.get();
+                let row = row.unwrap_or_default();
                 if page > 0.0 {
-                    tx.scroll_key_to(REVEALED, (page - r.tall) / 2.0);
+                    tx.scroll_key_to(format!("{row}/{FOUND_MIDDLE}"), page / 2.0);
                 } else {
-                    tx.scroll_center_in_instant("thread-said", REVEALED);
+                    tx.scroll_center_in_instant("thread-said", format!("{row}/{REVEALED}"));
                 }
                 tx.wake_after(std::time::Duration::ZERO);
                 true
@@ -1343,7 +1396,7 @@ fn line_ids(said: &[Said]) -> Vec<String> {
 /// The line that stands for a long conversation's missing middle (`.thread-gap`): as wide as the
 /// column, its words faint, and dim and underlined under the pointer. A press asks for the
 /// middle whole, and what is under the line stays where it is on the screen as the middle comes
-/// in over it (`openGap`): `after` names the block under it, which the window holds in place.
+/// in over it (`openGap`): `after` names the row under it, which the window holds in place.
 fn gap_line(omitted: usize, thread: String, after: Option<String>) -> El {
     let words = text(work::conversation_gap(omitted)).font(TextStyle::new(13.0, 400.0).lh(kept(20.8))).color(muted()).group_color(dim());
     // The underline is where Chromium puts Geist's at 13 points: 15.3 points down the line, a
@@ -1353,21 +1406,16 @@ fn gap_line(omitted: usize, thread: String, after: Option<String>) -> El {
     row().w_full().mt(18.0).hover_group().cursor(rune::Cursor::Pointer).role("button").child(el().child(pen(words, 13.0)).child(under)).on_press_tx(move |s: &mut State, tx| {
         s.reading.whole.insert(thread.clone());
         if let Some(after) = &after {
-            s.reading.gap_anchor = Some(after.clone());
-            tx.keep_on_screen(GAP_ANCHOR);
+            tx.keep_on_screen(after.as_str());
         }
     })
 }
 
-/// The key of the block under the line for a long conversation's missing middle, held in place
-/// while the middle comes in.
-const GAP_ANCHOR: &str = "gap-anchor";
-
-/// The block a found line names, which says when it is laid out (a look finding it on the page)
-/// and wears the mark once found: the wash behind it and the accent two points down its left
-/// edge, as wide as the block (`[data-line].line-found`), coming and going over half a second
-/// on `ease` (`transition: background-color .5s ease, box-shadow .5s ease`).
-fn found_mark(block: El, marked: bool, looked_for: bool) -> El {
+/// The block a found line names, which wears the mark once found: the wash behind it and the
+/// accent two points down its left edge, as wide as the block (`[data-line].line-found`), coming
+/// and going over half a second on `ease` (`transition: background-color .5s ease, box-shadow
+/// .5s ease`). A point with no size halfway down it is what the page lands on.
+fn found_mark(block: El, marked: bool) -> El {
     let edge = el().pin(Some(0.0), Some(0.0), None, Some(0.0)).w(2.0).fill(accent());
     let mark = el()
         .pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
@@ -1379,83 +1427,207 @@ fn found_mark(block: El, marked: bool, looked_for: bool) -> El {
         .transition(rune::Transition::none())
         .opacity_motion(rune::Curve::tween(found::MARK_FADE_MS as f32 / 1000.0, rune::Easing::EASE))
         .key(MARK);
-    let block = col().key(REVEALED).child(mark).child(block);
-    // Told once that it is laid out, and no more: a report comes on every frame of a scroll, and
-    // each would build the page again.
-    if looked_for { block.on_layout(|s: &mut State, [_, _, _, tall]| s.found_line_drawn(tall)) } else { block }
+    // Halfway down it, a point that holds the page's middle when the line is landed on.
+    let middle = col().pin(Some(0.0), Some(0.0), None, Some(0.0)).w(0.0).justify_center().child(el().key(FOUND_MIDDLE).size(0.0, 0.0));
+    col().key(REVEALED).child(mark).child(middle).child(block)
 }
 
-/// The conversation: each thing said or done under the last, 22 points apart, with what
-/// happened drawn closer to what it follows, and each stretch of what a run ran folded to one
-/// line (`.thread`, `.thread-block` and `groupWork`).
-fn conversation(s: &State, thread: &str, page: &Page, now: f64, m: &Measure, files: &Files, key_last: bool) -> El {
+/// One row of a conversation's stack: what of it the row holds and what is decided from its
+/// neighbours, without building anything.
+struct Row {
+    /// Where it starts and ends in the page's `said`.
+    from: usize,
+    to: usize,
+    /// Its key, from the name of the first thing in it (`line_ids`), which does not change as
+    /// more is said: what the window keeps its height under.
+    key: String,
+    /// The room over it.
+    room: f32,
+    /// For a fold of what a run ran, its place among the page's folds and the name its being
+    /// open is kept under.
+    run: Option<(usize, String)>,
+    /// The line for the missing middle under it: how many it leaves out, and the row under it.
+    gap: Option<(usize, Option<String>)>,
+    /// An act of the person's joined to the one right above.
+    joined: bool,
+    /// The last message, where a person starts reading.
+    last: bool,
+}
+
+/// What a conversation's stack is built from: the conversation read, where the page starts in
+/// it, and its rows. Worked out once for each change of what is read, in one pass over what was
+/// said that builds no element; a row is built from it only when it comes near the screen.
+pub(crate) struct Plan {
+    thread: String,
+    talk: Rc<Talk>,
+    from: usize,
+    turns: Vec<(bool, bool)>,
+    ids: Vec<String>,
+    rows: Vec<Row>,
+    /// The row of each message a found line can name, by that name, the first with it
+    /// (`querySelector('[data-line="…"]')`).
+    lines: HashMap<String, usize>,
+    /// What the rows' keys are, as one number: the window reads every key again only when it
+    /// changes (`virtual_rows_version`).
+    version: u64,
+    /// What it was worked out from.
+    print: (usize, usize, Option<(usize, usize)>, bool),
+}
+
+impl Plan {
+    fn said(&self) -> &[Said] {
+        &self.talk.said[self.from..]
+    }
+    /// The row of the message a found line names.
+    fn found(&self, line: &str) -> Option<usize> {
+        self.lines.get(line).copied()
+    }
+}
+
+thread_local! {
+    /// The rows of the conversation last drawn as one: the next drawing of the same reading
+    /// keeps them, and what finds a part of the conversation by its row reads them.
+    static SHOWN: std::cell::RefCell<Option<Rc<Plan>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The key of a row of the conversation `thread` as it was last drawn, the row `which` picks.
+fn shown_row(thread: &str, which: impl FnOnce(&Plan) -> Option<usize>) -> Option<String> {
+    SHOWN.with(|shown| shown.borrow().as_ref().filter(|plan| plan.thread == thread).and_then(|plan| which(plan).map(|at| plan.rows[at].key.clone())))
+}
+
+/// A row's key from the name of the first thing in it. A key with a slash in it would be read
+/// as a path to an element inside a row (`"row/mark"`), and a line of what was run often names
+/// a path, so its slashes are written as division slashes.
+fn row_key(id: &str) -> String {
+    format!("said>{}", id.replace('/', "\u{2215}"))
+}
+
+/// The rows of the conversation the page draws: each thing said or done under the last, 22
+/// points apart, with what happened drawn closer to what it follows, and each stretch of what a
+/// run ran folded to one line (`.thread`, `.thread-block` and `groupWork`).
+fn plan(thread: &str, talk: &Rc<Talk>, page: &Page, key_last: bool) -> Rc<Plan> {
+    let print = (Rc::as_ptr(talk) as usize, page.from, page.gap, key_last);
+    // The plan kept holds its reading, so no other reading can be where that one was.
+    if let Some(plan) = SHOWN.with(|shown| shown.borrow().as_ref().filter(|p| p.thread == thread && p.print == print).cloned()) {
+        return plan;
+    }
     let said = page.said;
     let cut = page.gap.map(|(at, _)| at);
-    let turns = talk::turns(said, cut);
     let ids = line_ids(said);
-    let pictured = pictured_runs(s);
     // The last message, where a person starts reading, unless an outcome follows it.
     let last = said.iter().rposition(|e| matches!(e, Said::Message(_))).filter(|_| key_last);
-    // The message a found line names, the first one with its name, while it is looked for or
-    // marked (`querySelector('[data-line="…"]')`).
-    let revealed = s.reading.reveal.as_ref().filter(|r| r.thread == thread).and_then(|r| said.iter().position(|e| e.message().is_some_and(|m| m.line_name() == r.line)).map(|at| (at, r.marked, !r.drawn)));
-    let mut out = col();
+    let mut rows: Vec<Row> = Vec::new();
+    let mut lines = HashMap::new();
     let (mut above, mut gap_above): (Option<Holds>, bool) = (None, false);
     let mut name_above = "start".to_string();
     let (mut i, mut runs) = (0, 0);
     while i < said.len() {
         let start = i;
-        let (block, holds) = match &said[i] {
+        let (holds, run) = match &said[i] {
             Said::Work(_) => {
-                let from = i;
                 while i < said.len() && matches!(said[i], Said::Work(_)) {
                     i += 1;
                 }
-                let items: Vec<&Work> = said[from..i].iter().filter_map(|e| if let Said::Work(w) = e { Some(w) } else { None }).collect();
-                let key = format!("{thread}|run>{name_above}");
-                let open = s.reading.runs_open.contains(&key) != pictured.contains(&runs);
-                let lines: Vec<(usize, u8)> = pictured_lines(s).into_iter().filter(|(run, _, _)| *run == runs).map(|(_, line, state)| (line, state)).collect();
                 runs += 1;
-                let chips = items.iter().map(|w| s.open_item().and_then(|item| crate::change::chip(s, item, &w.file, &w.subject, mono(12.0, 19.2)))).collect();
-                (run_line(s, &items, &ids[from..i], chips, open, key, thread, &lines, m), Holds::Run)
+                (Holds::Run, Some((runs - 1, format!("{thread}|run>{name_above}"))))
             }
             Said::Message(msg) => {
                 name_above = ids[i].clone();
+                lines.entry(msg.line_name()).or_insert(rows.len());
                 i += 1;
-                let drawn = message(msg, turns[i - 1], now, m, files);
-                let drawn = if last == Some(i - 1) { drawn.key(LAST_MESSAGE) } else { drawn };
-                (drawn, if msg.same && !msg.resumed { Holds::Same } else { Holds::Msg })
+                (if msg.same && !msg.resumed { Holds::Same } else { Holds::Msg }, None)
             }
             Said::Step(st) => {
                 name_above = ids[i].clone();
                 i += 1;
-                // The person's own act is a point on its timeline, joined to one right above.
-                if st.mine { (act_line(st, now, above == Some(Holds::Act)), Holds::Act) } else { (step(st), Holds::Step) }
+                (if st.mine { Holds::Act } else { Holds::Step }, None)
             }
         };
         // Under the line for the missing middle, nothing is pulled closer.
-        let gap = match above {
+        let room = match above {
             None => 0.0,
             Some(_) if gap_above => 22.0,
             Some(a) => room(a, holds),
         };
-        // The block the line for the middle was over when it was pressed stays put as the middle
-        // comes in over it.
-        let block = if s.reading.gap_anchor.as_deref() == Some(ids[start].as_str()) { col().key(GAP_ANCHOR).child(block) } else { block };
         gap_above = cut == Some(i - 1);
-        let block = match page.gap.filter(|_| gap_above) {
-            Some((_, omitted)) => col().child(block).child(gap_line(omitted, thread.to_string(), ids.get(i).cloned())),
-            None => block,
-        };
-        let block = match revealed {
-            Some((at, marked, looked_for)) if at == start => found_mark(block, marked, looked_for),
-            _ => block,
-        };
+        let gap = page.gap.filter(|_| gap_above).map(|(_, omitted)| (omitted, ids.get(i).map(|id| row_key(id))));
+        rows.push(Row { from: start, to: i, key: row_key(&ids[start]), room, run, gap, joined: holds == Holds::Act && above == Some(Holds::Act), last: last == Some(start) });
         above = Some(holds);
-        out = out.child(block.mt(gap));
     }
-    // The page's own foot mark is one more thing in the stack, so the gap comes after the last too.
-    out.pb(22.0)
+    let version = {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        rows.iter().for_each(|r| r.key.hash(&mut h));
+        h.finish()
+    };
+    let plan = Rc::new(Plan { thread: thread.to_string(), talk: talk.clone(), from: page.from, turns: talk::turns(said, cut), ids, rows, lines, version, print });
+    SHOWN.with(|shown| *shown.borrow_mut() = Some(plan.clone()));
+    plan
+}
+
+/// One row of the conversation, built from the window as it is now: what it holds, the room
+/// over it, the line for the missing middle under it, and the found line's mark on it.
+fn said_row(s: &State, plan: &Plan, at: usize, m: &Measure, files: &Files) -> El {
+    let row = &plan.rows[at];
+    let said = &plan.said()[row.from..row.to];
+    let thread = plan.thread.as_str();
+    let block = match (&said[0], &row.run) {
+        (Said::Work(_), Some((run, key))) => {
+            let items: Vec<&Work> = said.iter().filter_map(|e| if let Said::Work(w) = e { Some(w) } else { None }).collect();
+            let open = s.reading.runs_open.contains(key) != pictured_runs(s).contains(run);
+            let lines: Vec<(usize, u8)> = pictured_lines(s).into_iter().filter(|(fold, _, _)| fold == run).map(|(_, line, state)| (line, state)).collect();
+            let chips = items.iter().map(|w| s.open_item().and_then(|item| crate::change::chip(s, item, &w.file, &w.subject, mono(12.0, 19.2)))).collect();
+            run_line(s, &items, &plan.ids[row.from..row.to], chips, open, key.clone(), thread, &lines, m)
+        }
+        (Said::Message(msg), _) => {
+            let drawn = message(msg, plan.turns[row.from], s.now, m, files);
+            if row.last { drawn.key(LAST_MESSAGE) } else { drawn }
+        }
+        // The person's own act is a point on its timeline, joined to one right above.
+        (Said::Step(st), _) if st.mine => act_line(st, s.now, row.joined),
+        (Said::Step(st), _) => step(st),
+        (Said::Work(_), None) => el(),
+    };
+    let block = match &row.gap {
+        Some((omitted, after)) => col().child(block).child(gap_line(*omitted, thread.to_string(), after.clone())),
+        None => block,
+    };
+    // The message a found line names, while it is looked for or marked.
+    let block = match s.reading.reveal.as_ref().filter(|r| r.thread == thread && plan.found(&r.line) == Some(at)) {
+        Some(r) => found_mark(block, r.marked),
+        None => block,
+    };
+    // Where the window draws it, which says how far into it the page's top is.
+    let drawn = s.reading.drawn.borrow_mut().entry(row.key.clone()).or_insert_with(|| rune::Live::new([0.0; 4])).clone();
+    col().pt(row.room).child(block).drawn_rect_into(&drawn)
+}
+
+/// How tall a row is taken to be until it is laid out: the mean of the rows of an invented long
+/// conversation and of the conversations photographed, which keeps the page's height, the sum of
+/// them, nearest to what it is (README, "A long conversation, a screen at a time").
+const ROW_ESTIMATE: f32 = 170.0;
+
+/// The conversation's stack: its rows, of which only those within two pages of the screen are
+/// built and laid out, each when it comes that near (`El::virtual_rows`). A row not yet laid out
+/// stands at `ROW_ESTIMATE`; one laid out keeps its height under its key, and its being laid out
+/// keeps the row being read where it is. Heights land at once, as a browser lays a page out.
+/// The page's own foot mark is one more thing in the stack, so the gap comes after the last too.
+fn conversation(plan: Rc<Plan>, m: Measure, files: crate::files::Owned) -> El {
+    if plan.rows.is_empty() {
+        return col().pb(22.0);
+    }
+    let (keys, seen) = (plan.clone(), plan.clone());
+    let stack = col()
+        .key("said-rows")
+        .growth(rune::GrowthSpec { spring: rune::Spring::NONE, edge: rune::edge::NO_MASK })
+        .virtual_rows(plan.rows.len(), ROW_ESTIMATE, move |_: &State, at| std::borrow::Cow::Owned(keys.rows[at].key.clone()), move |s: &State, at| said_row(s, &plan, at, &m, &Files::again(s, &files)))
+        .virtual_rows_version(seen.version)
+        // The row at the top of the page, as it changes: bookkeeping, which runs no view.
+        .on_visible_rows(move |s: &mut State, rows| {
+            s.reading.top_row = seen.rows.get(rows.start).map(|r| r.key.clone());
+            false
+        });
+    col().pb(22.0).child(stack)
 }
 
 /// Frames a second the line's loops ask for while nothing else moves: the web window's run at
@@ -2250,7 +2422,8 @@ pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
             } else {
                 // The last message is where a person starts reading: the outcome under the
                 // conversation when there is one (`lastMessageIn`).
-                blocks.push(markdown::block(0.0, 0.0, conversation(s, &thread, &page, s.now, &m, &files, talk.outcome.is_none())));
+                let rows = plan(&thread, &talk, &page, talk.outcome.is_none());
+                blocks.push(markdown::block(0.0, 0.0, conversation(rows, m, files.owned())));
                 as_conversation = true;
             }
             if let Some(answer) = &talk.outcome {
@@ -2260,6 +2433,10 @@ pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
                 blocks.push(markdown::block(top.max(28.0), bottom.max(8.0), body.key(LAST_MESSAGE)));
             }
         }
+    }
+    // A page not drawn as a conversation has no rows to find anything in.
+    if !as_conversation {
+        SHOWN.with(|shown| *shown.borrow_mut() = None);
     }
     // What the person did after the answer, under it and in order.
     if !talk.after.is_empty() {
@@ -2300,6 +2477,7 @@ pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
     // answer alone opens at its top. The person's own scrolling ends the landing, and how far
     // they scrolled is kept for coming back.
     let (scrolled, viewport) = (s.reading.scrolled.clone(), s.reading.viewport.clone());
+    let page_drawn = s.reading.drawn.borrow_mut().entry(PAGE.to_string()).or_insert_with(|| rune::Live::new([0.0; 4])).clone();
     let thread = thread.clone();
     let reading = col()
         .key(if unfolded { "thread-whole" } else { "thread-newest" })
@@ -2311,6 +2489,7 @@ pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
         // What is read stays put when something over it changes height, as a browser keeps it
         // (`overflow-anchor`), off the foot.
         .scroll_anchor()
+        .drawn_rect_into(&page_drawn)
         .on_scroll_offset(move |at| {
             scrolled.set(at.offset[1]);
             viewport.set(at.viewport[1]);
@@ -2337,6 +2516,8 @@ pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use rune::{Key, Runtime};
     use serde_json::json;
 
@@ -2588,14 +2769,15 @@ mod tests {
     }
 
     /// A line in the middle a long conversation leaves out: after six looks the conversation is
-    /// asked to draw itself whole, once, and then it is found.
+    /// asked to draw itself whole, once, and then it is found. Of sixty-one messages the page
+    /// keeps the first three and the last thirty-seven (`thread_window`), so the tenth is left out.
     #[test]
     fn a_line_left_out_of_a_long_conversation_asks_for_the_whole_of_it_once_and_is_then_found() {
         let mut rt = talk_of("found-middle", 60, false, false);
         run(&mut rt, 0.1);
         assert!(super::leaves_messages_out(&rt.state, "w-feel0", "storefront"), "drawn from its start with its middle left out");
         assert!(!rt.state.reading.whole("storefront/w-feel0"), "its middle is left out");
-        rt.state.reveal_line("w-feel0", "storefront", "l25");
+        rt.state.reveal_line("w-feel0", "storefront", "l10");
         run(&mut rt, 0.2);
         assert!(!rt.state.reading.whole("storefront/w-feel0"), "not asked before six looks");
         run(&mut rt, 0.2);
@@ -2623,6 +2805,275 @@ mod tests {
         run(&mut rt, 3.2);
         assert!(rt.state.reading.reveal.is_none() && rt.state.toast.is_none());
         assert!(!rt.state.reading.whole("storefront/w-feel0"), "a conversation that leaves nothing out is not asked");
+    }
+
+    /// How many rows the conversation on screen has in all.
+    fn rows_in_all() -> usize {
+        super::SHOWN.with(|p| p.borrow().as_ref().map_or(0, |p| p.rows.len()))
+    }
+
+    /// The invented inbox's first thread as `rounds` turns of the person asking and a run
+    /// answering: each run reads the code history and searches for a name, folded to one line,
+    /// then says a few sentences. Its earlier messages are unfolded and its middle asked for.
+    fn long_with_runs(name: &str, rounds: usize) -> Runtime<State> {
+        window_dressed(name, &["--thread", "w-feel0"], "/fixtures/storefront", "Done.", move |fixture| {
+            let asked = fixture["snapshot"]["items"][0]["createdAt"].as_f64().unwrap();
+            let stamp = |ms: f64| {
+                let s = (ms / 1000.0) as i64;
+                format!("{:02}:{:02}:{:02}", (s / 3600) % 24, (s / 60) % 60, s % 60)
+            };
+            let mut lines = vec![json!({ "ts": asked, "source": "founder", "uid": "l0", "patch": { "title": "Invented thread number 0", "body": "Look into the checkout.", "status": "open" } })];
+            let mut sessions = Vec::new();
+            for r in 0..rounds {
+                let at = asked + (r as f64 + 1.0) * 600_000.0;
+                if r > 0 {
+                    lines.push(json!({ "ts": at - 60_000.0, "source": "founder", "uid": format!("a{r}"), "patch": { "answer": format!("Question number {r}: and the totals?"), "status": "open" } }));
+                }
+                lines.push(json!({ "ts": at + 1_000.0, "source": "agent", "epoch": r + 1, "claim": { "holder": format!("mcp-{r}") }, "patch": { "status": "claimed" } }));
+                let mut log = vec!["# Invented thread number 0".to_string(), "# w-feel0 · spawned".to_string(), String::new()];
+                log.push(format!("{}  [Bash] git log --oneline -8", stamp(at + 5_000.0)));
+                log.push(format!("#id t{r}a"));
+                log.push(format!("#out t{r}a 8"));
+                log.extend((1..=8).map(|n| format!("#| a{n}b2c3 Change number {n}")));
+                log.push(format!("{}  [Grep] roundTax", stamp(at + 9_000.0)));
+                log.push(format!("#id t{r}b"));
+                log.push(format!("#out t{r}b 2"));
+                log.push("#| src/tax.ts:12".to_string());
+                log.push("#| src/total.ts:40".to_string());
+                sessions.push(json!({ "startedAt": at, "text": log.join("\n") }));
+                lines.push(json!({ "ts": at + 60_000.0, "source": "agent", "epoch": r + 1, "uid": format!("n{r}"), "patch": { "note": format!("Answer number {r}: the totals are added up before the tax is rounded, which is where the cent goes missing on large carts.\n\nThe fix is small and the tests pass."), "status": "blocked" } }));
+            }
+            fixture["snapshot"]["items"][0]["status"] = json!("open");
+            let traces = json!({ "ok": true, "sessions": sessions });
+            fixture["threads"] = json!({ "storefront/w-feel0": { "zero:item-history": { "ok": true, "lines": lines }, "zero:session-trace": traces.clone(), "zero:session-trace/whole": traces } });
+            fixture["unfolded"] = json!(["storefront/w-feel0"]);
+        })
+    }
+
+    /// Only the rows within two pages of the screen are built: of a conversation of two hundred
+    /// messages, opened on its foot, the rows near the top have no elements, and the window lays
+    /// out a fraction of what the whole would take.
+    #[test]
+    fn rows_far_from_the_page_are_not_built() {
+        let mut rt = long_talk("rows-built", 200, true);
+        run(&mut rt, 0.5);
+        let (built, all) = (rows(&rt).len(), rows_in_all());
+        assert!(all > 190, "{all} rows");
+        assert!(built < all / 3, "{built} rows built of {all}");
+        let words: Vec<String> = rt.elements().iter().filter_map(|e| e.text.clone()).collect();
+        assert!(!words.iter().any(|t| t.starts_with("Message number 5,")), "a message near the top is not built");
+        assert!(words.iter().any(|t| t.starts_with("Message number 199,")), "the foot is");
+        assert!(rt.stats.layout_nodes < 1_000, "{} nodes laid out", rt.stats.layout_nodes);
+    }
+
+    /// A found line whose row is far from the screen, and so not built, is reached in one jump
+    /// and brought to the middle of the page, as one near it is.
+    #[test]
+    fn a_found_line_far_from_the_screen_is_reached_and_centred() {
+        let mut rt = long_talk("found-far", 200, true);
+        run(&mut rt, 0.5);
+        let built = |rt: &Runtime<State>| rt.elements().iter().any(|e| e.text.as_deref().is_some_and(|t| t.starts_with("Message number 7,")));
+        assert!(!built(&rt), "not built before");
+        rt.state.reveal_line("w-feel0", "storefront", "l7");
+        run(&mut rt, 0.15);
+        let r = rt.state.reading.reveal.as_ref().expect("still on");
+        assert!(r.found_at.is_some() && r.marked, "found at the first look: {r:?}");
+        let block = rect_of(&rt, super::REVEALED).expect("the found line's block, built");
+        let page = rect_of(&rt, "thread-whole").expect("the page");
+        let (middle, of_page) = (block[1] + block[3] / 2.0, page[1] + page[3] / 2.0);
+        assert!((middle - of_page).abs() < 1.5, "in the middle of the page: {block:?} in {page:?}");
+        assert!(built(&rt));
+        // And held there as the rows around it are laid out.
+        run(&mut rt, 0.5);
+        assert!((rect_of(&rt, super::REVEALED).unwrap()[1] - block[1]).abs() < 0.5);
+    }
+
+    /// `tests/coming-back-to-a-thread-puts-you-where-you-were.test.mts`, on a long conversation:
+    /// scrolled far up, left and opened again, the same line stands at the same place on the
+    /// page, though the rows between it and the foot were never laid out on coming back.
+    #[test]
+    fn a_long_conversation_is_put_back_on_the_line_it_was_left_at() {
+        let mut rt = long_talk("place-long", 200, true);
+        run(&mut rt, 0.5);
+        for _ in 0..30 {
+            rt.wheel_xy(640.0, 400.0, 0.0, 600.0);
+            run(&mut rt, 0.05);
+        }
+        run(&mut rt, 0.3);
+        let page = rect_of(&rt, "thread-whole").unwrap();
+        // The first message whose words start under the page's top, and where.
+        let first = |rt: &Runtime<State>| {
+            let mut seen: Vec<(String, f32)> = rt.elements().into_iter().filter_map(|e| Some((e.text.clone().filter(|t| t.starts_with("Message number"))?, e.rect[1]))).filter(|(_, y)| *y >= page[1]).collect();
+            seen.sort_by(|a, b| a.1.total_cmp(&b.1));
+            seen.into_iter().next().expect("a message on the page")
+        };
+        let (words, y) = first(&rt);
+        assert!(!words.starts_with("Message number 19"), "scrolled well up: {words}");
+        rt.state.leave_thread();
+        run(&mut rt, 0.1);
+        let kept = rt.state.picks.get().thread_places.iter().find(|p| p.thread == "storefront/w-feel0").cloned().expect("a place kept");
+        assert!(kept.row.is_some() && kept.into.is_some() && kept.top.is_some(), "{kept:?}");
+        rt.state.open_thread("w-feel0", "storefront");
+        run(&mut rt, 0.5);
+        let (back, back_y) = first(&rt);
+        assert_eq!(back, words, "the same line");
+        assert!((back_y - y).abs() < 1.5, "at the same place: {back_y} for {y}");
+        // A place written before rows were kept is its offset, as it was.
+        rt.state.leave_thread();
+        run(&mut rt, 0.1);
+        rt.state.picks.change(|p| p.thread_places.iter_mut().for_each(|k| (k.row, k.into, k.top) = (None, None, Some(400.0))));
+        rt.state.open_thread("w-feel0", "storefront");
+        run(&mut rt, 0.1);
+        assert!(matches!(rt.state.reading.landing.as_ref().map(|l| &l.2), Some(super::Back::Offset(400.0))));
+    }
+
+    /// The last message of a long conversation, taller than the window, is landed on 20 points
+    /// over its top as before, and one that fits rests over the reply box.
+    #[test]
+    fn a_long_conversation_lands_on_its_last_message_as_before() {
+        let long = (0..80).map(|n| format!("Line {n} of a long reply.")).collect::<Vec<_>>().join("\n");
+        let mut rt = window_dressed("lands-long", &["--thread", "w-feel0"], "/fixtures/storefront", "Done.", move |fixture| {
+            let asked = fixture["snapshot"]["items"][0]["createdAt"].as_f64().unwrap();
+            let mut lines = vec![json!({ "ts": asked, "source": "founder", "uid": "l0", "patch": { "title": "Invented thread number 0", "body": "Message number 0.", "status": "open" } })];
+            for n in 1..120 {
+                let (source, field) = if n % 2 == 1 { ("agent", "result") } else { ("founder", "answer") };
+                lines.push(json!({ "ts": asked + n as f64 * 60_000.0, "source": source, "uid": format!("l{n}"), "patch": { field: format!("Message number {n}, said at some length so that it wraps.") } }));
+            }
+            lines.push(json!({ "ts": asked + 200.0 * 60_000.0, "source": "founder", "uid": "l-last", "patch": { "answer": long } }));
+            fixture["snapshot"]["items"][0]["status"] = json!("open");
+            fixture["threads"] = json!({ "storefront/w-feel0": { "zero:item-history": { "ok": true, "lines": lines }, "zero:session-trace": { "ok": true, "sessions": [] } } });
+            fixture["unfolded"] = json!(["storefront/w-feel0"]);
+        });
+        run(&mut rt, 0.5);
+        let message = rect_of(&rt, super::LAST_MESSAGE).expect("the last message");
+        let strip = crate::chrome::page_top(&rt.state.view);
+        assert!((message[1] - (strip + 20.0)).abs() < 1.5, "lands 20 points over its top: {message:?} under {strip}");
+        assert!(rows(&rt).len() < rows_in_all() / 3);
+        let mut rt = long_talk("lands-long-short", 200, true);
+        run(&mut rt, 0.5);
+        let message = rect_of(&rt, super::LAST_MESSAGE).expect("the last message");
+        assert!(message[1] > strip + 20.0 && message[1] + message[3] < rt.state.size.1, "{message:?}");
+    }
+
+    /// ⌘A and ⌘C on a long conversation copy all of it, as the web window's page does, the rows
+    /// far from the screen among them: Rune reads their words as it copies, and builds none.
+    #[test]
+    fn select_all_and_copy_take_the_whole_of_a_long_conversation() {
+        let mut rt = long_talk("copy-long", 200, true);
+        run(&mut rt, 0.5);
+        let clip = rune::clipboard::memory();
+        rt.use_clipboard(&clip);
+        let built = rows(&rt).len();
+        assert!(built < rows_in_all() / 3, "{built} rows built");
+        for letter in ['a', 'c'] {
+            rt.key(rune::KeyEvent { key: Key::Command(letter), mods: rune::Mods { cmd: true, ..Default::default() } });
+            rt.frame(1.0 / 60.0);
+        }
+        let copied = clip.text().map(|t| t.to_string()).unwrap_or_default();
+        for said in ["Message number 0, the ask.", "Message number 1,", "Message number 100,", "Message number 199,", "Thanks."] {
+            assert!(copied.contains(said), "{said:?} is not in what was copied ({} letters)", copied.len());
+        }
+        // In the order they were said, and with no more rows on the page for it.
+        assert!(copied.find("Message number 1,") < copied.find("Message number 100,") && copied.find("Message number 100,") < copied.find("Message number 199,"));
+        assert!(rows(&rt).len() <= built + 3, "{} rows built after copying", rows(&rt).len());
+    }
+
+    /// A run's fold pressed open in the middle of a long conversation, and shut again: the fold's
+    /// line stays where it was on the page, and so does the row at the top.
+    #[test]
+    fn folding_and_unfolding_keeps_the_readers_line() {
+        let mut rt = long_with_runs("fold-keeps", 40);
+        run(&mut rt, 0.5);
+        for _ in 0..12 {
+            rt.wheel_xy(640.0, 400.0, 0.0, 500.0);
+            run(&mut rt, 0.05);
+        }
+        run(&mut rt, 0.3);
+        let page = rect_of(&rt, "thread-whole").unwrap();
+        let middle = page[1] + page[3] / 2.0;
+        let heads = |rt: &Runtime<State>| -> Vec<[f32; 4]> { rt.elements().into_iter().filter(|e| e.text.as_deref().is_some_and(|t| t.starts_with("Read the code history"))).map(|e| e.rect).collect() };
+        let head = heads(&rt).into_iter().min_by(|a, b| (a[1] - middle).abs().total_cmp(&(b[1] - middle).abs())).expect("a fold on the page");
+        let top = rows(&rt).into_iter().filter(|(_, r)| r[1] + r[3] > page[1]).min_by(|a, b| a.1[1].total_cmp(&b.1[1])).expect("a row at the top");
+        press(&mut rt, head[0] + 4.0, head[1] + head[3] / 2.0);
+        run(&mut rt, 0.3);
+        assert_eq!(rt.state.reading.runs_open.len(), 1, "open");
+        assert!(rt.elements().iter().any(|e| e.text.as_deref() == Some("read the code history") && (e.rect[1] - head[1]).abs() < 60.0), "its lines under it");
+        let at = |rt: &Runtime<State>| heads(rt).into_iter().min_by(|a, b| (a[1] - head[1]).abs().total_cmp(&(b[1] - head[1]).abs())).unwrap();
+        assert!((at(&rt)[1] - head[1]).abs() < 0.5, "the fold's line stays: {:?} for {head:?}", at(&rt));
+        assert!(rows(&rt).iter().any(|(k, r)| *k == top.0 && (r[1] - top.1[1]).abs() < 0.5), "the row at the top stays");
+        press(&mut rt, head[0] + 4.0, head[1] + head[3] / 2.0);
+        run(&mut rt, 0.3);
+        assert!(rt.state.reading.runs_open.is_empty(), "shut");
+        assert!((at(&rt)[1] - head[1]).abs() < 0.5, "the fold's line stays shut");
+        assert!(rows(&rt).iter().any(|(k, r)| *k == top.0 && (r[1] - top.1[1]).abs() < 0.5), "the row at the top stays");
+    }
+
+    /// The line for a long conversation's missing middle pressed: the middle comes in over it,
+    /// and the row that stood under the line stays where it was on the page (`openGap`).
+    #[test]
+    fn the_row_under_the_missing_middle_stays_put_as_the_middle_comes_in() {
+        let mut rt = talk_of("gap-keeps", 60, false, false);
+        run(&mut rt, 0.5);
+        // Up to the top of the page, where the line for the middle is.
+        for _ in 0..40 {
+            rt.wheel_xy(640.0, 400.0, 0.0, 800.0);
+            run(&mut rt, 0.03);
+        }
+        run(&mut rt, 0.3);
+        let gap = rt.elements().into_iter().find(|e| e.text.as_deref().is_some_and(|t| t.contains("messages in between"))).expect("the line for the middle").rect;
+        // The row of the first message after the cut, the twenty-fifth: its words move up as
+        // it stops opening a turn of the person's with the cut gone, and its row holds.
+        let key = super::shown_row("storefront/w-feel0", |plan| plan.found("l24")).expect("its row");
+        let under = |rt: &Runtime<State>| rows(rt).into_iter().find(|(k, _)| *k == key).map(|(_, r)| r[1]);
+        let was = under(&rt).expect("the message under the line");
+        press(&mut rt, gap[0] + 4.0, gap[1] + gap[3] / 2.0);
+        run(&mut rt, 0.5);
+        assert!(rt.state.reading.whole("storefront/w-feel0"), "the middle asked for");
+        let now = under(&rt).expect("the message under the line, still on the page");
+        assert!((now - was).abs() < 1.5, "stays put: {now} for {was}");
+        assert!(rt.elements().iter().any(|e| e.text.as_deref().is_some_and(|t| t.starts_with("Message number 23,"))), "the middle is in over it");
+    }
+
+    /// The rows of the conversation on screen, by key, where they are drawn.
+    fn rows(rt: &Runtime<State>) -> Vec<(String, [f32; 4])> {
+        rt.elements().into_iter().filter_map(|e| Some((e.key.clone().filter(|k| k.starts_with("said>"))?, e.rect))).collect()
+    }
+
+    /// `MERCURY_ROWS="<fixture>; <fixture>…" cargo test how_tall_rows_are -- --ignored
+    /// --nocapture`: each conversation opened at 1920 by 1050, wheeled from its foot to its top,
+    /// every row's height as it is laid out, and how tall the page was taken to be before and
+    /// after, which is how far the scroll bar's thumb moves as rows are measured
+    /// (`ROW_ESTIMATE`).
+    #[test]
+    #[ignore]
+    fn how_tall_rows_are() {
+        let spec = std::env::var("MERCURY_ROWS").expect("MERCURY_ROWS names the fixtures");
+        let mut all = Vec::new();
+        for path in spec.split(';').map(str::trim).filter(|s| !s.is_empty()) {
+            let s = crate::init_from(&["--fixture".to_string(), path.to_string(), "--thread".to_string()]);
+            let text = rune::text::TextSystem::new(crate::FONTS, ("Geist", "Geist Mono, ui-monospace"));
+            let mut rt = Runtime::with_text(s, crate::view, (1920.0, 1050.0), rune::Env::new(true, 2.0), text);
+            rt.poll = Some(crate::poll);
+            run(&mut rt, 0.5);
+            let page = |rt: &Runtime<State>| rect_of(rt, "thread-said").map_or(0.0, |r| r[3]);
+            let before = page(&rt);
+            let mut seen: HashMap<String, f32> = HashMap::new();
+            for _ in 0..400 {
+                for (k, r) in rows(&rt) {
+                    seen.insert(k, r[3]);
+                }
+                rt.wheel_xy(960.0, 500.0, 0.0, 400.0);
+                run(&mut rt, 0.05);
+            }
+            let count = super::SHOWN.with(|p| p.borrow().as_ref().map_or(0, |p| p.rows.len()));
+            let mut h: Vec<f32> = seen.values().copied().collect();
+            h.sort_by(f32::total_cmp);
+            let mean = h.iter().sum::<f32>() / h.len().max(1) as f32;
+            println!("{path}: {} rows of {count} laid out, median {:.0}, mean {mean:.0}, least {:.0}, most {:.0}; the page {before:.0} tall as it opened, {:.0} once every row was laid out", h.len(), h.get(h.len() / 2).unwrap_or(&0.0), h.first().unwrap_or(&0.0), h.last().unwrap_or(&0.0), page(&rt));
+            all.extend(h);
+        }
+        all.sort_by(f32::total_cmp);
+        println!("all {} rows: median {:.0}, mean {:.0}", all.len(), all[all.len() / 2], all.iter().sum::<f32>() / all.len() as f32);
     }
 
     /// `tests/opening-a-thread-lands-where-a-person-starts-reading.test.mts`, in the window: a last

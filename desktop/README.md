@@ -2275,7 +2275,9 @@ what is in one and how it is asked for). The page reads them as the web window d
   themselves (the wheel is their hand). Coming back puts all of it back while the thread's newest
   answer is the one it had when it was left, and reaches for the scrolled place while the page
   settles; with news since, it opens as new. The newest fifty are written down with this window's
-  picks, so they outlast a restart, as the web window's do.
+  picks, so they outlast a restart, as the web window's do. On a conversation the scrolled place
+  is kept as the row at the top of the page and how far into it, beside the offset (see "A long
+  conversation, a screen at a time").
 - A conversation drawn as one (unfolded, from the answer an agent is working from, or short
   enough to be drawn whole) lands where a person starts reading (`holdAtBottom`, `landingTop`): 20
   points over the top of its last message, the outcome when there is one, or at its foot when that
@@ -2533,11 +2535,132 @@ rest (5.36 to 1.51 over them). The Inbox is 0.265 and 0.266, its strip's buttons
 scrolled, and a window half way through being dragged larger, the soft sky before it was
 saturated and Rune's blur were within 12 of 255 everywhere.
 
+## A long conversation, a screen at a time
+
+A conversation unfolded onto its earlier messages was laid out whole: 5,005 elements on one long
+real conversation where 1,160 stood as it opened, 59 MB more, and a commit about 20 ms at the 95th
+percentile where the folded one costs 5. Now only the part near the screen is built.
+
+**How.** The conversation is a stack of rows built by index (`El::virtual_rows`, `conversation`
+in `src/thread.rs`). A row is one block of the page as before: a message, a line of the app's,
+an act of the person's, or a run's stretch of steps folded to one line, with the room over it as
+its own top padding (the stack's own gap is one number, and the rooms between blocks are not)
+and, on the block over the cut of a long conversation, the line for the missing middle under it.
+Once for each change of what is read, one pass over what was said decides the rows without
+building anything (`plan`): which entries each holds, the room over it, its fold's place and name,
+the line for the middle, the last message and which row holds each message a found line can name.
+Rune then calls the builder (`said_row`) only for the rows within two pages of the screen, from
+the window's state and that plan, and reads every row's key again only when the plan's keys
+change (`virtual_rows_version`). A row is named by the first thing in it (`line_ids`, with its
+slashes written as division slashes, so a row's key is never read as a path into it), and a name
+does not change as more is said, so a row laid out keeps its height. Heights land at once
+(`GrowthSpec` with `Spring::NONE` and no mask), as the browser lays a page out.
+
+Everything that finds a part of the conversation reaches a row that is not built:
+
+- The landing on the last message asks for `"<row>/last-message"`, which builds its row first,
+  and then for `last-message` itself, which wins wherever it is built.
+- A found line is on the page as soon as its message is in the plan, as the web window's is in
+  its document; it is landed on as `"<row>/found-line-middle"` at half the page's height: a point
+  with no size halfway down the block, so the block is centred however tall it is, in one jump
+  that builds its row. Before, the window waited for the block to report itself laid out, and a
+  message of a long conversation's kept end that was off the screen never did, so the window asked
+  for the whole conversation and found it after; the web window finds it at once, and so does this
+  one now (the test that asked for one such line now asks for one the cut leaves out).
+- The line for the missing middle holds the row under it (`Tx::keep_on_screen` with its key).
+- The folds a place brings back are the window's state, which a row reads as it is built.
+
+**Where the person was.** The web window keeps how far the conversation was scrolled. Over rows
+never laid out an offset is a guess: coming back, the rows above the place stand at the estimate
+and the same offset lands on another line. So the place is kept as the row at the top of the
+page and how far the page's top was into it (`ThreadPlace::row`, `into`), and brought back with
+`Tx::scroll_key_to(row, -into)`, which builds the row and puts it there exactly, whatever stands
+above it. The stack says which row is at the top as it changes (`on_visible_rows`, bookkeeping that
+runs no view) and Rune writes where it draws each row and the page (`drawn_rect_into`, which runs
+no handler), so leaving reads both. The offset is kept beside them, and a place written before,
+which has the offset alone, is brought back by it as it was; so is a page not drawn as a
+conversation, which is laid out whole.
+
+**The estimate.** A row never laid out stands at 170 points (`ROW_ESTIMATE`). Measured with
+`MERCURY_ROWS="<fixture>; …" cargo test how_tall_rows_are -- --ignored --nocapture` on the
+invented long conversation below and five photographed conversations at 1920 by 1050: 194 rows,
+from 28 to 1,747 points, the middle one 75, the mean 170. The sum of the rows not yet laid out is
+what the page is taken to be, so the mean keeps the page's height nearest: the long conversation
+opens taken to be 28,595 points tall and is 29,721 once every row has been laid out (3.8% short,
+its earlier rows being the taller). The scroll bar's thumb is that much longer at first, and as
+rows above the screen are laid out its place moves by the difference each makes, all of it
+together 3.8% of the track, at most 5.3% for the tallest row (a picture of 1,747 points), while
+what is read stays where it is.
+
+**Measured** on an invented long conversation (`/tmp`, made from `thread-steps-fixture.json` by a
+script: 35 rounds of a question, a run of two to five steps and an answer with lists, tables, code
+and headings, about 140 messages in 174 rows, twelve PNG pictures), unfolded, 1920 by 1050 at 2x,
+headless, a release build with `--features rune/tooling`: `--realtime --frames 240 --fps 30` at
+rest, and `--frames 480` with a `--script` of twelve swipes of 3,000 points up to the title, then
+twelve back to the foot; `footprint <pid>` read every half second. Two runs each:
+
+| | Before | After |
+|---|---|---|
+| Layout nodes at rest | 2,172 | 564 |
+| Layout nodes, wheeled through and back | 2,172 | 608 |
+| Footprint at rest, settled | 257, 258 MB | 193, 193 MB |
+| Footprint, the most while opening | 342, 345 MB | 280, 278 MB |
+| Footprint, wheeled through: the most, at the end | 380 and 284, 381 and 285 MB | 375 and 279, 367 and 278 MB |
+| At rest, frame cpu p50, p95 | 0.78, 3.63; 0.62, 3.40 ms | 0.44, 1.57; 0.52, 1.07 ms |
+| At rest, forced cpu p50, p95 | 0.77, 3.62; 0.62, 3.33 ms | 0.43, 1.55; 0.51, 1.02 ms |
+| Wheeled, frame cpu p50, p95 | 1.28, 9.50; 1.43, 10.12 ms | 0.56, 5.10; 0.70, 5.68 ms |
+| Wheeled, animating frames p95 | 9.82, 12.15 ms | 8.13, 9.27 ms |
+| Wheeled, forced cpu p95 | 9.28, 9.22 ms | 4.47, 4.44 ms |
+| The first frame, which is every run's max | 94, 98; 81, 83 ms | 86, 84; 70, 75 ms |
+
+Rune's printed max is the first frame, so the frames after it were read one by one from a build
+with `rune/frame-profile` (`RUNE_FRAME_LOG=<file>`), three wheeled runs each, the first frame left
+out: p95 11.19, 9.83, 10.32 ms before and 9.85, 7.23, 7.28 after; the slowest frame 21.8, 24.5,
+21.1 ms before and 13.8, 15.1, 14.2 after. The view runs more often while rows are first laid out
+(108 frames of 479 against 46): the page's foot is rounded to a device pixel from the page's
+height (`layout_size("thread-said")`), which changes as each row replaces its estimate; each of
+those runs builds only the rows near the screen. The pages with no long conversation are what
+they were: the conversation folded to its newest answer lays out the same 166 nodes.
+
+And on the long real conversation the first paragraph speaks of, read through a door that
+passes reads on and nothing else, the same way (its fold wheeled into sight and pressed; then 150
+steps of 120 points down and 150 back):
+
+| | Before | After |
+|---|---|---|
+| Layout nodes, unfolded | 5,158 | 1,475 |
+| Footprint unfolded, settled | 275 to 283 MB | 214 to 222 MB |
+| Unfolded at rest, frame cpu p50, p95 | 2.41, 22.06 ms | 1.12, 4.64 ms |
+| Wheeled, frame cpu p50, p95 | 2.44, 21.90 ms | 1.05, 8.33 ms |
+| Wheeled, animating frames p50, p95 | 20.05, 21.18 ms | 4.36, 10.56 ms |
+| Footprint wheeled, the most and at the end | 360 and 285 MB | 309 and 235 MB |
+
+Folded it stands at 208 MB in both, so unfolding it costs about 10 MB where it cost 70. As it
+opens it draws the same to the pixel; unfolded, 0.53 of 255 apart over the window, the words a
+fraction of a device pixel from where they were.
+
+To measure again: build as above, make a long fixture (its `threads` holding the ledger and the
+runs' logs, `unfolded` naming it), and run the same lines with `footprint` beside them; the
+pictures say which build drew which.
+
+**What a person sees.** The seven conversation scenes of the comparison above (`thread`,
+`-folded`, `-found-line`, `-options`, `-pictures-large`, `-steps`, `-working`) and `thread-found-line`
+at 1.5 s, `thread-steps` at 1600 by 1000, `thread` at 900 by 760 and the long conversation folded
+draw the same to the pixel as before, and the long one wheeled to its title does too. Where rows
+above the screen have not been laid out, what is drawn lands within a device pixel of where it
+was (see what still differs).
+
+Tests: `rows_far_from_the_page_are_not_built`, `a_found_line_far_from_the_screen_is_reached_and_centred`,
+`a_long_conversation_is_put_back_on_the_line_it_was_left_at`,
+`a_long_conversation_lands_on_its_last_message_as_before`, `folding_and_unfolding_keeps_the_readers_line`
+and `the_row_under_the_missing_middle_stays_put_as_the_middle_comes_in`, beside the earlier ones.
+
 ## What the allocator keeps
 
 The installed window was seen past 700 MB in a day's use where 275 to 350 MB was its ordinary
 figure. What does it is a conversation's earlier messages unfolded: the conversation is then
-laid out whole (7,923 elements where 232 stood) and the pictures the budget allows are read,
+laid out whole (7,923 elements where 232 stood; since, only the part near the screen is, "A long
+conversation, a screen at a time") and the pictures the budget allows are read,
 each read whole to be shrunk to the size it is drawn at. Measured headless on such a
 conversation (53 pictures, `[{"t": 1.5, "type": "tap", "key": "thread-earlier"}]` as the
 `--script`, `--realtime`, 1920 by 1050 at 2x, the footprint read every third of a second), it
@@ -2609,6 +2732,50 @@ Two things to know when measuring. A test window opened without coming forward
 (`RUNE_OPEN_INACTIVE=1`) draws nothing while another window covers it whole, since macOS calls
 it occluded and Rune stops: open it at a size the window in front leaves some of in sight. And
 a window that is hidden keeps its drawables (92 MB at this size) for as long as it lives.
+
+### What a launch passes through
+
+A window just opened stands for a second or two at well over what it settles to. Measured on a
+test window of the release build, opened without coming forward on Home at 1512 by 949 points
+at 2x, through a door that passes reads on and nothing else, `footprint <pid>` every tenth of a
+second:
+
+| Seconds after it starts | Footprint | Of that |
+|---|---|---|
+| 0.7 | 28 MB | the program alone, before its window |
+| 0.8 to 2.0 | 329, then 379, then 422 MB | 214 to 250 MB of graphics the driver owns: 66 are Home's own pictures, the rest two of its working pools at once, 26 and 20 blocks of 4 MiB; 67 MB of drawables, three of them; 48 MB of the program's own |
+| 2.2 to 2.9 | 238, then 233 MB | the pools taken back a second after the first frames |
+| 3.0 to 4.0 | 339 MB | what the door answered lands and is drawn: one pool again, for a second |
+| from 4.4 | 233 MB | Home at rest at this size |
+
+All of what is passed through is the driver's, lent while frames come and taken back a second
+after the last: 184 MB of the 189 between the most and the rest. The program's own part does
+not rise and fall with it, and the skies, the one large thing it makes as it starts, take 15 to
+20 ms to paint, all four (5 to 8 for Home's alone). There is nothing of the window's to trim
+from a launch.
+
+### Home's sky, while Home is the page
+
+What that measuring did find is at rest. Home's sky is as large as the card (3,632 by 1,976
+pixels for a window of 1920 by 1050 points, 29 MB), and it was painted as the window started
+and at every new size and held from then on, whichever page was shown: a window that shows a
+conversation all day held it all day. It is held now while Home is the page and for ten seconds
+after (`HOME_SKY_KEPT`, for a person who comes straight back), let go then, and painted again
+as Home next becomes the page (`State::home_sky_for_home`, called where the page changes, so
+Home's first frame has its sky as it always had; `tend_the_home_sky` in `poll` lets it go, on a
+wake asked for once). The Inbox's band and its soft copy, which the Inbox and Files draw, stay.
+
+| A conversation at 1920 by 1050, headless, at rest | Before | After |
+|---|---|---|
+| Footprint, 4 s after it opens | 191 MB | 191 MB |
+| Footprint, 14 s after | 191 MB | 163 MB |
+| Of it, large allocations | 30 MB | 2.7 MB |
+
+Home, the Inbox, Files and a conversation draw the same to the pixel as before, at 1280 by 760
+and Home at 1920 by 1050 too; and Home come back to after twelve seconds on the Inbox (its sky
+let go and painted again) is the same picture, pixel for pixel, as the build before draws after
+the same trip. The sky itself is the same to the byte
+(`homes_sky_is_held_only_while_home_is_the_page_or_was_a_moment_ago`).
 
 ## What moves on its own
 
@@ -2979,6 +3146,24 @@ the films' folder by `MERCURY_FILM_ROOT`.
   1679.86 at 1680, where this window stops at 1435.5 and 1679.5). No one rounding of the height
   alone gives all of them. `thread` at 1600 by 1000 is 1.12 for it, and `thread-reply-attached`
   0.83 at 1280 by 760.
+- **A long conversation, where it still differs** (see "A long conversation, a screen at a
+  time"):
+  - Text with rows above it that have not been laid out can stand a fraction of a device pixel
+    from where the whole page put it, so its glyphs' edges differ (0.27 to 0.63 of 255 on the
+    invented long conversation at its foot, at a found line and part way up; none once the page
+    is at its title). Where a line lands depends on the heights over it, and a row not laid out
+    has the estimate's whole number of points where its own height has a fraction; the foot's
+    rounding to a device pixel reads the page's height, estimates and all.
+  - The scroll bar's thumb stands for a page of estimated height: 3.8% short on the invented
+    conversation, and it moves by the difference as rows above the screen are laid out, what is
+    read staying put. The browser knows every height.
+  - Tab and assistive technology see only the rows built, those within two pages of the screen,
+    as Rune says of `El::virtual_rows`; the rest of a long conversation is not in the window
+    until it comes near. Selecting and copying are not cut short by it: ⌘A then ⌘C on a long
+    conversation copies all of it in order, as the web window's page does, Rune reading the
+    words of the rows not built as it copies and building none
+    (`select_all_and_copy_take_the_whole_of_a_long_conversation`). Not tried: a selection
+    dragged by hand past two pages.
 - **Under the pointer, where it still differs** (see "How it answers the pointer and the hands"):
   - The I-beam shows over the whole box of a run of words, past the last word of a short line too,
     where the web window's shows it over the words' lines only: Rune finds selectable words by
