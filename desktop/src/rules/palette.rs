@@ -105,6 +105,9 @@ pub enum Does {
     KeyHints(bool),
     /// Opens the code its run changed beside the conversation.
     Code(Thread),
+    /// Opens the thread something was found inside, at the line or with the file open
+    /// (`openInside`).
+    Found(super::found::Open),
 }
 
 /// "View code changes", on the open conversation while its page draws the code button
@@ -1068,22 +1071,26 @@ pub fn listed(commands: Vec<Row>, threads: Vec<Row>, query: &str) -> Listed {
 
 /// One key for each row, in order, unique even when two rows share an id (`commandKeys`).
 pub fn row_keys(rows: &[Row]) -> Vec<String> {
+    keys_of(rows.iter().map(|row| row.id.as_str()))
+}
+
+/// The same, of the rows' ids.
+pub fn keys_of<'a>(ids: impl Iterator<Item = &'a str>) -> Vec<String> {
     let mut seen: Vec<(&str, usize)> = Vec::new();
-    rows.iter()
-        .map(|row| {
-            let n = match seen.iter_mut().find(|(id, _)| *id == row.id) {
-                Some((_, n)) => {
-                    *n += 1;
-                    *n
-                }
-                None => {
-                    seen.push((row.id.as_str(), 0));
-                    0
-                }
-            };
-            if n > 0 { format!("{}#{n}", row.id) } else { row.id.clone() }
-        })
-        .collect()
+    ids.map(|id| {
+        let n = match seen.iter_mut().find(|(seen, _)| *seen == id) {
+            Some((_, n)) => {
+                *n += 1;
+                *n
+            }
+            None => {
+                seen.push((id, 0));
+                0
+            }
+        };
+        if n > 0 { format!("{id}#{n}") } else { id.to_string() }
+    })
+    .collect()
 }
 
 /// Where the picked row is now: the first row when it is gone or none was picked, and nowhere

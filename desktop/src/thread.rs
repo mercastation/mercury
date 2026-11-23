@@ -28,7 +28,7 @@ use crate::markdown::{self, Block};
 use crate::rules::format::{self, Choice};
 use crate::rules::notes::TraceSession;
 use crate::rules::thread_files::{self, ThreadFile};
-use crate::rules::{live, place, work};
+use crate::rules::{found, live, place, work};
 use crate::talk::{self, Answers, Field, Line, Message, Page, Said, Saying, Step, Talk, Work};
 use crate::theme::*;
 use crate::{State, View, chrome, icons, reply, strip};
@@ -89,7 +89,32 @@ pub struct Reading {
     /// The block, by its line's name, under the line for a long conversation's missing middle
     /// when that line was pressed: it is held in place as the middle comes in (`openGap`).
     gap_anchor: Option<String>,
+    /// A line found from the command bar, looked for in its conversation, then brought to the
+    /// middle of the page and marked for a moment (`revealLine`).
+    reveal: Option<Reveal>,
 }
+
+/// The looking for one found line, and its mark once found.
+#[derive(Debug)]
+pub struct Reveal {
+    /// `product/id`, and the message's name (`data-line`).
+    thread: String,
+    line: String,
+    looking: found::Looking,
+    /// When the next look is, on the window's clock in seconds; the first is the next turn.
+    next_look: f64,
+    /// Whether the message's block has been laid out on the page, as a look finds it there.
+    drawn: bool,
+    /// When it was found, on the window's clock in seconds, then when it was marked; whether it
+    /// has been marked, and whether it is marked still.
+    found_at: Option<f64>,
+    shown: bool,
+    marked: bool,
+}
+
+/// The key of the block a found line lands on, and of the mark behind it.
+pub const REVEALED: &str = "found-line";
+const MARK: &str = "found-line-mark";
 
 /// How long a conversation keeps landing where it opens while its page settles
 /// (`RESUME_WINDOW_MS`).
@@ -759,6 +784,100 @@ impl State {
         self.wakes.every(tx, "the landing", std::time::Duration::from_millis(100));
         changed
     }
+    /// A line found from the command bar: once its thread is open, the window looks for the
+    /// message whose line is `line` (`revealLine`). One looking at a time: a second line pressed
+    /// takes over from the first.
+    pub fn reveal_line(&mut self, id: &str, product: &str, line: &str) {
+        self.reading.reveal = Some(Reveal { thread: key(product, id), line: line.to_string(), looking: found::Looking::default(), next_look: f64::NEG_INFINITY, drawn: false, found_at: None, shown: false, marked: false });
+    }
+    /// The found line looked for, as its conversation and its name.
+    #[cfg(test)]
+    pub fn reading_reveal(&self) -> Option<(String, String)> {
+        self.reading.reveal.as_ref().map(|r| (r.thread.clone(), r.line.clone()))
+    }
+    /// The block a found line names was laid out on the page.
+    fn found_line_drawn(&mut self) {
+        if let Some(r) = self.reading.reveal.as_mut() {
+            r.drawn = true;
+        }
+    }
+    /// The found line's part of each turn of the window, before the landing's: a look every
+    /// 50 ms while it is not on the page, the whole conversation asked for once after six, and
+    /// sixty after the first given up with nothing said; once it is there, brought to the
+    /// middle of the page at once, and marked, the mark going after 2.6 seconds and taking half
+    /// a second to go (`revealLine`). A look finds it only on the conversation it is in, once
+    /// that conversation has landed. True when what is drawn changed.
+    pub fn tend_the_found_line(&mut self, tx: &mut Tx) -> bool {
+        let now = tx.clock();
+        let on = self.thread_on_screen();
+        let landed = self.reading.landed.clone();
+        let Some(r) = self.reading.reveal.as_mut() else { return false };
+        if let Some(at) = r.found_at {
+            // Its conversation left, the block and its mark go with it.
+            if on.as_deref() != Some(r.thread.as_str()) {
+                self.reading.reveal = None;
+                return true;
+            }
+            let unmark = at + found::MARKED_MS / 1000.0;
+            // Marked the turn after it was brought into the middle of the page: Rune lands at
+            // once a change to what was off the screen, and the mark would come in whole. The
+            // first frame it is drawn in is a frame into its curve, so it keeps the find's time.
+            if !r.shown {
+                r.shown = true;
+                r.marked = true;
+                tx.animated();
+                tx.wake_at(unmark);
+                return true;
+            }
+            let gone = unmark + found::MARK_FADE_MS / 1000.0;
+            if r.marked && now >= unmark {
+                r.marked = false;
+                // The mark fades as it came, on its own curve, in a turn nothing pressed.
+                tx.animated();
+                tx.wake_at(gone);
+                return true;
+            }
+            if !r.marked && now >= gone {
+                self.reading.reveal = None;
+                return true;
+            }
+            tx.wake_at(if r.marked { unmark } else { gone });
+            return false;
+        }
+        // A look due within a thousandth of a second has come: the turn it wakes may read the
+        // clock a hair before it (`wake.rs`).
+        if now < r.next_look - 0.001 {
+            return false;
+        }
+        let here = on.as_deref() == Some(r.thread.as_str()) && landed.as_deref() == Some(r.thread.as_str());
+        match r.looking.look(here && r.drawn) {
+            found::Look::Found => {
+                r.found_at = Some(now);
+                // In the middle of the page at once, where the landing would have held it.
+                self.reading.landing = None;
+                tx.scroll_center_in_instant("thread-said", REVEALED);
+                tx.wake_after(std::time::Duration::ZERO);
+                true
+            }
+            found::Look::GiveUp => {
+                self.reading.reveal = None;
+                false
+            }
+            look => {
+                r.next_look = now + found::EVERY_MS / 1000.0;
+                tx.wake_at(r.next_look);
+                let thread = r.thread.clone();
+                // The conversation it is in is asked to draw itself whole, when it leaves its
+                // middle out; one that leads with its newest answer does not hear it.
+                let leaves_out = || thread.split_once('/').is_some_and(|(product, id)| leaves_messages_out(self, id, product));
+                if look == found::Look::AskWhole && here && leaves_out() {
+                    self.reading.whole.insert(thread);
+                    return true;
+                }
+                false
+            }
+        }
+    }
     fn item_by_key(&self, thread: &str) -> Option<&Item> {
         let (product, id) = thread.split_once('/')?;
         self.snap.items.iter().find(|i| i.id == id && i.product == product)
@@ -1216,6 +1335,28 @@ fn gap_line(omitted: usize, thread: String, after: Option<String>) -> El {
 /// while the middle comes in.
 const GAP_ANCHOR: &str = "gap-anchor";
 
+/// The block a found line names, which says when it is laid out (a look finding it on the page)
+/// and wears the mark once found: the wash behind it and the accent two points down its left
+/// edge, as wide as the block (`[data-line].line-found`), coming and going over half a second
+/// on `ease` (`transition: background-color .5s ease, box-shadow .5s ease`).
+fn found_mark(block: El, marked: bool, looked_for: bool) -> El {
+    let edge = el().pin(Some(0.0), Some(0.0), None, Some(0.0)).w(2.0).fill(accent());
+    let mark = el()
+        .pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
+        .fill(crate::feel::wash())
+        .child(edge)
+        .opacity(if marked { 1.0 } else { 0.0 })
+        // The one thing here that eases, whatever caused the turn it changed in.
+        .animated_changes()
+        .transition(rune::Transition::none())
+        .opacity_motion(rune::Curve::tween(found::MARK_FADE_MS as f32 / 1000.0, rune::Easing::EASE))
+        .key(MARK);
+    let block = col().key(REVEALED).child(mark).child(block);
+    // Told once that it is laid out, and no more: a report comes on every frame of a scroll, and
+    // each would build the page again.
+    if looked_for { block.on_layout(|s: &mut State, _| s.found_line_drawn()) } else { block }
+}
+
 /// The conversation: each thing said or done under the last, 22 points apart, with what
 /// happened drawn closer to what it follows, and each stretch of what a run ran folded to one
 /// line (`.thread`, `.thread-block` and `groupWork`).
@@ -1227,6 +1368,9 @@ fn conversation(s: &State, thread: &str, page: &Page, now: f64, m: &Measure, fil
     let pictured = pictured_runs(s);
     // The last message, where a person starts reading, unless an outcome follows it.
     let last = said.iter().rposition(|e| matches!(e, Said::Message(_))).filter(|_| key_last);
+    // The message a found line names, the first one with its name, while it is looked for or
+    // marked (`querySelector('[data-line="…"]')`).
+    let revealed = s.reading.reveal.as_ref().filter(|r| r.thread == thread).and_then(|r| said.iter().position(|e| e.message().is_some_and(|m| m.line_name() == r.line)).map(|at| (at, r.marked, !r.drawn)));
     let mut out = col();
     let (mut above, mut gap_above): (Option<Holds>, bool) = (None, false);
     let mut name_above = "start".to_string();
@@ -1274,6 +1418,10 @@ fn conversation(s: &State, thread: &str, page: &Page, now: f64, m: &Measure, fil
         let block = match page.gap.filter(|_| gap_above) {
             Some((_, omitted)) => col().child(block).child(gap_line(omitted, thread.to_string(), ids.get(i).cloned())),
             None => block,
+        };
+        let block = match revealed {
+            Some((at, marked, looked_for)) if at == start => found_mark(block, marked, looked_for),
+            _ => block,
         };
         above = Some(holds);
         out = out.child(block.mt(gap));
@@ -1989,6 +2137,32 @@ pub fn live_options(item: &Item) -> Vec<Choice> {
 
 /// The conversation `product/id`. `still`: the system asks for reduced motion, and what loops
 /// in the web window stands still here as it does there.
+/// What a conversation's page is laid out from: the conversation read, and whether an agent
+/// works on it now, its earlier messages are unfolded and it was brought in from another app.
+fn page_read(s: &State, item: &Item, thread: &str, facts: &live::Facts) -> (Rc<Talk>, bool, bool, bool) {
+    let unfolded = s.reading.unfolded.contains(thread) != pictured_unfolded(s, thread);
+    let session = facts.session.as_ref();
+    let working = session.is_some();
+    let saying = session.and_then(|r| Some(Saying { text: r.saying.clone().filter(|t| !t.is_empty())?, at: r.saying_at?, run: r.started_at }));
+    let imported = item.labels.iter().any(|l| l == "thread-import" || l.starts_with("codex:"));
+    let every_run = s.reading.whole(thread) || pictured_unfolded(s, thread);
+    (read(s, item, every_run, working, saying.as_ref()), working, unfolded, imported)
+}
+
+/// Whether the conversation is drawn now with a long middle left out, the one page that hears
+/// a found line's ask to draw itself whole (`LINE_MISSING`, listened for in `Thread.tsx` while
+/// `omitted` is not nought): not the newest answer alone, nor a conversation that starts part way
+/// down, nor a chat being got ready.
+fn leaves_messages_out(s: &State, id: &str, product: &str) -> bool {
+    let Some(item) = item(s, id, product) else { return false };
+    let thread = key(product, id);
+    let facts = crate::foot::facts(s, item);
+    let (talk, working, unfolded, imported) = page_read(s, item, &thread, &facts);
+    let page = talk.page(working, unfolded, imported);
+    let drawn = !crate::rules::kinds::catch_up_due(item) && page.alone.is_none() && !(page.said.is_empty() && talk.outcome.is_none());
+    drawn && page.omitted > 0
+}
+
 pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
     // Beside a file, the conversation is what the file leaves of the page (`pane.rs`).
     let (page_w, page_h) = s.conversation_size();
@@ -1997,17 +2171,12 @@ pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
         return row().w(page_w).pt(36.0).pl(m.indent).child(label("This conversation is not here any more.", 14.0, 400.0, muted()));
     };
     let thread = key(product, id);
-    let unfolded = s.reading.unfolded.contains(&thread) != pictured_unfolded(s, &thread);
     // What the supervisor says about it, the run on it right now among it, and the sentence that
     // run is typing this second (`crate::foot::facts`).
     let facts = crate::foot::facts(s, item);
     let session = facts.session.clone();
-    let working = session.is_some();
-    let saying = session.as_ref().and_then(|r| Some(Saying { text: r.saying.clone().filter(|t| !t.is_empty())?, at: r.saying_at?, run: r.started_at }));
-    let imported = item.labels.iter().any(|l| l == "thread-import" || l.starts_with("codex:"));
     let title = name(item);
-    let every_run = s.reading.whole(&thread) || pictured_unfolded(s, &thread);
-    let talk = read(s, item, every_run, working, saying.as_ref());
+    let (talk, working, unfolded, imported) = page_read(s, item, &thread, &facts);
     let page = talk.page(working, unfolded, imported);
     // What the files this conversation names are read against: its project's own folders.
     let files = Files::of(s, item);
@@ -2296,6 +2465,133 @@ mod tests {
         rt.state.open_thread("w-feel0", "storefront");
         run(&mut rt, 0.1);
         assert!(rt.state.reading.runs_open.is_empty(), "news since: opened as new");
+    }
+
+    /// The invented inbox's first thread as a long conversation of `said` messages, each on a
+    /// ledger line of its own named `l<n>`, the person and the agent in turn; `unfolded` says
+    /// whether its earlier messages are shown.
+    fn long_talk(name: &str, said: usize, unfolded: bool) -> Runtime<State> {
+        talk_of(name, said, unfolded, true)
+    }
+
+    /// The same, where the agent has said nothing yet (`agent: false`): every message is the
+    /// person's, and the page draws the conversation from its start, its long middle left out.
+    fn talk_of(name: &str, said: usize, unfolded: bool, agent: bool) -> Runtime<State> {
+        window_dressed(name, &["--thread", "w-feel0"], "/fixtures/storefront", "Done.", move |fixture| {
+            let asked = fixture["snapshot"]["items"][0]["createdAt"].as_f64().unwrap();
+            let mut lines = vec![json!({ "ts": asked, "source": "founder", "uid": "l0", "patch": { "title": "Invented thread number 0", "body": "Message number 0, the ask.", "status": "open" } })];
+            for n in 1..said {
+                let (source, field) = if n % 2 == 1 && agent { ("agent", "result") } else { ("founder", "answer") };
+                lines.push(json!({ "ts": asked + n as f64 * 60_000.0, "source": source, "uid": format!("l{n}"), "patch": { field: format!("Message number {n}, said at some length so that the conversation runs well past the window and has to be scrolled to be read.") } }));
+            }
+            let at = asked + said as f64 * 60_000.0;
+            lines.push(json!({ "ts": at, "source": "founder", "uid": "l-last", "patch": { "answer": "Thanks." } }));
+            fixture["snapshot"]["items"][0]["status"] = json!("open");
+            fixture["threads"] = json!({ "storefront/w-feel0": { "zero:item-history": { "ok": true, "lines": lines }, "zero:session-trace": { "ok": true, "sessions": [] } } });
+            if unfolded {
+                fixture["unfolded"] = json!(["storefront/w-feel0"]);
+            }
+        })
+    }
+
+    fn mark_opacity(rt: &Runtime<State>) -> Option<f32> {
+        rt.elements().into_iter().find(|e| e.key.as_deref() == Some(super::MARK)).map(|e| e.opacity)
+    }
+
+    /// `tests/a-found-line-is-scrolled-to-and-marked-when-its-thread-opens.test.mts`, in the
+    /// window: once drawn, the line is brought to the middle of the page at once and marked,
+    /// the mark coming in over half a second on `ease`, held 2.6 seconds from the find, and
+    /// going the same way; the landing on the last message gives way to it.
+    #[test]
+    fn a_found_line_is_brought_to_the_middle_of_the_page_and_marked_for_a_moment() {
+        let mut rt = long_talk("found-line", 30, true);
+        rt.state.reveal_line("w-feel0", "storefront", "l9");
+        run(&mut rt, 0.15);
+        let r = rt.state.reading.reveal.as_ref().expect("still on");
+        assert!(r.found_at.is_some() && r.marked, "found within a few looks: {r:?}");
+        assert!(rt.state.reading.landing.is_none(), "the landing gave way to it");
+        let block = rect_of(&rt, super::REVEALED).expect("the found line's block");
+        let page = rect_of(&rt, "thread-whole").expect("the page");
+        let (middle, of_page) = (block[1] + block[3] / 2.0, page[1] + page[3] / 2.0);
+        assert!((middle - of_page).abs() < 1.5, "in the middle of the page: {block:?} in {page:?}");
+        // It stays there: the landing does not take it back to the foot.
+        run(&mut rt, 0.5);
+        assert!((rect_of(&rt, super::REVEALED).unwrap()[1] - block[1]).abs() < 0.5);
+        // The mark is in by half a second, on `ease` (0.80 of the way at the half), and as wide
+        // as the block.
+        let found_at = rt.state.reading.reveal.as_ref().unwrap().found_at.unwrap();
+        assert_eq!(mark_opacity(&rt), Some(1.0));
+        let mark = rect_of(&rt, super::MARK).unwrap();
+        assert_eq!((mark[2], mark[3]), (block[2], block[3]));
+        // Still marked just before 2.6 seconds from the find; going after, and gone after 3.1.
+        let until = found_at + 2.55 - rt.state.at;
+        run(&mut rt, until);
+        assert!(rt.state.reading.reveal.as_ref().unwrap().marked);
+        run(&mut rt, 0.1 + 0.25);
+        let going = mark_opacity(&rt).expect("the mark, going");
+        assert!(going > 0.05 && going < 0.5, "a quarter second into its going, on ease: {going}");
+        run(&mut rt, 0.4);
+        assert!(rt.state.reading.reveal.is_none(), "let go");
+        assert!(rect_of(&rt, super::REVEALED).is_none());
+    }
+
+    #[test]
+    fn the_mark_comes_in_on_ease_over_half_a_second() {
+        let mut rt = long_talk("found-line-in", 30, true);
+        rt.state.reveal_line("w-feel0", "storefront", "l20");
+        let mut seen = Vec::new();
+        for _ in 0..60 {
+            rt.frame(1.0 / 60.0);
+            if let (Some(found_at), Some(o)) = (rt.state.reading.reveal.as_ref().and_then(|r| r.found_at), mark_opacity(&rt)) {
+                seen.push((rt.state.at - found_at, o));
+            }
+        }
+        // Frame by frame from the find, as a browser draws the transition from the moment the
+        // class goes on: `ease` is cubic-bezier(0.25, 0.1, 0.25, 1), 0.0948 a tenth of the way,
+        // 0.2952 a fifth, 0.8024 half, whole at the end.
+        let ease = [(0.05, 0.0948), (0.1, 0.2952), (0.25, 0.8024), (0.5, 1.0)];
+        for (t, want) in ease {
+            let got = seen.iter().find(|(at, _)| (at - t).abs() < 0.005).map(|(_, o)| *o).unwrap_or_else(|| panic!("no frame {t} s in: {seen:?}"));
+            assert!((got - want).abs() < 0.01, "{t} s in: {got}, the browser's {want}; {seen:?}");
+        }
+    }
+
+    /// A line in the middle a long conversation leaves out: after six looks the conversation is
+    /// asked to draw itself whole, once, and then it is found.
+    #[test]
+    fn a_line_left_out_of_a_long_conversation_asks_for_the_whole_of_it_once_and_is_then_found() {
+        let mut rt = talk_of("found-middle", 60, false, false);
+        run(&mut rt, 0.1);
+        assert!(super::leaves_messages_out(&rt.state, "w-feel0", "storefront"), "drawn from its start with its middle left out");
+        assert!(!rt.state.reading.whole("storefront/w-feel0"), "its middle is left out");
+        rt.state.reveal_line("w-feel0", "storefront", "l25");
+        run(&mut rt, 0.2);
+        assert!(!rt.state.reading.whole("storefront/w-feel0"), "not asked before six looks");
+        run(&mut rt, 0.2);
+        assert!(rt.state.reading.whole("storefront/w-feel0"), "asked once 300 ms on");
+        assert!(rt.state.reading.reveal.as_ref().unwrap().looking.asked);
+        run(&mut rt, 0.2);
+        assert!(rt.state.reading.reveal.as_ref().is_some_and(|r| r.found_at.is_some()), "found once the whole was drawn");
+    }
+
+    /// One under the earlier fold under the title is not unfolded by the looking, and a line
+    /// never drawn is given up on after about three seconds with nothing said.
+    #[test]
+    fn a_line_under_the_earlier_fold_or_never_drawn_is_given_up_on_quietly() {
+        let mut rt = long_talk("found-folded", 30, false);
+        run(&mut rt, 0.1);
+        rt.state.reveal_line("w-feel0", "storefront", "l3");
+        run(&mut rt, 2.9);
+        assert!(rt.state.reading.reveal.is_some(), "still looking under three seconds");
+        assert!(!rt.state.reading.unfolded.contains("storefront/w-feel0") && !rt.state.reading.whole("storefront/w-feel0"), "nothing unfolded");
+        run(&mut rt, 0.3);
+        assert!(rt.state.reading.reveal.is_none(), "given up");
+        assert!(rt.state.toast.is_none() && rt.state.refused.is_none(), "and nothing said");
+        let mut rt = long_talk("found-never", 30, true);
+        rt.state.reveal_line("w-feel0", "storefront", "no-such-line");
+        run(&mut rt, 3.2);
+        assert!(rt.state.reading.reveal.is_none() && rt.state.toast.is_none());
+        assert!(!rt.state.reading.whole("storefront/w-feel0"), "a conversation that leaves nothing out is not asked");
     }
 
     /// `tests/opening-a-thread-lands-where-a-person-starts-reading.test.mts`, in the window: a last

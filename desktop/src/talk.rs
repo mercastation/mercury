@@ -35,6 +35,8 @@ pub struct Line {
     pub claim: Option<Value>,
     pub heartbeat: bool,
     pub release: bool,
+    /// The line's own name, which a message is found and landed on by (`LedgerLine.uid`).
+    pub uid: Option<String>,
 }
 
 /// What `zero:item-history` answers.
@@ -103,11 +105,31 @@ pub struct Message {
     /// The person's words sent this moment and not yet in the ledger, drawn from the press on:
     /// what its head says in place of the time (`PendingSaid`).
     pub sending: Option<Sending>,
+    /// The uid of the ledger line it came off, when it came off one that has one (`tagWriter` in
+    /// `renderer/src/thread-history.ts`).
+    pub uid: Option<String>,
 }
 
 impl Message {
     fn new(at: f64, mine: bool, text: String, field: Field) -> Message {
-        Message { at, mine, text, field, same: false, resumed: false, sending: None }
+        Message { at, mine, text, field, same: false, resumed: false, sending: None, uid: None }
+    }
+    /// What a found line names this message by: its line's uid, or when it was said
+    /// (`data-line` in `Thread.tsx`).
+    pub fn line_name(&self) -> String {
+        crate::rules::found::line_name(self.uid.as_deref(), self.at)
+    }
+}
+
+/// Gives the messages from `from` on the uid of the line they came off, where they have none.
+fn tag_line(out: &mut [Said], from: usize, uid: &Option<String>) {
+    let Some(uid) = uid else { return };
+    for e in out.iter_mut().skip(from) {
+        if let Said::Message(m) = e
+            && m.uid.is_none()
+        {
+            m.uid = Some(uid.clone());
+        }
     }
 }
 
@@ -258,7 +280,13 @@ fn events(lines: &[Line]) -> Vec<Said> {
     let mut out: Vec<Said> = Vec::new();
     let mut title: Option<String> = None;
     let (mut first, mut opened) = (true, false);
+    // Each line's messages are told the line's uid when the next line begins, and once more
+    // after the last (`tagWriter`).
+    let (mut tag_from, mut tag_uid): (usize, Option<String>) = (0, None);
     for (n, line) in lines.iter().enumerate() {
+        tag_line(&mut out, tag_from, &tag_uid);
+        tag_from = out.len();
+        tag_uid = line.uid.clone().filter(|uid| !uid.is_empty());
         let (at, mine) = (line.ts, line.source == "founder");
         let Some(patch) = line.patch.as_ref() else {
             if line.claim.is_some() && !line.heartbeat && !line.release {
@@ -363,6 +391,7 @@ fn events(lines: &[Line]) -> Vec<Said> {
             _ => {}
         }
     }
+    tag_line(&mut out, tag_from, &tag_uid);
     out
 }
 
@@ -956,6 +985,9 @@ pub struct Page<'a> {
     pub said: &'a [Said],
     /// The line for a long conversation's missing middle: after which of `said`, and how many.
     pub gap: Option<(usize, usize)>,
+    /// How many messages the conversation drawn leaves out, as `ItemThread` tells `Thread`
+    /// (`omitted={from >= 0 ? 0 : omitted}`): none when it starts part way down.
+    pub omitted: usize,
 }
 
 impl Talk {
@@ -997,11 +1029,11 @@ impl Talk {
             None
         };
         if alone && !unfolded && !short {
-            return Page { toggle, alone: newest, said: &[], gap: None };
+            return Page { toggle, alone: newest, said: &[], gap: None, omitted: 0 };
         }
         match (short || unfolded, start) {
-            (false, Some(from)) => Page { toggle, alone: None, said: &self.said[from..], gap: None },
-            _ => Page { toggle, alone: None, said: &self.said, gap: gap.map(|g| (g, self.omitted)) },
+            (false, Some(from)) => Page { toggle, alone: None, said: &self.said[from..], gap: None, omitted: 0 },
+            _ => Page { toggle, alone: None, said: &self.said, gap: gap.map(|g| (g, self.omitted)), omitted: self.omitted },
         }
     }
 }
@@ -1079,6 +1111,35 @@ mod tests {
                 Said::Work(w) => format!("<{} {}>", w.verb, w.subject).replace(" >", ">"),
             })
             .collect()
+    }
+
+    /// A found line is landed on by its ledger line's uid (`tagWriter`, `data-line`): each
+    /// message carries the uid of the line it came off, the ask keeps its own when it is
+    /// rewritten, and a line with none is named by when it was said.
+    #[test]
+    fn each_message_carries_the_uid_of_the_line_it_came_off() {
+        let lines: Vec<Line> = [
+            json!({ "ts": 1000, "source": "founder", "uid": "l-ask", "patch": { "title": "Checkout fails", "body": "Checkout fails for some carts." } }),
+            json!({ "ts": 2000, "source": "agent", "uid": "l-found", "patch": { "result": "Found it: tax rounding." } }),
+            json!({ "ts": 3000, "source": "founder", "uid": "l-edit", "patch": { "body": "Checkout fails for carts over $1,000." } }),
+            json!({ "ts": 4000, "source": "founder", "patch": { "answer": "Ship the fix." } }),
+            json!({ "ts": 5000, "source": "agent", "uid": "", "patch": { "result": "Shipped." } }),
+        ]
+        .into_iter()
+        .map(line)
+        .collect();
+        let talk = Talk::read(&lines, &[], None, false);
+        let mut named: Vec<(String, String)> = talk.said.iter().filter_map(Said::message).map(|m| (m.text.clone(), m.line_name())).collect();
+        named.extend(talk.outcome.iter().map(|m| (m.text.clone(), m.line_name())));
+        assert_eq!(
+            named,
+            [
+                ("Checkout fails for carts over $1,000.".to_string(), "l-ask".to_string()),
+                ("Found it: tax rounding.".to_string(), "l-found".to_string()),
+                ("Ship the fix.".to_string(), "at-4000".to_string()),
+                ("Shipped.".to_string(), "at-5000".to_string()),
+            ]
+        );
     }
 
     /// `tests/a-thread-reads-in-plain-words.test.mts`: the first six lines of a real thread's

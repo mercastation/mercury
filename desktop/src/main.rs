@@ -1403,7 +1403,7 @@ fn init_from(args: &[String]) -> State {
         }
     }
     // A picture taken with the command bar open (`palette` is what was typed into it).
-    s.palette.picture(&s.fixture);
+    palette::picture(&mut s);
     // Nor can it wait for a conversation behind the door to be read.
     if rune::tooling::headless_run().is_some()
         && let Some(ask) = s.read_owed(false)
@@ -1496,6 +1496,7 @@ fn setup(s: &mut State, wake: Waker) {
     s.asking.set_waker(wake.clone());
     s.reading_models.set_waker(wake.clone());
     s.head.set_waker(wake.clone());
+    s.palette.set_waker(wake.clone());
     s.read_the_models();
     s.outbox.wake_with(wake.clone());
     s.compose.staging.wake_with(wake.clone());
@@ -1591,6 +1592,8 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
     }
     // A thread moved from the command bar opens as its copy once the lists have it.
     changed |= palette::tend(s);
+    // What the bar's words found inside threads, once the app has said.
+    changed |= palette::found_landed(s);
     // What was sent and has long been written lets go of its drawn copy; what the boxes hold is
     // written down; and a thread opened onto a draft gets its caret (`answer.rs`, `drafts.rs`).
     changed |= s.tend_answering(tx);
@@ -1619,6 +1622,9 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
     changed |= foot::tend(s, tx);
     // The open conversation's film of its browser, read as often as it can change.
     changed |= film::tend(s, tx);
+    // A line found from the command bar, looked for and landed on; before the landing, which it
+    // ends once it is found.
+    changed |= s.tend_the_found_line(tx);
     // Where the person was in the conversation they left, and where they land in this one.
     changed |= s.tend_the_reading(tx);
     if let Some((key, answer)) = s.asking.take() {

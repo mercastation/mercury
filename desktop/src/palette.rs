@@ -12,15 +12,17 @@ use std::cell::RefCell;
 
 use rune::edit::Key;
 use rune::text::Span;
-use rune::{Color, Cursor, El, KeyEvent, ScrollSpec, TextEdit, TextStyle, Tx, col, el, icon, row, text, text_input};
+use rune::{Color, Cursor, El, KeyEvent, Latest, ScrollSpec, TextEdit, TextStyle, Tx, Waker, col, el, icon, row, text, text_input};
 use serde_json::{Map, Value};
 
 use crate::data::Item;
+use crate::rules::found::{self, Group};
 use crate::rules::palette::{self as rules, Does};
 use crate::rules::place::Act;
 use crate::rules::{js, search, writes};
+use crate::source::Source;
 use crate::theme::*;
-use crate::{State, View, front, icons, write};
+use crate::{State, View, front, icons, source, write};
 
 mod marks;
 
@@ -49,11 +51,68 @@ pub struct Bar {
     /// A thread moved to another project from the open conversation: its copy, opened once the
     /// lists have it, if they do within ten seconds (`opensWhenListed`).
     opens_when_listed: Option<((String, String), f64)>,
+    /// What the app last found inside threads for the words, as rows, which stay up until the
+    /// next answer lands (`inside` in `PaletteBox`).
+    inside: Vec<Group>,
+    /// The asking, kept from one opening of the bar to the next, as its waker is.
+    finder: Finder,
+}
+
+/// The app asked what the words find inside threads, off the main thread: 90 ms after the words
+/// last changed, an answer to older words dropped however late it lands (`Latest`); and asked
+/// to read the threads ahead as the bar opens, its answer never waited for.
+pub struct Finder {
+    asking: Latest<(String, Result<Value, String>)>,
+    warming: Latest<()>,
+}
+
+impl Default for Finder {
+    fn default() -> Finder {
+        Finder { asking: Latest::default().debounce(std::time::Duration::from_millis(found::ASK_AFTER_MS)), warming: Latest::default() }
+    }
+}
+
+impl Finder {
+    pub fn set_waker(&self, wake: Waker) {
+        self.asking.set_waker(wake);
+    }
+    /// Asks what `query` finds, through `call`, once the words have rested; any answer still to
+    /// come for older words is dropped.
+    fn ask(&self, query: String, payload: Value, call: impl FnOnce(Value) -> Result<Value, String> + Send + 'static) {
+        self.asking.request((query, payload), move |(query, payload)| (query, call(payload)));
+    }
+    /// Nothing more is asked, and nothing asked lands.
+    fn stop(&self) {
+        self.asking.cancel();
+    }
+    fn take(&self) -> Option<(String, Result<Value, String>)> {
+        self.asking.take()
+    }
+    /// Has the app read the threads ahead; what it answers is not waited for, and lands nowhere.
+    fn warm(&self, call: impl FnOnce() + Send + 'static) {
+        self.warming.request_opt((), move |()| {
+            call();
+            None
+        });
+    }
 }
 
 impl Bar {
     pub fn closed() -> Bar {
-        Bar { open: false, words: TextEdit::new(""), lit: None, pointer: None, index: RefCell::new(search::Index::default()), pictured: None, opens_when_listed: None }
+        Bar {
+            open: false,
+            words: TextEdit::new(""),
+            lit: None,
+            pointer: None,
+            index: RefCell::new(search::Index::default()),
+            pictured: None,
+            opens_when_listed: None,
+            inside: Vec::new(),
+            finder: Finder::default(),
+        }
+    }
+    pub fn set_waker(&self, wake: Waker) {
+        self.finder.set_waker(wake);
     }
 
     /// A picture taken with the bar open says so in its fixture: `palette` is what was typed
@@ -77,12 +136,28 @@ impl Bar {
     }
 }
 
+/// A picture taken with the bar open (`Bar::picture`), and what the app found inside threads
+/// for its words, as the fixture carries the answer (`zero:find-in-threads`), as though it had
+/// just landed.
+pub fn picture(s: &mut State) {
+    s.palette.picture(&s.fixture);
+    if !s.palette.open {
+        return;
+    }
+    if let Some(answer) = s.fixture.get(found::FIND) {
+        s.palette.inside = found::groups(&s.palette.words.text, &found::Answer::read(answer), &s.snap);
+    }
+    settle_lit(s);
+}
+
 /// A row of the web window's bar, as a fixture carries it.
 #[derive(Clone)]
 enum Pictured {
     Heading(String),
     /// Where it listed a thread.
     Thread,
+    /// Where it listed something found inside a thread.
+    Found,
     /// A command, with the web's name for the drawing at its head.
     Command { icon: String, label: String, hint: Option<String>, cap: Option<String> },
 }
@@ -95,6 +170,9 @@ impl Pictured {
         }
         if row.get("thread").and_then(Value::as_bool) == Some(true) {
             return Some(Pictured::Thread);
+        }
+        if row.get("found").and_then(Value::as_bool) == Some(true) {
+            return Some(Pictured::Found);
         }
         Some(Pictured::Command { icon: words("icon").unwrap_or_else(|| rules::PLAIN_ICON.to_string()), label: words("label")?, hint: words("hint"), cap: words("key") })
     }
@@ -114,6 +192,9 @@ struct Line {
     cap: Option<String>,
     sub: Option<String>,
     done: bool,
+    /// Something found inside a thread: what it says, the typed words lit in it, over who, where
+    /// and when (`c.found` in `PaletteBox`).
+    found: Option<found::Found>,
     /// What pressing it does. A command the web window's picture had does nothing.
     does: Option<Does>,
 }
@@ -130,9 +211,32 @@ impl Line {
             cap: row.key.map(str::to_string),
             sub: row.sub,
             done: row.done,
+            found: None,
             does: Some(row.does),
         }
     }
+    /// A thing found inside a thread, with no hint or key, never dimmed, its drawing by its id
+    /// (`insideForPalette`).
+    fn found(row: found::Found, key: String, heading: Option<String>) -> Line {
+        Line {
+            key,
+            heading,
+            icon: rules::icon_for(&row.id, &row.text).to_string(),
+            label: row.text.clone(),
+            hint: None,
+            cap: None,
+            sub: None,
+            done: false,
+            does: Some(Does::Found(row.open.clone())),
+            found: Some(row),
+        }
+    }
+}
+
+/// The rows of what was found inside threads, each group's first under its heading, after
+/// every other row (`labels` in `PaletteBox`).
+fn found_lines(groups: &[Group]) -> Vec<Line> {
+    groups.iter().flat_map(|g| g.rows.iter().enumerate().map(move |(at, row)| Line::found(row.clone(), row.id.clone(), (at == 0).then(|| g.label.to_string())))).collect()
 }
 
 /// The web window's rows as a fixture carries them, with this window's own threads where it
@@ -142,6 +246,9 @@ impl Line {
 fn pictured_lines(pictured: &[Pictured], threads: Vec<rules::Row>, own: Vec<Line>) -> Vec<Line> {
     let keys = rules::row_keys(&threads);
     let mut found = threads.into_iter().zip(keys);
+    // What this window found inside threads goes where the web's found things went, in order.
+    let (inside, own): (Vec<Line>, Vec<Line>) = own.into_iter().partition(|l| l.found.is_some());
+    let mut inside = inside.into_iter();
     let mut own: Vec<Option<Line>> = own.into_iter().map(Some).collect();
     let (mut lines, mut heading) = (Vec::new(), None);
     for (at, row) in pictured.iter().enumerate() {
@@ -150,6 +257,11 @@ fn pictured_lines(pictured: &[Pictured], threads: Vec<rules::Row>, own: Vec<Line
             Pictured::Thread => {
                 if let Some((thread, key)) = found.next() {
                     lines.push(Line::of(thread, key, heading.take()));
+                }
+            }
+            Pictured::Found => {
+                if let Some(line) = inside.next() {
+                    lines.push(Line { heading: heading.take(), ..line });
                 }
             }
             Pictured::Command { icon, label, hint, cap } => {
@@ -165,6 +277,7 @@ fn pictured_lines(pictured: &[Pictured], threads: Vec<rules::Row>, own: Vec<Line
                         cap: cap.clone(),
                         sub: None,
                         done: false,
+                        found: None,
                         does: None,
                     },
                 });
@@ -172,6 +285,7 @@ fn pictured_lines(pictured: &[Pictured], threads: Vec<rules::Row>, own: Vec<Line
         }
     }
     lines.extend(found.map(|(thread, key)| Line::of(thread, key, None)));
+    lines.extend(inside);
     lines
 }
 
@@ -219,9 +333,18 @@ fn own_lines(s: &State, threads: Vec<rules::Row>) -> Vec<Line> {
         rules::with_code_row(&mut commands, (item.id.clone(), item.product.clone()));
     }
     let listed = rules::listed(commands, threads, query);
-    let keys = rules::row_keys(&listed.rows);
     let headings: Vec<Option<String>> = (0..listed.rows.len()).map(|at| listed.label_over(at).map(str::to_string)).collect();
-    listed.rows.into_iter().zip(keys).zip(headings).map(|((row, key), heading)| Line::of(row, key, heading)).collect()
+    let mut ids: Vec<String> = listed.rows.iter().map(|row| row.id.clone()).collect();
+    let mut lines: Vec<Line> = listed.rows.into_iter().zip(headings).map(|(row, heading)| Line::of(row, String::new(), heading)).collect();
+    // What was found inside threads, after everything else.
+    let inside = found_lines(&s.palette.inside);
+    ids.extend(inside.iter().map(|line| line.key.clone()));
+    lines.extend(inside);
+    // One key each, over the whole list, as the web keys it (`commandKeys(filtered)`).
+    for (line, key) in lines.iter_mut().zip(rules::keys_of(ids.iter().map(String::as_str))) {
+        line.key = key;
+    }
+    lines
 }
 
 /// The threads the words find, from the search kept between keystrokes.
@@ -247,6 +370,28 @@ fn lit(s: &State, lines: &[Line]) -> Option<usize> {
     rules::kept_pick(picked, &keys)
 }
 
+/// With no row picked under these words, the first row there is is picked, and then kept by its
+/// key as rows come in under it: as the bar opens, as the words change, and when what was found
+/// inside threads lands, which lights its first row when nothing else was listed
+/// (`if (pickedKey === null && keys.length) setPickedKey(keys[0])`).
+fn settle_lit(s: &mut State) {
+    if s.palette.lit.as_ref().is_some_and(|(under, _)| *under == s.palette.words.text) {
+        return;
+    }
+    if let Some(first) = lines(s).first() {
+        let key = first.key.clone();
+        s.palette.light(&key);
+    }
+}
+
+/// The door, when this window is on the app's: who is asked.
+fn door(s: &State) -> Option<(String, String)> {
+    match &s.source {
+        Source::Door(door) => door.now(),
+        _ => None,
+    }
+}
+
 /* ------------------------------------ what it does ------------------------------------ */
 
 impl State {
@@ -262,6 +407,7 @@ impl State {
         self.close_later();
         self.fold_reply();
         self.close_strip();
+        self.palette.finder.stop();
         // What a thread's row says of when it comes back is counted from this minute.
         if !self.fixed_clock {
             self.now = crate::clock();
@@ -269,14 +415,63 @@ impl State {
         // Fresh each time, as the web window mounts its box anew: empty, the first row lit, the
         // list at its top. Rune would otherwise carry out again the last request to bring a lit
         // row into view, which outlives the list it was made for.
-        self.palette = Bar { open: true, index: std::mem::take(&mut self.palette.index), opens_when_listed: self.palette.opens_when_listed.take(), ..Bar::closed() };
+        self.palette = Bar {
+            open: true,
+            index: std::mem::take(&mut self.palette.index),
+            opens_when_listed: self.palette.opens_when_listed.take(),
+            finder: std::mem::take(&mut self.palette.finder),
+            ..Bar::closed()
+        };
         self.palette.words.focused = true;
         tx.focus_when_shown("palette", false);
         tx.scroll_to_y("palette-list", 0.0);
+        settle_lit(self);
+        // The app reads the threads ahead, so the first words typed are answered at once
+        // (`warmFindInThreads` as the bar opens).
+        if let Some((url, token)) = door(self) {
+            self.palette.finder.warm(move || {
+                let _ = source::call(&url, &token, found::WARM, &Value::Null);
+            });
+        }
     }
 
     pub fn close_palette(&mut self) {
-        self.palette = Bar { index: std::mem::take(&mut self.palette.index), opens_when_listed: self.palette.opens_when_listed.take(), ..Bar::closed() };
+        // Nothing asked for its words lands once it is closed (the box unmounts).
+        self.palette.finder.stop();
+        self.palette = Bar {
+            index: std::mem::take(&mut self.palette.index),
+            opens_when_listed: self.palette.opens_when_listed.take(),
+            finder: std::mem::take(&mut self.palette.finder),
+            ..Bar::closed()
+        };
+    }
+
+    /// The words in the box changed: the first row is lit under them, and 90 ms after they
+    /// last change the app is asked what they find inside threads; words blank once trimmed
+    /// take what was found away at once and ask nothing (`useEffect(…, [query])`).
+    pub fn palette_typed(&mut self) {
+        settle_lit(self);
+        let words = self.palette.words.text.clone();
+        let Some(payload) = found::ask(&words) else {
+            self.palette.finder.stop();
+            self.palette.inside.clear();
+            return;
+        };
+        if let Some((url, token)) = door(self) {
+            self.palette.finder.ask(js::trim(&words).to_string(), payload, move |payload| source::call(&url, &token, found::FIND, &payload));
+        }
+    }
+
+    /// What the app found for words asked: the rows it makes stand until the next answer, and
+    /// a call that failed is said nowhere and leaves the rows as they were.
+    fn found_inside(&mut self, query: &str, answer: Result<Value, String>) -> bool {
+        let Ok(answer) = answer else { return false };
+        if !self.palette.open {
+            return false;
+        }
+        self.palette.inside = found::groups(query, &found::Answer::read(&answer), &self.snap);
+        settle_lit(self);
+        true
     }
 
     /// Reopen, from the bar and from the Reopen button: the thread opened again with nothing
@@ -578,6 +773,27 @@ fn run(s: &mut State, does: Does, tx: &mut Tx) {
         Does::Nothing => {}
         // It opens the change, and never closes one already open (`setOpenDoc`).
         Does::Code((id, _)) => s.open_change(&crate::rules::change::change_path_for(&id), None),
+        Does::Found(open) => open_found(s, open),
+    }
+}
+
+/// Something found inside a thread, pressed: the thread opens and is counted as read; a line
+/// is then looked for and landed on, and a file opens beside the conversation when it is one
+/// that opens there and the row is not an outside agent's, else big over it (`openInside`).
+fn open_found(s: &mut State, open: found::Open) {
+    match open {
+        found::Open::Line { thread: (id, product), uid } => {
+            s.open_thread(&id, &product);
+            s.reveal_line(&id, &product, &uid);
+        }
+        found::Open::File { thread: (id, product), src, outside } => {
+            s.open_thread(&id, &product);
+            if !outside && crate::rules::pane::where_a_file_opens(&src) == Some(crate::rules::pane::Opens::Beside) {
+                s.open_beside(&src, false);
+            } else {
+                s.open_big(&src, None);
+            }
+        }
     }
 }
 
@@ -681,6 +897,15 @@ pub(crate) fn landed(s: &mut State, landed: write::Landed, tx: &mut Tx) {
             let said = crate::rules::settings::update_look(Some(&answer), false).sentence;
             s.tell(&said, tx);
         }
+    }
+}
+
+/// The poll's part: what the app found inside threads for the words, once it lands. True when
+/// the rows changed.
+pub(crate) fn found_landed(s: &mut State) -> bool {
+    match s.palette.finder.take() {
+        Some((query, answer)) => s.found_inside(&query, answer),
+        None => false,
     }
 }
 
@@ -790,30 +1015,48 @@ fn heading(words: &str, first: bool) -> El {
     el().pt(if first { 8.0 } else { 14.0 }).px(18.0).pb(6.0).child(text(words.to_uppercase()).font(capitals(9.5, 1.14)).color(quiet()))
 }
 
-/// How tall a row is: a thread with a line to say stands on two.
+/// How tall a row is: a thread with a line to say stands on two, and so does a thing found
+/// inside one (`:is(.palette-found, .palette-two)`).
 fn height(line: &Line) -> f32 {
-    if line.sub.is_some() { 51.5 } else { ROW }
+    if line.sub.is_some() || line.found.is_some() { 51.5 } else { ROW }
 }
 
-fn line_row(line: &Line, lit: bool, query: &str) -> El {
+/// `text` with the typed words lit in it, in the text's ink and weight 600 (`markedWords`, `.hit`).
+fn marked(text_said: &str, query: &str, font: TextStyle, color: Color) -> El {
+    let (mut said, mut marks) = (String::new(), Vec::new());
+    for run in search::marked_words(text_said, js::trim(query)) {
+        let from = said.len();
+        said.push_str(&run.text);
+        if run.hit {
+            marks.push(Span::new(from, said.len()).weight(600.0).color(ink()));
+        }
+    }
+    text(said).font(font).color(color).spans(marks).truncate()
+}
+
+fn line_row(line: &Line, lit: bool, query: &str, now: f64) -> El {
     // A finished thread steps back; the highlight behind a lit one does not (`.palette-done > *`).
     let fade = |e: El| if line.done { e.opacity(0.5) } else { e };
     let name = pen(label(&line.label, 14.5, 400.0, if lit { ink() } else { dim() }).truncate(), 14.5);
     let hint = line.hint.as_deref().map(|hint| pen(label(hint, 12.5, 400.0, muted()), 12.5));
-    let mut e = match &line.sub {
+    let mut e = match (&line.found, &line.sub) {
+        // Found inside a thread: what it says with the typed words lit, a file's name before
+        // the line that matched in it, and under that who, where and when, each one line cut
+        // short; no hint, never dimmed (`.palette-found`).
+        (Some(found), _) => {
+            let words = pen(marked(&found.text, query, sans(14.5, 400.0), if lit { ink() } else { dim() }), 14.5);
+            let said = match &found.file {
+                Some(name) => row().min_w(0.0).child(el().pr(8.0).child(pen(label(name, 14.5, 500.0, ink()), 14.5))).child(row().grow(1.0).min_w(0.0).child(words)),
+                None => words,
+            };
+            let under = pen(text(found::under(found, now)).font(sans(12.0, 400.0)).color(muted()).truncate(), 12.0);
+            row().min_h(50.0).py(7.0).px(18.0).gap(12.0).items_start().child(glyph(&line.icon, lit)).child(col().grow(1.0).min_w(0.0).gap(3.0).child(said).child(under))
+        }
         // A thread found: its title, then the line it was found by with the typed words in
         // ink, and where it is and how old beside them. A long title gives way, never the
         // project's name.
-        Some(sub) => {
-            let (mut said, mut marks) = (String::new(), Vec::new());
-            for run in search::marked_words(sub, js::trim(query)) {
-                let from = said.len();
-                said.push_str(&run.text);
-                if run.hit {
-                    marks.push(Span::new(from, said.len()).weight(600.0).color(ink()));
-                }
-            }
-            let found_by = pen(text(said).font(sans(12.0, 400.0)).color(muted()).spans(marks).truncate(), 12.0);
+        (None, Some(sub)) => {
+            let found_by = pen(marked(sub, query, sans(12.0, 400.0), muted()), 12.0);
             // The drawing stands at the top of the two lines, level with the title's.
             let mut e = row().min_h(50.0).py(7.0).px(18.0).gap(12.0).items_start().child(fade(glyph(&line.icon, lit))).child(fade(col().grow(1.0).min_w(0.0).gap(3.0).child(name).child(found_by)));
             if let Some(hint) = hint {
@@ -821,7 +1064,7 @@ fn line_row(line: &Line, lit: bool, query: &str) -> El {
             }
             e
         }
-        None => {
+        (None, None) => {
             let mut e = row().h(ROW).px(18.0).gap(12.0).items_center().child(fade(glyph(&line.icon, lit))).child(fade(row().grow(1.0).min_w(0.0).child(name)));
             match (&line.cap, hint) {
                 (Some(cap), _) => e = e.child(fade(key_cap(cap))),
@@ -865,6 +1108,9 @@ pub fn view(s: &State) -> Option<El> {
     let query = s.palette.words.text.as_str();
     let lines = lines(s);
     let lit = lit(s, &lines);
+    // A found thing's age is read off the clock as the row is drawn (`ago(c.found.at)`), the
+    // picture's own clock in a picture.
+    let now = if s.fixed_clock { s.now } else { crate::clock() };
 
     let field = text_input(&s.palette.words, sans(17.0, 400.0))
         .key("palette")
@@ -874,6 +1120,7 @@ pub fn view(s: &State) -> Option<El> {
         .placeholder(rules::PLACEHOLDER, quiet())
         .caret(accent(), rgba(110, 165, 255, 0.3))
         .on_edit(|s: &mut State| &mut s.palette.words)
+        .on_input_change(|s: &mut State, _| s.palette_typed())
         .on_submit(run_the_lit_row)
         .on_input_key(in_the_box);
     // Esc is a key's cap, as the rows' keys are, its word as the key is named (`.palette-esc`).
@@ -905,7 +1152,7 @@ pub fn view(s: &State) -> Option<El> {
             rows = rows.child(heading(words, at == 0));
             tall += if at == 0 { 23.5 } else { 29.5 };
         }
-        rows = rows.child(line_row(line, lit == Some(at), query));
+        rows = rows.child(line_row(line, lit == Some(at), query, now));
         tall += height(line);
     }
     // A column: a plain box is a row, which stretches the rows to its own height, and then
@@ -945,6 +1192,7 @@ mod tests {
         match row {
             Pictured::Heading(words) => format!("## {words}"),
             Pictured::Thread => "(a thread)".to_string(),
+            Pictured::Found => "(found inside)".to_string(),
             Pictured::Command { icon, label, hint, cap } => format!("{icon} · {label} · {}", cap.clone().or_else(|| hint.clone()).unwrap_or_default()),
         }
     }
@@ -955,7 +1203,7 @@ mod tests {
             if let Some(words) = &line.heading {
                 out.push(format!("## {words}"));
             }
-            out.push(if line.key.starts_with("thread-") { "(a thread)".to_string() } else { format!("{} · {} · {}", line.icon, line.label, line.cap.clone().or_else(|| line.hint.clone()).unwrap_or_default()) });
+            out.push(if line.key.starts_with("thread-") { "(a thread)".to_string() } else if line.found.is_some() { "(found inside)".to_string() } else { format!("{} · {} · {}", line.icon, line.label, line.cap.clone().or_else(|| line.hint.clone()).unwrap_or_default()) });
         }
         out
     }
@@ -1065,6 +1313,241 @@ mod tests {
         s.open_thread("w-1", "shop");
         s.keep(theirs(Some(read)));
         assert!(!unread(&s));
+    }
+
+    /// An inbox of three threads, the second an outside agent's, opened on a fixture.
+    fn found_inbox(name: &str) -> State {
+        let now = 1_790_000_000_000.0_f64;
+        let item = |id: &str, title: &str| json!({ "id": id, "product": "shop", "status": "open", "kind": "directive", "title": title, "body": title, "labels": ["founder"], "createdAt": now - 3_600_000.0, "updatedAt": now - 600_000.0 });
+        let mut outside = item("agent:7", "Storefront agent");
+        outside["agent"] = json!({ "pid": 7 });
+        let fixture = json!({
+            "now": now,
+            "snapshot": {
+                "products": [{ "slug": "shop", "name": "Storefront", "dir": "/fixtures/shop" }],
+                "items": [item("w-1", "Checkout fails"), outside, item("w-3", "Onboarding checklist copy")],
+                "approvals": [],
+                "supervisor": { "running": [], "stalled": [], "queued": [], "productOrder": ["shop"] },
+            },
+            "local": {},
+        });
+        let path = std::env::temp_dir().join(format!("mercury-palette-{name}-{}.json", std::process::id()));
+        std::fs::write(&path, fixture.to_string()).expect("the invented inbox");
+        let s = crate::init_from(&["--fixture".to_string(), path.to_string_lossy().into_owned(), "--view".to_string(), "inbox".to_string()]);
+        let _ = std::fs::remove_file(&path);
+        s
+    }
+
+    /// What the finder answers for "refund": two lines in Checkout fails and one in a thread this
+    /// window does not list, a report found by its name and a note by what it says.
+    fn refunds(now: f64) -> Value {
+        let at = |m: f64| now - m * 60_000.0;
+        let w = |id: &str| json!({ "kind": "thread", "product": "shop", "id": id, "ownerId": null, "threadId": null, "updatedAt": 1 });
+        let with = |base: Value, more: Value| {
+            let mut base = base.as_object().unwrap().clone();
+            base.extend(more.as_object().unwrap().clone());
+            Value::Object(base)
+        };
+        json!({
+            "ok": true,
+            "lines": [
+                with(w("w-1"), json!({ "uid": "u1", "by": null, "source": "agent", "at": at(30.0), "comment": false, "text": "The 37 refunds are queued behind a note to support." })),
+                with(w("w-9"), json!({ "uid": "u2", "by": null, "source": "agent", "at": at(5.0), "comment": false, "text": "Refund it." })),
+                with(w("w-1"), json!({ "uid": "u3", "by": null, "source": "founder", "at": at(10.0), "comment": false, "text": "Tell support before the refunds go out." })),
+            ],
+            "files": [
+                with(w("w-1"), json!({ "how": "name", "src": "/fixtures/shop/refunds.png", "name": "refunds.png", "by": null, "at": at(20.0), "text": "" })),
+                with(w("w-3"), json!({ "how": "contents", "src": "/fixtures/shop/notes.md", "name": "notes.md", "by": null, "at": at(40.0), "text": "Refunds go out on Friday." })),
+                with(w("agent:7"), json!({ "how": "name", "src": "/fixtures/shop/refund-plan.md", "name": "refund-plan.md", "by": null, "at": at(50.0), "text": "" })),
+            ],
+            "comments": [],
+            "total": { "lines": 3, "files": 3, "comments": 0 },
+        })
+    }
+
+    fn typed(s: &mut State, words: &str) {
+        s.palette.words = TextEdit::new(words);
+        s.palette_typed();
+    }
+
+    fn drawn(s: &State) -> Vec<String> {
+        lines(s).iter().flat_map(|l| l.heading.iter().map(|h| format!("## {h}")).chain([format!("{} {}", l.icon, l.label)]).collect::<Vec<_>>()).collect()
+    }
+
+    /// `PaletteBox`'s found-inside effect and `insideForPalette`: the rows after every other row,
+    /// Lines then Files under their headings, their drawings by their ids, and kept until the
+    /// next answer lands.
+    #[test]
+    fn what_is_found_inside_threads_comes_after_every_other_row_under_its_headings() {
+        let mut s = found_inbox("found-rows");
+        let mut tx = Tx::default();
+        s.open_palette(&mut tx);
+        typed(&mut s, "refund");
+        // Nothing is shown of it until the app answers.
+        assert!(drawn(&s).iter().all(|r| !r.starts_with("## Lines")));
+        assert!(s.found_inside("refund", Ok(refunds(s.now))));
+        assert_eq!(
+            drawn(&s),
+            [
+                "## Lines",
+                "text Tell support before the refunds go out.",
+                "text The 37 refunds are queued behind a note to support.",
+                "## Files",
+                "file refunds.png",
+                "file Refunds go out on Friday.",
+                "file refund-plan.md",
+            ]
+        );
+        let all = lines(&s);
+        assert_eq!(all[0].key, "line-thread-shop-w-1-u3");
+        assert_eq!(all[3].found.as_ref().and_then(|f| f.file.as_deref()), Some("notes.md"));
+        assert!(all.iter().all(|l| l.hint.is_none() && l.cap.is_none() && !l.done));
+        assert_eq!(found::under(all[1].found.as_ref().unwrap(), s.now), "Agent · Checkout fails · 30m");
+        // New words keep the last answer's rows until the next lands; a failed call leaves them.
+        typed(&mut s, "refunds");
+        assert_eq!(lines(&s).len(), 5);
+        assert!(!s.found_inside("refunds", Err("the door is shut".into())));
+        assert_eq!(lines(&s).len(), 5);
+        // An answer the app could not make leaves none, and the line saying nothing matches.
+        let none = json!({ "ok": false, "error": "no", "lines": [], "files": [], "comments": [], "total": { "lines": 0, "files": 0, "comments": 0 } });
+        s.found_inside("refunds", Ok(none));
+        assert!(lines(&s).is_empty());
+        // Words cleared take them away at once.
+        s.found_inside("refund", Ok(refunds(s.now)));
+        typed(&mut s, "  ");
+        assert!(lines(&s).iter().all(|l| l.found.is_none()));
+        // And a closed bar lands nothing.
+        s.close_palette();
+        assert!(!s.found_inside("refund", Ok(refunds(s.now))));
+    }
+
+    /// `pickedKey` and `keptPick`: with nothing else listed for the words, the first found row is
+    /// lit as it lands; a row already lit stays lit as they come in under it; new words light the
+    /// first row; and the arrows step over the headings.
+    #[test]
+    fn the_lit_row_is_kept_as_found_rows_come_in_and_the_arrows_step_over_their_headings() {
+        let mut s = found_inbox("found-lit");
+        let mut tx = Tx::default();
+        s.open_palette(&mut tx);
+        typed(&mut s, "refund");
+        assert!(lines(&s).is_empty());
+        s.found_inside("refund", Ok(refunds(s.now)));
+        let at = |s: &State| lit(s, &lines(s)).map(|at| lines(s)[at].key.clone());
+        assert_eq!(at(&s).as_deref(), Some("line-thread-shop-w-1-u3"));
+        assert_eq!(s.palette.lit.as_ref().map(|(_, key)| key.as_str()), Some("line-thread-shop-w-1-u3"));
+        // Down twice: the second line, then the first file, past the Files heading.
+        let down = KeyEvent { key: Key::Down, mods: Default::default() };
+        in_the_box(&mut s, &down, &mut tx);
+        in_the_box(&mut s, &down, &mut tx);
+        assert_eq!(at(&s).as_deref(), Some("file-thread-shop-w-1-/fixtures/shop/refunds.png"));
+        // A new answer to the same words keeps that row lit wherever it lands.
+        let mut again = refunds(s.now);
+        again["files"].as_array_mut().unwrap().swap(0, 1);
+        s.found_inside("refund", Ok(again));
+        assert_eq!(at(&s).as_deref(), Some("file-thread-shop-w-1-/fixtures/shop/refunds.png"));
+        // Words that list a thread light it, and the found rows coming in under it leave it lit.
+        typed(&mut s, "checkout");
+        let first = lines(&s)[0].key.clone();
+        assert_eq!(at(&s), Some(first.clone()));
+        s.found_inside("checkout", Ok(refunds(s.now)));
+        assert_eq!(at(&s), Some(first));
+    }
+
+    /// `openInside`: the bar closes, the thread opens and is read, and a line is looked for; a
+    /// file opens beside the conversation when it is one that does, else big, and an outside
+    /// agent's big.
+    #[test]
+    fn a_found_row_opens_its_thread_at_the_line_or_with_its_file_beside_it_or_big() {
+        let mut s = found_inbox("found-run");
+        let mut tx = Tx::default();
+        s.open_palette(&mut tx);
+        typed(&mut s, "refund");
+        s.found_inside("refund", Ok(refunds(s.now)));
+        let does = |s: &State, key: &str| lines(s).into_iter().find(|l| l.key == key).and_then(|l| l.does).unwrap();
+        let line = does(&s, "line-thread-shop-w-1-u3");
+        run(&mut s, line, &mut tx);
+        assert!(!s.palette.open, "the bar closed");
+        assert_eq!(s.view, View::Thread { id: "w-1".into(), product: "shop".into() });
+        assert!(s.local.seen.iter().any(|id| id == "w-1"), "counted as read");
+        let r = s.reading_reveal().expect("the line is looked for");
+        assert_eq!(r, ("shop/w-1".to_string(), "u3".to_string()));
+        // A note opens beside its conversation.
+        s.open_palette(&mut tx);
+        typed(&mut s, "refund");
+        s.found_inside("refund", Ok(refunds(s.now)));
+        let note = does(&s, "file-thread-shop-w-3-/fixtures/shop/notes.md");
+        run(&mut s, note, &mut tx);
+        assert_eq!(s.view, View::Thread { id: "w-3".into(), product: "shop".into() });
+        assert_eq!(s.beside().map(|d| d.src.clone()).as_deref(), Some("/fixtures/shop/notes.md"));
+        assert!(s.viewer.open.is_none());
+        // A picture opens big over it.
+        s.open_palette(&mut tx);
+        typed(&mut s, "refund");
+        s.found_inside("refund", Ok(refunds(s.now)));
+        let picture = does(&s, "file-thread-shop-w-1-/fixtures/shop/refunds.png");
+        run(&mut s, picture, &mut tx);
+        assert_eq!(s.view, View::Thread { id: "w-1".into(), product: "shop".into() });
+        assert!(s.beside().is_none());
+        assert!(s.viewer.open.is_some(), "big over the conversation");
+        // A note on an outside agent's row does not open beside it.
+        s.open_palette(&mut tx);
+        typed(&mut s, "refund");
+        s.found_inside("refund", Ok(refunds(s.now)));
+        let outside = does(&s, "file-thread-shop-agent:7-/fixtures/shop/refund-plan.md");
+        assert_eq!(outside, Does::Found(found::Open::File { thread: ("agent:7".into(), "shop".into()), src: "/fixtures/shop/refund-plan.md".into(), outside: true }));
+        run(&mut s, outside, &mut tx);
+        assert_eq!(s.view, View::Thread { id: "agent:7".into(), product: "shop".into() });
+        assert!(s.beside().is_none());
+    }
+
+    /// The asking itself: 90 ms after the words last changed, once for a run of keys, and an
+    /// answer to older words dropped however late it lands (`setTimeout(…, 90)` and `live`).
+    #[test]
+    fn the_app_is_asked_ninety_ms_after_the_words_rest_and_an_answer_to_older_words_is_dropped() {
+        use std::sync::{Arc, Mutex};
+        use std::time::{Duration, Instant};
+        let finder = Finder::default();
+        let asked: Arc<Mutex<Vec<(String, Instant)>>> = Arc::default();
+        let ask = |words: &str, slow: u64| {
+            let (asked, words) = (asked.clone(), words.to_string());
+            let payload = found::ask(&words).unwrap();
+            finder.ask(words.clone(), payload, move |p| {
+                asked.lock().unwrap().push((p["query"].as_str().unwrap().to_string(), Instant::now()));
+                std::thread::sleep(Duration::from_millis(slow));
+                Ok(json!({ "for": p["query"] }))
+            });
+        };
+        let typed_at = Instant::now();
+        for words in ["r", "re", "ref", "refund"] {
+            ask(words, 0);
+        }
+        std::thread::sleep(Duration::from_millis(40));
+        assert!(asked.lock().unwrap().is_empty(), "not before the words have rested 90 ms");
+        let landed = (0..100).find_map(|_| {
+            std::thread::sleep(Duration::from_millis(10));
+            finder.take()
+        });
+        let calls = asked.lock().unwrap().clone();
+        assert_eq!(calls.iter().map(|(w, _)| w.as_str()).collect::<Vec<_>>(), ["refund"], "once, for the words as they rested");
+        assert!(calls[0].1.duration_since(typed_at) >= Duration::from_millis(90));
+        assert_eq!(landed.map(|(q, a)| (q, a.unwrap())), Some(("refund".to_string(), json!({ "for": "refund" }))));
+        // A slow answer for "refu" is still out when "refund" is asked: it never lands.
+        asked.lock().unwrap().clear();
+        ask("refu", 300);
+        std::thread::sleep(Duration::from_millis(150));
+        assert_eq!(asked.lock().unwrap().len(), 1, "the first is under way");
+        ask("refund", 0);
+        let mut got = Vec::new();
+        for _ in 0..60 {
+            std::thread::sleep(Duration::from_millis(10));
+            got.extend(finder.take().map(|(q, _)| q));
+        }
+        assert_eq!(got, ["refund"]);
+        // Stopped, nothing asked lands.
+        ask("refunds", 0);
+        finder.stop();
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(finder.take().is_none());
     }
 
     #[test]

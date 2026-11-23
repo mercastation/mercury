@@ -23,6 +23,7 @@ pub mod files_shown;
 pub mod film;
 pub mod folded;
 pub mod format;
+pub mod found;
 pub mod js;
 pub mod kinds;
 pub mod later;

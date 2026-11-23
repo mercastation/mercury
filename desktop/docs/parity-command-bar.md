@@ -40,7 +40,7 @@ in, which is the order drawn before anything is typed. `src/rules/palette.rs` ho
 | B12 | People and groups found (`findChats`) lead the threads when the words name one of them better than any thread title, else follow them, under "People and groups" (`peopleLead`). | out: no rooms, teammates or people here |
 | B13 | Order: commands named by the words (every word starts a word of the label or of a name it had) go first; then the threads under "Threads"; then the commands the words only touch by keyword, under "Commands". A command that carries a found thread's whole title stays below it unless its label starts with the words (`paletteOrder`). | done |
 | B14 | "Set Mercury up again" is kept for typed words only when they name it (`ASKED_FOR_BY_NAME`). | out with its row |
-| B15 | What was found inside things, from the app, after everything else (`findInside`). | see "Found inside things" below |
+| B15 | What was found inside things, from the app, after everything else (`findInside`). | done for lines and files; see "Found inside things" below |
 | B16 | Each row has a key of its own, unique even when two rows share an id (`commandKeys`). | done |
 | B17 | The lit row is a row, not a place: a list that sorts again or grows under it keeps it lit (`keptPick`); new words light the first row again. | done |
 | B18 | ↓ and ↑ move the lit row and stop at either end; only a key brings it into view (`scrollIntoView({ block: 'nearest' })`). | done |
@@ -155,29 +155,58 @@ Mark unread, Resume agents and the four levels "(N selected)": out, no row can b
 | Teammates' threads (`card-…`) | the title, thread, "<name>'s thread" | Opens their card | out: no teammates here |
 | See all N threads (`all-threads`) | search | The thread search page | out: no search page here |
 | People and groups (`chat-…`) | person, hash | Their chat | out: no people or groups here |
-| Found inside things: Lines (`line-…`) | the line, text, who · where · when | Opens the thread at that message | see below |
-| Found inside things: Files (`file-…`) | the file's name (or the line, after the name), file | Opens the thread, the file beside it or big | see below |
-| Found inside things: Comments (`comment-…`) | the comment, after the file's name, comment | Opens the file big at the comment | see below |
+| Found inside things: Lines (`line-…`) | the line, text, who · where · when | Opens the thread at that message | done (below) |
+| Found inside things: Files (`file-…`) | the file's name (or the line, after the name), file | Opens the thread, the file beside it or big | done (below) |
+| Found inside things: Comments (`comment-…`) | the comment, after the file's name, comment | Opens the file big at the comment | out: this window draws no comments on files (below, F27) |
 | Found inside things: Decisions (`decision-…`) | the decision, flag | Its group | out: no Groups here |
 
 ### Found inside things
 
-90 ms after the words stop changing, the web window asks the app (`zero:find-in-threads`, with
-`{ query, limit: { lines: 6, files: 5, comments: 4 } }`) and keeps three lines, three files and
-two comments of what comes back that sit in a thread it lists (`insideGroups`, newest first but
-files in the app's order), each group under its heading after every other row. A line opens its
-thread and brings that message to the middle of the page, marked for a moment (`revealLine`); a
-file opens its thread with the file beside it, or big when it is not one that opens beside; a
-comment opens the file big at the comment. The app is asked to read the threads ahead as the
-bar opens (`zero:warm-find-in-threads`).
+Read from `renderer/src/components/Palette.tsx` (`PaletteBox`: the asking, the rows, how they are
+drawn), `renderer/src/App.tsx` (`insideFor`, `openInside`, `insideForPalette`, the warming),
+`renderer/src/found-inside.ts` (`insideGroups`), `renderer/src/reveal-line.ts` (`revealLine`),
+`renderer/src/components/Thread.tsx` and `ItemThread.tsx` (which messages carry `data-line`, and
+who listens for `LINE_MISSING`), `renderer/src/format.ts` (`ago`) and `renderer/src/styles.css`
+(`.palette-found`, `[data-line].line-found`). The rules are `src/rules/found.rs`; the asking and
+the rows are drawn and run in `src/palette.rs`; the landing on a line is `src/thread.rs`.
 
-Status: not done. Asking the app is one call, but what a row does is not yet this window's to
-do the web's way: a line has to bring its own message to the middle of the page and mark it, and
-this window's conversation keeps no line's id (`talk.rs` builds its messages without `uid`, and
-the page's scroller has no key to scroll one into view), nor unfolds the earlier messages to
-find one folded away (`LINE_MISSING`); a comment has to open its file big at the comment, and
-the big view here draws no comments. Opening the thread alone would be a simpler stand-in for
-the row, so none of the three is offered until the conversation can be scrolled to a line.
+| # | Behaviour (web) | Status |
+|---|---|---|
+| F1 | When the bar opens, the app is asked to read the threads ahead (`zero:warm-find-in-threads`, nothing sent, not waited for). | done |
+| F2 | 90 ms after the typed words last changed, with any words that are not blank once trimmed, the app is asked `zero:find-in-threads` with `{ query, limit: { lines: 6, files: 5, comments: 4 } }` (three, three and two kept, plus three, two and two to spare), the query trimmed. | done |
+| F3 | An answer for older words is dropped, even one that lands after a newer one was asked (`live`). | done |
+| F4 | No spinner, nothing said while it is asked: the last answer's rows stay until the next lands. | done |
+| F5 | Words cleared (blank once trimmed): the rows go at once and nothing is asked. | done |
+| F6 | A call that fails is said nowhere, and the rows stay; an answer the app could not make (`ok: false`, empty lists) leaves no rows. | done |
+| F7 | A found thing is kept only when its thread (`product/id`) is one the window lists; one it does not list is left out, not drawn dead. | done |
+| F8 | At most three lines, newest first by when they were said (`at`), and three files in the order the app sent them. | done |
+| F9 | The groups follow every other row, Lines then Files, each under its heading ("LINES", "FILES", the bar's small capitals); a group with nothing in it is left out. | done |
+| F10 | Row ids: `line-<kind>-<product or owner>-<id or thread>-<uid>`, `file-<kind>-<product or owner>-<id or thread>-<src>`; the drawing by the id's start, `text` for a line, `file` for a file. | done |
+| F11 | A line's row says the snippet the app cut; a file found by its name says the name; a file found by what it holds says the line that matched, the file's name in front of it in the text's ink, weight 500, eight points before the line. | done |
+| F12 | The typed words are lit in what the row says, as a thread's sentence lights them (`markedWords`: the text's ink, weight 600). | done |
+| F13 | Under it, one line: who, where, when, joined by " · ", any of them left out when empty, and where left out when it is the same as who. | done |
+| F14 | Who: the person themself is "You" (their id on a signed-in team, or no id on a line the person wrote); a line with no id is "Agent" when the agent wrote it, else "You"; a teammate by their first name, "Someone" when the window does not know them; a comment line is "<who> commented"; a file with nobody named has no who. | done |
+| F15 | Where: the thread's name as the list draws it (`threadSearchDetails(…).title`): its shown title, or for a conversation with people that is not a task, their names joined by commas, else "Conversation". | done (the people are named in the order the conversation's record lists them; see F28) |
+| F16 | When: `ago` (`Ns`, `Nm`, `Nh`, `Nd` under a week, else the month and day), left out when `at` is 0; read off the clock as the row is drawn. | done |
+| F17 | No hint or key at the row's end, never dimmed; 50 points at least, seven points over and under, the drawing level with the first line, the two lines three points apart, the second 12 points in the faint ink, each one line cut with an ellipsis. | done |
+| F18 | The headings are not rows: the arrows step over them. | done |
+| F19 | The lit row is kept by its key when the rows come in under it; with nothing else listed for the words, the first found row is lit as it comes; new words light the first row again (`pickedKey`, `keptPick`). | done |
+| F20 | Running a row closes the bar first. | done |
+| F21 | A line: its thread opens and is counted as read (`setFocused`, `markSeen`), and the window looks for that message (`revealLine`). | done |
+| F22 | It looks for the message every 50 ms, sixty times after the first (about three seconds). A message is looked for by its line's uid, or `at-<when>` for a line with none; only the conversation's own message blocks carry it (`data-line` in `Thread.tsx`): not what a run ran, not the newest answer drawn alone, not the agent's last word at the foot. | done |
+| F23 | Not found after six looks (300 ms), once, the conversation is asked to draw itself whole when its middle is left out (`LINE_MISSING`, heard by `Thread.tsx` only while it leaves messages out, and `setWhole(true)`); a line under the earlier fold under the title is not unfolded by this (`ItemThread.tsx` draws no conversation then). | done |
+| F24 | Found: brought to the middle of the page at once (`scrollIntoView({ block: 'center' })`, no glide), and marked for 2600 ms: the wash behind it and the accent two points down its left edge (`[data-line].line-found`), coming in and going over half a second on `ease` (`transition: background-color .5s ease, box-shadow .5s ease`). | done |
+| F25 | Never found: it stops quietly, nothing said. | done |
+| F26 | A file: its thread opens and is counted as read; the file opens beside the conversation when it is one that opens beside (`whereAFileOpens`) and the row is not an outside agent's, else big over the window. | done |
+| F27 | Comments found (`comment-…`): the comment after its file's name, the `comment` drawing, opening the file big at the comment. | out: this window draws no comments on files, so the row would open the file without the comment it names; left out with the owner's agreement |
+| F28 | A conversation with two people or more is named with whoever wrote its newest words first (`messageLine`'s `from`). | out: this window does not read what waits in a conversation (`whatWaits`), so it names the people in the order the record keeps them |
+| F29 | Decisions found, and lines said in groups (`decision-…`, `line-room-…`), opening the group at the message. | out: no groups here |
+| F30 | Lines and files in a teammate's shared thread (`kind: 'shared'`), opening their card at the line. | out: no teammates here |
+| F31 | A second row pressed while the first still looks: the web window looks for both, each on its own timer. | done, as one look at a time: the second press takes over from the first, whose thread is no longer the one on screen |
+
+What the rows look like was held against the web window's own picture with words that find lines
+and files (`palette-found`), and a line brought to the middle of its conversation and marked
+against the web's (`thread-found-line`): see the README's "Compare a screen with the real one".
 
 ## What the rows were checked against
 
