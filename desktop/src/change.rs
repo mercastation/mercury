@@ -1810,7 +1810,9 @@ fn focus_marks(s: &State) -> El {
 /// The window with the marks over a change that takes the workspace, and the pointer moving
 /// anywhere over it waking them; any other window as it is.
 pub fn over_the_workspace(s: &State, root: El) -> El {
-    let takes = crate::pane::takes_the_card(s) && s.beside().is_some_and(|d| d.kind() == crate::rules::pane::Kind::Change);
+    // Only a change sent to the whole workspace (`artifactMode === 'focus'`): one a narrow window
+    // leaves the card to has no marks, and Escape is its way out.
+    let takes = s.pane.full && crate::pane::takes_the_card(s) && s.beside().is_some_and(|d| d.kind() == crate::rules::pane::Kind::Change);
     if !takes {
         return root;
     }
@@ -2458,20 +2460,34 @@ mod tests {
 
     #[test]
     fn the_card_stands_over_the_marks_where_it_covers_them() {
-        // At 900 by 760 the change takes the card, and the picker leaves twelve points at its
-        // right with nothing to press: the close mark under them is not pressed through the card.
+        // Sent to the whole workspace in a narrow window, the picker leaves twelve points at the
+        // card's right with nothing to press: the close mark under them is not pressed through
+        // the card, and past the card's edge its sliver is the close mark.
         let (mut rt, dir) = with_a_change("covered", (900.0, 760.0), None);
         open_it(&mut rt);
-        assert!(crate::pane::takes_the_card(&rt.state));
+        rt.update(|s, _| s.pane.full = true);
         rt.pointer_move(857.0, 65.0);
         rt.frame(1.0 / 60.0);
         press(&mut rt, 857.0, 65.0);
-        assert!(the_open_change(&rt).is_some(), "the press inside the card closed nothing");
-        // Past the card's edge, the sliver of the close mark is the close mark.
+        assert!(rt.state.pane.full && the_open_change(&rt).is_some(), "the press inside the card closed nothing");
         rt.pointer_move(869.0, 69.0);
         rt.frame(1.0 / 60.0);
         press(&mut rt, 869.0, 69.0);
-        assert!(the_open_change(&rt).is_none(), "the sliver closes it");
+        assert!(!rt.state.pane.full, "the sliver puts it back");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_change_a_narrow_window_leaves_the_card_to_has_no_marks() {
+        let (mut rt, dir) = with_a_change("no-marks", (900.0, 760.0), None);
+        open_it(&mut rt);
+        assert!(crate::pane::takes_the_card(&rt.state) && !rt.state.pane.full);
+        rt.pointer_move(869.0, 69.0);
+        rt.frame(1.0 / 60.0);
+        press(&mut rt, 869.0, 69.0);
+        assert!(the_open_change(&rt).is_some(), "no mark to press");
+        key(&mut rt, Key::Escape);
+        assert!(the_open_change(&rt).is_none(), "Escape is its way out");
         let _ = std::fs::remove_dir_all(dir);
     }
 
