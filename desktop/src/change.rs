@@ -230,8 +230,9 @@ pub struct Changes {
     gap_read: Latest<(String, String, usize, Result<String, String>)>,
     pub here: Option<Here>,
     /// The marks over a change given the whole workspace: when the pointer last moved, on the
-    /// window's clock, and whether it is on them or the corner they live in.
-    pub chrome_at: f64,
+    /// window's clock (none before it first moves), and whether it is on them or the corner they
+    /// live in.
+    pub chrome_at: Option<f64>,
     pub reaching: bool,
     spare: TextEdit,
 }
@@ -1770,7 +1771,7 @@ pub fn chip(s: &State, item: &crate::data::Item, raw: &str, shown: &str, font: T
 /// file. The window draws them under the page for that; Escape is the way back, as there.
 fn focus_marks(s: &State) -> El {
     let (ww, _) = s.size;
-    let up = s.changes.reaching || s.at - s.changes.chrome_at < 1.8;
+    let up = s.changes.reaching || s.changes.chrome_at.is_some_and(|at| s.at - at < 1.8);
     let room = crate::rules::pane::artifact_placement(s.page_size().0) == crate::rules::pane::Placement::Beside;
     let mark = |glyph: &'static rune::Icon, help: &'static str, key: &'static str| {
         row().key(key).size(28.0, 28.0).radius(3.0).center().hover_group().cursor(Cursor::Pointer).help(help).child(icon(glyph, 16.0).color(dim()).group_color(ink()))
@@ -1794,10 +1795,16 @@ fn focus_marks(s: &State) -> El {
         .child(mark(&crate::icons::FILE_CLOSE, "Exit Focus", "pane-close").on_press(|s: &mut State| s.close_or_put_back()))
         .on_hover_change(|s: &mut State, inside, _| s.changes.reaching = inside);
     let wide = 2.0 + 3.0 * 28.0 + 2.0 * 6.0 + 2.0 + 2.0;
-    let marks = marks.absolute(ww - 26.0 - wide, 52.0).opacity(if up { 1.0 } else { 0.0 }).offset(0.0, if up { 0.0 } else { -4.0 }).opacity_motion(rune::Curve::tween(0.16, rune::Easing::EASE)).offset_motion(rune::Curve::tween(0.16, rune::Easing::EASE));
+    // The card covers them all but the eight points past its right edge (the window's width
+    // less 34, the marks' box ending 26 in): only that sliver is seen or pressed, as in the web
+    // window, where the card stands over them. Rune lets a press through a plain fill, so they
+    // are cut to the sliver rather than left under the card.
+    let card_right = ww - crate::chrome::CARD[2] - 12.0;
+    let marks = marks.absolute(ww - 26.0 - wide - card_right, 52.0).opacity(if up { 1.0 } else { 0.0 }).offset(0.0, if up { 0.0 } else { -4.0 }).opacity_motion(rune::Curve::tween(0.16, rune::Easing::EASE)).offset_motion(rune::Curve::tween(0.16, rune::Easing::EASE));
+    let past_the_card = el().absolute(card_right, 0.0).size((ww - card_right).max(0.0), s.size.1).clip_rounded(0.0).child(if up { marks } else { marks.inert() });
     // The corner that wakes them: 260 by 110, the pointer on it reaching for them.
     let reach = el().absolute(ww - 260.0, 0.0).size(260.0, 110.0).on_hover_change(|s: &mut State, inside, _| s.changes.reaching = inside);
-    el().absolute(0.0, 0.0).size(ww, s.size.1).child(reach).child(if up { marks } else { marks.inert() })
+    el().absolute(0.0, 0.0).size(ww, s.size.1).child(reach).child(past_the_card)
 }
 
 /// The window with the marks over a change that takes the workspace, and the pointer moving
@@ -1812,8 +1819,8 @@ pub fn over_the_workspace(s: &State, root: El) -> El {
 
 /// A pointer moving anywhere over the window while the change takes the workspace wakes its marks.
 fn pointer_moved(s: &mut State, tx: &mut Tx) {
-    let was = s.at - s.changes.chrome_at < 1.8;
-    s.changes.chrome_at = s.at;
+    let was = s.changes.chrome_at.is_some_and(|at| s.at - at < 1.8);
+    s.changes.chrome_at = Some(s.at);
     tx.wake_after(std::time::Duration::from_millis(1810));
     if was {
         tx.live_only();
@@ -2423,8 +2430,48 @@ mod tests {
         assert!(rt.state.pane.full);
         assert_eq!(rt.state.pane_placement(), Some(crate::rules::pane::Placement::Focus));
         assert!(rect_of(&rt, TREE).is_some(), "the whole card is wide enough for the tree");
+        // The marks over it sleep once the pointer has rested; the sliver of the close mark past
+        // the card's edge puts it back beside.
+        run(&mut rt, 2.0);
+        assert!(rt.state.changes.chrome_at.is_none_or(|at| rt.state.at - at >= 1.8), "asleep");
+        let card_right = 1280.0 - 34.0;
+        rt.pointer_move(card_right + 2.0, 69.0);
+        rt.frame(1.0 / 60.0);
+        press(&mut rt, card_right + 2.0, 69.0);
+        assert!(!rt.state.pane.full && the_open_change(&rt).is_some(), "the sliver of the close mark puts it back beside");
+        let (x, y) = middle(&rt, "pane-full");
+        press(&mut rt, x, y);
         key(&mut rt, Key::Escape);
         assert!(!rt.state.pane.full && the_open_change(&rt).is_some(), "Escape puts it back beside");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_marks_over_the_whole_workspace_sleep_until_the_pointer_moves() {
+        let (mut rt, dir) = with_a_change("asleep", (1280.0, 760.0), None);
+        open_it(&mut rt);
+        rt.update(|s, _| s.pane.full = true);
+        rt.frame(1.0 / 60.0);
+        assert!(rt.state.changes.chrome_at.is_none(), "nothing has woken them");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_card_stands_over_the_marks_where_it_covers_them() {
+        // At 900 by 760 the change takes the card, and the picker leaves twelve points at its
+        // right with nothing to press: the close mark under them is not pressed through the card.
+        let (mut rt, dir) = with_a_change("covered", (900.0, 760.0), None);
+        open_it(&mut rt);
+        assert!(crate::pane::takes_the_card(&rt.state));
+        rt.pointer_move(857.0, 65.0);
+        rt.frame(1.0 / 60.0);
+        press(&mut rt, 857.0, 65.0);
+        assert!(the_open_change(&rt).is_some(), "the press inside the card closed nothing");
+        // Past the card's edge, the sliver of the close mark is the close mark.
+        rt.pointer_move(869.0, 69.0);
+        rt.frame(1.0 / 60.0);
+        press(&mut rt, 869.0, 69.0);
+        assert!(the_open_change(&rt).is_none(), "the sliver closes it");
         let _ = std::fs::remove_dir_all(dir);
     }
 
