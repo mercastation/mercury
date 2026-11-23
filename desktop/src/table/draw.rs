@@ -932,7 +932,8 @@ fn ask_logo(s: &State, host: &str) {
             return;
         }
         let url = format!("https://www.google.com/s2/favicons?domain={host}&sz=64");
-        let read = std::process::Command::new("/usr/bin/curl").args(["-s", "-f", "-m", "8", "--max-filesize", "400000", &url]).output().ok().filter(|o| o.status.success()).map(|o| o.stdout);
+        // The service answers with a move to where the picture is, which a browser follows.
+        let read = std::process::Command::new("/usr/bin/curl").args(["-s", "-f", "-L", "--max-redirs", "3", "-m", "8", "--max-filesize", "400000", &url]).output().ok().filter(|o| o.status.success()).map(|o| o.stdout);
         let picture = read.and_then(|bytes| image::load_from_memory(&bytes).ok()).map(|i| i.to_rgba8()).filter(|i| i.width() > 16).map(|i| (i.width(), i.height(), i.into_raw()));
         landed.lock().unwrap().push((host, picture));
     });
