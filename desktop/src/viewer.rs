@@ -640,8 +640,10 @@ fn zoom_pill(open: &Open, fit: rules::Fit, stage: (f32, f32)) -> El {
         .radius(10.0)
         .border(1.0, rule())
         .border_layout()
+        // The web window also blurs the eight hundredths of the picture that show through
+        // (`backdrop-filter: blur(8px)`). Rune's blur of what is behind an element holds copies
+        // of the whole window for as long as the bar is up, so here they show as they are.
         .fill(rgba(54, 52, 49, 0.92))
-        .backdrop_blur(8.0)
         .box_shadow(shadow(0.0, 10.0, 30.0, 0.0, rgba(0, 0, 0, 0.35), false))
         .child(step(&icons::ZOOM_OUT, open.zoom > floor + 0.001, false, "Zoom out (-)"))
         .child(fit_button)

@@ -76,18 +76,15 @@ pub fn bars(heights: &[f32], c: Color) -> El {
     row().items_end().gap(1.5).children(heights.iter().map(|h| el().size(3.0, *h).radius(1.0).fill(c)))
 }
 
-/// `.hm-glass` and the composer: the page behind, blurred, under a dark wash and a faint
-/// white gradient. The caller adds its own border and shadows.
-pub fn glass(e: El) -> El {
-    glass_wash(e.backdrop_blur(GLASS_BLUR))
-}
-
 /// How far the glass blurs what is behind it, in points, and how much stronger it makes its
-/// colours (`backdrop-filter: blur(20px) saturate(1.5)`). Rune's own blur does only the first.
+/// colours (`.hm-glass` and the composer: `backdrop-filter: blur(20px) saturate(1.5)`). The
+/// sky behind it is blurred so when it is painted (`sky::soft`): nothing in this window asks
+/// Rune to blur what is behind an element, which holds copies of the whole window while it does.
 pub const GLASS_BLUR: f32 = 20.0;
 pub const GLASS_SATURATES: f32 = 1.5;
 
-/// The glass's own dark wash and faint white gradient, over whatever is behind it.
+/// The glass's own dark wash and faint white gradient, over the sky blurred behind it. The
+/// caller adds its own border and shadows.
 pub fn glass_wash(e: El) -> El {
     e.fill(rgba(17, 16, 15, 0.42)).gradient(white(0.075), white(0.024))
 }

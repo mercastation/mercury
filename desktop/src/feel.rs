@@ -281,6 +281,30 @@ pub fn plate(s: &State) -> Option<El> {
         }
         row().h(line_h(key)).items_center().gap(10.0).child(row().w(caps_col).gap(3.0).children(caps_of(key).iter().map(|c| cap(c)))).child(words)
     };
+    // What the plate stands on. The web window's is the window's film over whatever is behind
+    // it, blurred (`--film-strong`, `backdrop-filter: blur(18px)`), and the blur is what makes
+    // it readable. Rune blurs what is behind an element from copies of the whole window, 104 MB
+    // of textures at 1280 by 760 points for as long as a plate is up, so this plate stands on
+    // what such a blur comes to instead: the ground's own colour where it is, and over a sky
+    // the sky as it was blurred when it was painted. Words and pictures under a plate, which
+    // the web window shows as a smudge, do not show here.
+    let ground = crate::rules::motion::ground_under_the_card((left + plate_w / 2.0, top + plate_h / 2.0), s.size).map(|c| c.round() as u8);
+    let sky = match &s.view {
+        crate::View::Home => crate::chrome::soft_sky_from((left, top), &s.sky_home_soft, crate::chrome::sky_in_the_window(s), s.sky_home.size(), crate::chrome::SOFT_HOME),
+        crate::View::Inbox | crate::View::Files { .. } => crate::chrome::soft_sky_from((left, top), &s.sky_inbox_soft, crate::inbox::band_in_the_window(s), s.sky_inbox.size(), crate::chrome::SOFT_STRIP),
+        crate::View::Thread { .. } => None,
+    };
+    let whole = || el().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0));
+    // Drawn inside the plate and out over its edge, since a plate's own film and edge would be
+    // drawn under what it holds: the ground, the sky, the film, and the edge last.
+    let stands_on = el()
+        .pin(Some(-1.0), Some(-1.0), Some(-1.0), Some(-1.0))
+        .radius(6.0)
+        .clip_rounded(6.0)
+        .child(whole().fill(rgb(ground[0], ground[1], ground[2])))
+        .children(sky)
+        .child(whole().fill(white(0.07)))
+        .child(whole().radius(6.0).border(1.0, rule()));
     Some(
         col()
             .key("hint-plate")
@@ -290,12 +314,11 @@ pub fn plate(s: &State) -> Option<El> {
             .px(10.0)
             .gap(4.0)
             .radius(6.0)
-            .backdrop_blur(18.0)
-            .fill(white(0.07))
-            .border(1.0, rule())
+            .border(1.0, rgba(0, 0, 0, 0.0))
             .border_layout()
             .inert()
             .a11y_hidden()
+            .child(stands_on)
             .children(lines.iter().map(line)),
     )
 }

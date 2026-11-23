@@ -2415,9 +2415,28 @@ to, so there the dark and the edge are drawn over the soft band inside the butto
 blurred as the buttons have it behind them, faded into the card's ground where the card's mask
 fades it.
 
-Rune's own blur stands in for the one build before a pane has a place, which is never drawn:
-the page is built again with the place before its first frame. Under the pointer a button of
-the strip gives up its blur, as before.
+The one build before a pane has a place has the pane's wash alone, and is never drawn: the page
+is built again with the place before its first frame. Under the pointer a button of the strip
+gives up its blur, as before.
+
+Two more things asked Rune for a blur, of what could be anything: a key hint's plate
+(`blur(18px)` under the window's film) and the zoom bar over a picture opened big (`blur(8px)`
+under a fill of 92%). Either one up held the same copies of the window: seen on the installed
+window, a hint took its textures from 36 MB to 140 MB for as long as it showed. The plate now
+stands on what such a blur comes to over the window's ground, that ground's own colour
+(`rules::motion::ground_under_the_card`) and, over a sky, the soft sky, with the film and the
+edge drawn over it inside the plate (`feel.rs`); the bar keeps its fill and gives up the blur.
+Nothing in the window asks Rune to blur what is behind an element any more.
+
+| With it on screen, at rest | 1280 by 760, before | after | 1920 by 1050, before | after |
+|---|---|---|---|---|
+| A hint over a row of the Inbox | 319 MB | 187 MB | 410 MB | 230 MB |
+| A picture opened big, its zoom bar | 284 MB | 154 MB | 372 MB | 193 MB |
+
+The picture opened big is the same to the pixel in `file-picture`, where the bar stands over
+the stage's own dark. The plates are within 8 to 14 of 255 of what they were: 0.9 on average
+over a tab, 1.9 under Done, and 7.8 over a row, where the web window's plate is lighter for the
+row's words blurred behind it.
 
 Measured headless in a release build (`--features rune/tooling`, `--realtime`, the footprint
 read four seconds in with `footprint <pid>`), each screen at rest:
@@ -2818,10 +2837,13 @@ the films' folder by `MERCURY_FILM_ROOT`.
 
 ## What still differs from the web app, and why
 
-- **A hint's plate and the zoom bar over a picture opened big still ask Rune to blur what is
-  behind them**, which is anything, so nothing can be blurred for them ahead of time (see "A sky
-  seen through glass"). While one is up the window holds Rune's copies of itself, and gives them
-  back when it next rests.
+- **A hint's plate stands on the ground, not on what is behind it blurred.** The web window's
+  plate is its film over whatever is behind it, blurred by 18 points; this one is the film over
+  the ground's own colour, and over a sky the sky as it was blurred when painted (see "A sky
+  seen through glass"). Over the plain card the two are the same; words and pictures under a
+  plate, which the web window shows as a smudge, do not show here, so a plate over the Inbox's
+  rows is up to 14 of 255 darker. The zoom bar over a picture opened big shows the eight
+  hundredths of the picture behind it as they are, where the web window blurs them.
 - **A cut-off title loses its last space.** The browser keeps the space before the ellipsis. An
   aside cut short does the same. And the selected row's underline runs under the three dots of a
   title cut short, where the browser's stops before them.

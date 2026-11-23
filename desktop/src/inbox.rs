@@ -61,7 +61,7 @@ pub fn band_under_the_strip((w, h, band): &(u32, u32, Vec<u8>)) -> (u32, u32, Ve
 }
 
 /// Where the band stands in the window, stretched with the card while a window is resized.
-fn band_in_the_window(s: &State) -> [f32; 4] {
+pub(crate) fn band_in_the_window(s: &State) -> [f32; 4] {
     let [x, y, sky_w, sky_h] = chrome::sky_in_the_window(s);
     let band_h = s.sky_inbox.size().1 as f32 / crate::sky::PER_POINT as f32;
     [x, y, sky_w, if s.sky_size.1 >= 1.0 { band_h * sky_h / s.sky_size.1 } else { band_h }]
@@ -124,10 +124,10 @@ pub(crate) fn strip_button(s: &State, key: &'static str) -> El {
         // The sky blurred behind it is the soft band, painted with the sky and shown where the
         // button stands (`chrome::sky_through`): under the button's dark and its edge, which
         // are drawn over it here because a button's own would be drawn under what it holds.
-        // Rune's own blur stands in only until the button has a place.
+        // Until the button has a place it has its dark alone, in a build that is never drawn.
         match chrome::sky_through(key, &s.sky_inbox_soft, band_in_the_window(s), s.sky_inbox.size(), chrome::SOFT_STRIP, 6.0, 1.0) {
             Some(behind) => button.border(1.0, rgba(0, 0, 0, 0.0)).child(behind.child(whole().fill(under(0.82))).child(whole().radius(6.0).border(1.0, edge))),
-            None => button.backdrop_blur(STRIP_BLUR).fill(under(0.82)).border(1.0, edge),
+            None => button.fill(under(0.82)).border(1.0, edge),
         }
     };
     crate::feel::pointed(button.border_layout().cursor(Cursor::Pointer), key)

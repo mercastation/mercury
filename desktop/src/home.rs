@@ -321,14 +321,11 @@ const SECOND_CARD: &str = "home-second";
 /// (`chrome::sky_through`), so nothing on Home asks Rune to blur what is behind it. It is a
 /// thing of its own under the pane, which is why the place is one element and the pane
 /// another: the pane's wash, its edge and the light along its top are then drawn over the
-/// blurred sky, in the order the web window draws them. Rune's own blur stands in for the one
-/// build before the place has been laid out.
+/// blurred sky, in the order the web window draws them. The one build before the place has
+/// been laid out has the wash alone, and is never drawn.
 pub fn glass(s: &State, key: &'static str, radius: f32, pane: impl FnOnce(El) -> El) -> El {
-    let place = col().key(key);
-    match crate::chrome::sky_through(key, &s.sky_home_soft, crate::chrome::sky_in_the_window(s), s.sky_home.size(), crate::chrome::SOFT_HOME, radius, 0.0) {
-        Some(behind) => place.child(behind).child(pane(glass_wash(col()))),
-        None => place.child(pane(crate::theme::glass(col()))),
-    }
+    let behind = crate::chrome::sky_through(key, &s.sky_home_soft, crate::chrome::sky_in_the_window(s), s.sky_home.size(), crate::chrome::SOFT_HOME, radius, 0.0);
+    col().key(key).children(behind).child(pane(glass_wash(col())))
 }
 
 /// One of Home's two cards: a head with a link out, and what is in it. The link is the text's

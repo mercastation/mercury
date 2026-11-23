@@ -220,20 +220,28 @@ pub fn sky_in_the_window(s: &State) -> [f32; 4] {
 /// painted, so it is blurred then, once, off the main thread, into a picture of half a megabyte.
 ///
 /// None until the pane has been laid out, since its place is what says which part of the sky
-/// shows through it: the caller asks Rune's blur for that one build, which is never drawn,
-/// because the page is built again with the place before its first frame.
+/// shows through it: that one build has the pane's wash alone, and is never drawn, because the
+/// page is built again with the place before its first frame.
 pub fn sky_through(key: &str, soft: &rune::Pixels, at: [f32; 4], painted: (u32, u32), shrink: u32, radius: f32, edge: f32) -> Option<El> {
+    let [x, y, _, _] = rune::memo::window_layout(key)?;
+    let sky = soft_sky_from((x, y), soft, at, painted, shrink)?;
+    // The pane's children are laid out inside its edge, and the glass runs under the edge too.
+    Some(el().pin(Some(-edge), Some(-edge), Some(-edge), Some(-edge)).radius(radius).clip_rounded(radius).inert().a11y_hidden().child(sky))
+}
+
+/// A soft sky as it lies for something whose corner is at `corner` in the window: the picture
+/// alone, where the sky stands (`at`), for whatever cuts it to its own shape. None while the
+/// sky has not been painted.
+pub fn soft_sky_from(corner: (f32, f32), soft: &rune::Pixels, at: [f32; 4], painted: (u32, u32), shrink: u32) -> Option<El> {
     let (soft_w, soft_h) = soft.size();
     if soft_w == 0 || painted.0 == 0 || painted.1 == 0 {
         return None;
     }
-    let [x, y, _, _] = rune::memo::window_layout(key)?;
     // The soft sky's last block may stand for less than a whole one: it is drawn as far past
     // the sky's edge as that block reaches, so every block lands where it was taken from.
     let wide = at[2] * (soft_w * shrink) as f32 / painted.0 as f32;
     let tall = at[3] * (soft_h * shrink) as f32 / painted.1 as f32;
-    // The pane's children are laid out inside its edge, and the glass runs under the edge too.
-    Some(el().pin(Some(-edge), Some(-edge), Some(-edge), Some(-edge)).radius(radius).clip_rounded(radius).inert().a11y_hidden().child(el().absolute(at[0] - x, at[1] - y).size(wide, tall).pixels(soft)))
+    Some(el().absolute(at[0] - corner.0, at[1] - corner.1).size(wide, tall).pixels(soft))
 }
 
 /// The main card. The sky fills the card as it is with the rail folded, stretched while a
