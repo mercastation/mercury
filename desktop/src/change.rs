@@ -178,6 +178,33 @@ pub struct Here {
     /// Where the pointer last moved over a line, in the line's own points, for where a press puts
     /// the caret.
     pointer: (f32, f32),
+    /// The files a selection may reach back to: the one last pressed in, and those its two ends
+    /// are in. They stay built wherever the column stands.
+    pressed_in: Option<usize>,
+    ends: Option<(usize, usize)>,
+}
+
+impl Here {
+    fn holds(&self, f: usize) -> bool {
+        self.pressed_in == Some(f) || self.ends.is_some_and(|(a, b)| a == f || b == f)
+    }
+}
+
+/// The file a line's key names (`l:<file>:…`, `o:<file>:…`).
+fn file_of(key: &str) -> Option<usize> {
+    let rest = key.strip_prefix("l:").or_else(|| key.strip_prefix("o:"))?;
+    rest.split(':').next()?.parse().ok()
+}
+
+/// A press in a file's lines: the selection it may start begins there.
+fn pressed_in(s: &mut State, f: usize, shifted: bool) {
+    if let Some(here) = s.changes.here.as_mut() {
+        here.tree_keys = false;
+        here.holding = None;
+        if !shifted {
+            here.pressed_in = Some(f);
+        }
+    }
 }
 
 /// The code of the threads: what has been read and what is kept while the window runs.
@@ -386,6 +413,8 @@ impl State {
             editing: None,
             edit: TextEdit::new(""),
             pointer: (0.0, 0.0),
+            pressed_in: None,
+            ends: None,
         });
         self.changes.reaching = false;
         // A picture's fixture says what the engine answered, or nothing yet (`null`).
@@ -465,7 +494,9 @@ fn near_files(here: &Here, shown: &Shown, folds: &HashSet<String>, (scroll, view
         .map(|(f, file)| {
             let folded = folds.contains(&file.path);
             let h = here.heights.get(f).copied().flatten().unwrap_or_else(|| estimated_height(here.entries.get(f).map_or(&[][..], |e| &e[..]), folded));
-            let near = top + h >= from && top <= to;
+            // The files a selection starts and ends in stay built, as a virtual list keeps the
+            // row it starts in: a shifted press or a drag far from it still has where it began.
+            let near = (top + h >= from && top <= to) || here.holds(f);
             top += h;
             near
         })
@@ -778,10 +809,27 @@ fn column(s: &State, here: &Here, shown: &Rc<Shown>, w: f32, h: f32) -> El {
             }
         })
         .selection_group(true)
-        .selection_copy(copy)
+        .selection_copy({
+            let drawn = Drawn {
+                shown: shown.clone(),
+                entries: here.entries.clone(),
+                gaps: here.gaps.clone(),
+                folds: s.changes.folds.get(&here.key).cloned().unwrap_or_default(),
+                typed: typed_here(s, here).cloned(),
+            };
+            move |sel| copy(sel, &drawn)
+        })
         // A selection reaching past the line being typed in takes the keys from it, or the next
         // keystroke would land in one line while many are selected.
         .on_selection_change(|s: &mut State, change: &rune::SelectionChange, tx: &mut Tx| {
+            let ends = change.selection().and_then(|sel| {
+                let mut files = sel.texts().iter().filter(|t| t.is_selected()).filter_map(|t| t.key().and_then(file_of));
+                let first = files.next()?;
+                Some((first, files.last().unwrap_or(first)))
+            });
+            if let Some(here) = s.changes.here.as_mut() {
+                here.ends = ends;
+            }
             if change.selection().is_some_and(|sel| lines_selected(sel) > 1) && s.changes.here.as_ref().is_some_and(|h| h.editing.is_some()) {
                 note_edit(s);
                 stop_editing(s);
@@ -791,20 +839,77 @@ fn column(s: &State, here: &Here, shown: &Rc<Shown>, w: f32, h: f32) -> El {
         .child(lines)
 }
 
+/// The change's lines as the column draws them, for ⌘C: the rows of a file far from the view are
+/// not built, where the web window has drawn every row in idle moments, so what lies between a
+/// selection's two ends is read from here.
+struct Drawn {
+    shown: Rc<Shown>,
+    entries: Vec<Rc<Vec<Entry>>>,
+    gaps: HashMap<(String, usize), (u32, Vec<String>)>,
+    folds: HashSet<String>,
+    typed: Option<Typed>,
+}
+
+impl Drawn {
+    /// Every line in the column's order: its key, its words as drawn, and whether it was removed.
+    /// A folded file draws none, and a gap's line is only words.
+    fn lines(&self) -> Vec<(String, String, bool)> {
+        let mut all = Vec::new();
+        for (f, file) in self.shown.files.iter().enumerate() {
+            if self.folds.contains(&file.path) {
+                continue;
+            }
+            for entry in self.entries.get(f).map_or(&[][..], |e| &e[..]) {
+                match *entry {
+                    Entry::Gap { .. } => {}
+                    Entry::Opened { hunk, at } => {
+                        let line = self.gaps.get(&(file.path.clone(), hunk)).and_then(|(_, l)| l.get(at)).cloned().unwrap_or_default();
+                        all.push((format!("o:{f}:{hunk}:{at}:="), line, false));
+                    }
+                    Entry::Row { hunk, row } => {
+                        let (mark, said) = &file.hunks[hunk].rows[row];
+                        let typed = self.typed.as_ref().and_then(|t| t.get(&file.path)).and_then(|byh| byh.get(&hunk)).and_then(|rows| rows.get(&row));
+                        let tag = match mark {
+                            Mark::Added => "+",
+                            Mark::Removed => "-",
+                            Mark::Same => "=",
+                        };
+                        let line = if *mark == Mark::Removed { said.clone() } else { typed.cloned().unwrap_or_else(|| said.clone()) };
+                        all.push((format!("l:{f}:{hunk}:{row}:{tag}"), line, *mark == Mark::Removed));
+                    }
+                }
+            }
+        }
+        all
+    }
+}
+
 /// What ⌘C takes from a selection across the change's lines: the lines joined by newlines, the
 /// first and last clipped where it starts and ends, the removed lines left out unless they are
 /// all that was selected (`linesToCopy`, `copiedText`). Inside one line, the line's own copy.
-fn copy(sel: &rune::TextSelection) -> Option<String> {
+fn copy(sel: &rune::TextSelection, drawn: &Drawn) -> Option<String> {
     let touched: Vec<&rune::SelectedText> = sel.texts().iter().filter(|t| t.is_selected() && t.key().is_some_and(|k| k.starts_with("l:") || k.starts_with("o:"))).collect();
-    let removed: Vec<bool> = touched.iter().map(|t| t.key().is_some_and(|k| k.ends_with(":-"))).collect();
     // Inside one line, its own selected words; the margin's numbers and marks are never copied.
     if touched.len() == 1 {
         return Some(touched[0].text().to_string());
     }
+    let (first, last) = (touched.first()?, touched.last()?);
+    // Each end hands over its selected part, already clipped where the selection starts and
+    // ends; every line between is whole, built or not.
+    let all = drawn.lines();
+    let at = |t: &rune::SelectedText| all.iter().position(|l| Some(l.0.as_str()) == t.key());
+    let lines: Vec<(String, bool)> = match (at(first), at(last)) {
+        (Some(a), Some(b)) if b > a => (a..=b)
+            .map(|i| {
+                let text = if i == a { first.text().to_string() } else if i == b { last.text().to_string() } else { all[i].1.clone() };
+                (text, all[i].2)
+            })
+            .collect(),
+        _ => touched.iter().map(|t| (t.text().to_string(), t.key().is_some_and(|k| k.ends_with(":-")))).collect(),
+    };
+    let removed: Vec<bool> = lines.iter().map(|l| l.1).collect();
     let plan = rules::lines_to_copy(&removed)?;
-    // Each text hands over its selected part, already clipped where the selection starts and
-    // ends, so the parts are copied whole.
-    let parts: Vec<String> = plan.into_iter().map(|i| touched[i].text().to_string()).collect();
+    let parts: Vec<String> = plan.into_iter().map(|i| lines[i].0.clone()).collect();
     Some(rules::copied_text(&parts, 0, i64::MAX))
 }
 
@@ -817,7 +922,14 @@ fn lines_selected(sel: &rune::TextSelection) -> usize {
 fn block(s: &State, here: &Here, shown: &Rc<Shown>, f: usize, file: &ChangedFile, w: f32) -> El {
     let fold = folded(s, here, &file.path);
     let head = file_head(s, here, f, file, fold, w).sticky_top(0.0);
-    let mut block = col().key(format!("chg-file-{f}")).w(w).pb(10.0).child(head).on_drawn_layout_tx(move |s: &mut State, r, tx| section_moved(s, f, r[1], r[3], tx));
+    let mut block = col()
+        .key(format!("chg-file-{f}"))
+        .w(w)
+        .pb(10.0)
+        .child(head)
+        .on_drawn_layout_tx(move |s: &mut State, r, tx| section_moved(s, f, r[1], r[3], tx))
+        // A press on a line that takes no typing, or past the file's lines.
+        .on_press_tx(move |s: &mut State, tx| pressed_in(s, f, tx.mods().shift));
     // A file far from the column's view holds the height its rows take, as the web window's
     // `code-unfilled` does, and builds them as it comes near.
     if !fold && !here.near.get(f).copied().unwrap_or(true) {
@@ -1051,13 +1163,11 @@ fn editable(row_el: El, f: usize, hunk: usize, r: usize, line: &str, cols: usize
         })
         .on_press_tx(move |s: &mut State, tx| {
             let Some((x, y)) = s.changes.here.as_ref().map(|h| h.pointer) else { return };
+            let shifted = tx.mods().shift;
+            pressed_in(s, f, shifted);
             // A press in the margin is a selection's, never a caret's; so is a shifted press,
             // which extends the selection across lines.
-            if x < 0.0 || tx.mods().shift {
-                if let Some(here) = s.changes.here.as_mut() {
-                    here.tree_keys = false;
-                    here.holding = None;
-                }
+            if x < 0.0 || shifted {
                 return;
             }
             // The line becomes a field here, and the presses after are the field's: Rune counts
@@ -2375,6 +2485,45 @@ mod tests {
         assert!(rt.elements().iter().any(|e| e.key.as_deref().is_some_and(|k| k.starts_with("l:39:"))), "the last file's rows are built");
         assert!(built(&rt) < 600);
         assert_eq!(rt.state.changes.here.as_ref().map(|h| h.at), Some(39));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_selection_from_the_first_file_to_the_last_copies_every_file_between() {
+        let (mut rt, dir) = with_a_change("far", (1280.0, 760.0), None);
+        let change = invented_change(4_000, 40);
+        rt.update(move |s, _| {
+            for v in s.fixture.get_mut("codeChanges").and_then(Value::as_object_mut).expect("answers").values_mut() {
+                *v = json!({ "ok": true, "change": change });
+            }
+        });
+        open_it(&mut rt);
+        run(&mut rt, 0.2);
+        // From the margin of the first line, then a shifted press at the end of the last file's
+        // fifth line, the files between never built.
+        let [x0, y0, _, _] = rect_of(&rt, "l:0:0:0:=").expect("the first line");
+        let (mx, my) = (x0 - MARK_W - 10.0 - ADVANCE / 2.0, y0 + 5.0);
+        rt.pointer_move(mx, my);
+        rt.pointer_down(mx, my);
+        rt.pointer_up(mx, my);
+        rt.frame(1.0 / 60.0);
+        rt.update(|s, tx| jump_to_the_last(s, tx));
+        run(&mut rt, 0.5);
+        assert!(rect_of(&rt, "l:20:0:0:=").is_none(), "a file between is not built");
+        let [x4, y4, w4, _] = rect_of(&rt, "l:39:0:4:=").expect("the last file's fifth line");
+        rt.physical_input(rune::PhysicalInput::Modifiers(Mods { shift: true, ..Mods::default() }));
+        rt.pointer_move(x4 + w4 - 1.0, y4 + 5.0);
+        rt.pointer_down(x4 + w4 - 1.0, y4 + 5.0);
+        rt.pointer_up(x4 + w4 - 1.0, y4 + 5.0);
+        rt.frame(1.0 / 60.0);
+        rt.physical_input(rune::PhysicalInput::Modifiers(Mods::default()));
+        let copied = copied(&mut rt).expect("⌘C copies");
+        // Thirty-nine whole files of a hundred rows, a fifth of them removed and left out, and
+        // the last file's first five rows less its removed one.
+        assert_eq!(copied.lines().count(), 39 * 80 + 4);
+        assert!(copied.contains("invented line 0 of file 20") && !copied.contains("invented line 1 of file 20"));
+        // The tree puts `pkg6/src/file_034.ts` last.
+        assert!(copied.ends_with("invented line 4 of file 34"), "{}", &copied[copied.len().saturating_sub(80)..]);
         let _ = std::fs::remove_dir_all(dir);
     }
 
