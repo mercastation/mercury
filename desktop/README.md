@@ -2495,6 +2495,48 @@ It costs the first frame about a sixth more (53 ms to 63 ms on `home`) and nothi
 in a whole frame; starting twice adds nothing that `/usr/bin/time` can tell apart. Every
 picture is the picture it was. `MallocLargeCache=0` alone gives most of it (339 MB unfolded).
 
+## What the graphics driver holds while frames come
+
+The installed window's footprint goes up by 104 MB for about a second each time something on it
+changes, and stays up for as long as something moves. None of that is the window's, or Rune's:
+
+- `footprint -v <pid>` during it lists 26 more objects of exactly 4 MiB under "Owned physical
+  footprint (unmapped) (graphics)", and nothing else new.
+- A build whose Rune prints every texture and buffer it makes (a line in `create_texture` and
+  `create_buffer` of `rune-gpu`'s `metal/resource.rs`) prints none then. A conversation's frame
+  is drawn straight into the window's drawable, from the glyph atlas and nothing more.
+- The count is the same at 1280 by 760 and at 1920 by 1050, on an invented conversation and on
+  a long one, in a window and headless: 26 blocks, with 17 more for a moment when two frames
+  are in hand at once.
+- `ioreg -r -d 1 -c IOAccelerator` names it: the chip's "Allocated PB Size", the parameter
+  buffer its tiler sorts a frame's triangles into, read 108,789,760 bytes.
+- The desktop app's own graphics process holds 35 to 43 of the same blocks while its window draws.
+
+It is what the driver lends a program that draws with Metal on this chip, whole or not at all,
+and takes back about a second after the program's last frame. Nothing the window asks for
+sizes it. What the window does decide is how long frames keep coming. A test window of a
+release build at 1920 by 1050, on the invented working conversation, `top -pid` read over two
+seconds on a machine in use:
+
+| | The driver's blocks | Drawables | Of a core |
+|---|---|---|---|
+| Nothing moving | none | 2 (62 MB) | 0 |
+| Something changed | 104 MB for about a second | | |
+| The working line on screen, its loops at 60 a second | 104 MB throughout | 3 (92 MB) | 8 to 12% |
+| The same at 48 | 104 MB | 3 | 8 to 11% |
+| The same at 40 | 104 MB | 2 | 7 to 9% |
+| The same at 30 | 104 MB | 2 | 5 to 7% |
+
+A loop-only step spares the window's own work on a frame, not the chip's: the driver is still
+handed a whole frame. News from the door that changes nothing on screen costs none of this:
+Rune holds a frame's instances against the ones it last presented and draws nothing when they
+are the same.
+
+Two things to know when measuring. A test window opened without coming forward
+(`RUNE_OPEN_INACTIVE=1`) draws nothing while another window covers it whole, since macOS calls
+it occluded and Rune stops: open it at a size the window in front leaves some of in sight. And
+a window that is hidden keeps its drawables (92 MB at this size) for as long as it lives.
+
 ## What moves on its own
 
 The web window's conversation page moves in few places, and this window moves in the same ones.
@@ -2575,7 +2617,9 @@ thread's time (0.12 its update, 0.08 its paint), all of which a loop-only step l
 headless in real time, which draws every frame whole, 600 frames at 60 a second took 0.70 s of
 the process's time in 10 s with the line moving and 0.69 s with nothing moving: drawn whole, the
 conversation costs 7% of a core at 60 frames a second, and the loops add about a tenth of a
-percent to that. A window draws no frame at rest, and while the line moves draws only the steps.
+percent to that. A window draws no frame at rest, and while the line moves draws only the steps
+(which the graphics chip still takes as whole frames: "What the graphics driver holds while
+frames come").
 
 **What it cost in a window, and why.** That last sentence was the design, and the installed
 window did not keep to it: maximised, with a working conversation and a sheet beside it,
