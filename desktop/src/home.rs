@@ -469,6 +469,47 @@ pub fn view(s: &State) -> El {
 mod tests {
     use super::*;
 
+    /// Home's sky is the one large picture the window paints for itself, and a window spends
+    /// its day on conversations: it is held while Home is the page and ten seconds after, let
+    /// go then, and painted the same again before Home is next drawn.
+    #[test]
+    fn homes_sky_is_held_only_while_home_is_the_page_or_was_a_moment_ago() {
+        use crate::feel::tests::{run, window};
+        let mut rt = window("home-sky", &[]);
+        let (sky, soft) = (rt.state.sky_home.rgba(), rt.state.sky_home_soft.rgba());
+        let size = rt.state.sky_home.size();
+        assert!(size.0 > 1000 && !sky.is_empty() && !soft.is_empty(), "Home opens with its sky: {size:?}");
+        // On the Inbox, it stays for ten seconds, in case the person comes straight back.
+        rt.update(|s, _| s.go(crate::View::Inbox));
+        run(&mut rt, 9.0);
+        assert_eq!(rt.state.sky_home.size(), size, "still held nine seconds on");
+        // Back on Home and away again: the ten seconds start over.
+        rt.update(|s, _| s.go(crate::View::Home));
+        run(&mut rt, 2.0);
+        rt.update(|s, _| s.go(crate::View::Inbox));
+        run(&mut rt, 9.0);
+        assert_eq!(rt.state.sky_home.size(), size, "nine seconds after leaving again");
+        run(&mut rt, 2.0);
+        assert_eq!((rt.state.sky_home.size(), rt.state.sky_home_soft.size()), ((0, 0), (0, 0)), "let go past ten");
+        // The Inbox keeps its own band, which it draws.
+        assert!(rt.state.sky_inbox.size().0 > 1000 && rt.state.sky_inbox_soft.size().0 > 0);
+        // Home again: its sky is there before the page is drawn, the same sky to the byte.
+        rt.update(|s, _| {
+            s.go(crate::View::Home);
+            assert_eq!(s.sky_home.size(), size, "painted as Home becomes the page");
+        });
+        run(&mut rt, 0.1);
+        assert!(rt.state.sky_home.rgba() == sky && rt.state.sky_home_soft.rgba() == soft, "the same sky and the same glass over it");
+        // And by Back as by a press on Home.
+        rt.update(|s, _| s.go(crate::View::Inbox));
+        run(&mut rt, 11.0);
+        assert_eq!(rt.state.sky_home.size(), (0, 0));
+        rt.update(|s, _| {
+            s.back();
+            assert_eq!((s.view == crate::View::Home, s.sky_home.size()), (true, size));
+        });
+    }
+
     #[test]
     fn a_taller_box_takes_its_room_from_above_the_greeting_first_and_then_from_the_cards() {
         let near = |a: (f32, f32, f32), b: (f32, f32, f32)| (a.0 - b.0).abs() < 0.01 && (a.1 - b.1).abs() < 0.01 && (a.2 - b.2).abs() < 0.01;

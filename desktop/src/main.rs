@@ -97,6 +97,9 @@ pub struct State {
     pub sky_inbox_soft: Pixels,
     /// The card size the skies on screen were painted for.
     pub sky_size: (f32, f32),
+    /// When Home's sky is let go, on the window's clock, once Home is no longer the page shown
+    /// (`tend_the_home_sky`).
+    home_sky_goes: Option<f64>,
     painting: Latest<Painted>,
     /// The window's repeating timers, each asked of Rune once (`wake.rs`).
     pub wakes: wake::Wakes,
@@ -241,6 +244,7 @@ impl State {
             self.put_the_reply_away();
             self.history.push(std::mem::replace(&mut self.view, to));
             self.take_the_reply_out();
+            self.home_sky_for_home();
         }
     }
     pub fn back(&mut self) {
@@ -249,6 +253,7 @@ impl State {
             self.put_the_reply_away();
             self.view = prev;
             self.take_the_reply_out();
+            self.home_sky_for_home();
         }
     }
     /// The open conversation's row, as the engine last told it.
@@ -1160,11 +1165,62 @@ impl State {
         }
     }
     fn hang(&mut self, p: Painted) {
-        self.sky_home.set(p.home.0, p.home.1, p.home.2);
+        // Home's sky is hung only where it is kept: on Home, or within its ten seconds after.
+        if self.home_sky_is_kept() {
+            self.sky_home.set(p.home.0, p.home.1, p.home.2);
+            self.sky_home_soft.set(p.home_soft.0, p.home_soft.1, p.home_soft.2);
+        }
         self.sky_inbox.set(p.inbox.0, p.inbox.1, p.inbox.2);
-        self.sky_home_soft.set(p.home_soft.0, p.home_soft.1, p.home_soft.2);
         self.sky_inbox_soft.set(p.inbox_soft.0, p.inbox_soft.1, p.inbox_soft.2);
         self.sky_size = p.points;
+    }
+    /// Whether Home's sky is held now: Home is the page shown, or was not long ago.
+    fn home_sky_is_kept(&self) -> bool {
+        self.view == View::Home || self.sky_home.size().0 > 0
+    }
+    /// Home's sky, painted before Home is drawn when it was let go: the page a person comes to
+    /// has its sky in its first frame, as it always had.
+    fn home_sky_for_home(&mut self) {
+        if self.view != View::Home {
+            return;
+        }
+        self.home_sky_goes = None;
+        if self.sky_home.size().0 == 0 {
+            let (home, soft) = paint_home_sky(chrome::folded_card_size(self));
+            self.sky_home.set(home.0, home.1, home.2);
+            self.sky_home_soft.set(soft.0, soft.1, soft.2);
+        }
+    }
+    /// Lets Home's sky go once Home has not been the page for `HOME_SKY_KEPT` seconds, and
+    /// paints it for a Home that has none, however Home came to be the page. True when what is
+    /// drawn changed.
+    fn tend_the_home_sky(&mut self, tx: &mut Tx) -> bool {
+        if self.view == View::Home {
+            let missing = self.sky_home.size().0 == 0;
+            self.home_sky_for_home();
+            return missing;
+        }
+        if self.sky_home.size().0 == 0 {
+            self.home_sky_goes = None;
+            return false;
+        }
+        let now = tx.clock();
+        match self.home_sky_goes {
+            // Asked for once, as it is set: Rune gives every wake it is asked for a turn.
+            None => {
+                self.home_sky_goes = Some(now + HOME_SKY_KEPT);
+                tx.wake_at(now + HOME_SKY_KEPT);
+            }
+            // A moment due within a thousandth of a second has come (`wake.rs`).
+            Some(goes) if now >= goes - 0.001 => {
+                self.sky_home.set(0, 0, Vec::new());
+                self.sky_home_soft.set(0, 0, Vec::new());
+                self.home_sky_goes = None;
+            }
+            Some(_) => {}
+        }
+        // Nothing on a page that is not Home draws Home's sky.
+        false
     }
 }
 
@@ -1172,20 +1228,33 @@ fn clock() -> f64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64)
 }
 
+/// Home's sky for a card of `points`, and the same as the glass over it shows it.
+fn paint_home_sky(points: (f32, f32)) -> ((u32, u32, Vec<u8>), (u32, u32, Vec<u8>)) {
+    let (w, h) = (points.0.floor() as f64, points.1.floor() as f64);
+    // Dots from 40 points down, fully in 300 points later (`SkyBackdrop` in App.tsx).
+    let home = sky::draw(&sky::ember(), w, h, 40.0, 300.0, 0.0, sky::PER_POINT);
+    // What Home's glass has behind it, blurred as the glass blurs it.
+    let soft = sky::saturated(sky::soft(&home, theme::GLASS_BLUR * sky::PER_POINT as f32, chrome::SOFT_HOME), theme::GLASS_SATURATES);
+    (home, soft)
+}
+
 fn paint_skies(points: (f32, f32)) -> Painted {
     let (w, h) = (points.0.floor() as f64, points.1.floor() as f64);
-    let art = sky::ember();
-    // Home's: dots from 40 points down, fully in 300 points later (`SkyBackdrop` in App.tsx).
-    let home = sky::draw(&art, w, h, 40.0, 300.0, 0.0, sky::PER_POINT);
+    let (home, home_soft) = paint_home_sky(points);
     // The Inbox's: a band 190 points tall at the card's foot (`InboxSky`, shape "head"), of
     // which only the rows behind the head are kept.
     let start = (h - 190.0).round();
-    let inbox = inbox::band(sky::draw(&art, w, h, start, 120.0, start - 60.0, sky::PER_POINT));
-    // What Home's glass and the strip's buttons have behind them, blurred as each blurs it.
-    let home_soft = sky::saturated(sky::soft(&home, theme::GLASS_BLUR * sky::PER_POINT as f32, chrome::SOFT_HOME), theme::GLASS_SATURATES);
+    let inbox = inbox::band(sky::draw(&sky::ember(), w, h, start, 120.0, start - 60.0, sky::PER_POINT));
+    // What the strip's buttons have behind them, blurred as each blurs it.
     let inbox_soft = sky::soft(&inbox::band_under_the_strip(&inbox), inbox::STRIP_BLUR * sky::PER_POINT as f32, chrome::SOFT_STRIP);
     Painted { home, inbox, home_soft, inbox_soft, points }
 }
+
+/// How long Home's sky is kept after the person leaves Home, in case they come straight back.
+/// Past it the sky is let go, and painted again when Home is next shown: 8 ms for a window of
+/// 1920 by 1050 points, 20 with its glass's copy, where keeping it held 32 MB all day in a
+/// window that showed a conversation.
+const HOME_SKY_KEPT: f64 = 10.0;
 
 const DEFAULT_SIZE: (f32, f32) = (1280.0, 760.0);
 
@@ -1234,6 +1303,7 @@ fn init_from(args: &[String]) -> State {
         sky_home_soft: Pixels::new(),
         sky_inbox_soft: Pixels::new(),
         sky_size: (0.0, 0.0),
+        home_sky_goes: None,
         // A sky is painted again once the card has held still (`STILL`), never on each step of
         // a window being dragged larger: every step painted two full skies off the main thread
         // and hung them, which took a window from 0.4 GB to 1.6 GB while it was resized.
@@ -1524,6 +1594,8 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
         s.hang(p);
         changed = true;
     }
+    // Home's sky is held while Home is the page and ten seconds after, and no longer.
+    changed |= s.tend_the_home_sky(tx);
     // The reply box's chips follow the box: opened, they start on its thread's own mode.
     chips::tend(s);
     press_what_the_picture_pressed(s, tx);

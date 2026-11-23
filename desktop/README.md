@@ -2733,6 +2733,50 @@ Two things to know when measuring. A test window opened without coming forward
 it occluded and Rune stops: open it at a size the window in front leaves some of in sight. And
 a window that is hidden keeps its drawables (92 MB at this size) for as long as it lives.
 
+### What a launch passes through
+
+A window just opened stands for a second or two at well over what it settles to. Measured on a
+test window of the release build, opened without coming forward on Home at 1512 by 949 points
+at 2x, through a door that passes reads on and nothing else, `footprint <pid>` every tenth of a
+second:
+
+| Seconds after it starts | Footprint | Of that |
+|---|---|---|
+| 0.7 | 28 MB | the program alone, before its window |
+| 0.8 to 2.0 | 329, then 379, then 422 MB | 214 to 250 MB of graphics the driver owns: 66 are Home's own pictures, the rest two of its working pools at once, 26 and 20 blocks of 4 MiB; 67 MB of drawables, three of them; 48 MB of the program's own |
+| 2.2 to 2.9 | 238, then 233 MB | the pools taken back a second after the first frames |
+| 3.0 to 4.0 | 339 MB | what the door answered lands and is drawn: one pool again, for a second |
+| from 4.4 | 233 MB | Home at rest at this size |
+
+All of what is passed through is the driver's, lent while frames come and taken back a second
+after the last: 184 MB of the 189 between the most and the rest. The program's own part does
+not rise and fall with it, and the skies, the one large thing it makes as it starts, take 15 to
+20 ms to paint, all four (5 to 8 for Home's alone). There is nothing of the window's to trim
+from a launch.
+
+### Home's sky, while Home is the page
+
+What that measuring did find is at rest. Home's sky is as large as the card (3,632 by 1,976
+pixels for a window of 1920 by 1050 points, 29 MB), and it was painted as the window started
+and at every new size and held from then on, whichever page was shown: a window that shows a
+conversation all day held it all day. It is held now while Home is the page and for ten seconds
+after (`HOME_SKY_KEPT`, for a person who comes straight back), let go then, and painted again
+as Home next becomes the page (`State::home_sky_for_home`, called where the page changes, so
+Home's first frame has its sky as it always had; `tend_the_home_sky` in `poll` lets it go, on a
+wake asked for once). The Inbox's band and its soft copy, which the Inbox and Files draw, stay.
+
+| A conversation at 1920 by 1050, headless, at rest | Before | After |
+|---|---|---|
+| Footprint, 4 s after it opens | 191 MB | 191 MB |
+| Footprint, 14 s after | 191 MB | 163 MB |
+| Of it, large allocations | 30 MB | 2.7 MB |
+
+Home, the Inbox, Files and a conversation draw the same to the pixel as before, at 1280 by 760
+and Home at 1920 by 1050 too; and Home come back to after twelve seconds on the Inbox (its sky
+let go and painted again) is the same picture, pixel for pixel, as the build before draws after
+the same trip. The sky itself is the same to the byte
+(`homes_sky_is_held_only_while_home_is_the_page_or_was_a_moment_ago`).
+
 ## What moves on its own
 
 The web window's conversation page moves in few places, and this window moves in the same ones.
