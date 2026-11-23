@@ -2622,6 +2622,23 @@ height (`layout_size("thread-said")`), which changes as each row replaces its es
 those runs builds only the rows near the screen. The pages with no long conversation are what
 they were: the conversation folded to its newest answer lays out the same 166 nodes.
 
+And on the long real conversation the first paragraph speaks of, read through a door that
+passes reads on and nothing else, the same way (its fold wheeled into sight and pressed; then 150
+steps of 120 points down and 150 back):
+
+| | Before | After |
+|---|---|---|
+| Layout nodes, unfolded | 5,158 | 1,475 |
+| Footprint unfolded, settled | 275 to 283 MB | 214 to 222 MB |
+| Unfolded at rest, frame cpu p50, p95 | 2.41, 22.06 ms | 1.12, 4.64 ms |
+| Wheeled, frame cpu p50, p95 | 2.44, 21.90 ms | 1.05, 8.33 ms |
+| Wheeled, animating frames p50, p95 | 20.05, 21.18 ms | 4.36, 10.56 ms |
+| Footprint wheeled, the most and at the end | 360 and 285 MB | 309 and 235 MB |
+
+Folded it stands at 208 MB in both, so unfolding it costs about 10 MB where it cost 70. As it
+opens it draws the same to the pixel; unfolded, 0.53 of 255 apart over the window, the words a
+fraction of a device pixel from where they were.
+
 To measure again: build as above, make a long fixture (its `threads` holding the ledger and the
 runs' logs, `unfolded` naming it), and run the same lines with `footprint` beside them; the
 pictures say which build drew which.
