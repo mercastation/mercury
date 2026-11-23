@@ -45,7 +45,7 @@ import { FreezeWatch } from './freeze-watch.mts';
 import { applyThrough, phoneDevice } from './phone-inbox.mts';
 import type { PhoneChannel } from './phone-inbox.mts';
 import { answerWhatOnlyTheWindowAnswered } from './serve.mts';
-import { LOCAL_DOOR_NOTE, openCloudSetup, openLocalDoor, openSettings, tellTheDoorToo, windowKeeps } from './local-door.mts';
+import { LOCAL_DOOR_NOTE, markUnread, openCloudSetup, openLocalDoor, openSettings, tellTheDoorToo, windowKeeps } from './local-door.mts';
 import { createNativeWindow } from './native-window.mts';
 import type { CollectingIpcMain, IpcHandler, PushListener } from './serve.mts';
 import { carryHerBriefsAcross, joinMessageRules, setAsideShippedMessageRules, unifyAgentInstructions } from './instruction-settings.mts';
@@ -1049,7 +1049,9 @@ async function createWindow() {
     const settings = openSettings(forward, (channel, payload) => window?.webContents.send(channel, payload));
     // And its cloud menu's Manage and Set up land on this window's cloud setup.
     const cloudSetup = openCloudSetup(forward, (channel) => window?.webContents.send(channel));
-    void openLocalDoor({ channels: phoneChannels, note: path.join(userDir, LOCAL_DOOR_NOTE), keeps: windowKeeps(askThisWindow), listeners: atTheDoor, native: nativeWindow, settings, cloudSetup })
+    // And its Mark unread sets a thread back to unread here, where what has been read is kept.
+    const unread = markUnread(askThisWindow);
+    void openLocalDoor({ channels: phoneChannels, note: path.join(userDir, LOCAL_DOOR_NOTE), keeps: windowKeeps(askThisWindow), listeners: atTheDoor, native: nativeWindow, settings, cloudSetup, unread })
       .then((door) => console.log(`local door: open on 127.0.0.1:${door.port}`))
       .catch((err: Error) => console.warn(`local door: ${err.message}`));
   }

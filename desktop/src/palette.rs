@@ -408,6 +408,8 @@ pub enum Wrote {
     /// Reopened: the line to say, and the one Z says when it marks it done again.
     Reopened { thread: (String, String), said: String, again: String },
     RunNow { thread: (String, String) },
+    /// Marked unread: held here until the web window, which keeps what has been read, says so too.
+    Unread { thread: (String, String) },
     /// An agent put back on it; `next` is the thread after it in Needs you as it was pressed,
     /// where the person goes on to from inside it once the agent is on it.
     Resume { thread: (String, String), next: Option<(String, String)> },
@@ -481,6 +483,14 @@ fn run(s: &mut State, does: Does, tx: &mut Tx) {
             }
         }
         Does::MarkRead((id, product)) => s.saw(&id, &product),
+        // Unread here at once, and in the web window, which keeps what has been read, once it
+        // has been asked: nothing is said unless it would not (`markUnseen`).
+        Does::MarkUnread(thread) => {
+            if let Some(item) = item(s, &thread) {
+                s.unsaw(&item.id);
+                s.palette_write(rules::mark_unread(&item), Wrote::Unread { thread });
+            }
+        }
         Does::Pin(thread, pin) => {
             if let Some(item) = item(s, &thread) {
                 s.pin(&item, pin, tx);
@@ -574,9 +584,19 @@ fn run(s: &mut State, does: Does, tx: &mut Tx) {
 /// What the engine said to a row's write: said in the web window's words, and what then
 /// follows done (`App.tsx`'s handlers for each).
 pub(crate) fn landed(s: &mut State, landed: write::Landed, tx: &mut Tx) {
+    let refused = landed.refusal();
     let write::Sent::Palette(wrote) = landed.sent else {
         return;
     };
+    // A mark of unread the app did not take is taken back here too, whatever kept it from
+    // taking it; one it took says nothing, as the web's row says nothing.
+    if let Wrote::Unread { thread } = &wrote {
+        if let Some(why) = refused {
+            s.unsaw_refused(&thread.0);
+            s.tell(&rules::unread_refused(&why), tx);
+        }
+        return;
+    }
     let answer = match landed.answer {
         Ok(answer) => answer,
         Err(why) => {
@@ -601,6 +621,8 @@ pub(crate) fn landed(s: &mut State, landed: write::Landed, tx: &mut Tx) {
             let (line, undo) = crate::rules::compose::toast_parts(&said);
             s.say(line, undo, tx);
         }
+        // Answered above, before the engine's words were read.
+        Wrote::Unread { .. } => {}
         Wrote::RunNow { thread } => {
             let said = rules::run_now_said(&answer);
             if answer.get("ok") == Some(&Value::Bool(true)) { s.say_about(said, thread, tx) } else { s.tell(said, tx) }
@@ -990,6 +1012,59 @@ mod tests {
     fn found(id: &str, title: &str) -> rules::Row {
         let item: Item = serde_json::from_value(json!({ "id": id, "product": "shop", "status": "open", "title": title, "updatedAt": 1 })).unwrap();
         rules::thread_row(&item, title.to_string(), "Storefront", 2.0)
+    }
+
+    /// `markUnseen` in `App.tsx`, from a window that does not keep what has been read: the mark
+    /// stands here until the web window's own record says unread too.
+    #[test]
+    fn a_thread_marked_unread_here_stays_unread_until_the_web_window_says_so_too() {
+        // Answered long ago, and read a moment after.
+        let (answered, read) = (1_700_000_000_000.0, 1_700_000_100_000.0);
+        let fixture = json!({
+            "now": answered + 3_600_000.0,
+            "snapshot": {
+                "products": [{ "slug": "shop", "name": "Storefront" }],
+                "items": [{ "id": "w-1", "product": "shop", "status": "open", "kind": "question", "title": "Checkout fails", "result": "Which one?", "createdAt": answered - 60_000.0,
+                    "wrote": { "result": { "ts": answered, "source": "agent" } } }],
+                "approvals": [],
+                "supervisor": { "running": [], "stalled": [], "queued": [], "productOrder": ["shop"] },
+            },
+            "local": { "seenAt": { "w-1": read }, "seen": ["w-1"] },
+        });
+        let path = std::env::temp_dir().join(format!("mercury-palette-unread-{}.json", std::process::id()));
+        std::fs::write(&path, fixture.to_string()).expect("the invented inbox");
+        let mut s = crate::init_from(&["--fixture".to_string(), path.to_string_lossy().into_owned()]);
+        let _ = std::fs::remove_file(&path);
+        let thread = s.item("w-1", "shop").cloned().unwrap();
+        let unread = |s: &State| rules::is_unread(&thread, &s.local);
+        let theirs = |at: Option<f64>| crate::data::Local { seen_at: at.map(|at| ("w-1".to_string(), at)).into_iter().collect(), seen: vec!["w-1".to_string()], ..Default::default() };
+        assert!(!unread(&s));
+        s.unsaw("w-1");
+        assert!(unread(&s) && !s.local.seen.iter().any(|id| id == "w-1"));
+        // What the web window keeps still says read, as it was before it was asked: the mark stands.
+        s.keep(theirs(Some(read)));
+        assert!(unread(&s));
+        // It says unread too, and from then on its word alone decides: opened there, it is read.
+        s.keep(theirs(Some(0.0)));
+        assert!(unread(&s));
+        s.keep(theirs(Some(read + 5_000.0)));
+        assert!(!unread(&s));
+        // Marked again and opened in the web window before it took the mark: its reading is the newer.
+        s.unsaw("w-1");
+        s.keep(theirs(Some(crate::write::wall_clock() + 60_000.0)));
+        assert!(!unread(&s));
+        // A mark the app would not take leaves the thread read as it was.
+        s.keep(theirs(Some(read)));
+        s.unsaw("w-1");
+        assert!(unread(&s));
+        s.unsaw_refused("w-1");
+        assert!(!unread(&s));
+        assert_eq!(s.local.seen_at.get("w-1"), Some(&read));
+        // And opening it here reads it, whatever was marked.
+        s.unsaw("w-1");
+        s.open_thread("w-1", "shop");
+        s.keep(theirs(Some(read)));
+        assert!(!unread(&s));
     }
 
     #[test]

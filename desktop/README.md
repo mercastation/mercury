@@ -3269,8 +3269,11 @@ the films' folder by `MERCURY_FILM_ROOT`.
     over, asking, waits, shipped, decisions, Add people, Close task). The theme rows are left out
     as this window draws the dark look only. Filter… is left out because in the web window it
     only closes the bar, the menu it opened being gone, and Clear filter because its filter is
-    set only by the tutorial. Mark unread is left out because only the web window keeps what has
-    been read and the app has no channel to set a thread back to unread; Mark read is here.
+    set only by the tutorial. Mark read and Mark unread are both here: only the web window keeps
+    what has been read, so it is told of a reading as a phone tells it and asked for an unread
+    through a channel the app's local door has for that alone (`zero:mark-unread-here`, see
+    `docs/parity-command-bar.md`). An app started before it had that channel refuses, and the
+    line says to restart it.
   - Stop and Try again are here; View code changes is its own control's to bring; Resume this agent and
     Restart the agent already stand aside where Try again would stand for them.
   - It finds threads only, the best five, with no "See all" row, since this window has no search

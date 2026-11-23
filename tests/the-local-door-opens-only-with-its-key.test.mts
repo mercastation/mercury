@@ -12,8 +12,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { LOCAL_DOOR_NOTE, OPEN_CLOUD_SETUP, OPEN_SETTINGS, SETTINGS_PAGE_IDS, TOLD_AT_THE_DOOR, WINDOW_KEEPS, openCloudSetup, openLocalDoor, openSettings, tellTheDoorToo, windowKeeps } from '../main/local-door.mts';
+import { LOCAL_DOOR_NOTE, MARK_UNREAD_EVENT, MARK_UNREAD_HERE, OPEN_CLOUD_SETUP, OPEN_SETTINGS, SETTINGS_PAGE_IDS, TOLD_AT_THE_DOOR, WINDOW_KEEPS, markUnread, markUnreadScript, openCloudSetup, openLocalDoor, openSettings, tellTheDoorToo, windowKeeps } from '../main/local-door.mts';
 import { SETTINGS_PAGES } from '../renderer/src/settings-search.ts';
+import { MARK_UNREAD } from '../renderer/src/team/chat-events.ts';
 import type { LocalDoor, LocalDoorNote } from '../main/local-door.mts';
 import type { IpcHandler, PushListener } from '../main/serve.mts';
 
@@ -307,6 +308,63 @@ describe("the native window's cloud menu", () => {
     expect(preload).toMatch(/onOpenCloudSetup: \(fn\) => \{[\s\S]{0,200}'zero:open-cloud-setup'/);
     const app = fs.readFileSync(path.join(import.meta.dirname, '..', 'renderer', 'src', 'App.tsx'), 'utf8');
     expect(app).toMatch(/onOpenCloudSetup\?\.\(\(\) => \{[\s\S]{0,120}setCloudSetupOpen\(true\)/);
+  });
+});
+
+describe("the native window's Mark unread", () => {
+  const aDoorThatMarks = async (run: (script: string) => Promise<unknown> | null) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'local-door-'));
+    folders.push(dir);
+    const channels = new Map<string, IpcHandler>([['zero:snapshot', () => ({ items: [] })]]);
+    const door = await openLocalDoor({ channels, note: path.join(dir, LOCAL_DOOR_NOTE), unread: markUnread(run) });
+    open.push(door);
+    return { door, channels };
+  };
+
+  it('asks the web window, where what has been read is kept, the way one of its own chats asks', async () => {
+    const scripts: string[] = [];
+    const { door, channels } = await aDoorThatMarks(async (script) => { scripts.push(script); return true; });
+    const res = await ask(door, MARK_UNREAD_HERE, { key: door.token, body: { product: 'shop', id: 'w-1' } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(scripts).toEqual([`window.dispatchEvent(new CustomEvent("agentbox:mark-unread", { detail: {"product":"shop","id":"w-1"} })); true`]);
+    // The event is the web window's own, and the window marks the thread it names unread.
+    expect(MARK_UNREAD_EVENT).toBe(MARK_UNREAD);
+    const app = fs.readFileSync(path.join(import.meta.dirname, '..', 'renderer', 'src', 'App.tsx'), 'utf8');
+    expect(app).toMatch(/window\.addEventListener\(MARK_UNREAD, mark\)/);
+    expect(app).toMatch(/const mark = \(e: Event\) => \{[\s\S]{0,400}markUnseen\(it\)/);
+    // The app's own Map is what the phone's copy is made from, and it did not grow.
+    expect([...channels.keys()]).toEqual(['zero:snapshot']);
+  });
+
+  it('takes a project and a thread by their plain names, and nothing that is not one', async () => {
+    expect(markUnreadScript({ product: 'propegi-upe', id: 'w-4c6fedcd6c' })).toContain('"id":"w-4c6fedcd6c"');
+    const scripts: string[] = [];
+    const handler = markUnread(async (script) => { scripts.push(script); return true; });
+    for (const asked of [null, {}, { product: 'shop' }, { id: 'w-1' }, { product: 'shop', id: 7 }, { product: 'shop', id: '' }, { product: 'shop', id: 'w-1"}); localStorage.clear(); ({"' }, { product: 'a b', id: 'w-1' }, { product: 'shop', id: 'w-1 x' }, { product: 'shop', id: 'x'.repeat(200) }]) {
+      expect(await handler({ sender: null }, asked)).toEqual({ ok: false, error: 'not a thread' });
+    }
+    expect(scripts).toEqual([]);
+  });
+
+  it('says so, and marks nothing, when the app has no window open or the window will not answer', async () => {
+    expect(await markUnread(() => null)({ sender: null }, { product: 'shop', id: 'w-1' })).toEqual({ ok: false, error: 'the window is gone' });
+    expect(await markUnread(async () => { throw new Error('gone'); })({ sender: null }, { product: 'shop', id: 'w-1' })).toEqual({ ok: false, error: 'the window did not answer' });
+  });
+
+  it('is not a channel on a door nobody gave it to, and still needs the key', async () => {
+    const { door } = await aDoor();
+    expect((await ask(door, MARK_UNREAD_HERE, { key: door.token, body: { product: 'shop', id: 'w-1' } })).status).toBe(404);
+    let asked = 0;
+    const { door: keyed } = await aDoorThatMarks(async () => { asked += 1; return true; });
+    expect((await ask(keyed, MARK_UNREAD_HERE, { body: { product: 'shop', id: 'w-1' } })).status).toBe(403);
+    expect(asked).toBe(0);
+  });
+
+  it("is handed to the door the app opens, made from this app's own window", () => {
+    const main = fs.readFileSync(path.join(import.meta.dirname, '..', 'main', 'main.mts'), 'utf8');
+    expect(main).toMatch(/const unread = markUnread\(askThisWindow\)/);
+    expect(main).toMatch(/openLocalDoor\(\{[^}]*\bunread\b[^}]*\}\)/);
   });
 });
 

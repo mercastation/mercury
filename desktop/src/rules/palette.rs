@@ -65,6 +65,8 @@ pub enum Does {
     Resume(Thread),
     /// Counts it as read now (`markSeen`).
     MarkRead(Thread),
+    /// Counts it as unread again (`markUnseen`).
+    MarkUnread(Thread),
     /// Pins it to the top of the list, or lets it go (`pinThread`).
     Pin(Thread, bool),
     /// Where it runs, as the place button's panel picks it (`placeThread`).
@@ -466,9 +468,12 @@ pub fn thread_commands(f: &Facts, item: &Item, open: bool) -> Vec<Row> {
         let label = if item.status == "done" { "Resume this agent (reopen and carry on)" } else { "Resume this agent" };
         rows.push(Row::command("resume-any", label, Does::Resume(thread())));
     }
-    if is_unread(item, f.local) {
-        rows.push(Row::command("read", "Mark read", Does::MarkRead(thread())));
-    }
+    // One or the other, always: read is what an unread thread can be marked, and unread a read one.
+    rows.push(if is_unread(item, f.local) {
+        Row::command("read", "Mark read", Does::MarkRead(thread()))
+    } else {
+        Row::command("unread", "Mark unread", Does::MarkUnread(thread()))
+    });
     if return_at(item) > f.now {
         // A moment an agent set is the agent's own wait, not the person's reminder.
         let label = if list::parked_by_agent(item, f.now) { "Let it run now" } else { "Back to Inbox" };
@@ -709,6 +714,22 @@ pub fn done_again((id, product): &Thread) -> Write {
 
 pub fn run_now(item: &Item) -> Write {
     ("zero:run-now", thread_of(item))
+}
+
+/// A thread set back to unread in the web window, which keeps what has been read: the door's
+/// own channel for it (`MARK_UNREAD_HERE` in `main/local-door.mts`).
+pub fn mark_unread(item: &Item) -> Write {
+    ("zero:mark-unread-here", thread_of(item))
+}
+
+/// What is said when the app did not mark a thread unread. A door that has no such channel is
+/// an app started before it had one.
+pub fn unread_refused(why: &str) -> String {
+    if why.contains("404") {
+        "Not marked unread: restart Mercury first, so it can take that from this window.".to_string()
+    } else {
+        format!("Not marked unread: {why}")
+    }
 }
 
 /// A worker back on the thread, whatever state it is in (`resumeItems` with its id).
@@ -1353,8 +1374,8 @@ mod tests {
     #[test]
     fn the_thread_under_the_keys_gets_its_rows_in_the_webs_order() {
         let w = World::empty();
-        // The web's own rows for the first thread of its invented inbox, but Rename and Mark
-        // unread, which this window does not have.
+        // The web's own rows for the first thread of its invented inbox, but Rename, which this
+        // window does not have.
         let rows = w.on(&answered(), false);
         assert_eq!(ids(&rows), with_the_rest(&["reopen", "reply", "resume-any", "read", "snooze"], &["move-refused", "open"]));
         let label = |id: &str| rows.iter().find(|r| r.id == id).map(|r| (r.label.as_str(), r.hint.as_deref(), r.key)).unwrap();
@@ -1385,7 +1406,7 @@ mod tests {
         // An outside agent's row closes as Done and has no level of a model to pick.
         let outside = item(json!({ "id": "agent:7", "product": "shop", "status": "open", "title": "A terminal", "agent": { "pid": 7 } }));
         let rows = w.on(&outside, false);
-        assert_eq!(ids(&rows)[..3], ["done", "reply", "snooze"]);
+        assert_eq!(ids(&rows)[..4], ["done", "reply", "unread", "snooze"]);
         assert_eq!(rows[0].label, "Done");
         assert!(!ids(&rows).iter().any(|id| id.starts_with("model-") || *id == "pin" || *id == "resume-any"));
     }
@@ -1452,6 +1473,22 @@ mod tests {
         w.local.seen_at.insert("w-1".to_string(), NOW);
         assert!(!is_unread(&thread, &w.local));
         assert!(!ids(&w.on(&thread, false)).contains(&"read"));
+        // Read, it can be marked unread, in the place Mark read had: one or the other, always.
+        let rows = w.on(&thread, false);
+        assert_eq!(ids(&rows), with_the_rest(&["reopen", "reply", "resume-any", "unread", "snooze"], &["move-refused", "open"]));
+        let unread = rows.iter().find(|r| r.id == "unread").unwrap();
+        assert_eq!((unread.label.as_str(), unread.hint.as_deref(), unread.key), ("Mark unread", None, None));
+        assert_eq!(unread.does, Does::MarkUnread(("w-1".to_string(), "shop".to_string())));
+        // The web window keeps what has been read, so it is asked through the door's own channel
+        // for it, by the thread's project and id.
+        assert_eq!(mark_unread(&thread), ("zero:mark-unread-here", json!({ "product": "shop", "id": "w-1" })));
+        // Marked unread there, its moment of reading is none, and it can be marked read again.
+        w.local.seen_at.insert("w-1".to_string(), 0.0);
+        assert!(is_unread(&thread, &w.local));
+        assert!(ids(&w.on(&thread, false)).contains(&"read"));
+        // An app started before it had that channel says so in words a person can act on.
+        assert_eq!(unread_refused("http://127.0.0.1:1/api/zero%3Amark-unread-here: status code 404"), "Not marked unread: restart Mercury first, so it can take that from this window.");
+        assert_eq!(unread_refused("the window is gone"), "Not marked unread: the window is gone");
         // One never opened counts as read from when opened times began to be kept.
         let local = Local { unread_since: NOW, ..Local::default() };
         assert!(!is_unread(&thread, &local));

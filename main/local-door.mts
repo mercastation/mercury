@@ -142,6 +142,8 @@ export interface LocalDoorOptions {
   settings?: IpcHandler;
   /** What answers `OPEN_CLOUD_SETUP` (see `openCloudSetup`). Without it the channel is not there. */
   cloudSetup?: IpcHandler;
+  /** What answers `MARK_UNREAD_HERE` (see `markUnread`). Without it the channel is not there. */
+  unread?: IpcHandler;
   token?: string;
 }
 
@@ -200,8 +202,45 @@ export function openCloudSetup(forward: () => boolean, tell: (channel: string) =
   };
 }
 
+// A THREAD SET BACK TO UNREAD. Which threads have been read is the web window's own
+// (above), and no channel of the app's sets one back: the phone's moves a thread forward
+// only (`zero:phone-seen`). The web window does it itself when a chat asks, by an event on
+// its own page (`askMarkUnread` in renderer/src/team/chat-events.ts). So this door has a
+// channel that asks the same thing the same way. From the caller it takes a thread's project
+// and id, each as the plain name it is and nothing else, written into the script as data.
+export const MARK_UNREAD_HERE = 'zero:mark-unread-here';
+
+/** The event the web window listens for (`MARK_UNREAD` in renderer/src/team/chat-events.ts). */
+export const MARK_UNREAD_EVENT = 'agentbox:mark-unread';
+
+// A project's slug or a thread's id: letters, digits and the few marks they are made of.
+const A_NAME = /^[A-Za-z0-9][A-Za-z0-9._:@-]{0,119}$/;
+
+/** The script that asks the web window to mark `asked` unread; null when it names no thread. */
+export function markUnreadScript(asked: unknown): string | null {
+  const { product, id } = (asked ?? {}) as { product?: unknown; id?: unknown };
+  if (typeof product !== 'string' || typeof id !== 'string' || !A_NAME.test(product) || !A_NAME.test(id)) return null;
+  return `window.dispatchEvent(new CustomEvent(${JSON.stringify(MARK_UNREAD_EVENT)}, { detail: ${JSON.stringify({ product, id })} })); true`;
+}
+
+/**
+ * Answers `MARK_UNREAD_HERE`. `run` is the web window's own executeJavaScript; an app with no
+ * window open, or one that will not answer, says so and marks nothing.
+ */
+export function markUnread(run: (script: string) => Promise<unknown> | null): IpcHandler {
+  return async (_event, asked) => {
+    const script = markUnreadScript(asked);
+    if (!script) return { ok: false, error: 'not a thread' };
+    try {
+      return (await run(script)) ? { ok: true } : { ok: false, error: 'the window is gone' };
+    } catch {
+      return { ok: false, error: 'the window did not answer' };
+    }
+  };
+}
+
 /** Opens the door and leaves its note. Rejects if the port cannot be had or the note cannot be written. */
-export async function openLocalDoor({ channels, note, listeners = new Set(), keeps, native = null, settings, cloudSetup, token = newToken() }: LocalDoorOptions): Promise<LocalDoor> {
+export async function openLocalDoor({ channels, note, listeners = new Set(), keeps, native = null, settings, cloudSetup, unread, token = newToken() }: LocalDoorOptions): Promise<LocalDoor> {
   // A folder that is certain to hold no index.html: the note's own name with a suffix.
   const noScreen = `${note}.no-screen`;
   // The door's own channels are looked up before the app's, and the app's Map is left as it was:
@@ -211,6 +250,7 @@ export async function openLocalDoor({ channels, note, listeners = new Set(), kee
   if (native) own.push([NATIVE_WINDOW, native.hear]);
   if (settings) own.push([OPEN_SETTINGS, settings]);
   if (cloudSetup) own.push([OPEN_CLOUD_SETUP, cloudSetup]);
+  if (unread) own.push([MARK_UNREAD_HERE, unread]);
   const answered = own.length ? new Map<string, IpcHandler>([...channels, ...own]) : channels;
   const server = http.createServer(createHandler({ channels: answered, token, listeners, hungUp: () => native?.hungUp(), dist: noScreen }));
   await new Promise<void>((resolve, reject) => {

@@ -122,6 +122,9 @@ pub struct State {
     /// The threads opened in this window and when, until the web window's own record of what
     /// has been read says the same (`saw`).
     opened: HashMap<String, f64>,
+    /// The threads marked unread in this window: when, and when each had been read before,
+    /// held the same way until the web window's record says unread too (`unsaw`).
+    unread_here: HashMap<String, (f64, Option<f64>)>,
     /// The open conversation's reply box: open, or folded to its one line.
     pub replying: bool,
     /// What is written in it. Words written in one conversation wait in `drafts` while
@@ -1006,6 +1009,7 @@ impl State {
     /// it does, this window holds the moment itself, so the dot does not come back in between.
     fn saw(&mut self, id: &str, product: &str) {
         let at = clock();
+        self.unread_here.remove(id);
         self.opened.insert(id.to_string(), at);
         self.local.seen_at.insert(id.to_string(), at);
         if !self.local.seen.iter().any(|seen| seen == id) {
@@ -1023,15 +1027,49 @@ impl State {
             }
         }
     }
-    /// What the web window keeps, with the threads opened here since laid over it. Once its
-    /// own record of a thread is as new as this window's, this window's is let go.
-    fn keep(&mut self, mut local: Local) {
+    /// Counts a thread as unread again (`markUnseen` in `App.tsx`): out of the seen, and its
+    /// moment of reading set to none. The web window is asked to do the same by whoever calls
+    /// this (`zero:mark-unread-here`), and until its record says so this window holds the mark.
+    pub(crate) fn unsaw(&mut self, id: &str) {
+        self.opened.remove(id);
+        self.unread_here.insert(id.to_string(), (clock(), self.local.seen_at.get(id).copied()));
+        self.local.seen_at.insert(id.to_string(), 0.0);
+        self.local.seen.retain(|seen| seen != id);
+        self.refresh();
+    }
+    /// The web window did not take a mark of unread: the thread is read as it was.
+    pub(crate) fn unsaw_refused(&mut self, id: &str) {
+        let Some((_, was)) = self.unread_here.remove(id) else { return };
+        match was {
+            Some(at) => {
+                self.local.seen_at.insert(id.to_string(), at);
+                if !self.local.seen.iter().any(|seen| seen == id) {
+                    self.local.seen.push(id.to_string());
+                }
+            }
+            None => {
+                self.local.seen_at.remove(id);
+            }
+        }
+        self.refresh();
+    }
+    /// What the web window keeps, with the threads opened here since laid over it, and the ones
+    /// marked unread here. Once its own record of a thread is as new as this window's, this
+    /// window's is let go.
+    pub(crate) fn keep(&mut self, mut local: Local) {
         self.opened.retain(|id, at| local.seen_at.get(id).is_none_or(|theirs| theirs < at));
         for (id, at) in &self.opened {
             local.seen_at.insert(id.clone(), *at);
             if !local.seen.iter().any(|seen| seen == id) {
                 local.seen.push(id.clone());
             }
+        }
+        // A mark of unread stands while the web window's record is an older reading: it is let
+        // go once that says unread too, or says the thread was opened there since.
+        self.unread_here.retain(|id, (at, _)| local.seen_at.get(id).is_none_or(|theirs| *theirs != 0.0 && theirs < at));
+        for id in self.unread_here.keys() {
+            local.seen_at.insert(id.clone(), 0.0);
+            local.seen.retain(|seen| seen != id);
         }
         self.local = local;
     }
@@ -1218,6 +1256,7 @@ fn init_from(args: &[String]) -> State {
         picked: 0,
         home_pick: None,
         opened: HashMap::new(),
+        unread_here: HashMap::new(),
         replying: false,
         reply: TextEdit::new(""),
         drafts: HashMap::new(),
