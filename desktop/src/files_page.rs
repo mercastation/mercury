@@ -188,7 +188,7 @@ fn picture_face(s: &State, path: &str, w: f32, h: f32) -> El {
 fn doc_face(blocks: &[DocBlock], w: f32, h: f32) -> El {
     let inner = w - 40.0;
     let words = |s: &str, size: f32, weight: f32, line: f32, c| text(s).font(TextStyle::new(size, weight).lh(line)).color(c).wrap().max_w(inner);
-    let mut out = col().size(w, h).pt(20.0).px(20.0).gap(9.0).fill(rgb(40, 38, 37)).clip_fade_linear(0.0, 0.0, 0.0, 0.28 * h);
+    let mut out = col().size(w, h).pt(20.0).px(20.0).gap(9.0).fill(surface()).clip_fade_linear(0.0, 0.0, 0.0, 0.28 * h);
     for b in blocks {
         out = out.child(match b {
             DocBlock::Title(t) => text(t.as_str()).font(TextStyle::new(15.0, 600.0).lh(19.5).tracking(-0.075)).color(ink()).wrap().max_w(inner).mb(2.0),
@@ -202,7 +202,7 @@ fn doc_face(blocks: &[DocBlock], w: f32, h: f32) -> El {
 
 /// A script's or a table's face (`.fp-code-face`): its first twelve lines, small, on the paper.
 fn code_face(words: &str, w: f32, h: f32) -> El {
-    el().size(w, h).py(14.0).px(16.0).fill(rgb(40, 38, 37)).clip_rounded(9.0).child(text(words).font(mono(10.5, 15.75)).color(dim()))
+    el().size(w, h).py(14.0).px(16.0).fill(surface()).clip_rounded(9.0).child(text(words).font(mono(10.5, 15.75)).color(dim()))
 }
 
 /// A word in the middle of an empty face (`.fp-face-empty`).
@@ -426,7 +426,7 @@ pub fn view(s: &State) -> El {
         .gap(8.0)
         .items_center()
         .radius(6.0)
-        .fill(rgba(27, 25, 23, 0.82))
+        .fill(crate::inbox::under(0.82))
         .border(1.0, if s.files.query.focused { rule() } else { edge() })
         .border_layout()
         .cursor(Cursor::Text)
@@ -574,7 +574,7 @@ impl State {
 /// sky's own dark (`.workspace-title`).
 pub fn strip(s: &State) -> El {
     let (card_w, _) = s.card_size();
-    let under = |a: f32| rgba(0x1b, 0x19, 0x17, a);
+    let under = crate::inbox::under;
     let words = |shadow: bool| pen(text("Files").font(sans(17.0, 400.0).tracking(-0.51)).color(if shadow { under(1.0) } else { ink() }), 17.0);
     let shadows = [8.0, 5.0, 3.0, 1.5, 0.5].map(|sigma| el().absolute(0.0, 0.0).blur(sigma).child(words(true)));
     let patch = el().pin(Some(0.0), Some(0.0), None, None).cache().layer_opacity(0.999).inert().a11y_hidden().children(shadows);

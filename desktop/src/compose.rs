@@ -285,7 +285,7 @@ fn later_caret(s: &State) -> El {
             .pr(9.0)
             .corners([0.0, 6.0, 6.0, 0.0])
             .fill(rgba(239, 235, 231, 0.15))
-            .border_sides([0.0, 0.0, 0.0, 1.0], rgba(26, 24, 23, 0.55))
+            .border_sides([0.0, 0.0, 0.0, 1.0], page_at(0.55))
             .border_layout()
             .child(pen(text(rules::LATER_WORD).font(figures(12.5, 500.0)).color(ink()).group_color(white(1.0)), 12.5))
             .child(icon(&icons::CARET, 13.0).color(ink()).group_color(white(1.0)));
@@ -744,7 +744,7 @@ fn placed_menu(s: &State, menu: &Menu, anchor: [f32; 4], hang: impl Fn(f32) -> H
     let rows = col().key(MENU).min_w(least - 2.0).items_stretch().gap(1.0).px(5.0).py(5.0).instant_changes().children(parts);
     // No clip on the shell itself: Rune's rounded clip takes the element's own shadow with it,
     // and the shadow is what lifts the menu off the card. The rows keep inside its corners.
-    let shell = col().radius(10.0).fill(rgb(54, 52, 49)).border(1.0, rule()).border_layout().box_shadow(shadow(0.0, 18.0, 50.0, 0.0, rgba(0, 0, 0, 0.5), false));
+    let shell = col().radius(10.0).fill(pop()).border(1.0, rule()).border_layout().box_shadow(shadow(0.0, 18.0, 50.0, 0.0, rgba(0, 0, 0, 0.5), false));
     // It comes in as the web window's does, fading in as it rises its last three points
     // (`tc-in`, 0.13 s on `cubic-bezier(0.2, 0.8, 0.3, 1)`), and goes at once. A spring stands
     // for the curve: this overdamped one keeps within a seventieth of it at every frame of a

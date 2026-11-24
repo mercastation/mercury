@@ -428,7 +428,7 @@ pub fn layer(s: &State) -> Option<El> {
     let fit = compose_rules::fit_menu(anchor, Hang { below: false, gap: 8.0, dx: 0.0 }, (wide, tall), h, (left, w - chrome::CARD[2]));
     let list = col().key(MENU).min_w(166.0).px(4.0).py(4.0).gap(1.0).items_stretch().instant_changes().children(rows.iter().enumerate().map(|(at, (words, on))| menu_row(open.chip, at, words, *on, open.lit == Some(at))));
     // The menu takes the pointer itself, with the arrow between its rows, as the web window's does.
-    let shell = crate::feel::answers(col().radius(10.0).fill(rgb(54, 52, 49)).border(1.0, rule()).border_layout().box_shadow(shadow(0.0, 24.0, 70.0, 0.0, rgba(0, 0, 0, 0.55), false)));
+    let shell = crate::feel::answers(col().radius(10.0).fill(pop()).border(1.0, rule()).border_layout().box_shadow(shadow(0.0, 24.0, 70.0, 0.0, rgba(0, 0, 0, 0.55), false)));
     let shell = match fit.max_height {
         Some(most) => shell.h(most).child(col().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(list)),
         None => shell.child(list),

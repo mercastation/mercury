@@ -17,7 +17,7 @@ const SKY_WHOLE: f32 = 46.0;
 /// The sky's own dark (`--sky-under`, the ember art's ground): what the web app fills the strip's
 /// buttons with and shades its words in, so the streak never runs through either.
 pub(crate) fn under(a: f32) -> Color {
-    rgba(0x1b, 0x19, 0x17, a)
+    surface_at(a)
 }
 
 /// The web app paints the streak in a band at the card's foot and turns the picture over with
@@ -40,9 +40,9 @@ pub const STRIP_BLUR: f32 = 6.0;
 
 /// The band as the strip's buttons have it behind them, before they blur it: whole to
 /// `SKY_WHOLE` points down and gone by `SKY_REACH`, as the card's mask fades it, into the
-/// card's own ground (its wash, 55% of `rgb(36, 34, 33)`, over the page's `#1a1817`).
+/// card's own ground (`--skin-pane`, the deep black `--surface`).
 pub fn band_under_the_strip((w, h, band): &(u32, u32, Vec<u8>)) -> (u32, u32, Vec<u8>) {
-    const GROUND: [f32; 3] = [31.5, 29.5, 28.5];
+    const GROUND: [f32; 3] = [19.0, 19.0, 21.0];
     let line = *w as usize * 4;
     let mut out = band.clone();
     for (row, pixels) in out.chunks_exact_mut(line.max(4)).enumerate().take(*h as usize) {
@@ -79,12 +79,12 @@ pub fn sky(s: &State) -> El {
     // has held still and the new one lands (`chrome::sky_box`).
     let (sky_w, sky_h) = chrome::sky_box(s);
     let band_h = if s.sky_size.1 >= 1.0 { band_h * sky_h / s.sky_size.1 } else { band_h };
-    el().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).radius(6.0).clip_rounded(6.0).child(
+    el().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).radius(PANE_CORNER).clip_rounded(PANE_CORNER).child(
         el().pin(Some(0.0), Some(0.0), Some(0.0), None)
             .h(SKY_REACH)
             .clip_fade_linear(0.0, 0.0, 0.0, SKY_REACH - SKY_WHOLE)
             .child(el().absolute(card_w - sky_w, 0.0).size(sky_w, band_h).pixels(&s.sky_inbox))
-            .child(el().absolute(0.0, 0.0).size(card_w, card_h).radius(6.0).border(1.0, white(0.07))),
+            .child(el().absolute(0.0, 0.0).size(card_w, card_h).radius(PANE_CORNER).border(1.0, white(0.07))),
     )
 }
 
@@ -116,7 +116,7 @@ pub(crate) fn shaded(draw: impl Fn(bool) -> El) -> El {
 /// not take it off a button that says nothing of being open).
 pub(crate) fn strip_button(s: &State, key: &'static str) -> El {
     let button = row().key(key).h(32.0).items_center().radius(6.0);
-    let edge = rgb(82, 80, 79);
+    let edge = rule();
     let whole = || el().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0));
     let button = if s.pointed.is(key) {
         button.fill(crate::feel::wash_strong()).border(1.0, edge)
@@ -322,7 +322,7 @@ fn heading(s: &str) -> El {
 /// The marks beside a priority's word: one to four bars, the strength filled in. Every level
 /// has them, Medium included: a blank there read as a gap in the column (`RowCells`).
 fn priority_mark(p: Priority) -> El {
-    let off = rgb(82, 80, 79);
+    let off = rule();
     let three = |filled: usize| row().items_end().gap(1.5).children([4.0, 7.5, 11.0].into_iter().enumerate().map(move |(n, h)| el().size(3.0, h).radius(1.0).fill(if n < filled { dim() } else { off })));
     match p {
         Priority::Urgent => bars(&[4.0, 7.0, 10.0, 13.0], ink()),
@@ -391,7 +391,7 @@ fn status_mark(mark: Mark, ground: rune::Color) -> Option<El> {
 /// points across in a tile of 18, on a faint wash of the text's colour inside a stronger one,
 /// Claude Code's in its own orange; and for a harness with no mark, the agent's two eyes in
 /// their ring (`AgentFace`). `harness` is `rules::engine::harness_mark`'s word.
-fn harness_mark(harness: &str) -> El {
+pub(crate) fn harness_mark(harness: &str) -> El {
     let glyph = match harness {
         "claude" => &icons::HARNESS_CLAUDE,
         "codex" => &icons::HARNESS_CODEX,
@@ -424,7 +424,7 @@ fn title_cell(r: &Row, selected: bool, pointed: bool, room: f32) -> El {
     let line = if selected {
         line.fill(rgba(238, 96, 24, 0.6))
     } else if pointed {
-        line.fill(rgb(82, 80, 79))
+        line.fill(rule())
     } else {
         line
     };
@@ -520,7 +520,7 @@ fn thread(s: &State, r: &Row, (at, count): (usize, usize), picked: usize, cols: 
         .child(cols.line(title, state, project, priority, when));
     let mut e = crate::feel::pointed_row(e, &r.product, &r.id);
     if at > 0 {
-        e = e.child(el().pin(Some(20.0), Some(0.0), Some(32.0), None).h(1.0).fill(rgba(70, 68, 67, 0.375)));
+        e = e.child(el().pin(Some(20.0), Some(0.0), Some(32.0), None).h(1.0).fill(edge_at(0.375)));
     }
     if r.unread {
         e = e.child(el().absolute(13.0, 27.0).size(6.0, 6.0).fill(accent()));

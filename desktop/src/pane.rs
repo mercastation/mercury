@@ -561,7 +561,7 @@ fn head(s: &State, doc: &Doc, w: f32) -> El {
 
 /// The page's own ground under a picture or a table (`--doc-page`).
 fn paper() -> rune::Color {
-    rgb(40, 38, 37)
+    surface()
 }
 
 /// A sentence where the file would be (`.doc-missing`).
@@ -710,7 +710,7 @@ fn card(s: &State, doc: &Doc, w: f32, h: f32, headed: bool) -> El {
     let card = el().size(w, h).border(1.0, if glass(kind) { rule() } else { edge() }).border_layout();
     let card = if glass(kind) {
         card.radius(12.0)
-            .linear_gradient(145.0_f32.to_radians(), [(0.0, rgba(239, 235, 231, 0.05)), (1.0, rgba(40, 38, 37, 0.25))])
+            .linear_gradient(145.0_f32.to_radians(), [(0.0, rgba(239, 235, 231, 0.05)), (1.0, surface_at(0.25))])
             .box_shadow(shadow(0.0, 1.0, 0.0, 0.0, rgba(239, 235, 231, 0.04), true))
             .clip_rounded(12.0)
     } else {
@@ -820,11 +820,11 @@ mod tests {
         let doc = rt.state.beside().expect("the plan opens beside");
         assert_eq!((doc.kind(), doc.auto), (Kind::Markdown, false));
         assert!(matches!(doc.read, Some(Read::Doc(_))), "its words are read off the disk");
-        // At 1280 by 760 the body is 1176 wide: the file opens on what leaves the chat 400.
-        assert_eq!(rt.state.conversation_size().0, 400.0);
+        // At 1280 by 760 the body is 1200 wide: the file opens on what leaves the chat 400.
+        assert!((rt.state.conversation_size().0 - 400.0).abs() < 0.001, "{}", rt.state.conversation_size().0);
         assert_eq!(rt.state.pane_placement(), Some(Placement::Beside));
         let card = rect_of(&rt, "pane-grip").expect("the divider is drawn");
-        assert_eq!((card[0], card[1]), (82.0 + 400.0 + 12.0 - 4.0, 104.0 + 12.0));
+        assert!((card[0] - (58.0 + 400.0 + 12.0 - 4.0)).abs() < 0.001 && card[1] == 104.0 + 12.0, "{card:?}");
         // Escape puts it down, and the next Escape leaves the thread.
         key(&mut rt, Key::Escape);
         assert!(rt.state.beside().is_none());
@@ -893,8 +893,8 @@ mod tests {
         rt.frame(1.0 / 60.0);
         // The pointer 360 points further right: the file takes what is right of it.
         let kept = rt.state.picks.get().doc_split.expect("the split is kept");
-        let body = 1176.0;
-        assert!((kept - rules::split_from_pointer(x + 360.0 - 82.0 - AIR, body)).abs() < 1e-3, "{kept}");
+        let body = 1200.0;
+        assert!((kept - rules::split_from_pointer(x + 360.0 - 58.0 - AIR, body)).abs() < 1e-3, "{kept}");
         assert!((rt.state.conversation_size().0 - body * (1.0 - rules::artifact_fraction(kept, body))).abs() < 0.01);
         // A double press puts it back where it opens.
         let (x, y) = middle(&rt, "pane-grip");

@@ -34,7 +34,7 @@ use crate::{State, View};
 
 /// `--code-ground`: under the change, its head and every file's head.
 pub fn ground() -> rune::Color {
-    rgb(34, 32, 31)
+    code_ground()
 }
 /// `--code-plus` and `--code-minus`.
 pub fn plus() -> rune::Color {
@@ -624,7 +624,7 @@ fn skeleton(w: f32, h: f32) -> El {
         .child(bar(0.9, 9.0).mb(12.0))
         .child(bar(0.64, 9.0).mb(12.0))
         .cycle(rune::Cycle { period: 2.4, phase: 0.0, stops, still: 1.0, fps: 30.0 });
-    el().size(w, h).fill(rgb(40, 38, 37)).clip_rounded(0.0).child(sheet)
+    el().size(w, h).fill(surface()).clip_rounded(0.0).child(sheet)
 }
 
 /// The files and the column side by side, or the picker over the column in a pane of 800
@@ -1790,7 +1790,7 @@ fn focus_marks(s: &State) -> El {
         .gap(6.0)
         .padding(2.0)
         .radius(6.0)
-        .fill(rgba(40, 38, 37, 0.86))
+        .fill(surface_at(0.86))
         .border(1.0, edge())
         .border_layout()
         .box_shadow(shadow(0.0, 10.0, 32.0, 0.0, rgba(0, 0, 0, 0.38), false))
@@ -2147,9 +2147,10 @@ mod tests {
         key(&mut rt, Key::Home);
         assert_eq!(rt.state.changes.here.as_ref().map(|h| h.at), Some(0));
         // A folder shut hides its files and moves nothing in the column.
-        let (x, y) = middle(&rt, "t:src/a.ts");
+        // The folder's row stands over its first file's, in the tree's own column and as wide.
+        let [rx, ry, rw, _] = rect_of(&rt, "t:src/a.ts").expect("the file's row");
         let at = rt.state.changes.here.as_ref().map(|h| h.at);
-        let folder = rt.elements().into_iter().find(|e| e.rect[1] < y - 20.0 && e.rect[1] > y - 40.0 && e.rect[0] < x).map(|e| e.rect);
+        let folder = rt.elements().into_iter().find(|e| (e.rect[0] - rx).abs() < 0.5 && (e.rect[2] - rw).abs() < 0.5 && e.rect[1] < ry - 20.0 && e.rect[1] > ry - 40.0).map(|e| e.rect);
         if let Some([fx, fy, fw, fh]) = folder {
             press(&mut rt, fx + fw / 2.0, fy + fh / 2.0);
         }

@@ -432,7 +432,7 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
                 // under the pointer, from its left edge to eight points past its words
                 // (`.thread-crumb-back`).
                 .child(crate::feel::hinted(
-                    row().h(28.0).pr(8.0).items_center().radius(6.0).hover(rgb(46, 44, 43)).cursor(rune::Cursor::Pointer).child(text(crumb_from(s, id, product)).font(crumbs).text_case(TextCase::Uppercase).color(muted())).on_press(|s: &mut State| {
+                    row().h(28.0).pr(8.0).items_center().radius(6.0).hover(hovered()).cursor(rune::Cursor::Pointer).child(text(crumb_from(s, id, product)).font(crumbs).text_case(TextCase::Uppercase).color(muted())).on_press(|s: &mut State| {
                         crate::feel::pressed(s);
                         s.close_onto_its_tab()
                     }),
@@ -574,7 +574,7 @@ pub fn files_list(s: &State) -> Option<El> {
         .absolute(x + w - WIDE, y + 40.0)
         .w(WIDE)
         .radius(10.0)
-        .fill(rgb(54, 52, 49))
+        .fill(pop())
         .border(1.0, rule())
         .border_layout()
         .box_shadow(shadow(0.0, 18.0, 50.0, 0.0, rgba(0, 0, 0, 0.5), false))
@@ -1283,7 +1283,7 @@ fn work_line(w: &Work, key: String, state: u8, clipped: bool, chip: Option<El>) 
     let mut line = col().child(row().min_w(0.0).child(head.shrink().min_w(0.0)));
     // Both blocks are the conversation's code blocks (`.markdown pre`): the dark ground inside a
     // hairline, on the card's corner, in the code face at 11.5 points on a 1.55 line.
-    let block = |words: El, (x, y): (f32, f32)| el().mt(6.0).px(x).py(y).radius(6.0).fill(rgba(40, 38, 37, 0.9)).border(1.0, edge()).border_layout().child(words.w_full());
+    let block = |words: El, (x, y): (f32, f32)| el().mt(6.0).px(x).py(y).radius(6.0).fill(surface_at(0.9)).border(1.0, edge()).border_layout().child(words.w_full());
     if state != SHUT && !whole.is_empty() {
         line = line.child(block(readable(text(whole).font(mono(11.5, 17.825)).color(dim()).wrap_anywhere()), (10.0, 7.0)));
     }
@@ -1893,7 +1893,7 @@ fn live_step_rows(s: &State, run: &str, steps: &live::Steps, mut out: El) -> El 
             let face = TextStyle::new(12.0, 400.0).family(rune::Family::SystemMono).lh(19.2).tracking(-0.217);
             // And it puts the letters a point higher on their line than Rune does.
             let command = readable(text(step.detail.as_str()).font(face).color(dim()).wrap_anywhere()).mt(-1.0).mb(1.0);
-            item = item.child(el().ml(21.0).mt(4.0).mb(10.0).px(14.0).py(12.0).radius(6.0).fill(rgba(40, 38, 37, 0.9)).border(1.0, edge()).border_layout().child(command));
+            item = item.child(el().ml(21.0).mt(4.0).mb(10.0).px(14.0).py(12.0).radius(6.0).fill(surface_at(0.9)).border(1.0, edge()).border_layout().child(command));
         }
         out = out.child(item);
     }
@@ -2304,7 +2304,7 @@ fn options_strip(choices: &[Choice], on: Option<usize>, m: &Measure, peek: Optio
             .px(16.0)
             .pb(13.0)
             .radius(10.0)
-            .fill(rgb(47, 45, 44))
+            .fill(raised())
             .border(1.0, rule())
             .border_layout()
             .box_shadow(shadow(0.0, 24.0, 70.0, 0.0, rgba(0, 0, 0, 0.55), false))

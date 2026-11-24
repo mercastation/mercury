@@ -660,7 +660,7 @@ fn browser_rows(s: &State, p: &Value, slug: &str) -> Vec<El> {
             let cancel = kit::ghost("Cancel", true).on_press(|s: &mut State| s.settings.editing = None);
             let said = s.settings.said.get("sites").cloned();
             let mut form = col().py(14.0).gap(9.0).child(pen(text("Sites its agents may open").font(sans(14.0, 400.0)).color(ink()), 14.0)).child(
-                row().gap(9.0).items_center().child(row().grow(1.0).min_w(0.0).h(32.0).px(10.0).items_center().radius(6.0).fill(rgb(40, 38, 37)).border(1.0, muted()).border_layout().child(pen(field, 13.0))).child(save).child(cancel.ml(8.0)),
+                row().gap(9.0).items_center().child(row().grow(1.0).min_w(0.0).h(32.0).px(10.0).items_center().radius(6.0).fill(surface()).border(1.0, muted()).border_layout().child(pen(field, 13.0))).child(save).child(cancel.ml(8.0)),
             );
             if let Some(said) = said {
                 form = form.child(pen(text(said).font(TextStyle::new(12.5, 400.0).lh(17.0)).color(dim()).wrap(), 12.5));
@@ -789,7 +789,7 @@ pub fn phone_picker(s: &State) -> El {
             .absolute(chip_w - menu_w, 34.0)
             .w(menu_w)
             .radius(10.0)
-            .fill(rgb(54, 52, 49))
+            .fill(pop())
             .border(1.0, rule())
             .border_layout()
             .box_shadow(shadow(0.0, 24.0, 70.0, 0.0, rgba(0, 0, 0, 0.55), false))

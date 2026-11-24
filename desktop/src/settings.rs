@@ -705,7 +705,7 @@ fn nav(s: &State, h: f32) -> El {
         .items_center()
         .cursor(Cursor::Pointer)
         .hover_group()
-        .hover(rgb(46, 44, 43))
+        .hover(hovered())
         .help("Back to app (esc)")
         // Under the pointer its mark and words come up to the text's ink; esc keeps its own.
         .child(icon(&marks::BACK, 18.0).color(muted()).group_color(ink()))

@@ -78,13 +78,7 @@ pub fn tend(s: &mut State, at: f64, tx: &mut Tx) -> bool {
     }
 }
 
-/// The figure at the row's end, where the Inbox has its count: in the faint ink, and in the
-/// text's own past 80% spent (`.usage-pill.is-close .usage-row-num`).
-pub fn figure_ink(used: f64) -> rune::Color {
-    if used >= usage::CLOSE { ink() } else { muted() }
-}
-
-/// What the row answers: the pointer resting on it opens the card, leaving it closes the card
+/// What the bar answers: the pointer resting on it opens the card, leaving it closes the card
 /// after a linger, and a press opens the agent's page in Settings (`press` in `UsagePill`).
 pub fn answering(row: El, engine: &str) -> El {
     let page = usage::settings_page(engine);
@@ -155,8 +149,9 @@ fn limits(rows: &[Row]) -> El {
     col().gap(11.0).children(rows.iter().map(limit))
 }
 
-/// The card over the page, hung eight points over the row from the rail's left edge, 268
-/// points wide whatever the rail's width (`.workspace-navigation .workspace-usage .usage-panel`).
+/// The card over the page, hung six points over the sidebar's last row from the sidebar's left
+/// edge, 268 points wide (`.gt-rail-nav .workspace-usage .usage-panel` in `sidebar.css`:
+/// `bottom: calc(100% + 6px); left: 0`).
 /// One agent: its name, its limits, and under a hairline when it was read. Several: the one used
 /// last tagged, its limits and when it was read, then each other under a hairline of its own.
 pub fn layer(s: &State) -> Option<El> {
@@ -167,12 +162,12 @@ pub fn layer(s: &State) -> Option<El> {
     let now = s.now;
     let joint = usage.joint();
     let mut card = col()
-        .pin(Some(22.0), None, None, Some(s.size.1 - row_top(s) + 8.0))
+        .pin(Some(crate::chrome::RAIL_LEFT), None, None, Some(22.0 + last_row(s) + 6.0))
         .w(268.0)
         .pt(13.0)
         .px(14.0)
         .pb(12.0)
-        .fill(rgb(40, 38, 37))
+        .fill(surface())
         .border(1.0, rule())
         .border_layout()
         .box_shadow(shadow(0.0, 24.0, 70.0, 0.0, rgba(0, 0, 0, 0.55), false))
@@ -197,12 +192,11 @@ pub fn layer(s: &State) -> Option<El> {
     Some(card)
 }
 
-/// Where the usage row's top stands in the window: the rail's foot is 22 points off the window's
-/// foot, the row 12 points over the person's own row and its hairline where there is one, and
-/// 36 points tall (`chrome::rail`).
-fn row_top(s: &State) -> f32 {
-    let face_room = if crate::rules::window::my_letters(&s.snap).is_some() { 54.0 } else { 0.0 };
-    s.size.1 - 22.0 - face_room - 12.0 - 36.0
+/// How tall the sidebar's last row is, the one the bar stands at the end of: the person's own,
+/// 32 points, when they are signed in, and else Settings, 30 (`.workspace-usage`, and
+/// `.workspace-bottom:has(> .th-me) .workspace-usage`).
+pub fn last_row(s: &State) -> f32 {
+    if crate::rules::window::my_letters(&s.snap).is_some() { 32.0 } else { 30.0 }
 }
 
 #[cfg(test)]
@@ -215,7 +209,8 @@ mod tests {
     use crate::rules::settings::{PageId, Pane};
 
     /// The invented inbox with two agents read this week, Claude Code's just now; the rail
-    /// kept open when `kept_open`. Its usage row is the foot's last, 690 to 726 points down.
+    /// kept open when `kept_open`. Nobody is signed in, so its bar stands at the end of
+    /// Settings, the open sidebar's last row: 196 to 228 points across, 713 to 733 down.
     fn read(name: &str, kept_open: bool) -> Runtime<State> {
         window_dressed(name, &[], "/fixtures/storefront", "Done.", |fixture| {
             let now = fixture["now"].as_f64().unwrap();
@@ -237,17 +232,18 @@ mod tests {
     #[test]
     fn the_card_opens_on_the_first_move_once_the_rail_is_open_and_lingers_after_the_pointer_leaves() {
         let mut rt = read("usage-card", false);
-        // Onto the folded rail's usage row: the pointing hand, and the rail opens 140 ms later.
-        rt.pointer_move(37.0, 704.0);
+        // Folded, the sidebar draws no bar (`.workspace-collapsed … .workspace-usage`): the
+        // pointer on its last row meets Settings alone, and the sidebar opens 140 ms later.
+        rt.pointer_move(24.0, 719.0);
         rt.frame(1.0 / 60.0);
-        rt.pointer_move(41.0, 708.0);
+        rt.pointer_move(28.0, 723.0);
         rt.frame(1.0 / 60.0);
-        assert_eq!(rt.cursor(), Cursor::Pointer);
+        assert_eq!(rt.cursor(), Cursor::Default);
         run(&mut rt, 0.5);
         assert!(rt.state.rail.is_open());
-        // A pointer that landed on the folded rail has not moved since: no card yet.
-        assert!(!rt.state.usage_card.open, "no card until the pointer moves on the open rail");
-        rt.pointer_move(43.0, 708.0);
+        assert!(!rt.state.usage_card.open, "no card until the pointer is on the bar");
+        // Along the row onto the bar at its end: the card comes 120 ms after.
+        rt.pointer_move(212.0, 723.0);
         run(&mut rt, 0.1);
         assert!(!rt.state.usage_card.open, "it waits 120 ms");
         run(&mut rt, 0.05);
@@ -255,14 +251,14 @@ mod tests {
         let said: Vec<String> = rt.elements().iter().filter_map(|e| e.text.clone()).collect();
         assert!(drawn(&rt, "Last used") && drawn(&rt, "Read just now") && drawn(&rt, "Read 1d ago"), "both agents, the one used last tagged: {said:?}");
         assert!(drawn(&rt, "4% used") && drawn(&rt, "12% used"));
-        // Up the rail, off the row: it stays 220 ms, then goes.
-        rt.pointer_move(41.0, 200.0);
+        // Up the rail, off the bar: it stays 220 ms, then goes.
+        rt.pointer_move(28.0, 200.0);
         run(&mut rt, 0.18);
         assert!(rt.state.usage_card.open, "it lingers");
         run(&mut rt, 0.08);
         assert!(!rt.state.usage_card.open, "then goes");
-        // Back on the row and off the rail altogether: the rail folds, and the card with it.
-        rt.pointer_move(41.0, 708.0);
+        // Back on the bar and off the rail altogether: the rail folds, and the card with it.
+        rt.pointer_move(212.0, 723.0);
         run(&mut rt, 0.2);
         assert!(rt.state.usage_card.open);
         rt.pointer_move(700.0, 400.0);
@@ -277,14 +273,14 @@ mod tests {
         let mut rt = read("usage-kept-open", true);
         run(&mut rt, 0.1);
         assert!(rt.state.rail.is_open(), "the rail stands open");
-        rt.pointer_move(120.0, 708.0);
+        rt.pointer_move(212.0, 723.0);
         run(&mut rt, 0.1);
         assert!(!rt.state.usage_card.open);
         run(&mut rt, 0.05);
         assert!(rt.state.usage_card.open);
-        // The row names the agent used last; a press opens its page in Settings.
+        // The card names the agent used last; a press on the bar opens its page in Settings.
         assert!(drawn(&rt, "Claude Code"));
-        press(&mut rt, 120.0, 708.0);
+        press(&mut rt, 212.0, 723.0);
         assert!(rt.state.settings.open);
         assert_eq!(rt.state.settings.pane, Pane::Page(PageId::Claude));
         assert!(!rt.state.usage_card.open);
@@ -294,15 +290,15 @@ mod tests {
     fn a_pointer_only_passing_over_the_row_opens_nothing() {
         let mut rt = read("usage-passing", true);
         run(&mut rt, 0.1);
-        rt.pointer_move(120.0, 708.0);
+        rt.pointer_move(212.0, 723.0);
         run(&mut rt, 0.05);
-        rt.pointer_move(700.0, 708.0);
+        rt.pointer_move(700.0, 723.0);
         run(&mut rt, 0.4);
         assert!(!rt.state.usage_card.open);
         // And none at all without a reading.
         let mut none = window_dressed("usage-none", &[], "/fixtures/storefront", "Done.", |f: &mut Value| f["picks"] = json!({ "rail_shrinks": false }));
         run(&mut none, 0.1);
-        none.pointer_move(120.0, 708.0);
+        none.pointer_move(212.0, 723.0);
         run(&mut none, 0.3);
         assert!(!none.state.usage_card.open);
     }

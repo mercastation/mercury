@@ -141,10 +141,10 @@ fn button(words: &str, plan: String, loud: bool, key: &'static str) -> El {
 
 /// `--bg-selected` and `--bg-hover`.
 fn selected() -> rune::Color {
-    rgb(55, 53, 52)
+    crate::theme::selected()
 }
 fn hover_ground() -> rune::Color {
-    rgb(46, 44, 43)
+    crate::theme::hovered()
 }
 
 /// The bar, across the card under its strip at `top`, when it is drawn.

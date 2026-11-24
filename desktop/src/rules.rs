@@ -47,6 +47,7 @@ pub mod place;
 pub mod plan_setup;
 pub mod project_folder;
 pub mod rank;
+pub mod recent;
 pub mod reply_chips;
 pub mod reply_pick;
 pub mod roots;

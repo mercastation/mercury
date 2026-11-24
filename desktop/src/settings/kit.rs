@@ -15,10 +15,10 @@ use crate::theme::*;
 
 /// `--bg-hover`, `--bg-selected` and the menus' ground (`--pop` under its edge).
 pub fn hover_ground() -> rune::Color {
-    rgb(46, 44, 43)
+    hovered()
 }
 pub fn selected() -> rune::Color {
-    rgb(55, 53, 52)
+    crate::theme::selected()
 }
 
 /// How wide a run of words is in a face.
@@ -192,7 +192,7 @@ pub fn ghost(word: &str, enabled: bool) -> El {
 pub fn switch(on: bool, flip: impl Fn(&mut State, bool, &mut Tx) + 'static) -> El {
     let track = el().size(30.0, 18.0).radius(9.0).cursor(Cursor::Pointer);
     let track = if on { track.fill(ink()).border(1.0, ink()) } else { track.fill(white(0.08)).border(1.0, rule()) };
-    let knob = el().absolute(if on { 15.0 } else { 3.0 }, 3.0).size(12.0, 12.0).radius(6.0).fill(if on { page() } else { rgb(40, 38, 37) });
+    let knob = el().absolute(if on { 15.0 } else { 3.0 }, 3.0).size(12.0, 12.0).radius(6.0).fill(if on { page() } else { surface() });
     track.child(knob).on_press_tx(move |s: &mut State, tx| flip(s, !on, tx))
 }
 
@@ -276,7 +276,7 @@ fn menu(p: &Picker, chip_w: f32) -> El {
         .absolute(chip_w - menu_w, 34.0)
         .w(menu_w)
         .radius(10.0)
-        .fill(rgb(54, 52, 49))
+        .fill(pop())
         .border(1.0, rule())
         .border_layout()
         .box_shadow(shadow(0.0, 24.0, 70.0, 0.0, rgba(0, 0, 0, 0.55), false))

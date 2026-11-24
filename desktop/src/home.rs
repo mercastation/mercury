@@ -198,7 +198,7 @@ pub fn send_caret_at(tall: f32, dimmed: bool) -> El {
         .pl(9.0)
         .corners([0.0, 6.0, 6.0, 0.0])
         .fill(send_fill())
-        .border_sides([0.0, 0.0, 0.0, 1.0], rgba(26, 24, 23, 0.55))
+        .border_sides([0.0, 0.0, 0.0, 1.0], page_at(0.55))
         .border_layout()
         .opacity(if dimmed { 0.45 } else { 1.0 })
         .child(icon(&icons::CARET, 13.0).color(ink()).group_color(white(1.0)));
@@ -219,7 +219,7 @@ fn priority_mark(p: Priority) -> Option<El> {
     match p {
         Priority::Urgent => Some(bars(&[4.0, 7.0, 10.0, 13.0], ink())),
         Priority::High => Some(bars(&[4.0, 7.5, 11.0], ink())),
-        Priority::Low => Some(row().items_end().gap(1.5).child(el().size(3.0, 4.0).radius(1.0).fill(dim())).child(el().size(3.0, 7.5).radius(1.0).fill(rgb(82, 80, 79))).child(el().size(3.0, 11.0).radius(1.0).fill(rgb(82, 80, 79)))),
+        Priority::Low => Some(row().items_end().gap(1.5).child(el().size(3.0, 4.0).radius(1.0).fill(dim())).child(el().size(3.0, 7.5).radius(1.0).fill(rule())).child(el().size(3.0, 11.0).radius(1.0).fill(rule()))),
         Priority::Medium => None,
     }
 }

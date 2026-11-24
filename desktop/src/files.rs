@@ -187,7 +187,7 @@ fn frame(here: Option<&Held>, wide: f32, tall: f32, fit: Option<SurfaceFit>) -> 
                 })
                 .child(crate::feel::edge_lit(10.0, muted(), false))
         }
-        None => frame.fill(rgb(47, 45, 44)),
+        None => frame.fill(raised()),
     }
 }
 
@@ -365,7 +365,7 @@ pub fn folder(f: &Files, href: &str, room: f32, size: f32) -> El {
     let wide = ((room - 20.0) / 3.0).max(1.0);
     let tall = wide * 10.0 / 16.0;
     // A picture's edge brightens under the pointer, and it opens larger (`.folder-preview-shot`).
-    let shot = |inside: El| el().size(wide, tall).radius(6.0).fill(rgb(47, 45, 44)).border(1.0, edge()).child(inside.absolute(1.0, 1.0).size(wide - 2.0, tall - 2.0).radius(5.0)).child(crate::feel::edge_lit(6.0, muted(), false));
+    let shot = |inside: El| el().size(wide, tall).radius(6.0).fill(raised()).border(1.0, edge()).child(inside.absolute(1.0, 1.0).size(wide - 2.0, tall - 2.0).radius(5.0)).child(crate::feel::edge_lit(6.0, muted(), false));
     let Some(listing) = pictures else {
         // Still being read: the places its first three will take. Otherwise only its name.
         if !matches!(listed, Some(Listed::Asking)) {

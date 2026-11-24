@@ -96,12 +96,6 @@ pub fn approvals_waiting(snap: &Snapshot) -> usize {
     snap.rest.get("approvals").and_then(Value::as_array).map_or(0, Vec::len)
 }
 
-/// Whether the foot has its usage row: a reading of some agent still answers for a window
-/// (`UsagePill` in `renderer/src/components/UsagePill.tsx`, ported in `rules/usage.rs`).
-pub fn usage_shown(snap: &Snapshot, now: f64) -> bool {
-    crate::rules::usage::Usage::of(snap, now).is_some()
-}
-
 /// The name and email the person's own row shows beside their face while the rail is open
 /// (`.th-me`: `me.name || me.email`, over `me.email`).
 pub fn my_names(snap: &Snapshot) -> Option<(String, String)> {
@@ -204,6 +198,9 @@ mod tests {
 
     #[test]
     fn the_foot_has_usage_only_while_a_reading_still_answers_for_a_window() {
+        // What the sidebar's foot asks before it draws its bar (`chrome::rail`; `UsagePill` in
+        // `renderer/src/components/UsagePill.tsx`, ported in `rules/usage.rs`).
+        let usage_shown = |snap: &Snapshot, now: f64| crate::rules::usage::Usage::of(snap, now).is_some();
         let week = |percent: f64, resets: f64| json!({ "span": "week", "percent": percent, "resetsAt": resets });
         assert!(!usage_shown(&snap(json!({})), NOW));
         // A reading with a window still running.

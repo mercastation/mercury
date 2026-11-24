@@ -340,7 +340,7 @@ pub fn live_card(s: &State, id: &str, product: &str, column: f32) -> Option<El> 
     let words = rules::balloon(step, step.running());
     let site = log.steps[..=at].iter().rev().map(Step::site).find(|s| !s.is_empty()).unwrap_or_default();
     let mut picture = el().size(room.0, room.1).clip_rounded(0.0);
-    picture = if s.films.live_size.0 > 0 { picture.pixels_fit(&s.films.live, SurfaceFit::Fill) } else { picture.fill(rgb(47, 45, 44)) };
+    picture = if s.films.live_size.0 > 0 { picture.pixels_fit(&s.films.live, SurfaceFit::Fill) } else { picture.fill(raised()) };
     // Over the page, the pointer only once there is a page under it.
     let marks = if s.films.live_size.0 > 0 { over_picture(if step.mark.is_some() || !step.running() { tip } else { None }, &words, room, true) } else { over_picture(None, &words, room, false) };
     let picture = picture.children(marks);
@@ -359,7 +359,7 @@ pub fn live_card(s: &State, id: &str, product: &str, column: f32) -> Option<El> 
         .w(wide)
         .radius(10.0)
         .clip_rounded(10.0)
-        .fill(rgba(40, 38, 37, 0.9))
+        .fill(surface_at(0.9))
         .border(1.0, edge())
         .border_layout()
         .child(head)
@@ -403,7 +403,7 @@ pub fn run_tile(s: &State, thread: &str, matched: &[Option<usize>]) -> Option<El
     let frame = el().size(wide, tall).radius(6.0).border(1.0, edge());
     let frame = match s.pictures.look(places.clone(), want) {
         Look::Here(held) => frame.child(el().absolute(1.0, 1.0).size(wide - 2.0, tall - 2.0).radius(5.0).pixels_fit(&held.pixels, SurfaceFit::Fill)),
-        _ => frame.fill(rgb(47, 45, 44)),
+        _ => frame.fill(raised()),
     };
     let frame = frame.on_visible(move |s: &mut State, on, _| s.pictures.near(&places, want, on));
     let site = log.steps[first..=last].iter().rev().map(Step::site).find(|s| !s.is_empty()).unwrap_or_default();
@@ -517,7 +517,7 @@ pub fn layer(s: &State) -> Option<El> {
             let frame = el().size(room.0, room.1).radius(8.0).clip_rounded(8.0).border(1.0, edge());
             let frame = match s.pictures.look(places.clone(), want) {
                 Look::Here(held) => frame.pixels_fit(&held.pixels, SurfaceFit::Fill),
-                _ => frame.fill(rgb(47, 45, 44)),
+                _ => frame.fill(raised()),
             };
             let tip = if pointed { step.point().map(|p| rules::on_picture(p, step.view, room.0)) } else { None };
             frame.children(over_picture(tip, &words, room, false)).on_visible(move |s: &mut State, on, _| s.pictures.near(&places, want, on))
@@ -547,7 +547,7 @@ pub fn layer(s: &State) -> Option<El> {
             .size(28.0, 44.0)
             .radius(6.0)
             .center()
-            .fill(rgba(40, 38, 37, 0.7))
+            .fill(surface_at(0.7))
             .border(1.0, edge())
             .border_layout()
             .child(text(glyph.to_string()).font(TextStyle::new(18.0, 400.0).lh(18.0)).color(dim()).group_color(ink()));

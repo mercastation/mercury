@@ -503,36 +503,72 @@ pub(crate) mod tests {
     fn the_rail_opens_once_the_pointer_has_rested_on_it_and_folds_when_it_leaves() {
         let mut rt = window("rail", &[]);
         assert_eq!(rt.state.lists.needs.len(), 4, "the invented inbox needs the person four times");
-        // Onto Files, the third of its places: the pointing hand, and the rail still folded until
-        // 140 ms have gone by. Under the places there is nothing to press, and the arrow stays.
-        rt.pointer_move(41.0, 290.0);
+        // Onto Files, under Workspace: the arrow still, as on every row of the sidebar (`cursor:
+        // default` in `sidebar.css`), and the rail still folded until 140 ms have gone by.
+        rt.pointer_move(28.0, 290.0);
         rt.frame(1.0 / 60.0);
         assert_eq!(rt.cursor(), Cursor::Default);
-        rt.pointer_move(41.0, 244.0);
+        rt.pointer_move(28.0, 256.0);
         rt.frame(1.0 / 60.0);
-        assert_eq!(rt.cursor(), Cursor::Pointer);
+        assert_eq!(rt.cursor(), Cursor::Default);
         run(&mut rt, 0.1);
-        assert_eq!(rt.state.rail.width(rt.state.at), 38.0);
+        assert_eq!(rt.state.rail.width(rt.state.at), 28.0);
         // Then it eases open over 0.24 s, the card moving over with it.
         run(&mut rt, 0.4);
-        assert_eq!(rt.state.rail.width(rt.state.at), 202.0);
+        assert_eq!(rt.state.rail.width(rt.state.at), 220.0);
         assert_eq!(chrome::card_left(&rt.state), 246.0);
         // Off it and onto the card: it folds at once, over 0.2 s.
         rt.pointer_move(700.0, 400.0);
         run(&mut rt, 0.3);
-        assert_eq!(rt.state.rail.width(rt.state.at), 38.0);
-        assert_eq!(chrome::card_left(&rt.state), 82.0);
+        assert_eq!(rt.state.rail.width(rt.state.at), 28.0);
+        assert_eq!(chrome::card_left(&rt.state), 58.0);
+    }
+
+    #[test]
+    fn the_sidebars_rows_stand_where_the_web_windows_do_and_files_opens_its_place() {
+        let mut rt = window("rail-rows", &[]);
+        // Folded: Home at 140, the Inbox two under it, and Files under Workspace's name, each
+        // 28 wide from 14 and 30 tall (`sidebar.css`). A press on Files opens the Files place.
+        press(&mut rt, 28.0, 187.0);
+        assert_eq!(rt.state.view, View::Inbox);
+        press(&mut rt, 28.0, 155.0);
+        assert_eq!(rt.state.view, View::Home);
+        press(&mut rt, 28.0, 257.0);
+        assert!(matches!(rt.state.view, View::Files { .. }), "Files, under Workspace");
+    }
+
+    #[test]
+    fn a_sections_name_folds_its_rows_only_while_the_sidebar_is_open_and_the_pencil_starts_a_thread() {
+        let mut rt = window("rail-folds", &["--view", "inbox"]);
+        // Folded to its marks, Workspace's name takes no press (`pointer-events: none`).
+        press(&mut rt, 28.0, 230.0);
+        assert!(rt.state.picks.get().rail_folds.is_empty());
+        // Open, a press on it folds Files away, and the next brings it back.
+        rt.pointer_move(28.0, 300.0);
+        rt.frame(1.0 / 60.0);
+        rt.pointer_move(28.0, 301.0);
+        run(&mut rt, 0.6);
+        assert_eq!(rt.state.rail.width(rt.state.at), 220.0);
+        press(&mut rt, 40.0, 230.0);
+        assert_eq!(rt.state.picks.get().rail_folds, vec!["workspace".to_string()]);
+        press(&mut rt, 40.0, 257.0);
+        assert_eq!(rt.state.view, View::Inbox, "no Files row to press while Workspace is folded");
+        press(&mut rt, 40.0, 230.0);
+        assert!(rt.state.picks.get().rail_folds.is_empty());
+        // The pencil at the end of the team's row opens the New thread card (`.ws-new`).
+        press(&mut rt, 220.0, 72.0);
+        assert!(rt.state.compose.card, "the pencil starts a thread");
     }
 
     #[test]
     fn the_rails_settings_button_opens_settings_over_everything_and_escape_goes_back() {
         let mut rt = window("rail-settings", &["--view", "inbox"]);
-        // The invented inbox has no face and no usage, so Settings is the foot's last button,
-        // 12 points over the rail's end (738).
-        rt.pointer_move(41.0, 708.0);
+        // The invented inbox has nobody signed in, so Settings is the sidebar's last row, on its
+        // end (708 to 738), under the arrow like its other rows.
+        rt.pointer_move(28.0, 722.0);
         rt.frame(1.0 / 60.0);
-        assert_eq!(rt.cursor(), Cursor::Pointer);
-        press(&mut rt, 41.0, 708.0);
+        assert_eq!(rt.cursor(), Cursor::Default);
+        press(&mut rt, 28.0, 722.0);
         assert!(rt.state.settings.open, "Settings is open");
         assert_eq!(rt.state.settings.pane, crate::rules::settings::Pane::Page(crate::rules::settings::PageId::General));
         // It owns the keys: N opens no card under it, and Escape goes back to the Inbox.
@@ -550,18 +586,18 @@ pub(crate) mod tests {
         rt.key(KeyEvent { key: Key::Command('k'), mods: Mods { cmd: true, ..Mods::default() } });
         rt.frame(1.0 / 60.0);
         assert!(rt.state.palette.open);
-        rt.pointer_move(41.0, 244.0);
+        rt.pointer_move(28.0, 256.0);
         run(&mut rt, 0.6);
-        assert_eq!(rt.state.rail.width(rt.state.at), 38.0, "under the bar");
+        assert_eq!(rt.state.rail.width(rt.state.at), 28.0, "under the bar");
         // The bar closing leaves the pointer standing on it, which opens nothing (`pointerMoved`).
         key(&mut rt, Key::Escape);
         assert!(!rt.state.palette.open);
         run(&mut rt, 0.6);
-        assert_eq!(rt.state.rail.width(rt.state.at), 38.0, "uncovered under a still pointer");
+        assert_eq!(rt.state.rail.width(rt.state.at), 28.0, "uncovered under a still pointer");
         // The pointer's next move opens it.
-        rt.pointer_move(41.0, 245.0);
+        rt.pointer_move(28.0, 257.0);
         run(&mut rt, 0.6);
-        assert_eq!(rt.state.rail.width(rt.state.at), 202.0, "once the pointer moves");
+        assert_eq!(rt.state.rail.width(rt.state.at), 220.0, "once the pointer moves");
     }
 
     #[test]
@@ -595,12 +631,12 @@ pub(crate) mod tests {
         rt.set_system_reduced_motion(true);
         rt.frame(1.0 / 60.0);
         // Still after 140 ms of rest, and then open whole in the next frames, with no easing.
-        rt.pointer_move(41.0, 244.0);
+        rt.pointer_move(28.0, 256.0);
         run(&mut rt, 0.2);
-        assert_eq!(rt.state.rail.width(rt.state.at), 202.0);
+        assert_eq!(rt.state.rail.width(rt.state.at), 220.0);
         rt.pointer_move(700.0, 400.0);
         run(&mut rt, 1.0 / 30.0);
-        assert_eq!(rt.state.rail.width(rt.state.at), 38.0, "and folds whole as the pointer leaves");
+        assert_eq!(rt.state.rail.width(rt.state.at), 28.0, "and folds whole as the pointer leaves");
     }
 
     #[test]
@@ -721,8 +757,8 @@ pub(crate) mod tests {
         let mut rt = window("drag", &["--view", "inbox"]);
         assert_eq!(press(&mut rt, 640.0, 20.0), Some(TitlebarAction::Drag), "the band over the card");
         assert_eq!(press(&mut rt, 640.0, 60.0), Some(TitlebarAction::Drag), "the Inbox's strip between its title and its buttons");
-        assert_eq!(press(&mut rt, 167.0, 71.5), None, "Forward, with nowhere to go, still keeps its press");
-        assert_eq!(press(&mut rt, 41.0, 300.0), None, "the rail is never part of it");
+        assert_eq!(press(&mut rt, 143.0, 71.5), None, "Forward, with nowhere to go, still keeps its press");
+        assert_eq!(press(&mut rt, 28.0, 300.0), None, "the rail is never part of it");
         assert_eq!(press(&mut rt, 1126.0, 71.0), None, "New thread keeps its press");
         assert!(rt.state.compose.card, "and opens the card");
         // A double press zooms the window as the system says.
@@ -731,11 +767,11 @@ pub(crate) mod tests {
         assert_eq!([press(&mut rt, 640.0, 20.0), press(&mut rt, 640.0, 20.0)], [Some(TitlebarAction::Drag), Some(TitlebarAction::DoubleClick)]);
 
         let mut rt = window("drag-thread", &["--thread"]);
-        assert_eq!(press(&mut rt, 92.0, 68.0), Some(TitlebarAction::Drag), "the conversation's strip, left of its arrows");
+        assert_eq!(press(&mut rt, 68.0, 68.0), Some(TitlebarAction::Drag), "the conversation's strip, left of its arrows");
         assert_eq!(press(&mut rt, 900.0, 68.0), None, "the middle, where the crumb and the name stand");
         assert_eq!(press(&mut rt, 900.0, 46.0), Some(TitlebarAction::Drag), "the strip over the middle");
         assert!(matches!(rt.state.view, View::Thread { .. }));
-        assert_eq!(press(&mut rt, 115.0, 67.5), None, "the Inbox button keeps its press");
+        assert_eq!(press(&mut rt, 91.0, 67.5), None, "the Inbox button keeps its press");
         assert_eq!(rt.state.view, View::Inbox, "and goes to the Inbox");
     }
 

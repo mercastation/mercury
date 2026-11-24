@@ -15,7 +15,13 @@ pub fn white(a: f32) -> Color {
     rgba(255, 255, 255, a)
 }
 
-// `--text`, `--text-dim`, `--text-muted`, `--border`, `--accent` and the page under everything.
+// The grounds and lines are the dark skies' deep black (`html:root[data-skin="ember-grid"]
+// [data-sky-dark]` in `renderer/src/home/home.css`), which is the look this window wears: it
+// draws the dark orange sky and no other. The warm Ash they replaced is still the web window's
+// plain Dark, which this window does not have. Every ground and line is named here, by the
+// variable the web window's sheets call it, so a look that moves again moves in this one place.
+
+// `--text`, `--text-dim`, `--text-faint`, `--line`, `--accent` and the page under everything.
 pub fn ink() -> Color {
     rgb(239, 235, 231)
 }
@@ -25,27 +31,73 @@ pub fn dim() -> Color {
 pub fn muted() -> Color {
     rgb(160, 153, 148)
 }
+/// `--line`, `--card-line`, `--skin-pane-line`: a hairline.
 pub fn edge() -> Color {
-    rgb(70, 68, 67)
+    rgb(54, 54, 57)
 }
-/// `--line-strong`: the rule around the person's turn, and under a quiet link.
+/// `--line` thinned to `a`, as `color-mix(in srgb, var(--line) …, transparent)` thins it.
+pub fn edge_at(a: f32) -> Color {
+    rgba(54, 54, 57, a)
+}
+/// `--line-strong`, `--card-line-hover`, `--control-face-line`: the rule around the person's
+/// turn, and under a quiet link.
 pub fn rule() -> Color {
-    rgb(82, 80, 79)
+    rgb(66, 66, 69)
+}
+/// `--line-strong` thinned to `a`.
+pub fn rule_at(a: f32) -> Color {
+    rgba(66, 66, 69, a)
+}
+/// `--text` thinned to `a`, as `color-mix(in srgb, var(--text) …, transparent)` thins it.
+pub fn ink_at(a: f32) -> Color {
+    rgba(239, 235, 231, a)
 }
 pub fn accent() -> Color {
     rgb(238, 96, 24)
 }
 /// `--bg-raised`: the ground of a card that stands on the page, and of a menu.
 pub fn raised() -> Color {
-    rgb(47, 45, 44)
+    rgb(26, 26, 28)
 }
-/// `--surface`: the ground of a box to type in on such a card.
+/// `--bg-hover`: a row or a button under the pointer, where it has a ground of its own.
+pub fn hovered() -> Color {
+    rgb(25, 25, 27)
+}
+/// `--bg-selected`: the row or the choice that is picked.
+pub fn selected() -> Color {
+    rgb(33, 33, 35)
+}
+/// `--surface`, and with it `--skin-pane`, `--skin-solid`, `--doc-page`, `--work-fill` and
+/// `--control-face`: the main card's ground, a document's page, and a box to type in.
 pub fn surface() -> Color {
-    rgb(40, 38, 37)
+    rgb(19, 19, 21)
 }
+/// `--surface` thinned to `a`.
+pub fn surface_at(a: f32) -> Color {
+    rgba(19, 19, 21, a)
+}
+/// `--pop`: the ground of what stands over the page (a menu, a toast, a card of choices).
+pub fn pop() -> Color {
+    rgb(31, 31, 33)
+}
+/// `--pop` thinned to `a`.
+pub fn pop_at(a: f32) -> Color {
+    rgba(31, 31, 33, a)
+}
+/// `--code-ground`: under a block of code.
+pub fn code_ground() -> Color {
+    rgb(15, 15, 17)
+}
+/// `--bg`, `--on-solid`: the window under the main card, and the ink on a light button.
 pub fn page() -> Color {
-    rgb(26, 24, 23)
+    rgb(11, 11, 12)
 }
+/// `--bg` thinned to `a`.
+pub fn page_at(a: f32) -> Color {
+    rgba(11, 11, 12, a)
+}
+/// `--pane-corner`: the main card's corner, and the sky's that fills it.
+pub const PANE_CORNER: f32 = 10.0;
 
 /// `line-height: normal` as Chromium computes it for Geist: the font's ascent (1.005 em) and
 /// descent (0.295 em), each landed on a device pixel of a 2x screen, then added.

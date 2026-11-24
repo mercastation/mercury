@@ -19,22 +19,31 @@ macro_rules! stroked {
     };
 }
 
-// The rail. Search is drawn at 80% inside its box, as the web app does. The web window's rail
-// has Demands, Chats, Connections, Files, Record meeting and Feedback too; this one has none of
-// them (`chrome::rail`), and their marks went with them.
-pub static SEARCH: Icon = Icon {
-    name: "m-search",
-    view: 24.0,
-    body: r#"<g fill="none" stroke="currentColor" stroke-linecap="round"><g transform="translate(12 12) scale(.8) translate(-12 -12)" stroke-width="1.5625"><circle cx="10.8" cy="10.8" r="6.6"/><path d="M15.6 15.6 20 20"/></g></g>"#,
-};
-stroked!(HOME, "m-home", "1.25", r#"<path d="M5 10.4 12 5l7 5.4v8.6a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z"/><path d="M10 20v-4.6a2 2 0 0 1 4 0V20"/>"#);
+// The Inbox's three lines, as a conversation's strip draws them on its way back there.
 stroked!(INBOX, "m-inbox", "1.25", r#"<path d="M5 7h14M5 12h14M5 17h9"/>"#);
+// The sidebar. The web window's has Demands, Chats, Connections, Record meeting and Feedback
+// too; this one has none of them (`chrome::rail`), and their marks went with them. It draws its
+// marks heavier than their own strokes: they are on a 24 grid for 18 and 20 points, and its
+// sheet sizes each so its ink weighs 1.55 (`renderer/src/sidebar.css`: 2.07 on a mark drawn at
+// 18, and 2.33 inside Search's group, which is scaled to .8 as the web app draws it, at 20).
+stroked!(RAIL_HOME, "m-rail-home", "2.07", r#"<path d="M5 10.4 12 5l7 5.4v8.6a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z"/><path d="M10 20v-4.6a2 2 0 0 1 4 0V20"/>"#);
+stroked!(RAIL_INBOX, "m-rail-inbox", "2.07", r#"<path d="M5 7h14M5 12h14M5 17h9"/>"#);
+stroked!(RAIL_FILES, "m-rail-files", "2.07", r#"<path d="M7 4.5h6.5l4 4V19a.5.5 0 0 1-.5.5H7a.5.5 0 0 1-.5-.5V5a.5.5 0 0 1 .5-.5z"/><path d="M13.5 4.5v4h4"/>"#);
 stroked!(
-    SETTINGS,
-    "m-settings",
-    "1.25",
+    RAIL_SETTINGS,
+    "m-rail-settings",
+    "2.07",
     r#"<path d="M4.5 8h8M16.5 8h3M4.5 16h3M11.5 16h8"/><circle cx="14.5" cy="8" r="2"/><circle cx="9.5" cy="16" r="2"/>"#
 );
+pub static RAIL_SEARCH: Icon = Icon {
+    name: "m-rail-search",
+    view: 24.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-linecap="round"><g transform="translate(12 12) scale(.8) translate(-12 -12)" stroke-width="2.33"><circle cx="10.8" cy="10.8" r="6.6"/><path d="M15.6 15.6 20 20"/></g></g>"#,
+};
+// The pencil beside the team's name, which starts a thread (`.ws-new`), and the small arrow
+// after a section's name, which folds it (`SectionHead`).
+stroked!(RAIL_NEW, "m-rail-new", "1.5", r#"<path d="M12 20h8"/><path d="m4 20 1-4.5L15.5 5a2.1 2.1 0 0 1 3 3L8 18.5 4 20Z"/>"#);
+pub static RAIL_FOLD: Icon = Icon { name: "m-rail-fold", view: 8.0, body: r#"<path d="M1.2 2.4h5.6L4 6.2z" fill="currentColor"/>"# };
 // A card that asks the person for something (`need.rs`): the key in its mark when the service
 // has no logo of its own (`SignInCard.tsx`), the arrow after "Open …", and the tick in its box.
 pub static NEED_KEY: Icon = Icon {
@@ -71,11 +80,6 @@ pub static RESTART: Icon = Icon {
     name: "m-restart",
     view: 24.0,
     body: r#"<g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4.5v4h-4"/></g>"#,
-};
-pub static USAGE: Icon = Icon {
-    name: "m-usage",
-    view: 24.0,
-    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M4.5 16.5a7.5 7.5 0 1 1 15 0"/><path d="m12 16.5 3.6-4.2"/></g>"#,
 };
 
 // Send in a reply box too narrow for its word (`SendGlyph`, `.dock-send-arrow`).
@@ -353,9 +357,6 @@ stroked!(MENU_LATER, "m-menu-later", "1.4", r#"<circle cx="12" cy="12" r="9"/><p
 stroked!(MENU_RENAME, "m-menu-rename", "1.4", r#"<path d="M4 20h4L19 9l-4-4L4 16z"/>"#);
 stroked!(MENU_MOVE, "m-menu-move", "1.4", r#"<path d="M3 12h13m-4-4 4 4-4 4"/><path d="M20 4v16"/>"#);
 stroked!(MENU_TICK, "m-menu-tick", "1.4", r#"<path d="m5 12.5 4.5 4.5L19 7.5"/>"#);
-
-// The Files place, on the rail with the places (`data-tab="files"` in `WorkspaceNavigation.tsx`).
-stroked!(FILES, "m-files", "1.25", r#"<path d="M7 4.5h6.5l4 4V19a.5.5 0 0 1-.5.5H7a.5.5 0 0 1-.5-.5V5a.5.5 0 0 1 .5-.5z"/><path d="M13.5 4.5v4h4"/>"#);
 
 /// A file opened big: the corner marks of its bar, on one optical scale (`ArtifactControlGlyph`):
 /// back, open outside and close, each 16 points in a box of 20.

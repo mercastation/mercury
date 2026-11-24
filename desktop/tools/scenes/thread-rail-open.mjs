@@ -1,6 +1,7 @@
-// A conversation, as it first opens, with the pointer resting on the rail's Demands button: the
-// rail open beside it, the card and its head strip moved over (`home-rail-open` says when it
-// opens, and why Demands).
+// A conversation with the pointer resting on the sidebar's Home: the sidebar open beside it,
+// with Recent under Workspace holding the thread that is open, which was opened a moment ago
+// (`recentThreads` in renderer/src/recent-threads.ts). Home, because this window's sidebar has
+// it where the web window's does, so the pointer rests on the same row in both.
 import { hover } from './thread-hover.mjs';
 
-export const go = (h) => hover(h, 'button.workspace-tab[data-tab="demands"]', { ms: 900 });
+export const go = (h) => hover(h, 'button.workspace-tab[data-tab="home"]', { ms: 900 });

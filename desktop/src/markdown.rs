@@ -673,7 +673,7 @@ fn code_block(code: &str, p: Page) -> Block {
     let drop = ((line - up - down) / 2.0 + up) - ((line - 1.3 * CODE) / 2.0 + 1.005 * CODE);
     let lines = readable(text(code).font(mono(CODE, line)).color(ink()));
     let block = el()
-        .fill(rgba(40, 38, 37, 0.9))
+        .fill(surface_at(0.9))
         .border(1.0, edge())
         .border_layout()
         .radius(6.0)
@@ -740,7 +740,7 @@ fn table(head: &[String], rows: &[Vec<String>], p: Page) -> Block {
     }
     let line = white(0.09);
     // The first column stays put while the rest scrolls sideways, so it paints the ground under it.
-    let grounded = |c: usize, e: El| if c == 0 { e.fill(rgb(26, 24, 23)).gradient(rgba(36, 34, 33, 0.55), rgba(36, 34, 33, 0.55)) } else { e };
+    let grounded = |c: usize, e: El| if c == 0 { e.fill(surface()) } else { e };
     let sides = |c: usize, top: f32| [top, 1.0, 1.0, if c == 0 { 1.0 } else { 0.0 }];
     let heads = row().children((0..columns).map(|c| {
         let name = text(head.get(c).cloned().unwrap_or_default()).font(mono(10.5, 15.0).tracking(0.945)).text_case(TextCase::Uppercase).color(muted()).truncate();
@@ -874,7 +874,7 @@ fn lay_doc(nodes: Vec<Node>, p: Page) -> Vec<Block> {
             }
             Node::Code(code) => {
                 let lines = readable(text(code).font(mono(13.5, kept(1.65 * 13.5))).color(dim()));
-                let block = el().fill(rgb(34, 32, 31)).border(1.0, edge()).border_layout().radius(10.0).clip_rounded(10.0).child(row().scroll_x().child(el().py(16.0).px(18.0).child(lines)));
+                let block = el().fill(code_ground()).border(1.0, edge()).border_layout().radius(10.0).clip_rounded(10.0).child(row().scroll_x().child(el().py(16.0).px(18.0).child(lines)));
                 Block::leaf(17.55, 20.25, block)
             }
             Node::List(start, items) => doc_list(start, items, p),

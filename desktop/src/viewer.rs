@@ -42,11 +42,11 @@ const TOP: f32 = 44.0;
 const FOOT: f32 = 40.0;
 /// The paper the view is on (`--doc-page`).
 fn paper() -> rune::Color {
-    rgb(40, 38, 37)
+    surface()
 }
 /// A script's sheet (`--code-ground`).
 fn code_ground() -> rune::Color {
-    rgb(34, 32, 31)
+    crate::theme::code_ground()
 }
 /// What a framed file stands on: a hairline and a soft shadow (`--artifact-lift`).
 fn lift() -> [rune::Shadow; 2] {
@@ -643,7 +643,7 @@ fn zoom_pill(open: &Open, fit: rules::Fit, stage: (f32, f32)) -> El {
         // The web window also blurs the eight hundredths of the picture that show through
         // (`backdrop-filter: blur(8px)`). Rune's blur of what is behind an element holds copies
         // of the whole window for as long as the bar is up, so here they show as they are.
-        .fill(rgba(54, 52, 49, 0.92))
+        .fill(pop_at(0.92))
         .box_shadow(shadow(0.0, 10.0, 30.0, 0.0, rgba(0, 0, 0, 0.35), false))
         .child(step(&icons::ZOOM_OUT, open.zoom > floor + 0.001, false, "Zoom out (-)"))
         .child(fit_button)
@@ -792,7 +792,7 @@ fn doc_outline(entries: &[(usize, bool, String)], x: f32, room: f32, wide: f32, 
             .px(14.0)
             .py(12.0)
             .radius(12.0)
-            .fill(rgb(0x36, 0x34, 0x31))
+            .fill(pop())
             .border(1.0, edge())
             .border_layout()
             .box_shadow(shadow(0.0, 18.0, 50.0, 0.0, rgba(0, 0, 0, 0.35), false))
@@ -986,7 +986,7 @@ fn arrows(s: &State, open: &Open, stage: (f32, f32)) -> Vec<El> {
             .size(28.0, 44.0)
             .radius(6.0)
             .center()
-            .fill(rgba(40, 38, 37, 0.7))
+            .fill(surface_at(0.7))
             .border(1.0, edge())
             .border_layout()
             .child(text(glyph).font(TextStyle::new(18.0, 400.0).lh(18.0)).color(dim()).group_color(ink()));

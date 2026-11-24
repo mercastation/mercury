@@ -57,6 +57,10 @@ pub struct Picks {
     /// keeps its own across a restart (`zero.threadPlaces`, `thread-place.ts`).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub thread_places: Vec<ThreadPlace>,
+    /// The sidebar's sections folded away by a press on their name, as the web window keeps its
+    /// own (`agentbox.sidebarFolds`): `workspace`, `recent`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub rail_folds: Vec<String>,
 }
 
 /// Where the person was in one conversation when they left it (`ThreadPlace`): its newest answer

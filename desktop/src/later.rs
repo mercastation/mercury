@@ -164,7 +164,7 @@ pub fn view(s: &State) -> Option<El> {
         .absolute((w - width) / 2.0, 0.12 * h)
         .w(width)
         .radius(10.0)
-        .fill(rgb(47, 45, 44))
+        .fill(raised())
         .border(1.0, rule())
         .border_layout()
         .box_shadow(shadow(0.0, 24.0, 70.0, 0.0, rgba(0, 0, 0, 0.55), false))

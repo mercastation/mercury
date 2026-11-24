@@ -299,7 +299,7 @@ fn picture(holder: Holder, at: usize, a: &Attached, thumb: &Thumb) -> El {
         .size(18.0, 18.0)
         .center()
         .radius(6.0)
-        .fill(rgb(40, 38, 37))
+        .fill(surface())
         .border(1.0, rule())
         .border_layout()
         // Under the pointer the × takes the text's own colour and its edge the faint one
@@ -322,7 +322,7 @@ fn chip(holder: Holder, at: usize, a: &Attached) -> El {
     let file = &a.file;
     let over = file.failed.is_some() || rules::too_big_to_send(file.size.unwrap_or(0));
     let words = |s: &str, font: TextStyle, c: rune::Color| pen(text(s).font(font).color(c), 12.0);
-    let frame = |line: El, edge_colour: rune::Color| row().h(CHIP_TALL).items_center().px(10.0).radius(6.0).fill(rgb(47, 45, 44)).border(1.0, edge_colour).border_layout().child(line);
+    let frame = |line: El, edge_colour: rune::Color| row().h(CHIP_TALL).items_center().px(10.0).radius(6.0).fill(raised()).border(1.0, edge_colour).border_layout().child(line);
     // Under the pointer its words take the text's own colour and its edge the faint one, which
     // is how one that cannot go already stands; its size keeps its own (`.attach-chip:hover`).
     let lit = |frame: El| frame.hover_group().child(crate::feel::edge_lit(6.0, muted(), true));

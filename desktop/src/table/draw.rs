@@ -21,22 +21,10 @@ fn line() -> rune::Color {
 }
 /// `--surface`: the ground the header, the row numbers and the first column stand on.
 pub(crate) fn ground() -> rune::Color {
-    rgb(40, 38, 37)
+    surface()
 }
-/// `--pop`, what a menu floats on.
-fn pop() -> rune::Color {
-    rgb(54, 52, 49)
-}
-/// `--bg-selected`, `--bg-hover`, `--bg-raised`.
-fn selected() -> rune::Color {
-    rgb(55, 53, 52)
-}
-fn hovered() -> rune::Color {
-    rgb(46, 44, 43)
-}
-fn raised() -> rune::Color {
-    rgb(47, 45, 44)
-}
+// `--pop`, what a menu floats on, and `--bg-selected`, `--bg-hover` and `--bg-raised` are the
+// theme's own (`pop`, `selected`, `hovered`, `raised`).
 /// `--tbl-at`, the ring on the cell the keys act on, and the tint on the block over the ground.
 fn at_ring() -> rune::Color {
     rgba(110, 150, 225, 0.7)
