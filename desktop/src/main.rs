@@ -1295,7 +1295,7 @@ impl State {
         }
         self.home_sky_goes = None;
         if self.sky_home.size().0 == 0 {
-            let (home, soft) = paint_home_sky(chrome::folded_card_size(self));
+            let (home, soft) = paint_home_sky(chrome::painted_card_size(self));
             self.sky_home.set(home.0, home.1, home.2);
             self.sky_home_soft.set(soft.0, soft.1, soft.2);
         }
@@ -1502,7 +1502,9 @@ fn init_from(args: &[String]) -> State {
         repeats: foot::Repeats::default(),
     };
     // The first skies and a fixture are in place before the first frame, so a picture is whole.
-    let first = paint_skies(s.card_size());
+    // They are painted for the card as it will stand: beside a sidebar kept open, narrower.
+    let first_size = chrome::painted_card_size(&s);
+    let first = paint_skies(first_size);
     s.hang(first);
     s.take_up_drafts(drafts_kept, draft_files);
     if let Source::Fixture(path) = &s.source {
@@ -1533,6 +1535,12 @@ fn init_from(args: &[String]) -> State {
                 }
             }
             Err(e) => s.error = Some(e),
+        }
+        // A picture's page that kept its sidebar open says so only now.
+        let size = chrome::painted_card_size(&s);
+        if size != first_size {
+            let again = paint_skies(size);
+            s.hang(again);
         }
     }
     // A headless picture cannot wait for a thread to bring the engine's answer, so it asks once here.
@@ -1829,6 +1837,12 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
     // A sheet beside it or big: its saves, where its keys are, its logos (`table.rs`).
     changed |= table::tend(s, clock(), tx);
     changed |= chrome::rail_moves(s, at, tx);
+    // The sidebar kept open, or let shrink again, changes the card the skies are painted for:
+    // they are stretched to it until it has held still, then painted again (`followTheCard`).
+    if chrome::sky_size_changed(s) {
+        let points = chrome::painted_card_size(s);
+        s.painting.request(points, paint_skies);
+    }
     changed |= walk::tend(s, at, tx);
     changed |= usage::tend(s, at, tx);
     changed |= feel::hint_due(s, at);
@@ -1884,7 +1898,7 @@ fn resized(s: &mut State, [_, _, w, h]: [f32; 4]) {
     s.size = (w, h);
     // A key hint goes when the window is resized, as the web window's does.
     s.pointed.hint = None;
-    let points = chrome::folded_card_size(s);
+    let points = chrome::painted_card_size(s);
     s.painting.request(points, paint_skies);
 }
 

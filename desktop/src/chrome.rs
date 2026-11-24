@@ -117,6 +117,8 @@ pub struct Rail {
     /// Reduce motion, as the view last heard it, and whether the poll has run once.
     still: bool,
     begun: bool,
+    /// Whether the sidebar shrank when the skies' size was last settled (`sky_size_changed`).
+    sky_for: Option<bool>,
 }
 
 impl Default for Rail {
@@ -137,6 +139,7 @@ impl Default for Rail {
             move_closed: None,
             still: false,
             begun: false,
+            sky_for: None,
         }
     }
 }
@@ -305,11 +308,27 @@ pub fn backdrop(w: f32, h: f32) -> El {
 /// (`STILL_MS` in `renderer/src/home/sky-follows-the-card.ts`).
 pub const STILL: Duration = Duration::from_millis(150);
 
-/// The box a painted sky is drawn in: the card with the rail folded, as wide and tall as it is
-/// now. A sky painted for another size is stretched to it until the card has held still and the
-/// new one lands, as the web window stretches its canvas (`followTheCard`).
+/// The box a painted sky is drawn in. While the sidebar folds away under the pointer it is the
+/// card with the rail folded, so the rail opening covers the sky's left edge; with the sidebar
+/// kept open it is the card as it stands, however far the rail has got (`reach` and `folds` in
+/// `followTheCard`). A sky painted for another size is stretched to it until the card has held
+/// still and the new one lands, as the web window stretches its canvas.
 pub fn sky_box(s: &State) -> (f32, f32) {
-    folded_card_size(s)
+    if s.picks.get().rail_shrinks.unwrap_or(true) { folded_card_size(s) } else { s.card_size() }
+}
+
+/// The card's size the skies are painted for: the box above once the rail is at rest.
+pub fn painted_card_size(s: &State) -> (f32, f32) {
+    let left = if s.picks.get().rail_shrinks.unwrap_or(true) { CARD[0] } else { CARD_OPEN };
+    ((s.size.0 - left - CARD[2]).max(1.0), (s.size.1 - CARD[1] - CARD[3]).max(1.0))
+}
+
+/// The poll's part: whether keeping the sidebar open, or letting it shrink again, has changed
+/// the size the skies are painted for since this was last asked. Not the first time, when the
+/// window's first skies are already that size.
+pub fn sky_size_changed(s: &mut State) -> bool {
+    let shrinks = s.picks.get().rail_shrinks.unwrap_or(true);
+    s.rail.sky_for.replace(shrinks).is_some_and(|was| was != shrinks)
 }
 
 /// How many times smaller each way a soft sky is kept than its sky (`sky::soft`): Home's glass

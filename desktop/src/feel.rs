@@ -895,8 +895,23 @@ pub(crate) mod tests {
 
     #[test]
     fn a_window_whose_sidebar_is_kept_open_draws_it_open_from_its_first_frame() {
-        let rt = window_dressed("rail-kept", &[], "/fixtures/storefront", "Done.", |fixture| fixture["picks"] = json!({ "rail_shrinks": false }));
+        let mut rt = window_dressed("rail-kept", &[], "/fixtures/storefront", "Done.", |fixture| fixture["picks"] = json!({ "rail_shrinks": false }));
         assert_eq!(rt.state.rail.width(rt.state.at), 210.0, "open with no easing, two frames in");
+        // Its skies are painted for the card as it stands beside the sidebar, and drawn in that
+        // box; one that shrinks keeps the sky of the folded card, whose left edge the sidebar
+        // covers as it opens (`reach` in `sky-follows-the-card.ts`).
+        assert_eq!(chrome::sky_box(&rt.state), (1280.0 - 246.0 - 22.0, 698.0));
+        assert_eq!(chrome::painted_card_size(&rt.state), (1012.0, 698.0));
+        rt.key(KeyEvent { key: Key::Command('\\'), mods: Mods { cmd: true, ..Mods::default() } });
+        rt.frame(1.0 / 60.0);
+        assert_eq!(chrome::sky_box(&rt.state), (1200.0, 698.0), "the folded card's, at once");
+        assert_eq!(chrome::painted_card_size(&rt.state), (1200.0, 698.0));
+        // Kept open again, the box is the card's as it moves over, and the paint its size at rest.
+        rt.key(KeyEvent { key: Key::Command('\\'), mods: Mods { cmd: true, ..Mods::default() } });
+        run(&mut rt, 0.1);
+        let (wide, _) = chrome::sky_box(&rt.state);
+        assert!(wide > 1012.0 && wide < 1200.0, "following the card, {wide} wide a tenth of a second in");
+        assert_eq!(chrome::painted_card_size(&rt.state), (1012.0, 698.0));
     }
 
     #[test]
