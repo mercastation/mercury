@@ -894,6 +894,33 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn a_thread_kept_at_the_top_wears_its_pin_after_its_name() {
+        // A thread still open and waiting on the person, kept at the top: a pin is drawn only
+        // while its thread is open (`pinned_open`).
+        let dress = |fixture: &mut Value| {
+            fixture["snapshot"]["items"][0]["pinned"] = json!(true);
+            fixture["snapshot"]["items"][0]["status"] = json!("blocked");
+        };
+        // In the Inbox the pin stands nine points after the name, on the middle of its line, in
+        // a cell that is a row of boxes, so a name too long gives way to it
+        // (`.th-cell-title.with-pin`).
+        let keyed = |rt: &Runtime<State>, key: &str| rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key)).map(|e| e.rect);
+        let named = |rt: &Runtime<State>, words: &str| rt.elements().into_iter().find(|e| e.text.as_deref() == Some(words)).map(|e| e.rect);
+        let rt = window_dressed("pins-inbox", &["--view", "inbox"], "/fixtures/storefront", "Done.", dress);
+        let [x, y, w, h] = keyed(&rt, "pin-storefront-w-feel0").expect("the name's pin");
+        let title = named(&rt, "Invented thread number 0").expect("its name");
+        assert!((x - (title[0] + title[2] + 9.0)).abs() < 0.6 && w == 13.0 && h == 13.0, "the pin's box is {:?}, after a name at {title:?}", [x, y, w, h]);
+        assert!((y + h / 2.0 - (title[1] + title[3] / 2.0)).abs() < 0.6, "on the middle of the name's line");
+        assert!(keyed(&rt, "pin-storefront-w-feel2").is_none(), "none on a thread that is not pinned");
+        // On Home a thread that needs the person wears it too, six points after its name.
+        let home = window_dressed("pins-home", &[], "/fixtures/storefront", "Done.", dress);
+        let [x, _, w, h] = keyed(&home, "home-pin-w-feel0").expect("Home's pin");
+        let name = named(&home, "Invented thread number 0").expect("its name on Home");
+        assert!((x - (name[0] + name[2] + 6.0)).abs() < 0.6 && w == 13.0 && h == 13.0, "the pin's box starts at {x}, after a name at {name:?}");
+        assert!(keyed(&home, "home-pin-w-feel2").is_none(), "none on a thread that is not pinned");
+    }
+
+    #[test]
     fn a_window_whose_sidebar_is_kept_open_draws_it_open_from_its_first_frame() {
         let mut rt = window_dressed("rail-kept", &[], "/fixtures/storefront", "Done.", |fixture| fixture["picks"] = json!({ "rail_shrinks": false }));
         assert_eq!(rt.state.rail.width(rt.state.at), 210.0, "open with no easing, two frames in");

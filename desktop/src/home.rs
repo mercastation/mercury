@@ -263,9 +263,12 @@ fn task_row(r: &Row, at: usize, on: bool, card: Card) -> El {
         // Who is working on it and where, in one faint line (`.hm-text small`).
         Card::Progress => row().child(pen(text(format!("{} · {}", r.engine, r.project)).font(TextStyle::new(12.5, 400.0).lh(17.0)).color(dim()).truncate(), 12.5)),
     };
-    // An agent's thread wears the app's agent face, two eyes in a faint ring, where a letter in
-    // a circle read as a close button (`.hm-face.hm-agent`): 28 points, its eyes 22.
-    let mut face = row().size(28.0, 28.0).radius(14.0).center().border(1.0, rgba(239, 235, 231, 0.12)).child(icon(&icons::AGENT_EYES, 22.0).color(dim()));
+    // An agent's thread wears its harness's mark, on the Inbox's tile at Home's size
+    // (`.hm-agent > .harness-mark`: 28 points with an 8-point corner, the mark 22.96 across);
+    // one whose harness has no mark, the app's agent face, two eyes in a faint ring, its eyes 22
+    // (`.hm-agent > .agent-face`).
+    let mut face = crate::inbox::harness_tile(r.harness, 28.0, 8.0, 22.96)
+        .unwrap_or_else(|| row().size(28.0, 28.0).radius(14.0).center().border(1.0, rgba(239, 235, 231, 0.12)).child(icon(&icons::AGENT_EYES, 22.0).color(dim())));
     if card == Card::Progress {
         // The green dot of a thread an agent is on (`.hm-face.live::after`), ringed in the card's dark.
         face = face.child(el().absolute(21.0, 21.0).size(8.0, 8.0).radius(4.0).fill(rgb(0x8f, 0xd1, 0x8f)).box_shadow(shadow(0.0, 0.0, 0.0, 2.0, rgba(18, 16, 18, 0.95), false)));
@@ -283,9 +286,13 @@ fn task_row(r: &Row, at: usize, on: bool, card: Card) -> El {
         line = line.fill(white(0.045));
     }
     let (id, product) = (r.id.clone(), r.product.clone());
+    // A thread kept at the top wears its pin after its name, six points on, which the name
+    // gives way to (`.hm-name`, `.hm-pin`: the pin's head filled, half a point down).
+    let pinned = (card == Card::Needs && r.pinned).then(|| el().key(format!("home-pin-{}", r.id)).mt(0.5).mb(-0.5).child(icon(&icons::PIN_ON, 13.0).color(dim())).label("Pinned"));
+    let name = row().items_center().gap(6.0).min_w(0.0).child(el().shrink().min_w(0.0).child(title)).children(pinned);
     line.on_press(move |s: &mut State| s.open_thread(&id, &product))
         .child(face)
-        .child(col().grow(1.0).min_w(0.0).child(title).child(under))
+        .child(col().grow(1.0).min_w(0.0).child(name).child(under))
         // The age in the Inbox's own words, "6 min ago" (`updatedWords`).
         .child(label(&r.when, 12.5, 400.0, dim()))
 }

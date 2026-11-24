@@ -233,6 +233,9 @@ pub static CLOUD_MARK: Icon = Icon {
     body: r#"<g transform="translate(0 .5) scale(.66667) translate(-2 -5)" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></g>"#,
 };
 stroked!(PIN, "m-pin", "1.4", r#"<path d="M8 3h8l-1.5 6 3.5 3.5H6L9.5 9z"/><path d="M12 12.5V21"/>"#);
+// The same pin after the name of a thread kept at the top, its head filled (`.th-pin
+// path:first-child`, `.hm-pin`).
+stroked!(PIN_ON, "m-pin-on", "1.4", r#"<path fill="currentColor" d="M8 3h8l-1.5 6 3.5 3.5H6L9.5 9z"/><path d="M12 12.5V21"/>"#);
 pub static AGENT_EYES: Icon = Icon {
     name: "m-agent-eyes",
     view: 16.0,

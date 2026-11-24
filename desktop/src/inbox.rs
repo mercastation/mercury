@@ -440,14 +440,23 @@ pub(crate) fn harness_mark(harness: &str) -> El {
 /// their faint 12% ring, round, its eyes at their own 16 points (`.agent-face`, which neither
 /// the corner nor the softer edge reaches).
 fn row_face(harness: &str) -> El {
+    harness_tile(harness, 24.0, 7.0, 19.68)
+        .unwrap_or_else(|| row().size(24.0, 24.0).radius(12.0).center().border(1.0, ink_at(0.12)).border_layout().child(icon(&icons::AGENT_EYES, 16.0).color(dim())))
+}
+
+/// A harness's mark on its tile (`.th-slot .harness-mark`, and Home's at its own size): the
+/// card's own ground inside a soft 8% edge, `side` points across with a corner of `corner`,
+/// the mark drawn `mark` across, Claude Code's in its own orange. None for a harness that has
+/// no mark, which wears the agent's face instead.
+pub(crate) fn harness_tile(harness: &str, side: f32, corner: f32, mark: f32) -> Option<El> {
     let glyph = match harness {
         "claude" => &icons::HARNESS_CLAUDE,
         "codex" => &icons::HARNESS_CODEX,
         "antigravity" => &icons::HARNESS_ANTIGRAVITY,
-        _ => return row().size(24.0, 24.0).radius(12.0).center().border(1.0, ink_at(0.12)).border_layout().child(icon(&icons::AGENT_EYES, 16.0).color(dim())),
+        _ => return None,
     };
     let tone = if harness == "claude" { rgb(0xd9, 0x77, 0x57) } else { ink() };
-    row().size(24.0, 24.0).radius(7.0).center().fill(surface()).border(1.0, ink_at(0.08)).border_layout().child(icon(glyph, 19.68).color(tone))
+    Some(row().size(side, side).radius(corner).center().fill(surface()).border(1.0, ink_at(0.08)).border_layout().child(icon(glyph, mark).color(tone)))
 }
 
 /// A thread's title cell, `room` points wide: the title, and what follows it, 35 points in,
@@ -476,18 +485,18 @@ fn title_cell(r: &Row, selected: bool, pointed: bool, room: f32, aside_moved: bo
     // Faint words after the title (`.th-aside`), 12 points on, in the title's own type.
     let faint = |s: &str| pen(text(s).font(type_).color(muted()), TITLE);
     let held = || el().ml(12.0).child(faint("not started"));
-    // The pin sits 3 points under the words' line.
-    let pin = || el().ml(9.0).child(icon(&icons::PIN, 13.0).color(muted()).mt(3.0));
+    // The pin, its head filled, in the dim ink, on the middle of the words' line (`.th-pin`).
+    let pin = || el().key(format!("pin-{}-{}", r.product, r.id)).ml(9.0).child(icon(&icons::PIN_ON, 13.0).color(dim()));
     let wide = |s: &str| rune::text::measure(s, &[], type_, None).0;
 
-    if !r.aside.is_empty() {
-        // With an aside the cell is a row of boxes (`.th-cell-title.with-aside`). The aside
-        // takes what the title leaves and no more than its own words need, and is cut short
-        // before the title is; "not started" and the pin keep their room, so in a narrow cell
-        // it is the title that gives way to them. The aside's 12 points are inside its box,
-        // which may close to nothing. Said again by the second line, it is not drawn, and the
-        // cell stays a row of boxes without it.
-        let cell = if aside_moved {
+    if !r.aside.is_empty() || r.pinned {
+        // With an aside or a pin the cell is a row of boxes (`.th-cell-title.with-aside`,
+        // `.with-pin`). The aside takes what the title leaves and no more than its own words
+        // need, and is cut short before the title is; "not started" and the pin keep their
+        // room, so in a narrow cell it is the title that gives way to them. The aside's 12
+        // points are inside its box, which may close to nothing. Said again by the second
+        // line, it is not drawn, and the cell stays a row of boxes without it.
+        let cell = if r.aside.is_empty() || aside_moved {
             cell
         } else {
             cell.child(row().grow(1.0).min_w(0.0).max_w(12.0 + wide(&r.aside)).clip_rounded(0.0).child(el().w(12.0).min_w(12.0)).child(faint(&r.aside).truncate()))
@@ -495,23 +504,20 @@ fn title_cell(r: &Row, selected: bool, pointed: bool, room: f32, aside_moved: bo
         let cell = if r.held { cell.child(held()) } else { cell };
         return if r.pinned { cell.child(pin()) } else { cell };
     }
-    if !r.held && !r.pinned {
+    if !r.held {
         return cell;
     }
-    // Without one the cell is a line of text (`.th-cell-title`), and a line too long for it
-    // is cut from its end: the pin goes first, then "not started", and only then the title's
-    // own words, with the three dots after whatever is left.
-    let (title, after, pinned) = (wide(&r.title), if r.held { 12.0 + wide("not started") } else { 0.0 }, if r.pinned { 22.0 } else { 0.0 });
+    // Without either the cell is a line of text (`.th-cell-title`), and a line too long for it
+    // is cut from its end: "not started" goes first, and only then the title's own words, with
+    // the three dots after whatever is left.
+    let (title, after) = (wide(&r.title), 12.0 + wide("not started"));
     let room = room - TEXT_IN - TEXT_END;
-    if title + after + pinned <= room {
-        let cell = if r.held { cell.child(held()) } else { cell };
-        return if r.pinned { cell.child(pin()) } else { cell };
+    if title + after <= room {
+        return cell.child(held());
     }
-    let dots = wide("…");
-    if title > room - dots {
+    if title > room - wide("…") {
         return cell;
     }
-    let cell = if r.held && title + after <= room - dots { cell.child(held()) } else { cell };
     cell.child(pen(text("…").font(type_).color(ink()), TITLE))
 }
 
