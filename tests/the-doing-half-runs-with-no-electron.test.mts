@@ -130,10 +130,15 @@ describe('the doing half, booted with no Electron', () => {
         expect(res.statusCode).toBe(200);
         expect(res.headers['content-type']).toContain('text/event-stream');
         let seen = '';
+        // MERCURY: the push sent below is the one looked for, not whichever line comes
+        // first. Antigravity's models are read in the background at launch and end in a
+        // push of their own (`zero:models-changed`), which reaches the stream first
+        // wherever `agy` answers at once, as it does inside the push hook's sandbox.
+        const isTheirs = (l) => { try { return JSON.parse(l).channel === 'zero:changed'; } catch { return false; } };
         res.on('data', (chunk) => {
           seen += chunk;
-          const found = seen.split('\n').find((l) => l.startsWith('data: '));
-          if (found) { req.destroy(); resolve(found.slice('data: '.length)); }
+          const found = seen.split('\n').filter((l) => l.startsWith('data: ')).map((l) => l.slice('data: '.length)).find(isTheirs);
+          if (found) { req.destroy(); resolve(found); }
         });
       });
       req.on('error', (err) => { if (err.code !== 'ECONNRESET') reject(err); });
