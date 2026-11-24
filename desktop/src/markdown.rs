@@ -26,10 +26,10 @@ use crate::rules::paths::{self, Piece};
 use crate::theme::*;
 
 /// Inline code is 13 points whatever the text around it, and its box reaches 5 points past it.
-const CODE: f32 = 13.0;
-const CODE_PAD: f32 = 5.0;
+pub(crate) const CODE: f32 = 13.0;
+pub(crate) const CODE_PAD: f32 = 5.0;
 /// Geist Mono's advance, in ems: what one padding space is sized by.
-const MONO_ADVANCE: f32 = 0.6;
+pub(crate) const MONO_ADVANCE: f32 = 0.6;
 
 /// One piece of a line of words, as markdown hands it over.
 #[derive(Clone, Debug, PartialEq)]

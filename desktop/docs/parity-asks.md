@@ -111,14 +111,14 @@ over its own ground rather than pixel for pixel: 0.7 to 1.3 of 255.
 Each of these leaves the person with a thread that waits on them and nothing, or less, to answer
 it with. Worst first.
 
-- [ ] B1 **What a cloud run needs** (`NeedCard.tsx`): one card per `AGENTBOX-NEEDS:` line of the
-  newest answer (connect a service with its token fields or GitHub's device code, add a key,
-  send a file from this computer, enter a one-time code, "Do it on my computer instead"), and
-  their done states. This window draws the marker line as text; `rules/needs.rs` reads the lines
-  only for the Inbox's word.
-- [ ] B2 **A key or a code typed into the reply box of a thread that asked for one** is saved as
+- [x] B1 **What a cloud run needs** (`NeedCard.tsx`): one card per `AGENTBOX-NEEDS:` line
+  (connect a service with its token fields or GitHub's device code, add a key, send a file from
+  this computer, enter a one-time code, "Do it on my computer instead"), and their done states.
+  Ported: `docs/parity-cloud-needs.md`, which says what of it is still open (E9.2) and lists the
+  deviations for the owner.
+- [x] B2 **A key or a code typed into the reply box of a thread that asked for one** is saved as
   the key, or sent as the code, and never goes out as words (`keyFromReply` in `key-asks.ts`,
-  `Focus.tsx`). Here it is sent as words.
+  `Focus.tsx`). Ported: `docs/parity-cloud-needs.md`, part F.
 - [x] B3 **"Sign in to GitHub" on a ship the push refused** (`GitHubSignInCard.tsx`), and the
   answer's label "Not shipped". Ported: part C below.
 - [x] B4 **The app's own question after a run that left a change and asked nothing**

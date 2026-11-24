@@ -20,13 +20,13 @@ use crate::write::{Landed, Sent};
 use crate::{icons, logos};
 
 /// The card is never wider than this, however wide the column (`.need { max-width }`).
-const WIDE: f32 = 640.0;
+pub(crate) const WIDE: f32 = 640.0;
 /// `--radius`.
-const RADIUS: f32 = 6.0;
+pub(crate) const RADIUS: f32 = 6.0;
 /// The line a button's and a link's words stand in: 1.6 of 13 points.
-const LINE: f32 = 20.8;
+pub(crate) const LINE: f32 = 20.8;
 /// A button, a box to type in.
-const CONTROL: f32 = 34.0;
+pub(crate) const CONTROL: f32 = 34.0;
 
 /// The boxes' names, for the keyboard.
 const PASTED: &str = "need-code";
@@ -259,10 +259,15 @@ pub fn picture(s: &mut State) {
 /// The mark at the card's head (`.need-mark`): the service's own logo when the link is the
 /// service's own, a key otherwise, in a square of 40 with the strong line round it.
 fn mark(card: &Card, scale: f32) -> El {
-    let logo = card.logo.as_deref().and_then(|id| logos::of(id, 20.0, scale));
-    let inside = match logo {
+    mark_of(card.logo.as_deref(), &icons::NEED_KEY, scale)
+}
+
+/// The same mark for any card: the logo `logo` names when there is one (`logoOf`), the drawing
+/// `fallback` otherwise (`<Mark id fallback>`).
+pub(crate) fn mark_of(logo: Option<&str>, fallback: &'static rune::Icon, scale: f32) -> El {
+    let inside = match logo.and_then(|id| logos::of(id, 20.0, scale)) {
         Some(logo) => el().size(20.0, 20.0).pixels_fit(&logo, SurfaceFit::Fit),
-        None => icon(&icons::NEED_KEY, 20.0).color(dim()),
+        None => icon(fallback, 20.0).color(dim()),
     };
     row().size(40.0, 40.0).center().radius(RADIUS).fill(white(0.04)).border(1.0, rule()).child(inside)
 }
@@ -271,7 +276,7 @@ fn mark(card: &Card, scale: f32) -> El {
 /// it, its words 13 points. The main one (`.need-main`) is the text's ink with the card's
 /// ground for its words, and gives up a little of itself under the pointer; the others take
 /// the wash. `off` is a button that takes no press: half strength, and nothing under the pointer.
-fn button(key: &'static str, words: &str, main: bool, out: bool, off: bool) -> El {
+pub(crate) fn button(key: impl Into<String>, words: &str, main: bool, out: bool, off: bool) -> El {
     let on_it = if main { raised() } else { ink() };
     let mut face = row().h(CONTROL).px(15.0).items_center().radius(RADIUS).border(1.0, if main { ink() } else { rule() }).border_layout();
     if main {
@@ -292,14 +297,14 @@ fn button(key: &'static str, words: &str, main: bool, out: bool, off: bool) -> E
 
 /// A quiet way out of the card (`.need-link`): dim words on a line of their own ink, the
 /// text's ink under the pointer.
-fn link(key: &'static str, words: &str) -> El {
+pub(crate) fn link(key: impl Into<String>, words: &str) -> El {
     let line = text(words).font(TextStyle::new(13.0, 400.0).lh(kept(LINE))).color(dim()).group_color(ink()).decorations(vec![Span::new(0, words.len()).underline(dim())]);
     row().key(key).role("button").label(words).hover_group().child(pen(line, 13.0))
 }
 
 /// The keys a box of the card does not keep for typing: Escape lets go of the box and goes no
 /// further, so the next one is the page's.
-fn in_a_box(_: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
+pub(crate) fn in_a_box(_: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
     if e.key != Key::Escape {
         return false;
     }
@@ -309,7 +314,8 @@ fn in_a_box(_: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
 
 /// A box to type in (`.need-input`): 34 high, on the page's sunk ground, the strong line round
 /// it and the faint ink while it has the keys.
-fn boxed(key: &'static str, field: El, focused: bool) -> El {
+pub(crate) fn boxed(key: impl Into<String>, field: El, focused: bool) -> El {
+    let key: String = key.into();
     row()
         .h(CONTROL)
         .grow(1.0)
@@ -321,11 +327,11 @@ fn boxed(key: &'static str, field: El, focused: bool) -> El {
         .border(1.0, if focused { muted() } else { rule() })
         .border_layout()
         .cursor(Cursor::Text)
-        .on_press_tx(move |_: &mut State, tx| tx.focus(key, false))
+        .on_press_tx(move |_: &mut State, tx| tx.focus(key.clone(), false))
         .child(pen(field, 13.0))
 }
 
-fn typed(edit: &TextEdit, key: &'static str, placeholder: &str) -> El {
+pub(crate) fn typed(edit: &TextEdit, key: impl Into<String>, placeholder: &str) -> El {
     text_input(edit, TextStyle::new(13.0, 400.0).lh(kept(LINE)))
         .key(key)
         .single_line()
@@ -444,7 +450,7 @@ impl State {
 
 /// What the app says of GitHub's own sign-in when it did not start and gave no reason, and of
 /// a token it did not save (`ItemThread.tsx`).
-const GITHUB_DID_NOT_START: &str = "GitHub's sign-in did not start.";
+pub(crate) const GITHUB_DID_NOT_START: &str = "GitHub's sign-in did not start.";
 const TOKEN_DID_NOT_SAVE: &str = "That did not save. Try again.";
 const GITHUB_CONNECTED: &str = "GitHub connected. Shipping it again.";
 /// GitHub's own sign-in for this computer's git, and a token pasted instead.
@@ -609,11 +615,11 @@ pub fn picture_github(s: &mut State) {
 
 /// One fact under a token asked for (`.need-facts > div`): its mark in the faint ink, ten
 /// points, its words.
-fn fact(mark: &'static rune::Icon, size: f32, words: El) -> El {
+pub(crate) fn fact(mark: &'static rune::Icon, size: f32, words: El) -> El {
     row().h(18.0).gap(10.0).items_center().child(icon(mark, size).color(muted())).child(words)
 }
 
-fn fact_words(words: &str) -> El {
+pub(crate) fn fact_words(words: &str) -> El {
     pen(text(words).font(TextStyle::new(13.0, 400.0).lh(18.0)).color(dim()), 13.0)
 }
 
@@ -704,13 +710,13 @@ impl State {
 }
 
 /// What the engine said to a write it did not take, under the card's controls (`.need-said`).
-fn told(why: &str) -> El {
+pub(crate) fn told(why: &str) -> El {
     readable(pen(text(why).font(TextStyle::new(12.5, 400.0).lh(17.0)).color(dim()).wrap(), 12.5)).my(8.0)
 }
 
 /// A code to type on a service's page, in a frame of its own with Copy at its end
 /// (`.need-code-box`).
-fn code_box(code: &str, copy: El) -> El {
+pub(crate) fn code_box(code: &str, copy: El) -> El {
     let label = pen(text("Enter this code").font(TextStyle::new(13.0, 400.0).lh(kept(LINE))).color(dim()), 13.0);
     let value = readable(text(code).font(mono(16.0, kept(25.6)).tracking(2.24)).color(ink()));
     row().mt(12.0).px(14.0).py(10.0).gap(14.0).items_center().radius(RADIUS).border(1.0, edge()).border_layout().child(label).child(el().grow(1.0).min_w(0.0).child(value)).child(copy)
@@ -718,7 +724,7 @@ fn code_box(code: &str, copy: El) -> El {
 
 /// The card's own frame (`.need`): never wider than 640 points, the strong line round it on
 /// the raised ground, the small shadow.
-fn framed(key: &'static str, column: f32, body: El) -> El {
+pub(crate) fn framed(key: impl Into<String>, column: f32, body: El) -> El {
     col()
         .key(key)
         .w(column.min(WIDE))

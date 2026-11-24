@@ -176,7 +176,8 @@ impl crate::State {
         let mut words: BTreeMap<String, String> = self.drafts.iter().filter(|(_, w)| !w.trim().is_empty()).map(|(k, w)| (k.clone(), w.clone())).collect();
         if let Some(open) = &open {
             words.remove(open);
-            if !self.reply.text.trim().is_empty() {
+            // What a caught send left in the box is no longer its draft (`clearDraft`).
+            if !self.reply.text.trim().is_empty() && !crate::cloud_need::unkept(self, open, &self.reply.text) {
                 words.insert(open.clone(), self.reply.text.clone());
             }
         }

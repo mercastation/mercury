@@ -1098,8 +1098,9 @@ fn typed_with_files(words: &str, m: &Measure, files: &Files) -> El {
     }))
 }
 
-/// One message, and how much of what it holds reaches under it.
-fn message(msg: &Message, turn: (bool, bool), now: f64, m: &Measure, files: &Files) -> El {
+/// One message, and how much of what it holds reaches under it. `older`: not the agent's last
+/// word, whose asks only say what they asked (`NeedOlder`, `cloud_need.rs`).
+fn message(s: &State, msg: &Message, older: bool, turn: (bool, bool), now: f64, m: &Measure, files: &Files) -> El {
     // The app's own news on the row is its quiet line, with no name over it and never a
     // checkpoint's tag (`e.says === 'app'` in `Thread.tsx`).
     if msg.app {
@@ -1111,7 +1112,11 @@ fn message(msg: &Message, turn: (bool, bool), now: f64, m: &Measure, files: &Fil
         let body = typed_with_files(&msg.text, m, files);
         (if msg.sending.is_some() { body.opacity(0.82) } else { body }, 0.0)
     } else {
-        let (body, _, bottom) = markdown::stack(markdown::blocks(&msg.text, m.size, m.column, files), true);
+        let blocks = match s.open_item() {
+            Some(item) => crate::cloud_need::blocks(s, item, &msg.text, msg.at, older, m.size, m.column, files),
+            None => markdown::blocks(&msg.text, m.size, m.column, files),
+        };
+        let (body, _, bottom) = markdown::stack(blocks, true);
         (body, bottom)
     };
     // A run still talking after its own line above wears no second name and time; across a
@@ -1587,7 +1592,10 @@ fn said_row(s: &State, plan: &Plan, at: usize, m: &Measure, files: &Files) -> El
             run_line(s, &items, &plan.ids[row.from..row.to], chips, open, key.clone(), thread, &lines, m)
         }
         (Said::Message(msg), _) => {
-            let drawn = message(msg, plan.turns[row.from], s.now, m, files);
+            // Only the agent's last word, with nothing said to it since, takes what a card asks
+            // for (`asking` in `Thread.tsx`).
+            let asking = plan.said().iter().rposition(|e| !matches!(e, Said::Work(_))).filter(|&at| matches!(&plan.said()[at], Said::Message(m) if !m.mine));
+            let drawn = message(s, msg, asking != Some(row.from), plan.turns[row.from], s.now, m, files);
             if row.last { drawn.key(LAST_MESSAGE) } else { drawn }
         }
         // The person's own act is a point on its timeline, joined to one right above.
@@ -1974,7 +1982,7 @@ fn outcome(s: &State, item: &Item, answer: &Message, plain: bool, m: &Measure, f
     if foot == Foot::App {
         return markdown::blocks_quiet(&answer.text, m.size, m.column, files);
     }
-    let mut blocks = markdown::blocks(&answer.text, m.size, m.column, files);
+    let mut blocks = crate::cloud_need::blocks(s, item, &answer.text, answer.at, false, m.size, m.column, files);
     if !plain || foot == Foot::Unshipped {
         // A thread still in flight says which of these this is.
         let words = match (answer.field == Field::Result, foot) {
@@ -2001,10 +2009,10 @@ fn outcome(s: &State, item: &Item, answer: &Message, plain: bool, m: &Measure, f
 
 /// The newest answer alone, as a page that leads with it: a first line that is bold and
 /// nothing else is its headline, unless it only repeats the thread's name.
-fn answer_alone(answer: &Message, title: &str, m: &Measure, files: &Files) -> Vec<Block> {
+fn answer_alone(s: &State, item: &Item, answer: &Message, title: &str, m: &Measure, files: &Files) -> Vec<Block> {
     let same = |a: &str, b: &str| a.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase() == b.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
     let (headline, rest) = talk::headline(&answer.text);
-    let mut blocks = markdown::blocks(rest, m.size, m.column, files);
+    let mut blocks = crate::cloud_need::blocks(s, item, rest, answer.at, false, m.size, m.column, files);
     if let Some(words) = headline.filter(|h| !same(h, title)) {
         let (size, under) = m.headline;
         blocks.insert(0, markdown::block(0.0, under, readable(text(words).font(TextStyle::new(size, 600.0).lh(kept(1.45 * size))).color(ink()).wrap())));
@@ -2448,6 +2456,8 @@ pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
         return crate::trouble::page(s, item, (page_w, page_h), (m.size, m.column, m.indent, m.right));
     }
     let thread = key(product, id);
+    // The cards a cloud run's lines draw are counted afresh as the page is drawn.
+    crate::cloud_need::start_frame();
     // What the supervisor says about it, the run on it right now among it, and the sentence that
     // run is typing this second (`crate::foot::facts`).
     let facts = crate::foot::facts(s, item);
@@ -2488,11 +2498,11 @@ pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
     }
     match page.alone.or(if getting { talk.newest() } else { None }) {
         Some(answer) if getting => {
-            let (body, top, bottom) = markdown::stack(answer_alone(answer, &title, &m, &files), false);
+            let (body, top, bottom) = markdown::stack(answer_alone(s, item, answer, &title, &m, &files), false);
             blocks.push(markdown::block(top.max(28.0), bottom, body));
         }
         Some(answer) => {
-            blocks.extend(answer_alone(answer, &title, &m, &files));
+            blocks.extend(answer_alone(s, item, answer, &title, &m, &files));
             // The app's own note ("Shipped to main as …") goes under the agent's answer rather
             // than in its place: one quiet line, as written (`<p className="one-app-note">`).
             if let Some(note) = page.app_note {

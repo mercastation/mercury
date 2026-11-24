@@ -52,6 +52,19 @@ pub static NEED_LOCK: Icon = Icon {
     body: r#"<g fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></g>"#,
 };
 pub static NEED_AGAIN: Icon = Icon { name: "m-need-again", view: 16.0, body: r#"<path fill="none" stroke="currentColor" stroke-width="1.4" d="M13 8a5 5 0 1 1-1.5-3.5M13 3v2.5h-2.5"/>"# };
+// What a cloud run asks for (`NeedCard.tsx`): a file in its mark, the cloud a key is kept in,
+// and the computer the way out leads to.
+pub static NEED_FILE: Icon = Icon {
+    name: "m-need-file",
+    view: 24.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></g>"#,
+};
+pub static NEED_CLOUD: Icon = Icon { name: "m-need-cloud", view: 16.0, body: r#"<path fill="none" stroke="currentColor" stroke-width="1.3" d="M4.5 12.5h7a3 3 0 0 0 .4-5.97A4 4 0 0 0 4.2 7.6 2.5 2.5 0 0 0 4.5 12.5z"/>"# };
+pub static NEED_LAPTOP: Icon = Icon {
+    name: "m-need-laptop",
+    view: 24.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2 19h20"/></g>"#,
+};
 
 // What the rail has only sometimes: Restart while a new version waits, what is left of the limit.
 pub static RESTART: Icon = Icon {

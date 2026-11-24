@@ -3152,6 +3152,21 @@ or a pasted token, on `zero:github-browser-sign-in` and `zero:github-sign-in`. S
 `thread-app-note`, `-unfolded`, `-said`, `thread-not-shipped`, `-folded`, `-device`, `-token`
 and `-again`.
 
+A cloud run that cannot go on ends its answer with one marked line per thing only the person can
+give (`AGENTBOX-NEEDS: sign-in | key | file | code …`), and each line is a card where it stood
+(`src/cloud_need.rs`, from `NeedCard.tsx`; the rules in `src/rules/needs.rs` and
+`src/rules/key_asks.rs`): connect a service (its token boxes, hiding what is typed, or GitHub's
+own sign-in with a code), add a key (read where the run said it is, in one press, or pasted),
+send a file from this computer (or one picked in this window's own file panel), enter a one-time
+code, and "Do it on my computer instead" under the last ask still open, with their saved, held,
+late and "Answered below." states and every write the web window makes (`zero:cloud-key`,
+`zero:github-cloud-sign-in`, `zero:cloud-file-info`, `zero:cloud-send-file`,
+`zero:cloud-send-code`). A key or a code typed into such a thread's reply box is caught before
+anything is drawn or written: saved as the key or sent as the code, never sent as words.
+`docs/parity-cloud-needs.md` is its checklist, with the rectangles of the scenes
+`thread-needs*` (every card the web window's size and height) and what differs for the owner to
+decide.
+
 `docs/parity-asks.md` is the checklist it was built from, and the list of the other things an
 agent or the app asks for in a conversation that this window does not draw yet. The sign-in
 card's scenes are `thread-sign-in`, `-code`, `-paste`, `-cloud`, `-cloud-pasting`, `-refused`, `-busy` and three
@@ -3230,8 +3245,7 @@ point and stands where the web's does against its neighbours.
   rooms, Demands, Connections, Feedback, meetings, first run and import, the light theme, the
   terminal, the agent's browser, plans and billing, notes and sharing on files, writing in Files.
   Not agreed, and not here:
-  - *In a conversation:* everything still open in part B of `docs/parity-asks.md` (what a
-    cloud run needs, a key typed into a reply, "Waiting on …
+  - *In a conversation:* everything still open in part B of `docs/parity-asks.md` ("Waiting on …
     · open →", the actions row of a thread put off, the remote control card); a close's
     question under a file opened over the whole card, drawn in a frame of its own rather than
     as the reply card's lid; a mermaid chart, drawn as its

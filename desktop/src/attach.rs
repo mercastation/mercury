@@ -542,6 +542,12 @@ impl State {
         let Some(item) = thread.split_once('/').and_then(|(product, id)| self.snap.items.iter().find(|i| i.id == id && i.product == product)).cloned() else {
             return;
         };
+        // The web window catches a key or a code on the words with their files' links under
+        // them, once the files are saved (`sendReply` in `Focus.tsx`).
+        let message = [words.as_str(), links.as_str()].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join("\n\n");
+        if self.catch_the_reply(&item, &message, tx) {
+            return;
+        }
         self.hold_reply(&item, words, &links, pick, said, files, tx);
     }
 

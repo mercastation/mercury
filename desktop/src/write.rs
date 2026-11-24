@@ -39,8 +39,14 @@ impl Step {
 
     /// How long the engine may take over it: copying a film off a slow disk is the one write
     /// that can take longer than a reply.
+    /// GitHub's own sign-in for a cloud thread answers its `token` only once the person has
+    /// approved it in the browser, which may take as long as GitHub's code lasts (fifteen minutes).
     fn wait(&self) -> std::time::Duration {
-        std::time::Duration::from_secs(if matches!(self, Step::Save { .. }) { 120 } else { 20 })
+        std::time::Duration::from_secs(match self {
+            Step::Save { .. } => 120,
+            Step::Write((channel, _)) if *channel == crate::cloud_need::GITHUB_CLOUD_SIGN_IN => 15 * 60,
+            _ => 20,
+        })
     }
 }
 
@@ -115,6 +121,9 @@ pub enum Sent {
     Trouble { closed: f64, was: f64, undo: bool },
     /// A project made of the folder `repo`, called `name` (`new_project.rs`).
     Project { name: String, repo: String },
+    /// A write of a card a cloud run's line drew, said on the card or in a line once the engine
+    /// answers (`cloud_need.rs`).
+    CloudNeed(crate::cloud_need::Wrote),
 }
 
 impl Sent {
@@ -139,7 +148,7 @@ impl Sent {
             | Sent::SignInKeep { thread, .. }
             | Sent::GitHubBegin { thread }
             | Sent::GitHubToken { thread } => thread,
-            Sent::Thread { .. } | Sent::Cloud | Sent::Moved { .. } | Sent::SignIn | Sent::Palette(_) | Sent::Filed(_) | Sent::Trouble { .. } | Sent::Project { .. } => "",
+            Sent::Thread { .. } | Sent::Cloud | Sent::Moved { .. } | Sent::SignIn | Sent::Palette(_) | Sent::Filed(_) | Sent::Trouble { .. } | Sent::Project { .. } | Sent::CloudNeed(_) => "",
         }
     }
 }

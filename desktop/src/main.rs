@@ -18,6 +18,7 @@ mod change;
 mod chips;
 mod chrome;
 mod closing;
+mod cloud_need;
 mod compose;
 mod data;
 mod drafts;
@@ -195,6 +196,9 @@ pub struct State {
     pub(crate) tried: Vec<writes::Write>,
     #[cfg(test)]
     pub(crate) pretend_sent: bool,
+    /// What the last thing sent was filed under, for a test to hand it the engine's answer.
+    #[cfg(test)]
+    pub(crate) last_sent: Option<write::Sent>,
     /// The line about it.
     pub toast: Option<write::Toast>,
     /// The thread the last line about one named, and when that line went up on the window's
@@ -209,6 +213,9 @@ pub struct State {
     pub sign_in: need::SignIn,
     /// The card of a ship that could not push for want of a GitHub sign-in here (`need.rs`).
     pub github: need::GitHub,
+    /// The cards a cloud run's lines drew, the keys saved from here and the files held
+    /// (`cloud_need.rs`).
+    pub cloud_needs: cloud_need::Needs,
     /// What a close on the open thread is asking first (`closing.rs`).
     pub closing: closing::Closing,
     /// The command bar ⌘K opens (`palette.rs`).
@@ -289,6 +296,7 @@ impl State {
         self.leave_the_strip();
         self.leave_the_sign_in();
         self.leave_the_github_card();
+        self.leave_the_cloud_cards();
         // A file open big belongs to the page it was opened over, and one beside a conversation
         // to the conversation, which keeps it for when it is opened again.
         self.viewer.open = None;
@@ -296,7 +304,8 @@ impl State {
         if let View::Thread { id, product } = &self.view {
             let key = format!("{product}/{id}");
             self.reply_files.put_away(&key);
-            if self.reply.text.trim().is_empty() {
+            // Words a caught send left in the box were no longer its draft, and go with it.
+            if self.reply.text.trim().is_empty() || cloud_need::unkept(self, &key, &self.reply.text) {
                 self.drafts.remove(&key);
             } else {
                 self.drafts.insert(key, self.reply.text.clone());
@@ -341,6 +350,13 @@ impl State {
     /// Folds the reply box back to its one line, keeping what was written, and its model menu
     /// with it.
     pub fn fold_reply(&mut self) {
+        // A folded box is drawn from its draft, which words a caught send left are not.
+        if let Some(item) = self.open_item()
+            && cloud_need::unkept(self, &format!("{}/{}", item.product, item.id), &self.reply.text)
+        {
+            self.reply = TextEdit::new("");
+            self.cloud_needs.unkept = None;
+        }
         self.reply_menu = None;
         self.replying = false;
         self.reply.focused = false;
@@ -364,6 +380,7 @@ impl State {
                 write::Step::Save { .. } => None,
             }));
             // And one that stands in for a door says it went, its answer handed in by the test.
+            self.last_sent = Some(sent.clone());
             if self.pretend_sent {
                 return true;
             }
@@ -715,6 +732,11 @@ impl State {
         if words.is_empty() {
             return;
         }
+        // A key or a code typed for what a cloud run asked is saved or sent as that, never as
+        // words (`sendReply` in `Focus.tsx`).
+        if self.catch_the_reply(&item, &words, tx) {
+            return;
+        }
         let pick = self.reply_pick_to_send(&item);
         let said = chips::said(self, &item);
         self.hold_reply(&item, words, "", pick, said, Vec::new(), tx);
@@ -957,6 +979,7 @@ impl State {
             // A sign-in card's writes are the card's own to say (`need.rs`).
             write::Sent::SignInSaid { .. } | write::Sent::SignInKeep { .. } => return self.sign_in_landed(landed),
             write::Sent::GitHubBegin { .. } | write::Sent::GitHubToken { .. } => return self.github_landed(landed, tx),
+            write::Sent::CloudNeed(_) => return self.cloud_need_landed(landed, tx),
             // So are the presses on the list of the threads a thread filed (`made.rs`).
             write::Sent::Filed(_) => return made::landed(self, landed, tx),
             // The row of tasks that could not run, and a project made (`trouble.rs`, `new_project.rs`).
@@ -1042,7 +1065,8 @@ impl State {
             | write::Sent::GitHubToken { .. }
             | write::Sent::Filed(_)
             | write::Sent::Trouble { .. }
-            | write::Sent::Project { .. } => return,
+            | write::Sent::Project { .. }
+            | write::Sent::CloudNeed(_) => return,
         });
     }
     /// Out of a conversation: to where the person came from, and one opened from nowhere came
@@ -1425,12 +1449,15 @@ fn init_from(args: &[String]) -> State {
         tried: Vec::new(),
         #[cfg(test)]
         pretend_sent: false,
+        #[cfg(test)]
+        last_sent: None,
         toast: None,
         last_toast: None,
         hidden: HashSet::new(),
         later: later::Picker::closed(),
         sign_in: need::SignIn::default(),
         github: need::GitHub::default(),
+        cloud_needs: cloud_need::Needs::default(),
         closing: closing::Closing::default(),
         palette: palette::Bar::closed(),
         compose: compose::Composer::default(),
@@ -1546,6 +1573,7 @@ fn init_from(args: &[String]) -> State {
     // And one taken after a sign-in card was pressed or typed into (`signInPressed`).
     need::picture(&mut s);
     need::picture_github(&mut s);
+    cloud_need::picture(&mut s);
     // And what the page was told of this computer's plans (`zero:engine-setup`).
     plan_bar::picture(&mut s);
     // A picture taken with the command bar open (`palette` is what was typed into it).
@@ -1779,6 +1807,8 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
     changed |= feel::hint_due(s, at);
     // What Try again came back with, and the line at a conversation's foot kept counting.
     changed |= foot::tend(s, tx);
+    // What a cloud run's cards ask the engine of the files they name, and the keys they hand on.
+    changed |= cloud_need::tend(s, tx);
     // The open conversation's film of its browser, read as often as it can change.
     changed |= film::tend(s, tx);
     // A line found from the command bar, looked for and landed on; before the landing, which it
