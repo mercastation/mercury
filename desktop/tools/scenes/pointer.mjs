@@ -17,6 +17,20 @@ export async function rest(h, at, ms = 200) {
   return { pointer: [x, y], rested: ms, settle: ms };
 }
 
+// The pointer coming onto the folded sidebar from the page beside it, and resting there: the
+// sidebar opens only for a pointer that came into it from outside, 140 ms after it last stopped
+// travelling (`hoverIntent` in renderer/src/sidebar-shrinks.ts). So the first move is on the
+// card, 80 points to the right of where it rests, and the second, 30 ms later, on the sidebar.
+// `script` and `at` hand the same two moves to the native window.
+export async function restOnTheSidebar(h, at, ms = 900) {
+  const [x, y] = typeof at === 'string' ? await middleOf(h, at) : at;
+  await h.call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: x + 80, y });
+  await h.wait(30);
+  await h.call('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+  const script = [{ t: 0.05, type: 'move', x: x + 80, y }, { t: 0.08, type: 'move', x, y }];
+  return { pointer: [x, y], rested: ms, settle: ms, script, at: 0.08 + ms / 1000 };
+}
+
 /** The middle of the first element `selector` finds whose middle is in the window, in window points. */
 export async function middleOf(h, selector) {
   const box = await h.evaluate(`(() => {

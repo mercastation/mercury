@@ -7,6 +7,8 @@
 // Workspace's name stands where the web window's Demands is), so the pointer rests on the same
 // row in both. And open it has no title (`title={collapsed ? 'Home' : undefined}`): the
 // system's tooltip never shows in a picture of the web window, and Rune draws its own in one.
-import { rest } from './pointer.mjs';
+// The pointer comes onto the sidebar from the card beside it, the only way it opens
+// (`restOnTheSidebar` in ./pointer.mjs).
+import { restOnTheSidebar } from './pointer.mjs';
 
-export const go = (h) => rest(h, 'button.workspace-tab[data-tab="home"]', 900);
+export const go = (h) => restOnTheSidebar(h, 'button.workspace-tab[data-tab="home"]', 900);
