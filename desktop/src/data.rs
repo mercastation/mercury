@@ -380,8 +380,10 @@ pub struct Row {
     pub priority: Priority,
     /// When the person last sent it (`sentAt` in `renderer/src/threads/page-rules.ts`).
     pub at: Option<f64>,
-    /// The line a list prints under the title where it prints one: the agent's answer, or the
-    /// ask while nothing has answered it (`rowSummary` in `renderer/src/list-rules.ts`).
+    /// The Inbox table's second line, under the title: what came back, the agent's answer or the
+    /// ask while nothing has answered it (`rowSummary` in `renderer/src/list-rules.ts`), and
+    /// empty where that would only say the title again (`lineFor` in `threads/Pages.tsx`). A row
+    /// with no line is one line tall.
     pub line: String,
     /// The Inbox table's Status word: Done, Answered, Waiting on you, Working… Empty where the
     /// tab already says it.

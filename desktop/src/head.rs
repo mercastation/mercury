@@ -366,19 +366,13 @@ fn line(label: El, what: El, beside_choices: bool) -> El {
     if beside_choices { e.items_start() } else { e.items_center() }
 }
 
-/// A button's words, in the soft patch of the sky's dark every button of the strip wears, those
-/// of its menus included (`text-shadow` on `.topbar :is(h1, button)`); under the pointer they
-/// turn `lit`, where they do.
+/// A menu button's words; under the pointer they turn `lit`, where they do. A menu stands on its
+/// own solid card, so its words wear none of the soft patch of the sky's dark the strip's own
+/// buttons do, which there read as a black glow (`:not([role="menu"] *, [role="dialog"] *)` on
+/// `.topbar :is(h1, button)`'s `text-shadow` in `renderer/src/home/home.css`).
 fn button_words(words: &str, size: f32, tone: Color, lit: Option<Color>) -> El {
-    let words = words.to_string();
-    crate::inbox::shaded(move |shadow| {
-        let said = label(&words, size, 400.0, if shadow { crate::inbox::under(1.0) } else { tone });
-        let said = match (shadow, lit) {
-            (false, Some(lit)) => said.group_color(lit),
-            _ => said,
-        };
-        pen(said, size)
-    })
+    let said = label(words, size, 400.0, tone);
+    pen(if let Some(lit) = lit { said.group_color(lit) } else { said }, size)
 }
 
 /// A rule between a menu's parts (`.th-pop .rule`).

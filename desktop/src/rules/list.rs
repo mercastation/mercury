@@ -412,9 +412,10 @@ pub fn clip_to_sentence(text: &str) -> String {
 re!(BLANK_LINE, r"\n\s*\n", "");
 
 /// The line a row prints under its title: whichever of body and result was written last, so a
-/// blocked row with an answer shows the answer, and a finished row shows its result.
-/// `trouble_body` is the body of the row the app makes itself, which prints only its first line.
-pub fn row_summary(i: &Item, trouble_body: Option<&str>) -> String {
+/// blocked row with an answer shows the answer, and a finished row shows its result, as does
+/// every row of the list `view` names `done`. `trouble_body` is the body of the row the app
+/// makes itself, which prints only its first line.
+pub fn row_summary(i: &Item, view: &str, trouble_body: Option<&str>) -> String {
     if let Some(body) = trouble_body {
         return clip_to_sentence(js::trim(body.split('\n').next().unwrap_or("")));
     }
@@ -431,12 +432,41 @@ pub fn row_summary(i: &Item, trouble_body: Option<&str>) -> String {
         let theirs = if said.teammate.is_some() { js::trim(&BLANK_LINE.split(answer)[1..].join("\n\n")).to_string() } else { String::new() };
         return clip_to_sentence(&first_real_line(if theirs.is_empty() { answer } else { &theirs }));
     }
-    let finished = i.status == "done";
+    let finished = view == "done" || i.status == "done";
     let result_is_newer = i.wrote_at("result") > i.wrote_at("body");
     match i.result_text().filter(|_| finished || result_is_newer) {
         Some(result) => clip_to_sentence(&preview_text(result)),
         None => clip_to_sentence(&preview_text(body_after_title(i))),
     }
+}
+
+/// An Inbox row's second line (`RowLine` in `renderer/src/threads/Pages.tsx`): what came back,
+/// led by who said it when that was not the person's own agent.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RowLine {
+    pub who: Option<String>,
+    pub text: String,
+}
+
+/// A row's second line, unless it would only say the title again (`lineFor`). A row with no
+/// line at all stays one line tall; one led by who said it keeps its line even when the words
+/// were the title's.
+pub fn line_for(title: &str, text: &str, who: Option<&str>) -> Option<RowLine> {
+    let words = aside_besides(title, Some(text)).unwrap_or_default();
+    let who = who.filter(|w| !w.is_empty());
+    (!words.is_empty() || who.is_some()).then(|| RowLine { who: who.map(str::to_string), text: words })
+}
+
+/// What the second line says is not said again on the first (`RowCells`' `moved`): the faint
+/// words after the title go when the line says the same, and who it is from goes when the
+/// line starts with them. Both only while there is a line (`.aside-moved`, `.name-moved`).
+pub fn moved_to_the_line(line: Option<&RowLine>, aside: &str, name: Option<&str>) -> (bool, bool) {
+    let Some(said) = line.filter(|l| !l.text.is_empty() || l.who.is_some()) else {
+        return (false, false);
+    };
+    let name_moved = said.who.as_deref().is_some_and(|w| Some(w) == name);
+    let aside_moved = !aside.is_empty() && aside == said.text;
+    (name_moved, aside_moved)
 }
 
 #[cfg(test)]
@@ -623,14 +653,48 @@ mod tests {
 
     #[test]
     fn the_line_is_whichever_of_ask_and_answer_was_written_last() {
-        assert_eq!(row_summary(&item(answered()), None), "Fixed.");
+        assert_eq!(row_summary(&item(answered()), "inbox", None), "Fixed.");
         let mut v = answered();
         v["body"] = json!("Fix the export so it writes one file per clinic.");
         v["wrote"]["body"]["ts"] = json!(30);
-        assert_eq!(row_summary(&item(v.clone()), None), "so it writes one file per clinic.");
-        // A finished row shows its result whenever it was written.
+        assert_eq!(row_summary(&item(v.clone()), "inbox", None), "so it writes one file per clinic.");
+        // Every row of Done shows its result, as a finished row does whenever it was written.
+        assert_eq!(row_summary(&item(v.clone()), "done", None), "Fixed.");
         v["status"] = json!("done");
-        assert_eq!(row_summary(&item(v), None), "Fixed.");
+        assert_eq!(row_summary(&item(v), "inbox", None), "Fixed.");
+    }
+
+    // `tests/an-inbox-row-has-two-lines-and-its-face-sits-on-the-title.test.mts`, the second line.
+    #[test]
+    fn the_second_line_is_what_came_back_and_never_the_title_again() {
+        // On the person's own thread it is what its agent said, under the title, led by no one.
+        let mut v = answered();
+        v["title"] = json!("Fix the flaky sign-in test");
+        v["body"] = json!("Fix the flaky sign-in test");
+        v["result"] = json!("**It waited on a real clock. It has now passed 50 runs in a row.**");
+        let i = item(v.clone());
+        let line = line_for("Fix the flaky sign-in test", &row_summary(&i, "inbox", None), None).unwrap();
+        assert!(line.text.contains("It waited on a real clock."), "{line:?}");
+        assert_eq!(line.who, None);
+        // An AI teammate or a person leads it with their name.
+        assert_eq!(line_for("Outreach list", "I found 40 agencies.", Some("Nova")), Some(RowLine { who: Some("Nova".into()), text: "I found 40 agencies.".into() }));
+        // Nothing that says more than the title: no line, and the row stays one line tall.
+        v.as_object_mut().unwrap().remove("result");
+        v["wrote"].as_object_mut().unwrap().remove("result");
+        assert_eq!(line_for("Fix the flaky sign-in test", &row_summary(&item(v), "inbox", None), None), None);
+        assert_eq!(line_for("A rule", "", None), None);
+        // A message with no subject is its own title: the line is only who it is with.
+        assert_eq!(line_for("Pricing page copy", "pricing page copy", Some("Maya Chen")), Some(RowLine { who: Some("Maya Chen".into()), text: String::new() }));
+    }
+
+    #[test]
+    fn what_the_second_line_says_leaves_the_first() {
+        let line = RowLine { who: Some("Nova".into()), text: "Forty agencies.".into() };
+        assert_eq!(moved_to_the_line(Some(&line), "", Some("Nova")), (true, false));
+        assert_eq!(moved_to_the_line(Some(&line), "Forty agencies.", None), (false, true));
+        assert_eq!(moved_to_the_line(Some(&line), "2 tasks to approve", Some("Theo")), (false, false));
+        // With no line nothing moves.
+        assert_eq!(moved_to_the_line(None, "Forty agencies.", Some("Nova")), (false, false));
     }
 
     #[test]
@@ -638,18 +702,18 @@ mod tests {
         let mut v = answered();
         v["answer"] = json!("Reply:\nNow do the second clinic.");
         v["wrote"]["answer"] = json!({ "ts": 30, "source": "founder", "by": "p-1" });
-        assert_eq!(row_summary(&item(v.clone()), None), "Now do the second clinic.");
+        assert_eq!(row_summary(&item(v.clone()), "inbox", None), "Now do the second clinic.");
         // An answer the agent has spoken past is no longer the news.
         v["wrote"]["result"]["ts"] = json!(40);
-        assert_eq!(row_summary(&item(v.clone()), None), "Fixed.");
+        assert_eq!(row_summary(&item(v.clone()), "inbox", None), "Fixed.");
         // With nobody signed in no line carries a writer, and the rule above stands.
         v["wrote"]["result"]["ts"] = json!(20);
         v["wrote"]["answer"] = json!({ "ts": 30, "source": "founder" });
-        assert_eq!(row_summary(&item(v.clone()), None), "Fixed.");
+        assert_eq!(row_summary(&item(v.clone()), "inbox", None), "Fixed.");
         // A teammate's hand-back: their own words, after the line that says who handed it back.
         v["answer"] = json!("Theo handed this back.\n\nThe second clinic needs its own key.");
         v["wrote"]["answer"] = json!({ "ts": 30, "source": "system", "by": "p-2", "teammate": "p-2" });
-        assert_eq!(row_summary(&item(v), None), "The second clinic needs its own key.");
+        assert_eq!(row_summary(&item(v), "inbox", None), "The second clinic needs its own key.");
     }
 
     #[test]

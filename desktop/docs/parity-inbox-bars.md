@@ -57,10 +57,11 @@ by side, not by whole-window numbers.
   (already here before this port: `rules.rs`, `rules/display.rs`).
 - [x] A1.5 Gone while `zero.troubleClosed` is the pile's `since`; back by itself the moment a new
   pile begins. Test `trouble::tests::it_comes_back_by_itself_when_a_new_pile_begins`.
-- [ ] A1.6 The row's look in the web window's newer Inbox: a rule at its left edge in place of
-  the select box, and the second line under the title. This window's Inbox rows are one line of
-  the look before the 2026-11-23 sync (README, "What still differs"); the row is drawn as its
-  other rows are, with "Answered", as the web's is.
+- [x] A1.6 The row's look in the web window's newer Inbox: a rule at its left edge in place of
+  the select box, and the second line under the title, the row drawn as its other rows are, with
+  "Answered", as the web's is (`docs/parity-inbox-rows.md` A7 and B14). Picture `inbox-trouble`:
+  the rule at 78, 213, 2 by 41 in both; test
+  `inbox::tests::words_after_the_title_that_the_second_line_says_leave_the_first_and_the_app_s_own_row_wears_its_rule`.
 - [ ] A1.7 Its byline, "nothing has started for {age}" (`Byline.tsx`): the opened row's band in
   the web window draws no byline on it in the scene (`thread-trouble`), and this window draws
   none either; not checked on another page that might.

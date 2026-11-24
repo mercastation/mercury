@@ -87,8 +87,15 @@ pub struct Answering {
     /// The option the pointer is on, whose words show whole over the strip when they are cut
     /// short (`peekOption`).
     pub peek: Option<usize>,
-    /// Whether the once-ever warning about a waiting agent has been given (`zero.stoppedWarned`).
+    /// Whether the once-ever warning about a waiting agent has been learned (`zero.stoppedWarned`):
+    /// once E went ahead on the thread it warned of, or once L's picker said it.
     pub warned: bool,
+    /// The thread E's last warning was about, `product:id` (`heldFor`): the next E goes ahead
+    /// there, and anywhere else is warned about again.
+    pub warned_of: Option<String>,
+    /// When the last Z went through, by the window's clock: a second Z within the web window's
+    /// burst of it is the same press said twice (`rules::e_and_z::z_said_twice`).
+    pub z_at: Option<f64>,
     /// The replies sent and not yet written, by thread, written down so a restart cannot lose
     /// them (`markReplyInFlight`), and the looks for them a restart left owed.
     pub in_flight: std::collections::BTreeMap<String, Vec<crate::drafts::InFlight>>,
@@ -788,20 +795,29 @@ impl State {
     /* ------------------------------ the waiting agent's warning ------------------------------ */
 
     /// The first E or L ever on a thread whose agent waits on the person: E is held and the
-    /// line says what it costs, L opens its picker with the sentence inside. Once said, never
-    /// again. True when E was held.
+    /// line says what it costs, L opens its picker with the sentence inside. E's lesson is
+    /// learned once the press after it goes ahead on the thread it warned of; E on another such
+    /// thread in between is held and warned about too (`pressAgainGoesAhead`). L's is learned as
+    /// it is said. Once learned, never again. True when E was held.
     pub(crate) fn warns_first(&mut self, item: &Item, closing: bool, tx: &mut Tx) -> bool {
         if self.answering.warned || !rules::stopped_waiting(item) {
             return false;
         }
-        self.answering.warned = true;
-        self.keep_drafts();
+        if closing && crate::rules::e_and_z::press_again_goes_ahead(self.answering.warned_of.as_deref(), &item.product, &item.id) {
+            self.answering.warned_of = None;
+            self.answering.warned = true;
+            self.keep_drafts();
+            return false;
+        }
         if closing {
+            self.answering.warned_of = Some(format!("{}:{}", item.product, item.id));
             let since = tx.clock();
             let (line, undo) = crate::rules::compose::toast_parts(&rules::stopped_warning(true));
             self.toast = Some(write::Toast { line, undo, since, until: since + crate::rules::compose::TOAST_GOES_MS / 1000.0, goes: Some((item.id.clone(), item.product.clone())), sent: None });
             return true;
         }
+        self.answering.warned = true;
+        self.keep_drafts();
         self.later.warning = Some(rules::stopped_warning(false));
         false
     }
@@ -1243,9 +1259,15 @@ mod tests {
         // Another key answers no; the next Z asks again.
         key(&mut rt, Key::Down);
         assert!(rt.state.answering.asked.is_none());
+        run(&mut rt, 0.3);
         key(&mut rt, Key::Text("z".into()));
-        assert!(rt.state.tried.is_empty());
-        // A second Z inside eight seconds does it.
+        assert!(rt.state.tried.is_empty() && rt.state.answering.asked.is_some());
+        // A Z straight after it is the same press said twice, and answers nothing
+        // (`tests/e-and-z-always-say-what-they-did.test.mts`: two quick Zs are one Z).
+        key(&mut rt, Key::Text("z".into()));
+        assert!(rt.state.tried.is_empty() && rt.state.answering.asked.is_some(), "still asking");
+        // A second Z inside eight seconds, and past that moment, does it.
+        run(&mut rt, 0.3);
         key(&mut rt, Key::Text("z".into()));
         assert_eq!(rt.state.tried, rules::withdraw(&item, true));
         // A refusal puts it back on the pile and says why.
@@ -1254,6 +1276,7 @@ mod tests {
         assert_eq!(rt.state.undos.len(), 1);
         // With nothing at all on the pile, Z says so.
         rt.state.undos.clear();
+        run(&mut rt, 0.3);
         key(&mut rt, Key::Text("z".into()));
         assert_eq!(sent_line(&rt).as_deref(), Some("Nothing to undo yet."));
     }
@@ -1327,9 +1350,31 @@ mod tests {
         key(&mut rt, Key::Text("e".into()));
         assert!(rt.state.held.is_none(), "the press did not land");
         assert_eq!(sent_line(&rt).as_deref(), Some("This agent is waiting on your answer, and marking it done leaves it stuck. Press again to go ahead."));
-        assert!(rt.state.answering.warned);
+        // Not learned for being said: only once a press went ahead on the thread it was about.
+        assert!(!rt.state.answering.warned);
         key(&mut rt, Key::Text("e".into()));
         assert!(rt.state.held.as_ref().is_some_and(|h| h.closes.is_some()), "the second press closes it");
+        assert!(rt.state.answering.warned, "and now it is learned");
+    }
+
+    // `tests/e-and-z-always-say-what-they-did.test.mts`: E warned that one thread's agent waited,
+    // and the next E closed a different thread with no warning.
+    #[test]
+    fn the_press_after_the_warning_goes_ahead_only_on_the_thread_it_warned_about() {
+        let mut rt = asking("warned-other", &["--thread"]);
+        run(&mut rt, 1.0);
+        let (id, product) = rt.state.open_item().map(|i| (i.id.clone(), i.product.clone())).unwrap();
+        key(&mut rt, Key::Text("e".into()));
+        assert!(rt.state.held.is_none(), "held and warned");
+        assert_eq!(rt.state.answering.warned_of, Some(format!("{product}:{id}")));
+        // The warning was about another thread: this one's E is held and warned about too.
+        rt.state.answering.warned_of = Some(format!("{product}:w-another"));
+        key(&mut rt, Key::Text("e".into()));
+        assert!(rt.state.held.is_none(), "not closed on the strength of another thread's warning");
+        assert!(!rt.state.answering.warned);
+        assert_eq!(rt.state.answering.warned_of, Some(format!("{product}:{id}")), "it now warns of this one");
+        key(&mut rt, Key::Text("e".into()));
+        assert!(rt.state.held.as_ref().is_some_and(|h| h.closes.is_some()), "and goes ahead on it");
     }
 
     #[test]

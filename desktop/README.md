@@ -269,9 +269,9 @@ At 1280 by 760, 2x, dark, against the web renderer on the same data:
 | Screen | Mean difference, of 255 | Similarity |
 |---|---|---|
 | Home | 0.86 | 0.995 |
-| Inbox | 0.27 | 0.998 |
-| Inbox, the Later tab (`inbox-later-kinds`) | 0.30 | 0.997 |
-| Inbox, each state of the cloud button | 0.27 | 0.998 |
+| Inbox | 0.31 | 0.997 |
+| Inbox, the Later tab (`inbox-later-kinds`) | 0.32 | 0.997 |
+| Inbox, each state of the cloud button | 0.31 to 0.35 | 0.997 |
 | A conversation | 0.41 | 0.996 |
 
 Text lands where the browser puts it to a hundredth of a point. The Inbox and a conversation are
@@ -279,6 +279,12 @@ measured against the web window's newer look: the rows' marks of their harness, 
 the Priority column, a conversation's head strip of 64 points with buttons of 32. Before this
 window followed it they were 0.47 and 0.92 against it; most of what is left is the rail, whose
 places differ (0.52 of 255 inside it).
+
+The Inbox is measured against the web window's look of 2026-11-23 (the deep black, and its rows
+of two lines with the face on the title; "The Inbox's rows, two lines each", below). Its rows
+were 7.53 of 255 from the web window's (the page 4.77) before this window drew them so, and are
+0.32 (the page 0.31): the titles 0.51, Status and Project 0.09, Priority and the time 0.16. What
+is left of the page is the rail (0.78) and the strip's buttons (1.56, as before the rows moved).
 
 One size proves one size: Home was right at 1280 by 760 and wrong in a taller window until it
 was compared there. Home and a conversation are compared at 900 by 760, 1600 by 1000 and 1920 by
@@ -306,9 +312,12 @@ of 915 points, Project at 785). The first tab and `inbox-later-kinds`:
 
 | Window | First tab | Later |
 |---|---|---|
-| 1600 by 1000 | 0.20 | 0.22 |
-| 900 by 760 | 0.32 | 0.36 |
-| 800 by 760 | 0.34 | 0.38 |
+| 1600 by 1000 | 0.22 | 0.20 |
+| 900 by 760 | 0.36 | 0.41 |
+| 800 by 760 | 0.42 | 0.50 |
+
+(Before the rows had two lines here, against the web window's of two: 3.35 and 2.95, 5.20 and
+5.40, 5.84 and 5.88. At 800 by 760 one cut title differs, which the rows' section says.)
 
 And on one person's real inbox, read through the door, with teammates, a cloud, a recorder and a
 sign-in all on, before the web window's newer look: Home 0.86, the Inbox's four tabs 0.14 to
@@ -1209,31 +1218,36 @@ Sent), `inbox-display-done` (over Done, drawn with `--tab done`), `inbox-filtere
 (on), `-off`, `-move`, `-all`, `-again`, `-adding`, `-failed`, `inbox-cloud-invite`, and
 `inbox-cloud-off-ask` (⌘C pressed, `cloudOffAsk`). And four with the pointer resting on a
 choice: `inbox-display-hover-choice` and `-hover-on`, `inbox-cloud-menu-hover-manage` and
-`-hover-off`. At 1280 by 760, 2x, dark, on the web window's newer look, the menu's own box and
-the whole window, where the web window's rail still has the places this one left out (the Inbox
-with nothing open is 0.27):
+`-hover-off`. At 1280 by 760, 2x, dark, on the web window's look of 2026-11-23, the menu's own
+box and the whole window, where the web window's rail still has the places this one left out (the
+Inbox with nothing open is 0.31). View and filters is measured down to the line it has and this
+window does not, Terminal sessions (what still differs); whole, the menu is 4.4 to 4.8 for that
+line and the menu's foot standing under it:
 
 | Scene | The menu | Whole window |
 |---|---|---|
-| `inbox-display` | 0.33 | 0.29 |
-| `inbox-display-filtered` | 0.37 | 0.21 |
-| `inbox-display-done` | 0.34 | 0.19 |
-| `inbox-cloud-menu`, `-off` | 0.33, 0.32 | 0.29, 0.29 |
-| `inbox-cloud-menu-move`, `-all` | 0.37, 0.33 | 0.30, 0.29 |
-| `inbox-cloud-menu-again`, `-adding`, `-failed` | 0.31, 0.32, 0.36 | 0.29, 0.29, 0.30 |
-| `inbox-cloud-invite` | 0.38 | 0.29 |
-| `inbox-cloud-off-ask` | the card 0.58 | 0.13 |
-| `inbox-filtered-empty` | the page under the tabs 0.15 | 0.19 |
-| `inbox-filtered`, `inbox-sorted-sent` | | 0.18, 0.27 |
+| `inbox-display` | 0.25 | 1.12 |
+| `inbox-display-filtered` | 0.25 | 1.01 |
+| `inbox-display-done` (drawn with `--tab done`) | 0.26 | 0.91 |
+| `inbox-cloud-menu`, `-off` | 0.33, 0.32 | 0.35, 0.35 |
+| `inbox-cloud-menu-move`, `-all` | 0.37, 0.33 | 0.36, 0.36 |
+| `inbox-cloud-menu-again`, `-adding`, `-failed` | 0.36, 0.38, 0.41 | 0.38, 0.36, 0.37 |
+| `inbox-cloud-invite` | 0.42 | 0.35 |
+| `inbox-cloud-off-ask` | | 0.13 |
+| `inbox-filtered-empty` | | 0.16 |
+| `inbox-filtered`, `inbox-sorted-sent` | | 0.18, 0.31 |
+
+A menu's words wear none of the soft patch of the sky's dark the strip's own buttons wear: on a
+menu's solid card it read as a black glow, and the web window took it off every word inside a
+menu or a dialog on 2026-11-23 (a0718cb07, `:not([role="menu"] *, [role="dialog"] *)`).
 
 A worded cloud button wearing the dot ("Sign in again", "Cloud") leaves the dot a corner of its
 own, 20 points of room on its right rather than 14 (`.th-cloud.named:has(> i)`): those states of
 the button are 0.27 whole, as the others are.
 
-At 900 by 760 and 1600 by 1000 the two menus are 0.33 and 0.37 again. What is left is glyphs, the
-extent of the soft patch of the sky's dark every button of the strip wears (`.topbar :is(h1,
-button)`'s text shadow, which reaches the menus' buttons, and here `inbox::shaded`), and on the
-question its keys' caps, in Geist Mono where the web window's are the system's monospace.
+At 900 by 760 and 1600 by 1000 the two menus were 0.33 and 0.37 before 2026-11-23. What is left is
+glyphs, and on the question its keys' caps, in Geist Mono where the web window's are the system's
+monospace.
 `tools/rows.mjs` holds every one of these scenes' rows, tabs with their numbers and cloud button
 against the web window's: none differs, the filtered and sorted ones included (`--rows` reads
 the fixture's display). Under the pointer, each choice measured in its own box is within half a
@@ -2945,8 +2959,8 @@ Which threads are in which list, in which order and with which words is decided 
 from the web window's own (`src/rules/`, each function naming the TypeScript it follows;
 `docs/rules-spec.md` is the map). `tools/rows.mjs` holds the two against each other: it reads the
 rows the web window drew out of the dumps and compares them with `mercury --rows`, row by row and
-field by field, on Home and under each of the Inbox's four tabs, a table row's harness mark and
-its priority's word among them. Under a tab it also holds what
+field by field, on Home and under each of the Inbox's four tabs, a table row's harness mark,
+its second line and its priority's word among them. Under a tab it also holds what
 stands around the rows: which tabs the strip draws and with which numbers, what the time column is
 called, and what the cloud button wears. Any other picture of the Inbox left in the folder (a
 cloud scene, `inbox-later-kinds`) is held the same way. On the invented inbox and on the invented
@@ -2963,8 +2977,10 @@ The Try again mark (`th-retry`, the refresh arrow in an 18-point square after th
 the strong wash under the pointer; a press tries again and does not open the row. The card under
 a row's Status word is the web window's (`.th-why-card`), and as there the rows after it paint
 over it, so under a row with another after it only its top shows; under the last row all of it.
-`inbox-progress-stuck` is 0.29 whole against the web window's, with the pointer on a mark 0.34
-(0.34 at rest), on a Status word with its card 0.32 whole (the card's sliver 0.85).
+(The two-line look gives the card `z-index: 30` to keep it over the rows below; in the built page
+each row is its own layer, `content-visibility: auto`, and the card is still cut at its row's
+foot, as here.) `inbox-progress-stuck` is 0.30 whole against the web window's look of
+2026-11-23, with the pointer on a mark 0.30, on a Status word with its card 0.32.
 
 ```sh
 node desktop/tools/rows.mjs desktop/shots --shoot <checkout>            # the invented inbox
@@ -2977,6 +2993,58 @@ door, so the fleet, the cloud and the team are the real ones too.
 
 The real threads are read and never written, their words are printed as lengths only, and nothing
 of them is ever committed. `cargo test` runs the rules' own tests on invented threads.
+
+## The Inbox's rows, two lines each
+
+Since the web window's look of 2026-11-23 an Inbox row is two lines: the title, and under it what
+came back (`rowSummary`, read for the tab the row is drawn under), unless that only says the title
+again (`lineFor`), when the row stays one line. `docs/parity-inbox-rows.md` is the checklist it
+was ported from, line by line, with what is left out and why. In this window (`src/inbox.rs`,
+the rules in `src/rules/list.rs`):
+
+- **The row**: 17 points above and below its lines, so 75 points with a second line and 54
+  without; the hairline above every row but the first, as before.
+- **The title** at 14.5 points, 35 points into its column and 32 short of its end; its faint
+  words after it, "not started" and the pin as before, but the faint words the second line says
+  again, which are not drawn twice (`.aside-moved`).
+- **The second line**: 13 points on an 18-point line in the faint ink, 3 points under the title,
+  cut with three dots.
+- **The face**: one 24-point face whose top is the top of the title's capitals (5 points into its
+  line and 0.36 higher, not snapped to a pixel): the harness's mark on a tile of the card's own
+  ground with the agents' 7-point corner and a soft 8% edge, 19.68 points across; the agent's eyes
+  in a round 12% ring for a harness with no mark. The sidebar's Recent rows keep the 18-point mark.
+- **The other cells** centred on the two lines: Status, Project and Priority 10.5 points down and
+  0.6 higher, the time 0.5 lower.
+- **The unread dot**, 25 points in and 30.64 down, level with the face's middle.
+- **The app's own row of stopped tasks** wears a 2-point rule at its left edge, from 19 points
+  down to 15 short of its foot, in the faint ink, where a thread's select box would be.
+- **The row's key plate** is only under Needs you, where E, L and Return mean what it says.
+
+E and Z always say what they did (`src/rules/e_and_z.rs`, from `eOnThisList`,
+`pressAgainGoesAhead` and the held Z of `stray-letters.ts`): E under In progress closes nothing and
+says "Open this thread to close it.", and under Done "This thread is already done." (it used to
+close an In progress row); the waiting agent's warning is learned only once E goes ahead on the
+thread it warned of, so E on another such thread is warned about too; and two quick Zs are one Z,
+the second neither undoing again nor answering "Press Z again".
+
+Every rect of a row lands where the browser's does to a hundredth of a point. At 1280 by 760, 2x,
+whole window and the rows, against the web window (before this port the page was 3.8 to 5.1 of
+255 in every scene with rows):
+
+| Scene | Whole window | The rows |
+|---|---|---|
+| `inbox` | 0.31 | 0.32 (titles 0.51) |
+| `inbox-two-lines`: two unread rows, a pinned one, an aside the line says, a link's comment, a row with no line | 0.31 | 0.31 |
+| `inbox-kinds-needs`: a cause's row among the others | 0.34 | 0.34 |
+| `inbox-later-kinds` | 0.32 | 0.32 |
+| `inbox-progress-stuck` | 0.30 | 0.30 |
+| `inbox-done-rows`: Done with rows, one without a line | 0.24 | 0.23 |
+| `inbox-trouble` | 0.32 | 0.33 |
+| `inbox-hint-row`, its plate under the taller row | 0.38 | 0.43 |
+
+`tools/rows.mjs` holds the second line too: on the invented inbox's scenes and on the invented
+cases (153 table rows under the four tabs) every row's line is the web window's word for word.
+Not run here on a real inbox or through the door.
 
 ## The agents' limits
 
@@ -3284,7 +3352,9 @@ point and stands where the web's does against its neighbours.
   with a Recent list, Inbox rows of two lines, a home page for Files (Recent, a section per
   folder, "Every file, with sizes and the Trash" leading to the grid this window draws), a menu
   of apps on the open mark, N over a file opened big, and lines for an E or a Z that did nothing
-  ("Open this thread to close it.", "This thread is already done."). A conversation that was
+  ("Open this thread to close it.", "This thread is already done."). The Inbox's rows of two
+  lines, E and Z's lines and the menus without the dark glow are followed since (see "The
+  Inbox's rows, two lines each"; the page is 0.31 again). A conversation that was
   0.41 of 255 from the web window's is 16 from it now, nearly all of it the ground's colour and
   the rail's width. Until this window is fitted to it again, a scene's whole-window number says
   little; a part is compared against the same part (the sign-in card's notes say how).
@@ -3792,6 +3862,25 @@ point and stands where the web's does against its neighbours.
     where the accounts are set up.
   - The month's hours from Agentbox Cloud's server are read when the window opens and when the
     menu opens; the web window reads them every two minutes while its cloud is the server's.
+  - View and filters has no Terminal sessions line (Always, When they need you, Never). This
+    window lists no terminal sessions, the terminal being left out by agreement, and a line that
+    changed only what the other windows show is left out with it.
+- **The Inbox's rows, where they still differ** (see "The Inbox's rows, two lines each";
+  `docs/parity-inbox-rows.md` has every line):
+  - No row's second line is led by who said it, and no name follows a title: those are a
+    person's, a teammate's or a task between people, and this window has no team. The rule takes
+    the name for when one does (`rules::list::line_for`).
+  - No repeating task's row, whose line says how its last run went (Later lists threads only,
+    above), no teammate's card, no select box, no wash on the last thread stood on.
+  - Claude Code's starburst in the 24-point face lands about 0.6 of a device pixel lower than the
+    browser's: Rune puts an icon on whole device pixels, its tile and ring on the browser's.
+  - At 800 points wide, Later's first row, written down, never begun and pinned: the browser
+    cuts it after its title, dropping "not started", where "not started" and the dots fit with 0.44
+    points to spare; this window draws "not started…".
+  - A Z that starts a word still runs, and runs at once: the web window holds every Z 250 ms to see
+    whether a word follows (`stray-letters.ts`), which this window does not have. Two Zs inside
+    that time are one Z in both.
+  - E on ticked rows: no rows are ticked here.
   - The mark of a wait on the line about an account being added stands still; the web window's
     turns.
   - ⌘C's question draws its keys' caps in Geist Mono, where the web window's are in the system's

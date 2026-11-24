@@ -721,17 +721,19 @@ pub(crate) mod tests {
 
     #[test]
     fn the_row_the_pointer_moves_onto_takes_enter_until_the_keys_walk_the_list() {
-        // The rows stand 54 points apart from 194; the third is under the pointer.
+        // The rows stand 75 points apart from 194, each with its second line; the third is under
+        // the pointer.
         let mut rt = window("row", &["--view", "inbox"]);
         let third = rt.state.lists.needs[2].id.clone();
-        rt.pointer_move(600.0, 194.0 + 2.0 * 54.0 + 27.0);
+        assert!(rt.state.lists.needs[..3].iter().all(|r| !r.line.is_empty()), "three rows of two lines");
+        rt.pointer_move(600.0, 194.0 + 2.0 * 75.0 + 37.0);
         rt.frame(1.0 / 60.0);
         key(&mut rt, Key::Enter);
         assert!(matches!(&rt.state.view, View::Thread { id, .. } if *id == third), "Enter opens the row under the pointer");
 
         let mut rt = window("row-keys", &["--view", "inbox"]);
         let second = rt.state.lists.needs[1].id.clone();
-        rt.pointer_move(600.0, 194.0 + 2.0 * 54.0 + 27.0);
+        rt.pointer_move(600.0, 194.0 + 2.0 * 75.0 + 37.0);
         rt.frame(1.0 / 60.0);
         key(&mut rt, Key::Text("j".into()));
         key(&mut rt, Key::Enter);

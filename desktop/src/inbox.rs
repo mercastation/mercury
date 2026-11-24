@@ -298,21 +298,44 @@ impl Columns {
         Columns { title: (table - 76.0 - WHEN - GAP - taken).max(0.0), state, project, priority }
     }
 
-    /// One line of the grid: the title's cell, the middle cells that are drawn, the time's.
-    fn line(&self, title: El, state: El, project: El, priority: El, when: El) -> El {
-        let mut e = row().h(20.0).gap(GAP).child(title.w(self.title));
+    /// One line of the grid: the title's cell, the middle cells that are drawn, the time's. A
+    /// row with a second line (`two`) has its title's column hold both lines, and its other
+    /// cells centred on them (`.th-grid.has-line`: `grid-row: 1 / span 2; align-self: center`):
+    /// the two lines are 20 + 3 + 18 points, so a 20 point cell starts 10.5 down. Status,
+    /// Project and Priority are lifted 0.6 from there and the time is let down 0.5
+    /// (`transform: translateY(-0.6px)`, `top: 0.5px`), as the web window puts their ink on
+    /// the lines' middle.
+    fn line(&self, title: El, state: El, project: El, priority: El, when: El, two: bool) -> El {
+        let (middle, end) = if two { (TWO_LINES_MIDDLE - 0.6, TWO_LINES_MIDDLE + 0.5) } else { (0.0, 0.0) };
+        let mut e = row().items_start().gap(GAP).child(title.w(self.title));
+        if !two {
+            e = e.h(20.0);
+        }
         for (width, cell) in [(self.state, state), (self.project, project), (self.priority, priority)] {
             if let Some(width) = width {
-                e = e.child(cell.w(width));
+                e = e.child(cell.w(width).mt(middle));
             }
         }
         // The time's words end at the column's end while they fit in it. Words wider than the
         // column start at its start and run out past its end, as a line of text set to the
         // right does in a browser (a dated "Mon, Nov 30, 5:24 PM" under Back): the space
         // before them takes what room there is, and there is none to take.
-        e.child(row().w(WHEN).child(el().grow(1.0)).child(when))
+        e.child(row().w(WHEN).mt(end).child(el().grow(1.0)).child(when))
     }
 }
+
+/// A row's two lines (`.th-grid.has-line`): the title's 20 points, 3 between (`row-gap`), and
+/// the second line's 18, over which a one-line cell is centred.
+const LINE_GAP: f32 = 3.0;
+const SECOND_LINE: f32 = 18.0;
+const TWO_LINES_MIDDLE: f32 = (20.0 + LINE_GAP + SECOND_LINE - 20.0) / 2.0;
+/// A row's padding above and below its lines (`.th-table .row:not(.th-head)`): a row is 17 +
+/// 20 + 17 = 54 points tall with one line and 17 + 41 + 17 = 75 with two.
+const ROW_PAD: f32 = 17.0;
+/// The title and the second line start 35 points into their column, after the face, and stop
+/// 32 short of its end (`.th-cell-title`, `.th-line`: `padding-left: 35px; padding-right: 32px`).
+const TEXT_IN: f32 = 35.0;
+const TEXT_END: f32 = 32.0;
 
 /// A column's name, at the head of the table.
 fn heading(s: &str) -> El {
@@ -387,10 +410,11 @@ fn status_mark(mark: Mark, ground: rune::Color) -> Option<El> {
     }
 }
 
-/// The mark a thread of the person's own leads with (`HarnessMark`): its harness's mark, 11
-/// points across in a tile of 18, on a faint wash of the text's colour inside a stronger one,
-/// Claude Code's in its own orange; and for a harness with no mark, the agent's two eyes in
-/// their ring (`AgentFace`). `harness` is `rules::engine::harness_mark`'s word.
+/// The mark a thread of the person's own leads with (`HarnessMark`), at its own size: its
+/// harness's mark, 11 points across in a tile of 18, on a faint wash of the text's colour inside
+/// a stronger one, Claude Code's in its own orange; and for a harness with no mark, the agent's
+/// two eyes in their ring (`AgentFace`). The sidebar's Recent rows draw it so; the Inbox's rows
+/// draw their own, larger (`row_face`). `harness` is `rules::engine::harness_mark`'s word.
 pub(crate) fn harness_mark(harness: &str) -> El {
     let glyph = match harness {
         "claude" => &icons::HARNESS_CLAUDE,
@@ -409,16 +433,35 @@ pub(crate) fn harness_mark(harness: &str) -> El {
         .child(icon(glyph, 16.0).color(tone))
 }
 
-/// A thread's title cell, `room` points wide: the mark, the title, and what follows it. An
-/// aside is what the row adds to its title (a comment on a link, how many tasks wait for a
-/// yes, the cause a thread in Later is stuck behind); "not started" is on a thread written
-/// down in Later and never begun; the pin is on one kept at the top. The title is underlined
-/// on the selected row, and faintly on the row the pointer holds (`.row.pointed .subject`),
-/// which is not the row under it once the keys have taken the list back.
-fn title_cell(r: &Row, selected: bool, pointed: bool, room: f32) -> El {
-    // An unread thread's title is heavier, and a square in the gutter says so too.
-    let type_ = TextStyle::new(14.0, if r.unread { 530.0 } else { 400.0 }).lh(20.0).tracking(-0.14);
-    let words = pen(text(r.title.as_str()).font(type_).color(ink()).truncate(), 14.0);
+/// The face an Inbox row leads with, 24 points (`.th-table .row:not(.th-head) .th-slot` in
+/// `renderer/src/threads/pages.css`): a harness's mark on a tile of the card's own ground with
+/// the agents' 7 point corner and a soft 8% edge, the mark drawn 19.68 points across, which is
+/// 11/16 of its square (`IN_TILE`); and for a harness with no mark the agent's two eyes in
+/// their faint 12% ring, round, its eyes at their own 16 points (`.agent-face`, which neither
+/// the corner nor the softer edge reaches).
+fn row_face(harness: &str) -> El {
+    let glyph = match harness {
+        "claude" => &icons::HARNESS_CLAUDE,
+        "codex" => &icons::HARNESS_CODEX,
+        "antigravity" => &icons::HARNESS_ANTIGRAVITY,
+        _ => return row().size(24.0, 24.0).radius(12.0).center().border(1.0, ink_at(0.12)).border_layout().child(icon(&icons::AGENT_EYES, 16.0).color(dim())),
+    };
+    let tone = if harness == "claude" { rgb(0xd9, 0x77, 0x57) } else { ink() };
+    row().size(24.0, 24.0).radius(7.0).center().fill(surface()).border(1.0, ink_at(0.08)).border_layout().child(icon(glyph, 19.68).color(tone))
+}
+
+/// A thread's title cell, `room` points wide: the title, and what follows it, 35 points in,
+/// past the face, which the row draws over the cell's start (`row_face`), and ending 32 short.
+/// An aside is what the row adds to its title (a comment on a link, how many tasks wait for a
+/// yes, the cause a thread in Later is stuck behind), unless the second line says the same
+/// (`aside_moved`, `.aside-moved`); "not started" is on a thread written down in Later and never
+/// begun; the pin is on one kept at the top. The title is underlined on the selected row, and
+/// faintly on the row the pointer holds (`.row.pointed .subject`), which is not the row under it
+/// once the keys have taken the list back.
+fn title_cell(r: &Row, selected: bool, pointed: bool, room: f32, aside_moved: bool) -> El {
+    // An unread thread's title is heavier, and a dot in the gutter says so too.
+    let type_ = TextStyle::new(TITLE, if r.unread { 530.0 } else { 400.0 }).lh(20.0).tracking(-0.01 * TITLE);
+    let words = pen(text(r.title.as_str()).font(type_).color(ink()).truncate(), TITLE);
     // The line is the title's own, so it ends where the words do.
     let line = el().pin(Some(0.0), None, Some(0.0), Some(0.0)).h(1.0);
     let line = if selected {
@@ -428,10 +471,10 @@ fn title_cell(r: &Row, selected: bool, pointed: bool, room: f32) -> El {
     } else {
         line
     };
-    // Every title starts after a mark in a slot of its own, so the titles line up.
-    let cell = row().items_center().child(harness_mark(r.harness).mr(10.0)).child(el().shrink().child(words).child(line));
+    // Every title starts after the face, so the titles line up.
+    let cell = row().h(20.0).pl(TEXT_IN).pr(TEXT_END).items_center().child(el().shrink().child(words).child(line));
     // Faint words after the title (`.th-aside`), 12 points on, in the title's own type.
-    let faint = |s: &str| pen(text(s).font(type_).color(muted()), 14.0);
+    let faint = |s: &str| pen(text(s).font(type_).color(muted()), TITLE);
     let held = || el().ml(12.0).child(faint("not started"));
     // The pin sits 3 points under the words' line.
     let pin = || el().ml(9.0).child(icon(&icons::PIN, 13.0).color(muted()).mt(3.0));
@@ -442,9 +485,13 @@ fn title_cell(r: &Row, selected: bool, pointed: bool, room: f32) -> El {
         // takes what the title leaves and no more than its own words need, and is cut short
         // before the title is; "not started" and the pin keep their room, so in a narrow cell
         // it is the title that gives way to them. The aside's 12 points are inside its box,
-        // which may close to nothing.
-        let aside = row().grow(1.0).min_w(0.0).max_w(12.0 + wide(&r.aside)).clip_rounded(0.0).child(el().w(12.0).min_w(12.0)).child(faint(&r.aside).truncate());
-        let cell = cell.child(aside);
+        // which may close to nothing. Said again by the second line, it is not drawn, and the
+        // cell stays a row of boxes without it.
+        let cell = if aside_moved {
+            cell
+        } else {
+            cell.child(row().grow(1.0).min_w(0.0).max_w(12.0 + wide(&r.aside)).clip_rounded(0.0).child(el().w(12.0).min_w(12.0)).child(faint(&r.aside).truncate()))
+        };
         let cell = if r.held { cell.child(held()) } else { cell };
         return if r.pinned { cell.child(pin()) } else { cell };
     }
@@ -455,7 +502,7 @@ fn title_cell(r: &Row, selected: bool, pointed: bool, room: f32) -> El {
     // is cut from its end: the pin goes first, then "not started", and only then the title's
     // own words, with the three dots after whatever is left.
     let (title, after, pinned) = (wide(&r.title), if r.held { 12.0 + wide("not started") } else { 0.0 }, if r.pinned { 22.0 } else { 0.0 });
-    let room = room - 28.0;
+    let room = room - TEXT_IN - TEXT_END;
     if title + after + pinned <= room {
         let cell = if r.held { cell.child(held()) } else { cell };
         return if r.pinned { cell.child(pin()) } else { cell };
@@ -465,15 +512,40 @@ fn title_cell(r: &Row, selected: bool, pointed: bool, room: f32) -> El {
         return cell;
     }
     let cell = if r.held && title + after <= room - dots { cell.child(held()) } else { cell };
-    cell.child(pen(text("…").font(type_).color(ink()), 14.0))
+    cell.child(pen(text("…").font(type_).color(ink()), TITLE))
 }
 
-/// One thread: 54 points, a hairline above every row but the first, and the title's underline,
-/// which is how a row answers: orange on the selected one, faint under the pointer.
+/// The title's size on a row (`.th-table .row:not(.th-head) .th-cell-title`), its letters
+/// drawn 1% of it closer.
+const TITLE: f32 = 14.5;
+
+/// A row's second line (`.th-line`): what came back, in 13 points of the faint ink on an 18
+/// point line, 35 points in under the title, cut with three dots where it runs out of room.
+fn second_line(words: &str, room: f32) -> El {
+    let said = pen(text(words).font(TextStyle::new(13.0, 400.0).lh(SECOND_LINE)).color(muted()).truncate(), 13.0);
+    row().w(room).h(SECOND_LINE).mt(LINE_GAP).pl(TEXT_IN).pr(TEXT_END).child(el().shrink().child(said))
+}
+
+/// One thread (`RowCells`, under `.th-table .row:not(.th-head)` in the web window's two-line
+/// look): the face on the top of the title's capitals, the title, and under it what came back,
+/// the other cells centred on the two lines; 75 points with its second line, 54 without. A
+/// hairline above every row but the first, and the title's underline, which is how a row
+/// answers: orange on the selected one, faint under the pointer.
 fn thread(s: &State, r: &Row, (at, count): (usize, usize), picked: usize, cols: &Columns) -> El {
     // The title's cell is what the row's hint lines its keys up with (`data-hint-text`).
     let subject = format!("subject-{}-{}", r.product, r.id);
-    let title = title_cell(r, at == picked, s.pointed.is_row(&r.product, &r.id), cols.title).key(subject.clone());
+    let line = (!r.line.is_empty()).then(|| crate::rules::list::RowLine { who: None, text: r.line.clone() });
+    let (_, aside_moved) = crate::rules::list::moved_to_the_line(line.as_ref(), &r.aside, None);
+    let title = title_cell(r, at == picked, s.pointed.is_row(&r.product, &r.id), cols.title, aside_moved).w(cols.title).key(subject.clone());
+    // The title's column: its cell, the second line under it, and the face over the cell's
+    // start, its top on the top of the title's capitals, 5 points into the title's 20 point
+    // line and 0.36 higher (`.th-slot`: `top: 5px; transform: translateY(-0.36px)`).
+    let title = col()
+        .child(title)
+        .children(line.as_ref().map(|l| second_line(&l.text, cols.title)))
+        // The web window moves it by a transform so that it is not snapped to a whole pixel, and
+        // neither is it here.
+        .child(row_face(r.harness).absolute(0.0, 5.0 - 0.36).pixel_snap(false).a11y_hidden());
     let small = |s: &str, c: Color| capitals(s, 11.5, 20.0, 0.575, c).truncate();
     let mut state = row().items_center();
     // The card's colour where the row stands, as last laid out: what shows inside a ring.
@@ -506,8 +578,8 @@ fn thread(s: &State, r: &Row, (at, count): (usize, usize), picked: usize, cols: 
     let (id, product) = (r.id.clone(), r.product.clone());
     let e = row()
         .key(format!("thread-{}-{}", r.product, r.id))
-        .h(54.0)
-        .pt(19.0)
+        .items_start()
+        .py(ROW_PAD)
         .pr(32.0)
         .pl(44.0)
         .cursor(Cursor::Pointer)
@@ -517,17 +589,31 @@ fn thread(s: &State, r: &Row, (at, count): (usize, usize), picked: usize, cols: 
             s.picked = at;
             s.open_thread(&id, &product);
         })
-        .child(cols.line(title, state, project, priority, when));
+        .child(cols.line(title, state, project, priority, when, line.is_some()));
     let mut e = crate::feel::pointed_row(e, &r.product, &r.id);
     if at > 0 {
         e = e.child(el().pin(Some(20.0), Some(0.0), Some(32.0), None).h(1.0).fill(edge_at(0.375)));
     }
-    if r.unread {
-        e = e.child(el().absolute(13.0, 27.0).size(6.0, 6.0).fill(accent()));
+    // The row the app makes itself wears a faint rule at its left edge where a thread's select
+    // box would be (`.trouble-rule`: from 19 points down to 15 short of its foot).
+    if r.id == crate::rules::trouble_row::TROUBLE_ID && r.product.is_empty() {
+        e = e.child(el().pin(Some(20.0), Some(19.0), None, Some(15.0)).w(2.0).radius(1.0).fill(muted()));
     }
-    // Its keys' hint, lined up with its title (`data-hint="row"`, `data-hint-text=".subject"`).
+    // The unread dot stands in the gutter, level with the middle of the face beside it:
+    // 17 + 5 + 12 - 0.36, less half the dot (`.gt-inset .th-table .row.unread::before`).
+    if r.unread {
+        e = e.child(el().absolute(UNREAD_LEFT, ROW_PAD + 5.0 + 12.0 - 0.36 - 3.0).size(6.0, 6.0).fill(accent()));
+    }
+    // Its keys' hint, lined up with its title (`data-hint="row"`, `data-hint-text=".subject"`),
+    // only under Needs you, where its keys mean what the plate says (`rowKeys`).
+    if s.inbox_tab != Tab::Needs {
+        return e;
+    }
     crate::feel::hinted(e, "row", format!("thread-{}-{}", r.product, r.id), crate::feel::Align::Left, Some(subject))
 }
+
+/// The unread dot's left, in the row (`.gt-inset .th-table .row.unread::before { left: 25px }`).
+const UNREAD_LEFT: f32 = 25.0;
 
 /// The one quiet line an empty tab carries (`.th-empty`), in the middle of what the tabs leave
 /// of the page, less 12% of the window's height at its foot.
@@ -559,14 +645,137 @@ pub fn view(s: &State) -> El {
     }
     let cols = Columns::of(&rows, page_w);
     // The time column is named for what it tells under this tab: Sent, Back on Later, Done.
-    let head = row().h(38.0).pt(10.0).pr(32.0).pl(44.0).child(cols.line(heading("Thread"), heading("Status"), heading("Project"), heading("Priority"), heading(page::time_heading(tab.view()))));
+    let head = row().h(38.0).pt(10.0).pr(32.0).pl(44.0).child(cols.line(heading("Thread"), heading("Status"), heading("Project"), heading("Priority"), heading(page::time_heading(tab.view())), false));
     let picked = s.picked.min(rows.len() - 1);
     page.child(head).children(rows.iter().enumerate().map(|(i, r)| thread(s, r, (i, rows.len()), picked, &cols)))
 }
 
 #[cfg(test)]
 mod tests {
+    use rune::{Key, Runtime};
+    use serde_json::json;
+
     use super::*;
+    use crate::feel::tests::{key, run, window_dressed};
+
+    /// The invented inbox of four, its last thread's answer only its title again, so its row has
+    /// nothing to say under the title; the second still open, the person's own work waiting its
+    /// turn, which puts it under In progress; and the third closed by the person, under Done.
+    fn rows(name: &str) -> Runtime<State> {
+        window_dressed(name, &["--view", "inbox"], "/fixtures/storefront", "Done, and tested. Merge it?", |f| {
+            let items = f["snapshot"]["items"].as_array_mut().unwrap();
+            items[3]["result"] = json!("Invented thread number 3");
+            items[1]["status"] = json!("open");
+            items[1].as_object_mut().unwrap().remove("result");
+            items[1]["wrote"].as_object_mut().unwrap().remove("result");
+            items[1]["wrote"].as_object_mut().unwrap().remove("status");
+            items[2]["wrote"]["status"]["source"] = json!("founder");
+        })
+    }
+
+    fn rect(rt: &Runtime<State>, key: &str) -> [f32; 4] {
+        rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key)).map(|e| e.rect).unwrap_or_else(|| panic!("{key} is drawn"))
+    }
+
+    /// Within a hundredth of a point.
+    fn at(rt: &Runtime<State>, want: [f32; 4]) -> bool {
+        rt.elements().iter().any(|e| e.rect.iter().zip(want).all(|(a, b)| (a - b).abs() < 0.01))
+    }
+
+    fn said(rt: &Runtime<State>) -> Option<String> {
+        rt.state.toast.as_ref().map(|t| t.line.clone())
+    }
+
+    // `tests/an-inbox-row-has-two-lines-and-its-face-sits-on-the-title.test.mts`, on the desktop.
+    #[test]
+    fn a_row_is_its_title_and_what_came_back_and_one_with_nothing_more_to_say_stays_one_line() {
+        let rt = rows("two-lines");
+        let [x, y, _, h] = rect(&rt, "thread-storefront-w-feel0");
+        // 17 + 20 + 3 + 18 + 17.
+        assert_eq!(h, 75.0);
+        assert_eq!(rt.state.lists.needs.iter().find(|r| r.id == "w-feel0").map(|r| r.line.as_str()), Some("Done, and tested. Merge it?"));
+        assert!(rt.elements().iter().any(|e| e.text.as_deref() == Some("Done, and tested. Merge it?") && (e.rect[1] - (y + 17.0 + 23.0)).abs() < 0.01 && (e.rect[0] - (x + 44.0 + 35.125)).abs() < 0.01), "the second line, 35 points in under the title");
+        // The title, 35 points into its cell, at 14.5 points.
+        let [tx, ty, ..] = rect(&rt, "subject-storefront-w-feel0");
+        assert_eq!((tx, ty), (x + 44.0, y + 17.0));
+        // The face: 24 points on the top of the title's capitals.
+        assert!(at(&rt, [x + 44.0, y + 17.0 + 5.0 - 0.36, 24.0, 24.0]), "the face");
+        // Status, Project, Priority and the time centred on the two lines.
+        let done = rt.elements().into_iter().find(|e| e.text.as_deref() == Some("Done") && e.rect[1] > y && e.rect[1] < y + h).expect("its status");
+        assert!((done.rect[1] - (y + 17.0 + 10.5 - 0.6)).abs() < 0.01, "the status at {:?}", done.rect);
+        // Nothing to say but the title: no second line, and 54 points.
+        assert_eq!(rt.state.lists.needs.iter().find(|r| r.id == "w-feel3").map(|r| r.line.as_str()), Some(""));
+        let [_, y3, _, h3] = rect(&rt, "thread-storefront-w-feel3");
+        assert_eq!(h3, 54.0);
+        let done = rt.elements().into_iter().find(|e| e.text.as_deref() == Some("Done") && e.rect[1] > y3 && e.rect[1] < y3 + h3).expect("its status");
+        assert_eq!(done.rect[1], y3 + 17.0, "a one-line row's cells on its one line");
+    }
+
+    #[test]
+    fn words_after_the_title_that_the_second_line_says_leave_the_first_and_the_app_s_own_row_wears_its_rule() {
+        let rt = window_dressed("moved", &["--view", "inbox"], "/fixtures/storefront", "Done, and tested. Merge it?", |f| {
+            f["snapshot"]["items"][0]["handedOver"] = json!({ "said": "Done, and tested. Merge it?" });
+            f["snapshot"]["supervisor"]["spawnTrouble"] = json!({ "since": f["now"].as_f64().unwrap() - 600_000.0, "cause": "signed-out", "message": "", "remedy": "", "count": 2 });
+        });
+        let row = rt.state.lists.needs.iter().find(|r| r.id == "w-feel0").unwrap();
+        assert_eq!((row.aside.as_str(), row.line.as_str()), ("Done, and tested. Merge it?", "Done, and tested. Merge it?"));
+        let [_, y, ..] = rect(&rt, "thread-storefront-w-feel0");
+        let on = |line: f32| rt.elements().iter().filter(|e| e.text.as_deref() == Some("Done, and tested. Merge it?") && (e.rect[1] - line).abs() < 0.01).count();
+        assert_eq!((on(y + 17.0), on(y + 40.0)), (0, 1), "said once, on the second line");
+        // The row of tasks that could not run: a faint rule at its left edge, 19 points down to 15 short of its foot.
+        let [x, y, _, h] = rect(&rt, "thread--trouble");
+        assert!(at(&rt, [x + 20.0, y + 19.0, 2.0, h - 34.0]), "its rule");
+    }
+
+    #[test]
+    fn an_unread_rows_dot_is_level_with_the_middle_of_its_face() {
+        // Nothing in the invented inbox has been opened, so every row is unread.
+        let rt = rows("unread-dot");
+        assert!(rt.state.lists.needs.iter().all(|r| r.unread));
+        let [x, y, ..] = rect(&rt, "thread-storefront-w-feel0");
+        assert!(at(&rt, [x + 25.0, y + 30.64, 6.0, 6.0]), "17 + 5 + 12 - 0.36, less half the dot");
+    }
+
+    #[test]
+    fn the_row_hint_is_only_where_its_keys_mean_what_it_says() {
+        let mut rt = rows("row-hint");
+        let [_, y, ..] = rect(&rt, "thread-storefront-w-feel0");
+        rt.pointer_move(400.0, y + 30.0);
+        run(&mut rt, 0.8);
+        assert_eq!(rt.state.pointed.hint.as_ref().map(|h| h.id), Some("row"), "under Needs you");
+        rt.update(|s, _| s.show_tab(Tab::Done));
+        rt.pointer_move(640.0, 740.0);
+        rt.frame(1.0 / 60.0);
+        let [_, y, ..] = rect(&rt, &format!("thread-storefront-{}", rt.state.lists.done[0].id));
+        rt.pointer_move(400.0, y + 20.0);
+        run(&mut rt, 0.8);
+        assert!(rt.state.pointed.hint.is_none(), "not under Done, where E closes nothing");
+    }
+
+    // `tests/e-and-z-always-say-what-they-did.test.mts`: E on a list where it closes nothing.
+    #[test]
+    fn e_closes_in_needs_you_and_says_why_it_does_not_in_progress_and_done() {
+        let mut rt = rows("e-tabs");
+        rt.state.pretend_sent = true;
+        run(&mut rt, 1.0);
+        rt.update(|s, _| s.show_tab(Tab::Progress));
+        assert_eq!(rt.state.lists.progress.first().map(|r| r.id.as_str()), Some("w-feel1"));
+        key(&mut rt, Key::Text("e".into()));
+        assert_eq!(said(&rt).as_deref(), Some("Open this thread to close it."));
+        assert!(rt.state.held.is_none() && rt.state.tried.is_empty(), "nothing closed");
+        assert_eq!(rt.state.lists.progress.len(), 1);
+        rt.update(|s, _| s.show_tab(Tab::Done));
+        assert!(!rt.state.lists.done.is_empty());
+        key(&mut rt, Key::Text("e".into()));
+        assert_eq!(said(&rt).as_deref(), Some("This thread is already done."));
+        assert!(rt.state.held.is_none() && rt.state.tried.is_empty(), "nothing closed");
+        // Under Needs you it closes the row the keys are on.
+        rt.update(|s, _| s.show_tab(Tab::Needs));
+        let first = rt.state.lists.needs[0].id.clone();
+        key(&mut rt, Key::Text("e".into()));
+        assert!(rt.state.held.as_ref().is_some_and(|h| h.closes.is_some()), "held its three seconds");
+        assert!(rt.state.lists.needs.iter().all(|r| r.id != first));
+    }
 
     #[test]
     fn of_the_inbox_sky_only_the_rows_behind_the_head_are_kept_the_last_row_first() {
