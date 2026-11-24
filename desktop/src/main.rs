@@ -1552,6 +1552,10 @@ fn init_from(args: &[String]) -> State {
         s.history.push(View::Home);
     }
     files_page::pictured(&mut s);
+    // A picture of the list taken after its first thread was opened and left says so.
+    if s.fixture.remove("lastThread").is_some() {
+        walk::pictured_after_a_thread(&mut s);
+    }
     // `--thread` opens the first thread that needs the person, for a picture of it; `--thread <id>` that one.
     if let Some(at) = args.iter().position(|a| a == "--thread") {
         // Or the one its fixture says was open, for a picture of a thread elsewhere than first in Needs you.

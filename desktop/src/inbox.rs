@@ -590,9 +590,21 @@ fn thread(s: &State, r: &Row, (at, count): (usize, usize), picked: usize, cols: 
             s.open_thread(&id, &product);
         })
         .child(cols.line(title, state, project, priority, when, line.is_some()));
+    // The last thread the person stood on wears a faint wash from the card's left edge, gone
+    // by seven tenths of the row (`.row.recent`, the trail's `lastThread`), so the one or two
+    // threads just left can be found again in the list.
+    let last = s.last_thread();
+    let is_last = |row: &Row| last.is_some_and(|(product, id)| *product == row.product && *id == row.id);
+    let recent = is_last(r);
+    let e = if recent { e.linear_gradient(90.0_f32.to_radians(), [(0.0, white(0.02)), (0.25, white(0.012)), (0.5, white(0.004)), (0.7, white(0.0)), (1.0, white(0.0))]) } else { e };
     let mut e = crate::feel::pointed_row(e, &r.product, &r.id);
     if at > 0 {
-        e = e.child(el().pin(Some(20.0), Some(0.0), Some(32.0), None).h(1.0).fill(edge_at(0.375)));
+        // The hairline over the washed row and the one under it start at the card's edge with
+        // the wash, or its corners would show past their ends (`.row.recent::after,
+        // .row.recent + .row::after { left: 0 }`).
+        let under_the_wash = s.lists.under(s.inbox_tab).get(at - 1).is_some_and(|before| is_last(before));
+        let left = if recent || under_the_wash { 0.0 } else { 20.0 };
+        e = e.child(el().pin(Some(left), Some(0.0), Some(32.0), None).h(1.0).fill(edge_at(0.375)));
     }
     // The row the app makes itself wears a faint rule at its left edge where a thread's select
     // box would be (`.trouble-rule`: from 19 points down to 15 short of its foot).

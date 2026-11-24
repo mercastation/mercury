@@ -123,6 +123,17 @@ pub fn opened_from_the_list(s: &mut State) {
     s.walk = Walk { trail, seen: Some(thread.clone()), last_thread: trail::last_thread_after(None, &thread), ..Walk::default() };
 }
 
+/// A picture of the list taken after its first thread was opened and left (`lastThread` in a
+/// scene's fixture): the list was stood on, then that thread, then the list again, so the
+/// thread is the last one stood on and Back leads to it.
+pub fn pictured_after_a_thread(s: &mut State) {
+    let Some(row) = s.lists.needs.first() else { return };
+    let thread = Stop::Thread { product: row.product.clone(), id: row.id.clone() };
+    let list = Stop::List(s.inbox_tab);
+    let trail = [&list, &thread, &list].into_iter().fold(Trail::default(), |trail, stop| trail::arrive(&trail, stop));
+    s.walk = Walk { trail, seen: Some(list), last_thread: trail::last_thread_after(None, &thread), ..Walk::default() };
+}
+
 /// The poll's part (`settledPlaces`, and the effect that feeds it): each new place on screen
 /// starts its 300 ms, and one that stays them counts. Off the inbox page nothing is counted
 /// and a step on its way is forgotten.
