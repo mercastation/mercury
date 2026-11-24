@@ -114,6 +114,15 @@ impl State {
     }
 }
 
+/// A window opened straight onto a conversation, for a picture of it (`--thread`), is taken to
+/// have come there from the list in the tab it is on, as the web window's picture of the same
+/// thread did: the list counted, then the thread, so Back leads to the list.
+pub fn opened_from_the_list(s: &mut State) {
+    let Some(thread) = s.stop_on_screen().filter(|stop| matches!(stop, Stop::Thread { .. })) else { return };
+    let trail = trail::arrive(&trail::arrive(&Trail::default(), &Stop::List(s.inbox_tab)), &thread);
+    s.walk = Walk { trail, seen: Some(thread.clone()), last_thread: trail::last_thread_after(None, &thread), ..Walk::default() };
+}
+
 /// The poll's part (`settledPlaces`, and the effect that feeds it): each new place on screen
 /// starts its 300 ms, and one that stays them counts. Off the inbox page nothing is counted
 /// and a step on its way is forgotten.

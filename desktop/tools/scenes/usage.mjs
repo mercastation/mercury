@@ -63,24 +63,29 @@ const row = (h) => h.evaluate(`(() => {
 
 const move = (h, x, y) => h.call('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
 
-// The pointer onto the folded rail's usage row in two steps, as a hand moves: the rail opens
-// 140 ms later. A pointer that landed on the folded rail opens the card only on its first move
-// once the rail is open (`move` in UsagePill), so it moves two points along once the rail has
-// opened, and the card comes 120 ms after that. `script` is the same pointer for the native
-// window (`--script`), and `rested` how long after its last move the shutter falls.
+// Folded, the sidebar draws no bar (`.workspace-collapsed … .workspace-usage` in sidebar.css),
+// so the pointer goes onto the folded sidebar's last row first, in two steps, as a hand moves:
+// the sidebar opens 140 ms later. Once it is open the bar stands at the end of that row, and the
+// pointer goes along the row onto it, again in two steps; the card comes 120 ms after that.
+// `script` is the same pointer for the native window (`--script`), and `rested` how long after
+// its last move the shutter falls.
 export async function pointAt(h, { rested = 400 } = {}) {
+  const [fx, fy] = await row(h);
+  await move(h, fx - 8, fy - 4);
+  await h.wait(30);
+  await move(h, fx, fy);
+  await h.wait(600);
   const [x, y] = await row(h);
   await move(h, x - 8, y - 4);
   await h.wait(30);
   await move(h, x, y);
-  await h.wait(600);
-  await move(h, x + 2, y);
   const script = [
-    { t: 0.05, type: 'move', x: x - 8, y: y - 4 },
-    { t: 0.08, type: 'move', x, y },
-    { t: 0.68, type: 'move', x: x + 2, y },
+    { t: 0.05, type: 'move', x: fx - 8, y: fy - 4 },
+    { t: 0.08, type: 'move', x: fx, y: fy },
+    { t: 0.68, type: 'move', x: x - 8, y: y - 4 },
+    { t: 0.71, type: 'move', x, y },
   ];
-  return { pointer: [x + 2, y], rested, settle: rested, script, at: 0.68 + rested / 1000 };
+  return { pointer: [x, y], rested, settle: rested, script, at: 0.71 + rested / 1000 };
 }
 
 // The same with the rail kept open (Settings' "the sidebar shrinks to icons" turned off): the

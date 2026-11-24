@@ -2960,19 +2960,26 @@ of them is ever committed. `cargo test` runs the rules' own tests on invented th
 
 ## The agents' limits
 
-The rail's usage row and the card it opens are the web window's sidebar `UsagePill`
-(`renderer/src/components/UsagePill.tsx`, its look `.usage-panel` and `.workspace-usage`):
-`src/usage.rs` draws them, and `src/rules/usage.rs` holds `shared/usage.mts`'s rules with its
+The sidebar's bar of usage and the card it opens are the web window's sidebar `UsagePill`
+(`renderer/src/components/UsagePill.tsx`, its look `.usage-panel` and, since the sidebar was
+redrawn, `.workspace-usage` in `renderer/src/sidebar.css`): `src/chrome.rs` draws the bar,
+`src/usage.rs` the card, and `src/rules/usage.rs` holds `shared/usage.mts`'s rules with its
 cases as tests.
 
-- **The row** names the agent used last: the newest run going now, else the thread touched last
-  that names its agent (`lastUsedEngine`), among the agents with a reading from this week that
-  still answers for a window (`agentsInUse`). Open, it ends on the headline window's figure, the
-  five hour one where there is one, else the fullest (`headlineLimit`); none when that window
-  started over since it was read. Past 80% spent the figure is in the text's ink.
-- **The card** rises eight points over the row from the rail's left edge, 268 points wide
-  whatever the rail's width, square, on the panel's grey under a strong edge and the app's large
-  shadow. One agent: its name in small capitals, each limit (its name, "39% used", a bar of what
+- **The bar** stands at the end of the open sidebar's last row, the person's own when they are
+  signed in and Settings when nobody is: 32 points by 4, its track the text's colour at 13%,
+  filled as far as the headline window is spent (the five hour one where there is one, else the
+  fullest, `headlineLimit`; empty when that window started over since it was read), in the dim
+  ink and in the text's own past 80% spent. It is the agent used last that it reads: the newest
+  run going now, else the thread touched last that names its agent (`lastUsedEngine`), among
+  the agents with a reading from this week that still answers for a window (`agentsInUse`). The
+  corner has no words any more ("Claude Code 71%" was a row of its own before the sidebar was
+  redrawn), so the bar's label says every limit to whatever reads the screen aloud. Folded, the
+  sidebar draws no bar.
+- **The card** rises six points over that row from the sidebar's left edge, 268 points wide,
+  square, on the card's black under a strong edge and the app's large shadow; its lines are 20
+  points tall and at 500, the sidebar's own type, which it inherits. One agent: its name in
+  small capitals, each limit (its name, "39% used", a bar of what
   is spent, when it starts over), and under a hairline when it was read ("Read just now", "Read
   4m ago"). Several: the one used last first with "Last used" beside its name and when it was
   read under its limits, then each other under a hairline of its own with its limits and when it
@@ -2980,39 +2987,45 @@ cases as tests.
   at 10:57pm"), or, for a reading that carries an instant and no words, Codex's, counted down
   ("Resets in 6d 13h"). A five hour window that started over while another still runs says Reset,
   with no bar and no time (`limitsToShow`).
-- **When it opens.** 120 ms after the pointer came onto the row, so a pointer crossing the
-  rail's foot does not flash it; it stays 220 ms after the pointer left it, so one slipping off
-  its edge does not snap it shut (`LINGER_MS`). On the folded rail nothing opens: a pointer that
-  landed there opens it on its first move once the rail has opened, so the card never opens into
-  a rail still widening, and the rail folding closes it at once. On a rail kept open (Settings'
-  "the sidebar shrinks to icons" off) it opens 120 ms after the pointer moves onto the row. It
+- **When it opens.** 120 ms after the pointer came onto the bar, so a pointer crossing the
+  sidebar's foot does not flash it; it stays 220 ms after the pointer left it, so one slipping
+  off its edge does not snap it shut (`LINGER_MS`). The folded sidebar has no bar to rest on: the
+  pointer opens the sidebar first and then goes along the last row onto the bar, and the
+  sidebar folding closes the card at once. On a sidebar kept open (Settings' "the sidebar
+  shrinks to icons" off) it opens 120 ms after the pointer moves onto the bar. It
   lands whole, as the web window's has no transition, and takes no pointer: the pointer passes
   through it to what is under it. Nothing asks the agents for a fresh reading when it opens; the
   readings are the snapshot's, as the web window's are.
-- **A press** on the row opens that agent's page in Settings, here (Codex's for a Codex reading,
-  Claude Code's for any other: `openAgentSettings`), and the card goes.
+- **A press** on the bar opens that agent's page in Settings, here (Codex's for a Codex reading,
+  Claude Code's for any other: `openAgentSettings`), and the card goes. The bar is no part of
+  the row it stands on: with the pointer on it the row does not light, its title does not come,
+  and a press is the bar's own (`pointer-events: auto` on `.usage-box` alone; here the row's
+  last child, lighting alone).
 
 The scenes: `home-usage` (one agent), `home-usage-two` (Claude Code read just now, Codex a day
 ago), `home-usage-reset` (a five hour window that started over) and `home-usage-kept-open`
-(two agents, the rail kept open). Each hands the pointer's path to this window in its fixture
-(`script`, `at`), the same three moves the page was given. `tools/scenes/usage.mjs` invents
-the readings. At 2x, dark, the card, the row and the rail:
+(two agents, the sidebar kept open). Each hands the pointer's path to this window in its fixture
+(`script`, `at`), the same moves the page was given: onto the folded sidebar's last row, and
+once it has opened along that row onto the bar. `tools/scenes/usage.mjs` invents the readings.
+At 2x, dark, on the sidebar as the web window redrew it on 2026-11-23, the card, the last row
+with its bar, and the sidebar's top (the team's row, Search, Home and the Inbox):
 
-| Scene | Window | Whole | The card | The row | The rail |
+| Scene | Window | Whole | The card | The last row | The sidebar's top |
 |---|---|---|---|---|---|
-| `home-usage` | 1280 by 760 | 0.96 | 0.27 | 0.47 | 0.65 |
-| `home-usage-two` | 1280 by 760 | 0.96 | 0.28 | 0.47 | 0.64 |
-| | 900 by 760 | 0.98 | 0.28 | 0.47 | |
-| `home-usage-reset` | 1280 by 760 | 0.96 | 0.27 | 0.32 | 0.64 |
-| `home-usage-kept-open` | 1280 by 760 | 3.60, Home's sky | 0.28 | 0.47 | 0.64 |
+| `home-usage` | 1280 by 760 | 0.88 | 0.27 | 0.21 | 0.20 |
+| `home-usage-two` | 1280 by 760 | 0.82 | 0.37 | 0.21 | 0.20 |
+| | 900 by 760 | 0.90 | 0.37 | 0.21 | |
+| `home-usage-reset` | 1280 by 760 | 0.88 | 0.28 | 0.21 | 0.20 |
+| `home-usage-kept-open` | 1280 by 760 | 3.91, Home's sky | 0.37 | 0.21 | 0.20 |
 
-The rail is the web window's less its Demands and Connections (see what still differs). Home
-with the rail kept open is 3.60 whole without the card too: the web window paints Home's sky for
-the narrower card there, and this one for the folded card. Filmed at 60 frames a second the card
-lands whole on the frame its 120 ms run out, and stays still. Tests hold the rest on an invented
-inbox: no card until the pointer moves on the opened rail, then 120 ms; 220 ms of linger; the
-rail folding closes it; a pointer only passing over opens nothing; a press opens Claude Code's
-page in Settings.
+The sidebar is the web window's less its Demands, Connections and Feedback (see what still
+differs). Home with the sidebar kept open is 3.91 whole without the card too: the web window
+paints Home's sky for the narrower card there, and this one for the folded card. Filmed at 60
+frames a second the card lands whole on the frame its 120 ms run out, and stays still. Tests
+hold the rest on an invented inbox: no bar and no card on the folded sidebar; once it is open,
+the card 120 ms after the pointer comes onto the bar; 220 ms of linger; the sidebar folding
+closes it; a pointer only passing over opens nothing; a press opens Claude Code's page in
+Settings.
 
 ## Settings
 
@@ -3624,13 +3637,19 @@ point and stands where the web's does against its neighbours.
   page, answered with ⌘1 and ⌘2. Here a line at the card's foot says an agent is waiting for a
   yes and where to give it. Where every project runs on full access no agent ever asks.
 - **Several rows cannot be ticked**, so nothing is done to many threads at once.
-- **The rail has only what works here**: Search, Home, the Inbox, Files, Restart to update while
-  a new version waits, Settings, the usage row and the person's own row. The web window's also
-  has Demands, Chats (with teammates), Connections, Record meeting and Feedback. Drawn here they
-  were buttons that went nowhere, so they are left out until this window has their pages, and
-  Files stands under the Inbox where the web window has Demands and Connections before it.
-  Settings and the person's row open Settings here ("Settings", above), and the usage row opens
-  the card of the agents' limits ("The agents' limits", above).
+- **The sidebar has only what works here** (`docs/parity-sidebar.md` goes through the web
+  window's line by line): the pencil, Search, Home, the Inbox, Workspace with Files, Recent,
+  Restart to update while a new version waits, and the person's own row with the bar of their
+  limit, or Settings in its place while nobody is signed in. The web window's also has Demands,
+  Chats (with teammates), Connections, Record meeting, Feedback and a row to sign in. Drawn here
+  they were buttons that went nowhere, so they are left out until this window has their pages,
+  and what stands under each stands that much higher: Workspace's name where the web window has
+  Demands, Files where it has Connections. The team's own logo or initial is the app's mark
+  here; a Recent row always wears its harness's mark, where the web window's wears a teammate's
+  or a person's face on their threads; a section's arrow turns at once, not over 0.12 s. The
+  person's row opens Settings ("Settings", above), where the web window's opens their account
+  menu, which has Settings in it. A mouse's side buttons do not step back and forward: Rune
+  hands this window no such buttons.
 - **Settings has only the pages that are used**, and sends the rest to the web window
   ("Settings", above). Within its pages:
   - A line of a wrapped description can stand a device pixel lower than the web window's:

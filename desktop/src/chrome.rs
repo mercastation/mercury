@@ -503,7 +503,22 @@ pub fn rail(s: &State, still: bool) -> El {
     // person's own row; with nobody signed in, Settings is the last row instead. Their titles
     // stand whether the sidebar is open or not.
     let me = window::my_letters(&s.snap);
-    let reading = crate::rules::usage::Usage::of(&s.snap, s.now);
+    // What is left of the limit: a small bar at the end of the last row, the person's own when
+    // they are signed in (`.workspace-usage`, `.usage-pill`), as full as the headline window
+    // is spent and in the text's colour once that is close. It says the whole of it to whatever
+    // reads the screen aloud, since the corner has no words. Resting on it opens the card of
+    // every agent's limits over it, and a press opens that agent's page in Settings
+    // (`usage.rs`). Not drawn while the sidebar is folded. The web window lays it over the row
+    // as a box of its own, so the row under it neither lights nor takes its press; here it is
+    // the row's last child and lights alone (`hover_alone`).
+    let bar = crate::rules::usage::Usage::of(&s.snap, s.now).filter(|_| words > 0.0).map(|reading| {
+        let used = reading.used(s.now);
+        let close = used.is_some_and(|u| u >= crate::rules::usage::CLOSE);
+        let spent = 32.0 * (used.unwrap_or(0.0).clamp(0.0, 100.0) / 100.0) as f32;
+        let meter = el().size(32.0, 4.0).radius(2.0).clip_rounded(2.0).fill(ink_at(0.13)).child(el().size(spent, 4.0).radius(2.0).fill(if close { ink() } else { dim() }));
+        let pill = row().size(32.0, 20.0).items_center().opacity(words).hover_alone().child(meter).label(reading.sentence(s.now));
+        crate::usage::answering(pill, &reading.last.engine)
+    });
     let mut utilities = col().gap(2.0);
     if window::update_waits(&s.snap) {
         // Restart to update stands first, with the room its card rises from (`.sb-update-slot`).
@@ -511,42 +526,40 @@ pub fn rail(s: &State, still: bool) -> El {
         let restart = update_row(wide, words).help("Restart to update").on_press_tx(|s: &mut State, tx| s.ask_the_app(front::INSTALL_UPDATE, "Mercury could not restart onto the new version. Try again in a moment.", tx));
         utilities = utilities.child(el().pb(9.0).child(restart));
     }
-    if me.is_none() {
-        utilities = utilities.child(rail_button(&icons::RAIL_SETTINGS, "Settings", false, wide, words).help("Settings").on_press_tx(open_settings));
-    }
-    let mut foot = col().pt(16.0).child(utilities);
+    let mut foot = col().pt(16.0);
     if let Some(letters) = &me {
-        // Their face and their name (`.th-me-btn`; the email under it is no longer drawn). The
-        // web window opens their account menu on it, whose rows are what they are up to, Invite
-        // people, Settings and Sign out; here, with no menu, it goes straight to Settings.
+        // Their face and their name (`.th-me-btn`; the email under it is no longer drawn), the
+        // name ending 48 points short of the row's end where the bar stands. The web window
+        // opens their account menu on it, whose rows are what they are up to, Invite people,
+        // Settings and Sign out; here, with no menu, it goes straight to Settings.
+        // The row's title stands on all of it but the bar, which is no part of the web's button.
         let (name, _) = window::my_names(&s.snap).unwrap_or_default();
+        let name = el().grow(1.0).min_w(0.0).opacity(words).child(pen(text(name).font(TextStyle::new(14.0, 500.0).lh(20.0)).color(ink()).truncate(), 14.0));
         let mine = row()
             .size(wide, 32.0)
             .mt(2.0)
             .pl(4.0)
-            .pr(if reading.is_some() { 48.0 } else { 6.0 })
+            .pr(6.0)
             .gap(6.0)
             .items_center()
             .radius(6.0)
             .clip_rounded(6.0)
             .hover(rail_fill())
-            .child(my_face(letters))
-            .child(el().grow(1.0).min_w(0.0).opacity(words).child(pen(text(name).font(TextStyle::new(14.0, 500.0).lh(20.0)).color(ink()).truncate(), 14.0)));
-        foot = foot.child(mine.help("Settings").on_press_tx(open_settings));
-    }
-    if let Some(reading) = reading.filter(|_| words > 0.0) {
-        // What is left of the limit: a small bar at the end of the last row, the person's own
-        // when they are signed in (`.workspace-usage`, `.usage-pill`), as full as the headline
-        // window is spent and in the text's colour once that is close. It says the whole of it
-        // to whatever reads the screen aloud, since the corner has no words. Resting on it opens
-        // the card of every agent's limits over it, and a press opens that agent's page in
-        // Settings (`usage.rs`). Not drawn while the sidebar is folded.
-        let used = reading.used(s.now);
-        let close = used.is_some_and(|u| u >= crate::rules::usage::CLOSE);
-        let spent = 32.0 * (used.unwrap_or(0.0).clamp(0.0, 100.0) / 100.0) as f32;
-        let meter = el().size(32.0, 4.0).radius(2.0).clip_rounded(2.0).fill(ink_at(0.13)).child(el().size(spent, 4.0).radius(2.0).fill(if close { ink() } else { dim() }));
-        let pill = crate::usage::answering(row().size(32.0, 20.0).items_center().child(meter).label(reading.sentence(s.now)), &reading.last.engine);
-        foot = foot.child(row().pin(None, None, Some(6.0), Some(0.0)).h(crate::usage::last_row(s)).items_center().opacity(words).child(pill));
+            .child(row().grow(1.0).min_w(0.0).h(32.0).items_center().gap(6.0).child(my_face(letters)).child(name).help("Settings"))
+            .children(bar.map(|bar| bar.ml(4.0)));
+        foot = foot.child(utilities).child(mine.on_press_tx(open_settings));
+    } else {
+        let words_of_it = row()
+            .grow(1.0)
+            .min_w(0.0)
+            .h(30.0)
+            .items_center()
+            .gap(8.0)
+            .child(rail_mark(&icons::RAIL_SETTINGS, muted()).group_color(dim()))
+            .child(rail_word("Settings", dim()).group_color(ink()).opacity(words))
+            .help("Settings");
+        let settings = rail_row(wide).hover_group().hover(rail_fill()).child(words_of_it).children(bar);
+        foot = foot.child(utilities.child(settings.on_press_tx(open_settings)));
     }
 
     let mut rail = col()

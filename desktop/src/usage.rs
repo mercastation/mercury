@@ -14,7 +14,7 @@
 
 use std::time::Duration;
 
-use rune::{El, Tx, col, el, row};
+use rune::{El, TextStyle, Tx, col, el, row, text};
 
 use crate::rules::usage::{self, Row, Usage};
 use crate::theme::*;
@@ -108,24 +108,30 @@ fn faint() -> rune::Color {
 
 /// A heading (`.usage-panel h3`): the agent's name in small capitals, and beside the one used
 /// last, when there are several, "Last used" (`h3 small`).
+///
+/// The card stands in the sidebar, whose type it inherits: every line of it is 20 points tall
+/// and at 500 since the sidebar was redrawn (`.gt-rail-nav.workspace-navigation` in
+/// `renderer/src/sidebar.css`: `font-weight: 500; line-height: 20px`).
 fn heading(word: &str, last: bool) -> El {
-    let name = label(word, 11.0, 600.0, faint()).font(sans(11.0, 600.0).tracking(0.88)).text_case(rune::TextCase::Uppercase);
-    let mut line = row().items_end().child(pen(name, 11.0));
-    if last {
-        let tag = label("Last used", 10.5, 500.0, muted()).font(sans(10.5, 500.0).tracking(0.88)).text_case(rune::TextCase::Uppercase);
-        line = line.child(pen(tag, 10.5).ml(8.0));
+    let name = text(word).font(TextStyle::new(11.0, 600.0).lh(20.0).tracking(0.88)).color(faint()).text_case(rune::TextCase::Uppercase);
+    let line = row().h(20.0).items_end().child(pen(name, 11.0));
+    if !last {
+        return line;
     }
-    line
+    // The tag sits on the name's own baseline, its smaller line half a point taller than the
+    // heading's with it in it.
+    let tag = text("Last used").font(TextStyle::new(10.5, 500.0).lh(13.5).tracking(0.88)).color(muted()).text_case(rune::TextCase::Uppercase);
+    line.h(20.5).child(pen(tag, 10.5).ml(8.0).mb(3.5))
 }
 
 /// One limit (`.usage-lim`): its name and how much is spent, the bar of it, and when it starts
 /// over. A window that started over since says Reset, with no bar and no time.
 fn limit(r: &Row) -> El {
     let top = row()
-        .h(16.0)
+        .h(20.0)
         .justify_between()
-        .child(pen(label(&r.name, 12.5, 400.0, dim()), 12.5))
-        .child(pen(label(&usage::used_words(r), 12.5, 550.0, ink()).font(figures(12.5, 550.0)), 12.5));
+        .child(pen(text(r.name.as_str()).font(TextStyle::new(12.5, 500.0).lh(20.0)).color(dim()), 12.5))
+        .child(pen(text(usage::used_words(r)).font(TextStyle::new(12.5, 550.0).lh(20.0).features("'tnum' 1")).color(ink()), 12.5));
     let mut lim = col().child(top);
     if let Some(used) = r.used {
         // The track is the app's wash and the fill the faint ink, square in the sidebar
@@ -133,7 +139,7 @@ fn limit(r: &Row) -> El {
         let fill = (used.clamp(0.0, 100.0) / 100.0) as f32 * 238.0;
         lim = lim.child(el().mt(5.0).h(5.0).w(238.0).fill(white(0.04)).child(el().size(fill, 5.0).fill(muted())));
         if let Some(when) = &r.when {
-            lim = lim.child(pen(label(when, 11.5, 400.0, faint()).font(figures(11.5, 400.0)), 11.5).mt(4.0));
+            lim = lim.child(pen(text(when.as_str()).font(TextStyle::new(11.5, 500.0).lh(20.0).features("'tnum' 1")).color(faint()), 11.5).mt(4.0));
         }
     }
     lim
@@ -141,7 +147,7 @@ fn limit(r: &Row) -> El {
 
 /// When a reading was taken, under its agent's limits (`.usage-read`, `.usage-panel-foot`).
 fn read_line(at: f64, now: f64) -> El {
-    pen(label(&usage::read_words(at, now), 11.5, 400.0, faint()), 11.5)
+    pen(text(usage::read_words(at, now)).font(TextStyle::new(11.5, 500.0).lh(20.0)).color(faint()), 11.5)
 }
 
 /// The limits under one heading, eleven points apart (`.usage-lim`'s margin).
@@ -195,7 +201,7 @@ pub fn layer(s: &State) -> Option<El> {
 /// How tall the sidebar's last row is, the one the bar stands at the end of: the person's own,
 /// 32 points, when they are signed in, and else Settings, 30 (`.workspace-usage`, and
 /// `.workspace-bottom:has(> .th-me) .workspace-usage`).
-pub fn last_row(s: &State) -> f32 {
+fn last_row(s: &State) -> f32 {
     if crate::rules::window::my_letters(&s.snap).is_some() { 32.0 } else { 30.0 }
 }
 

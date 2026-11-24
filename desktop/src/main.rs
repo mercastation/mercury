@@ -1555,6 +1555,7 @@ fn init_from(args: &[String]) -> State {
         };
         if let Some(r) = row {
             s.view = View::Thread { id: r.id.clone(), product: r.product.clone() };
+            walk::opened_from_the_list(&mut s);
         }
         // A picture taken with the reply box open, or with the arrow on an option, says so in
         // its fixture (`replying` is what was typed, `option` the option's number).
