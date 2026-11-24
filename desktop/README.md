@@ -3145,6 +3145,30 @@ agent or the app asks for in a conversation that this window does not draw yet. 
 with the pointer resting on a control (`-hover-open`, `-hover-signed`, `-hover-skip`). In every
 one the card is the web window's size to a hundredth of a point and stands at the same height.
 
+## The ship question, a close's question and the threads a thread filed
+
+A thread whose run ended, left a change and asked nothing is asked about by the app, where an
+agent's options stand and answered the same ways (`src/ship.rs`, from `ship-offer.ts`): "Ship
+it" over a commit, and over loose edits "This change was never committed.", the question for a
+Git that knows nobody (whose recommended press opens the reply box for a name and an email), or
+"Add {file} to the project?" for files the thread already shows. Which words come off where the
+run's folder stands, read off the change's summary the code button already reads.
+
+A close asks first (`src/closing.rs`, from `close-asks-first.ts`): on work that never reached
+main, "Have the agent ship it" (a reply in the words of `shipItAsk`), "Close it anyway" or keep
+it; on a thread whose filed tasks still wait for a yes, start them, close them all, or keep the
+thread, the question standing under the list of those tasks on the turn that filed them, the
+conversation unfolded and the question brought onto the screen. Every close comes through it:
+E, Done, ⌘K, an agent's own "Close this task". It shares its strip and its keys with the question
+before a discard. The threads a thread filed are a list on the turn that filed them
+(`src/made.rs`, from `ThreadsMade.tsx`): each proposal with Dismiss, Do here and New thread,
+Dismiss all and Start all over two or more, any other thread saying its tab, each press writing
+what the web window's writes, with its line and its Z.
+
+`docs/parity-ship-and-close.md` is the checklist, and has the rectangles: in the scenes
+`thread-ship*`, `thread-close-*` and `thread-filed*` every part is the web window's size and
+stands at its height, to a hundredth of a point but for the question centred at its task.
+
 ## What still differs from the web app, and why
 
 - **The web window changed on 2026-11-23 and this window has not followed.** An upstream sync
@@ -3163,10 +3187,11 @@ one the card is the web window's size to a hundredth of a point and stands at th
   rooms, Demands, Connections, Feedback, meetings, first run and import, the light theme, the
   terminal, the agent's browser, plans and billing, notes and sharing on files, writing in Files.
   Not agreed, and not here:
-  - *In a conversation:* everything in part B of `docs/parity-asks.md` (what a cloud run needs,
-    a key typed into a reply, GitHub's sign-in on a refused ship, the app's own "Ship this
-    change?", what a close asks first, the threads a thread filed, "Waiting on … · open →", the
-    actions row of a thread put off, the remote control card); a mermaid chart, drawn as its
+  - *In a conversation:* everything still open in part B of `docs/parity-asks.md` (what a
+    cloud run needs, a key typed into a reply, GitHub's sign-in on a refused ship, "Waiting on …
+    · open →", the actions row of a thread put off, the remote control card); a close's
+    question under a file opened over the whole card, drawn in a frame of its own rather than
+    as the reply card's lid; a mermaid chart, drawn as its
     source; the copy button on a block of code; a thread named by its id or a thread link, which
     stays words and whose press does nothing; a link that cannot be opened, which says nothing;
     the first message of a filed thread and its way back to the parent; the app's own notes,

@@ -121,16 +121,16 @@ it with. Worst first.
   `Focus.tsx`). Here it is sent as words.
 - [ ] B3 **"Sign in to GitHub" on a ship the push refused** (`GitHubSignInCard.tsx`), and the
   answer's label "Not shipped".
-- [ ] B4 **The app's own question after a run that left a change and asked nothing**
+- [x] B4 **The app's own question after a run that left a change and asked nothing**
   (`ship-offer.ts`): "Ship this change?", "This change was never committed.", and the two for a
-  Git with no name or files to add, answered by the numbers.
-- [ ] B5 **What a close asks first** (`close-asks-first.ts`): on unshipped work, "Have the agent
+  Git with no name or files to add, answered by the numbers. Ported: `docs/parity-ship-and-close.md`.
+- [x] B5 **What a close asks first** (`close-asks-first.ts`): on unshipped work, "Have the agent
   ship it / Close it anyway / Keep this thread open"; on a thread with filed tasks waiting,
   "Start the task in a new thread, then close this one / Close both / Keep this thread open".
-  Here E closes, or is refused in one line.
-- [ ] B6 **The threads this thread filed** (`ThreadsMade.tsx`): "Filed from this thread" or
+  Ported: `docs/parity-ship-and-close.md`, which says what of it is still open (full screen).
+- [x] B6 **The threads this thread filed** (`ThreadsMade.tsx`): "Filed from this thread" or
   "N proposals waiting on you", each with Dismiss, Do here and New thread, and Dismiss all and
-  Start all.
+  Start all. Ported: `docs/parity-ship-and-close.md`.
 - [ ] B7 **"Waiting on {thread} · open →"** over a blocked thread, and the wait banner with
   "stop waiting".
 - [ ] B8 **The actions row under a thread put off or scheduled**: "Start it now", "Send it

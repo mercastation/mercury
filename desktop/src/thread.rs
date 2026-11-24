@@ -1594,6 +1594,12 @@ fn said_row(s: &State, plan: &Plan, at: usize, m: &Measure, files: &Files) -> El
         (Said::Step(st), _) => step(st),
         (Said::Work(_), None) => el(),
     };
+    // What the turn carries under its last word and over the seam: the threads it filed, and a
+    // close's question about them (`tail?.(ends)`, `made.rs`).
+    let block = match crate::made::tail(s, &plan.talk, plan.from + row.to - 1, m.column, &row.key) {
+        Some(tail) => col().child(block).child(tail),
+        None => block,
+    };
     let block = match &row.gap {
         Some((omitted, after)) => col().child(block).child(gap_line(*omitted, thread.to_string(), after.clone())),
         None => block,
@@ -1912,6 +1918,26 @@ fn running(s: &State, id: &str, product: &str) -> Option<live::Session> {
     live::session_of(&s.snap.supervisor, id).filter(|run| run.product == product)
 }
 
+impl State {
+    /// The conversation `thread` unfolded, every run of it read: a close asking about the tasks
+    /// a turn filed puts that turn on the page (`setEarlierOpen(true); setWhole(true)`).
+    pub(crate) fn unfold_the_conversation(&mut self, thread: &str) {
+        if pictured_unfolded(self, thread) {
+            self.reading.unfolded.remove(thread);
+        } else {
+            self.reading.unfolded.insert(thread.to_string());
+        }
+        self.reading.whole.insert(thread.to_string());
+    }
+    /// The page's own landing on its last message ended: something else is being brought onto
+    /// the screen (a close's question at its task), as a found line ends it. Says how tall the
+    /// page shows.
+    pub(crate) fn end_the_landing(&mut self) -> f32 {
+        self.reading.landing = None;
+        self.reading.viewport.get()
+    }
+}
+
 /// The line under the title that folds and unfolds the rest: small, quiet and underlined, the
 /// text's own colour under the pointer (`.one-earlier:hover`), its line staying as it is.
 fn toggle(words: &str, thread: String, m: &Measure) -> El {
@@ -2115,8 +2141,10 @@ fn reply_box(s: &State, item: &Item, m: &Measure) -> El {
     let said = text(folded.text.as_str()).font(sans(size, 400.0)).color(if folded.draft { dim() } else { muted() }).truncate();
     let counted = (!folded.files.is_empty()).then(|| el().pr(12.0).child(label(&folded.files, 12.0, 400.0, muted())));
     // With the agent's choices folded away, the sign that they are there (`ChoicesShow`).
-    let choices = live_options(item);
-    let sign = (!choices.is_empty() && !s.answer_waits(item) && crate::chips::choices_folded(s, item)).then(|| crate::chips::choices_sign(choices.len()));
+    let choices = crate::ship::offer_now(s, item);
+    // Not while a question stands where they stood (`!closeAsk`).
+    let asking = s.discard_asked().is_some() || s.close_asked().is_some();
+    let sign = (!choices.is_empty() && !s.answer_waits(item) && !asking && crate::chips::choices_folded(s, item)).then(|| crate::chips::choices_sign(choices.len()));
     row().w(m.column)
         .radius(10.0)
         .fill(white(0.04))
@@ -2242,7 +2270,9 @@ fn composer(s: &State, item: &Item, m: &Measure) -> El {
 
 /// The agent's choices over the reply box (`.opt-strip`): each with its number, the one the
 /// arrows are on lit, and what Enter would do said beside it.
-fn options_strip(choices: &[Choice], on: Option<usize>, m: &Measure, peek: Option<usize>) -> El {
+/// The app's own offer may wear its question at the strip's head, with the card that shows it
+/// whole (`head`, `ship.rs`).
+fn options_strip(choices: &[Choice], on: Option<usize>, m: &Measure, peek: Option<usize>, (head, head_card): (Option<El>, Option<El>)) -> El {
     let count = choices.len();
     // A choice is one line here, cut short, two where the conversation is 560 points or less
     // across, and whole while the keys are on it (`.one-choices .opt-text`).
@@ -2322,23 +2352,26 @@ fn options_strip(choices: &[Choice], on: Option<usize>, m: &Measure, peek: Optio
                 s.answering.strip = None;
             }
         })
-        .child(col().w(m.column).radius(10.0).clip_rounded(10.0).border(1.0, edge()).border_layout().children(rows))
+        .child(col().w(m.column).radius(10.0).clip_rounded(10.0).border(1.0, edge()).border_layout().children(head).children(rows))
         // The little arrow that folds the choices away, washed under the pointer, its mark the
         // text's own colour (`ChoicesFold`, `.one-choices-fold:hover`).
         .child(row().pin(None, Some(6.0), Some(8.0), None).size(24.0, 24.0).radius(6.0).center().hover_group().hover(crate::feel::wash()).cursor(rune::Cursor::Pointer).key("choices-fold").label("Fold the choices").child(icon(&icons::DOWN, 14.0).color(muted()).group_color(ink())).on_press(|s: &mut State| crate::chips::toggle_choices(s)))
-        .children(card)
+        // One card at a time, the option's winning (`!peekOption && askPeek`).
+        .children(card.or(head_card))
 }
 
 /// The dock at the conversation's foot (`.focus-dock`): the choices the agent's newest answer
 /// still offers, over the reply box, folded to one line or open.
 fn dock(s: &State, item: &Item, m: &Measure) -> El {
     let mut inner = col().w(m.column);
-    let choices = live_options(item);
+    // The agent's own options, else the app's offer after a run that left a change (`ship.rs`).
+    let choices = crate::ship::offer_now(s, item);
     // An answer on its way has spent the offer, though the engine has not heard it yet. Folded
     // away, the choices show only while one is picked out with the keys
     // (`.one-choices-folded:not(:has(.opt-row.selected))`).
-    // While the question before a discard is up, it stands where the options stood and they go.
-    if !choices.is_empty() && !s.answer_waits(item) && s.discard_asked().is_none() && (s.option.is_some() || !crate::chips::choices_folded(s, item)) {
+    // While the question before a discard, or a close's, is up, it stands where the options
+    // stood and they go.
+    if !choices.is_empty() && !s.answer_waits(item) && s.discard_asked().is_none() && s.close_asked().is_none() && (s.option.is_some() || !crate::chips::choices_folded(s, item)) {
         // The strip moving four points or more under a pointer resting on it is noticed here,
         // as the page is drawn, and a press in the next moment is not taken.
         if let (Some(rested), Some([_, top, _, _])) = (s.answering.strip, rune::memo::window_layout("options-strip")) {
@@ -2347,7 +2380,7 @@ fn dock(s: &State, item: &Item, m: &Measure) -> El {
                 s.answering.strip_moved.set(Some((top, s.at)));
             }
         }
-        inner = inner.child(options_strip(&choices, s.option, m, s.answering.peek).mb(10.0));
+        inner = inner.child(options_strip(&choices, s.option, m, s.answering.peek, crate::ship::head(s, item, m.column)).mb(10.0));
     }
     inner = inner.child(if s.replying { composer(s, item, m) } else { reply_box(s, item, m).cursor(rune::Cursor::Text).on_press_tx(|s: &mut State, tx| s.open_reply(tx)) });
     el().pl(m.indent).pr(m.right).pb(m.foot).child(inner)
@@ -2356,7 +2389,15 @@ fn dock(s: &State, item: &Item, m: &Measure) -> El {
 /// The reply box alone, `wide` across, under a file that takes the whole card (`pane.rs`).
 pub fn dock_alone(s: &State, id: &str, product: &str, wide: f32) -> El {
     match item(s, id, product) {
-        Some(item) => dock(s, item, &Measure::under_file(wide)),
+        Some(item) => {
+            let m = Measure::under_file(wide);
+            // A close's question, or the one before a discard, over it: no conversation is on
+            // the screen to stand in (`closeAskStrip(true)`, `closing.rs`).
+            match crate::closing::full_screen_strip(s, m.column) {
+                Some(ask) => col().child(el().pl(m.indent).pr(m.right).pb(10.0).child(ask)).child(dock(s, item, &m)),
+                None => dock(s, item, &m),
+            }
+        }
         None => el(),
     }
 }
@@ -2493,6 +2534,16 @@ pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
     if let Some(card) = crate::need::sign_in_card(s, item, in_the_cloud, m.column) {
         blocks.push(markdown::block(16.0, 6.0, card));
     }
+    // What the newest turn filed, under its last word, and a close's question about the filed
+    // tasks when it stands here (`madeList(made.atFoot)`, `askHere`). Not on a chat being got
+    // ready, which draws only the question.
+    let made = crate::made::foot(s, item, &talk, as_conversation, page.from, m.column);
+    blocks.extend(made.into_iter().filter(|_| !getting).chain(if getting { crate::closing::filed_strip(s, m.column, None).map(|q| markdown::block(12.0, 6.0, q)) } else { None }));
+    // The question before throwing the change away, or a close's about work off main, at the
+    // conversation's foot over the line that says what is happening (`closeAskStrip`).
+    if let Some(strip) = crate::answer::discard_strip(s, m.column).or_else(|| crate::closing::unshipped_strip(s, m.column)) {
+        blocks.push(markdown::block(22.0, 6.0, strip));
+    }
     // And whether anything is happening, under the last message and over the reply box.
     if let Some(line) = live::foot(item, &facts, true) {
         let run = format!("{thread}|{}", session.as_ref().map_or(0.0, |r| r.started_at));
@@ -2509,10 +2560,6 @@ pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
             blocks.push(markdown::block(18.0, 0.0, card));
         }
         blocks.push(markdown::block(14.0, under, live_line(s, item, &thread, run, &line, &steps, &m, still)));
-    }
-    // The question before throwing the change away, at the conversation's foot (`closeAskStrip`).
-    if let Some(strip) = crate::answer::discard_strip(s, m.column) {
-        blocks.push(markdown::block(22.0, 6.0, strip));
     }
     let (body, _, under) = markdown::stack(blocks, false);
     // A browser scrolls a page only as far as a whole device pixel, whatever its lines add up

@@ -312,7 +312,7 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
         View::Thread { id, product } => {
             // The question before throwing the change away has its keys first while it is up:
             // the numbers, the arrows, Enter and Escape (`closeAskOwnsKey`).
-            if s.discard_key(e, tx) {
+            if s.discard_key(e, tx) || s.close_key(e, tx) {
                 return true;
             }
             // A letter typed with no box under the keys goes into the thread's box, unless it is
@@ -342,7 +342,7 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
             }
             // The arrows walk the agent's options, Enter sends the one they are on, and a
             // number sends that option outright.
-            let choices = s.open_item().map(crate::thread::live_options).unwrap_or_default();
+            let choices = s.open_item().map(|item| crate::ship::offer_now(s, item)).unwrap_or_default();
             if !choices.is_empty() && (e.key == Key::Down || e.key == Key::Up) {
                 s.option = match (s.option, e.key == Key::Down) {
                     (None, true) => Some(0),

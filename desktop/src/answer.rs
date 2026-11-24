@@ -501,6 +501,9 @@ impl State {
         let thread = format!("{product}/{id}");
         if let Some(mark) = &done.mark {
             self.answering.leave_mark(&thread, mark, done.at, write::wall_clock());
+            for also in &done.also {
+                self.answering.leave_mark(also, mark, done.at, write::wall_clock());
+            }
         }
         let back = done.back.take().map(|back| self.give_back(&thread, back));
         if back.is_some() && self.answering.following.as_ref().is_some_and(|(i, p)| *i == id && *p == product) {
@@ -642,6 +645,8 @@ impl State {
     /// stood, nothing lit, on the open thread (`pickOption`, `discardAsk`).
     pub(crate) fn ask_before_discarding(&mut self, item: &Item, choice: Choice) {
         self.option = None;
+        // One question at a time: a close's goes (`closeAskWhy`).
+        self.leave_the_close_ask();
         self.answering.discard = Some(Discard { thread: key(item), choice, lit: None });
     }
 
@@ -669,28 +674,15 @@ impl State {
     /// nothing with none lit, Escape keeps the thread as it was. Every other key keeps its
     /// meaning (`closeAskOwnsKey`).
     pub(crate) fn discard_key(&mut self, e: &rune::KeyEvent, tx: &mut Tx) -> bool {
-        use rune::edit::Key;
+        use crate::closing::AskKey;
         let Some(asked) = self.discard_asked().cloned() else { return false };
-        let count = rules::discard_options().len();
-        match &e.key {
-            Key::Escape => self.answering.discard = None,
-            Key::Down => self.set_discard_lit(Some(asked.lit.map_or(0, |at| (at + 1).min(count - 1)))),
-            Key::Up => self.set_discard_lit(asked.lit.and_then(|at| at.checked_sub(1))),
-            Key::Enter => {
-                if let Some(at) = asked.lit {
-                    self.answer_discard(at + 1, tx);
-                }
-            }
-            Key::Text(t) if t.len() == 1 && t.chars().all(|c| ('1'..='9').contains(&c)) => {
-                let n: usize = t.parse().unwrap_or(0);
-                if n <= count {
-                    self.answer_discard(n, tx);
-                } else {
-                    // A number the question does not have answers nothing, as in the web window.
-                    self.answering.discard = Some(asked);
-                }
-            }
-            _ => return false,
+        // A number the question does not have answers nothing, as in the web window.
+        match crate::closing::ask_key(e, rules::discard_options().len(), asked.lit) {
+            AskKey::NotMine => return false,
+            AskKey::Keep => self.answering.discard = None,
+            AskKey::Lit(lit) => self.set_discard_lit(lit),
+            AskKey::Answer(n) => self.answer_discard(n, tx),
+            AskKey::Nothing => {}
         }
         true
     }
@@ -751,7 +743,7 @@ impl State {
             }
             return true;
         }
-        let has_options = !crate::thread::live_options(&item).is_empty();
+        let has_options = !crate::ship::offer_now(self, &item).is_empty();
         if letter.len() == 1 && letter.chars().all(|c| ('1'..='9').contains(&c)) && has_options {
             return false;
         }
@@ -1064,36 +1056,8 @@ fn icon_at(i: &'static rune::Icon, size: f32, x: f32, y: f32) -> El {
 /// `discardAsk`): its heading, and its two answers numbered and pressable.
 pub fn discard_strip(s: &State, column: f32) -> Option<El> {
     let asked = s.discard_asked()?;
-    let options = rules::discard_options();
-    let rows = options.iter().enumerate().map(|(at, c)| {
-        let lit = asked.lit == Some(at);
-        let tone = if lit { ink() } else { dim() };
-        // The number in its cap (`.opt-key`): 11 points in a frame of the strong line, six
-        // points either side.
-        let number = row().h(18.95).min_w(20.6).px(6.0).items_center().justify_center().radius(6.0).border(1.0, if lit { muted() } else { rule() }).border_layout().mt(1.5).child(text(format!("{}", c.n)).font(TextStyle::new(11.0, 400.0).lh(15.95)).color(tone));
-        let last = at + 1 == options.len();
-        let mut line = row()
-            .key(format!("discard-{at}"))
-            .items_start()
-            .min_h(if last { 39.45 } else { 35.45 })
-            .pt(7.0)
-            .pb(if at + 1 == options.len() { 11.0 } else { 7.0 })
-            .px(16.0)
-            .gap(10.0)
-            .cursor(rune::Cursor::Pointer)
-            .on_press_tx(move |s: &mut State, tx| s.answer_discard(at + 1, tx))
-            .child(number)
-            .child(pen(text(c.text.as_str()).font(TextStyle::new(14.5, 400.0).lh(21.025)).color(tone).group_color(ink()), 14.5));
-        line = if lit { line.fill(white(0.08)) } else { line.hover_group().hover(crate::feel::wash()) };
-        let aside = if lit { Some("↵ send") } else if c.recommended { Some("recommended") } else { None };
-        match aside {
-            Some(said) => line.child(el().pl(8.0).mt(3.5).child(pen(text(said).font(TextStyle::new(11.5, 400.0).lh(16.675)).color(muted()), 11.5))),
-            None => line,
-        }
-    });
-    // The question heads the strip, inside its frame (`.opt-head.opt-head-ask`).
-    let head = el().pt(11.0).px(16.0).pb(7.0).child(pen(text(rules::DISCARD_ASK).font(TextStyle::new(12.5, 600.0).lh(17.5)).color(ink()), 12.5));
-    Some(rune::col().key("discard-ask").w(column).radius(10.0).clip_rounded(10.0).border(1.0, edge()).border_layout().child(head).children(rows))
+    // The strip the close question stands in too (`closing.rs`).
+    Some(crate::closing::ask_strip("discard", &crate::rules::close_asks::discard_ask(), asked.lit, None, column, |s, n, tx| s.answer_discard(n, tx)))
 }
 
 #[cfg(test)]
