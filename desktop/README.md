@@ -28,9 +28,11 @@ box's other two chips, and Shift+Tab; where it runs, this Mac or the cloud, from
 button's panel; and from the dots, Later and its priority. The strip's tab word and its arrows go
 where the web window's go, and the little arrow over an agent's choices folds them away.
 
-The rail's usage row names the agent used last and what it has spent, and resting on it opens the
-card of every agent's limits over it, as the web window's sidebar does ("The agents' limits",
-below).
+The sidebar is the web window's plain list: a pencil beside the team's name starts a thread,
+Search is a field that shows its keys, Workspace and Recent are sections a press on their name
+folds, Recent lists the threads last opened, and the last row is the person's own, with what is
+left of their limit as a small bar at its end; resting on the bar opens the card of every
+agent's limits over it ("The agents' limits", below).
 
 A file an agent names in a conversation is not left as its path: a picture is drawn in place, any
 other file is a mention that opens it, and a folder on a line of its own shows its newest pictures
@@ -462,24 +464,33 @@ words can be selected and where a press moves the window, and its scripts say wh
 pointer resting. This window does the same, read off the web window the way its screens were.
 `src/feel.rs` holds what several screens share; each screen draws its own controls' looks.
 
-- **The rail opens.** 140 ms after the pointer moves onto the rail it opens from 38 points to 202,
-  the whole sidebar with its words, and leaving it folds it at once (`hoverAt` in
+- **The rail opens.** 140 ms after the pointer moves onto the rail it opens from 28 points to 220
+  (`--sidebar-w` in `renderer/src/sidebar.css`; 38 and 202 before the web window's sidebar was
+  redrawn), the whole sidebar with its words, and leaving it folds it at once (`hoverAt` in
   `WorkspaceNavigation.tsx`): a pointer passing over it on its way somewhere is gone before then,
   and a pointer that did not move opens nothing, so a rail uncovered under a pointer standing
   still (by the command bar closing, say) stays folded until it moves (`pointerMoved`). It
   eases open over 0.24 s (`cubic-bezier(.22,.61,.36,1)`) and shut over 0.2 s
   (`cubic-bezier(.4,0,.2,1)`); the words come in 0.08 s later over 0.14 s and go over 0.06 s, and
   Inbox's dot crosses over 0.1 s (`team/rooms/rooms.css`), each frame drawn while it moves.
-  Search has no line under it any more, so nothing of it crosses (`.workspace-find`). The card
-  moves over with it, 44 points past its edge, rather than being covered, and the skies stay
-  painted for the folded card and pinned to its right edge, so the rail uncovers them rather than
-  painting them again (`sky-follows-the-card.ts`). Open, it says what the web window's says: each
-  place's word, Inbox's count in the dim ink where the dot was, the team's name, Search with ⌘K,
-  the foot's rows, the usage row naming the agent used last and its headline figure (resting on
-  it opens the card of the agents' limits, "The agents' limits"), and the person's name over
-  their email. Its places, Search among them, wash under the pointer; Search
-  keeps its faint ink as it does, where the places' marks and words come up to the text's
-  (`home-rail-search`: Search under the pointer 0.52).
+  Search's field (its ground and its rule) comes and goes with the words. The card moves over
+  with it, from 58 points in to 246, on the same curve, rather than being covered, and the skies
+  stay painted for the folded card and pinned to its right edge, so the rail uncovers them rather
+  than painting them again (`sky-follows-the-card.ts`). Open, it says what the web window's says:
+  the team's name with the pencil that starts a thread at the row's end (`.ws-new`, the New
+  thread card), Search as a field with ⌘K, each place's word, Inbox's count in small figures in
+  the dim ink where the dot was, Workspace and Recent under their names, and at the foot the
+  person's name beside their face with the bar of their limit at the row's end (resting on it
+  opens the card of the agents' limits, "The agents' limits"). A section's name folds its rows
+  and the next press brings them back, kept in `native-picks.json` as the web window keeps its
+  own (`agentbox.sidebarFolds`); folded to its marks the sidebar shows no section name, takes no
+  press on one, and draws no Recent and no bar. Recent is the threads last opened, newest first,
+  six at most, each with its harness's mark, its name and a dot while it waits on the person and
+  is not the one open (`recent-threads.ts`, `rules/recent.rs`); a press opens it. A row takes
+  the text's colour at six hundredths under the pointer and while its page is on screen, its
+  word the text's colour and its mark a step brighter; no row takes the pointing hand any more
+  (`cursor: default`). Search keeps its black field under the pointer, its word and keys a step
+  brighter and its glass as it was.
   Under the system's Reduce motion it opens and folds whole, as the same stylesheet's
   `prefers-reduced-motion` block takes every one of those transitions away.
 - **Under the pointer.** Every control these screens draw takes the web window's look while the
@@ -600,17 +611,22 @@ after (`HINT_WAIT`). New thread
 was measured before its title was: since, a headless picture draws Rune's own stand-in for the
 title from 0.5 s, over the plate (36.89), where a Mac window leaves the title to AppKit and its wait.
 
-The rail open, the pointer resting where the web window's rail has Demands (Files here): its
-places under the Inbox and its foot are the web window's own and more (see what still differs),
-so the rail is held to the web window's where the two draw the same, the team's name, Search,
-Home and the Inbox with its count. Against the newer look, whose Search has no line under it and
-whose count is in the dim ink, that part is 0.44 at 1280 by 760, 0.47 at 900 by 760 and 0.43 at
-1600 by 1000 (0.62, 0.65 and 0.60 before it followed), the same over the Inbox and a
-conversation; the whole rail is 1.01, 1.03 and 0.81, and Home with the rail open 0.99, 1.06 and
-0.76. With teammates, a recorder and a sign-in (`home-team-rail-open`) the whole window is 1.12,
-the rail 1.61 (the web window's has Chats and Record meeting); while an update waits
-(`home-update-rail-open`) 1.32, the rail 3.39, as the update's card is not drawn open (see what
-still differs).
+The rail open, the pointer resting on Home, which stands in the same place in both and has no
+title while the sidebar is open (the scenes rested it on Demands before the sidebar was redrawn;
+Workspace's name stands there in this window now). Its places under the Inbox and its foot are
+the web window's own and more (see what still differs), so the sidebar is held to the web
+window's where the two draw the same: the team's name and the pencil, Search, Home and the Inbox
+with its count. On the web window's sidebar as redrawn on 2026-11-23 that part is 0.20 at 1280 by
+760, at 900 by 760 and at 1600 by 1000 (0.44, 0.47 and 0.43 on the sidebar before it), 0.23 over
+the Inbox and over a conversation; the whole sidebar is 1.55, 1.55 and 1.17, and Home with it
+open 0.92, 1.08 and 0.62. Folded, Home is 0.67, 0.85 and 0.48 whole. Over a conversation
+(`thread-rail-open`) Recent holds the thread that is open, with its mark, as the web window's
+does, 32 points higher for the Demands this window leaves out. With teammates, a recorder and a
+sign-in (`home-team-rail-open`) the whole window is 1.00 and the person's row with its bar
+stands where the web window's does (the web window's sidebar also has Chats, Connections and
+Record meeting); while an update waits (`home-update-rail-open`) 1.33, as the update's card is
+not drawn open (see what still differs). With the pointer on Search (`home-rail-search`) the
+field is the web window's, and the picture differs by Rune's stand-in for its title alone.
 
 The pointer's shape, points that match the web window's of all the points in each scene:
 

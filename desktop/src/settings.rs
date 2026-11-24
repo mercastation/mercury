@@ -680,8 +680,10 @@ pub fn view(s: &State) -> Vec<El> {
     s.settings.laid_out.set(rune::memo::window_layout(&format!("settings-pane-{}", s.settings.visit)).is_some() && anchor.is_none_or(|a| rune::memo::window_layout(&a).is_some()));
     let card = el()
         .pin(Some(CARD_LEFT), Some(crate::chrome::CARD[1]), Some(crate::chrome::CARD[2]), Some(crate::chrome::CARD[3]))
-        .radius(6.0)
-        .fill(rgba(36, 34, 33, 0.55))
+        // The main card as every page has it (`chrome::card`): the deep black, whole, on a
+        // 10-point corner.
+        .radius(PANE_CORNER)
+        .fill(surface())
         .box_shadow(shadow(0.0, 40.0, 120.0, 0.0, rgba(0, 0, 0, 0.7), false))
         .box_shadow(shadow(0.0, 0.0, 0.0, 1.0, edge(), true));
     let mut layers = vec![card, nav(s, h), pane(s, w)];
@@ -860,7 +862,7 @@ fn pane(s: &State, w: f32) -> El {
         },
     };
     el().pin(Some(CARD_LEFT), Some(crate::chrome::CARD[1]), Some(crate::chrome::CARD[2]), Some(crate::chrome::CARD[3]))
-        .clip_corners([6.0, 6.0, 6.0, 6.0])
+        .clip_corners([PANE_CORNER; 4])
         // A column: a plain box is a row, which would stretch the page to its own height and
         // leave nothing to scroll.
         .child(col().key(format!("settings-pane-{}", s.settings.visit)).w_full().h_full().scroll(ScrollSpec { stick_bottom: false }).child(page.children(body)))

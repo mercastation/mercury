@@ -417,9 +417,10 @@ pub fn head(s: &State, id: &str, product: &str) -> El {
             )
             .mr(10.0),
         )
-        // Back is where the person came from, and a thread opened from nowhere came from the Inbox.
-        .child(arrow(square(&icons::BACK, 15.0, 26.0, ink())).ml(2.0).help(chrome::back_title(s)).on_press(|s: &mut State| s.leave_thread()))
-        .child(square(&icons::FORWARD, 15.0, 26.0, muted()).ml(2.0).opacity(0.45).no_window_drag())
+        // Back and Forward walk the trail of the list and the threads stood on (`walk.rs`), each
+        // dim while it has nowhere to go.
+        .child(chrome::trail_arrow(s, false).ml(2.0))
+        .child(chrome::trail_arrow(s, true).ml(2.0))
         .child(
             row().grow(1.0)
                 .min_w(0.0)

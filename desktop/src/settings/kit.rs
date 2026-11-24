@@ -56,7 +56,7 @@ pub fn error(words: &str) -> El {
         .py(9.0)
         .px(14.0)
         .radius(6.0)
-        .fill(rgb(36, 34, 33))
+        .fill(raised())
         .border(1.0, rule())
         .border_layout()
         .child(pen(text(words).font(TextStyle::new(12.5, 400.0).lh(kept(18.75))).color(dim()).wrap(), 12.5))

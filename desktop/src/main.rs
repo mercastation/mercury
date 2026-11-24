@@ -60,6 +60,7 @@ mod trouble;
 mod usage;
 mod viewer;
 mod wake;
+mod walk;
 mod window;
 mod write;
 
@@ -171,7 +172,11 @@ pub struct State {
     reads: reads::Reads,
     /// The pictures the open conversation names, read off the disk (`pictures.rs`).
     pub pictures: pictures::Pictures,
+    /// Where each page was opened from, which is where Escape and a conversation's own way
+    /// back lead (`leave_thread`).
     pub history: Vec<View>,
+    /// The trail Back and Forward walk on the inbox page (`walk.rs`).
+    walk: walk::Walk,
     pub source: Source,
     mailbox: Mailbox,
     /// Why the engine could not be read, when it could not.
@@ -1435,6 +1440,7 @@ fn init_from(args: &[String]) -> State {
         reads: reads::Reads::default(),
         pictures: pictures_for(false),
         history: Vec::new(),
+        walk: walk::Walk::default(),
         source,
         mailbox: Mailbox::default(),
         error: None,
@@ -1803,6 +1809,7 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
     // A sheet beside it or big: its saves, where its keys are, its logos (`table.rs`).
     changed |= table::tend(s, clock(), tx);
     changed |= chrome::rail_moves(s, at, tx);
+    changed |= walk::tend(s, at, tx);
     changed |= usage::tend(s, at, tx);
     changed |= feel::hint_due(s, at);
     // What Try again came back with, and the line at a conversation's foot kept counting.

@@ -771,8 +771,8 @@ pub fn strip(s: &State) -> El {
             s.go(View::Inbox);
             s.show_tab(crate::data::Tab::Needs);
         }))
-        .child(square(&icons::BACK, ink()).ml(12.0).hover(crate::feel::film()).cursor(Cursor::Pointer).help(crate::chrome::back_title(s)).on_press(|s: &mut State| s.leave_thread()))
-        .child(square(&icons::FORWARD, muted()).ml(2.0).opacity(0.45))
+        .child(crate::chrome::trail_arrow(s, false).ml(12.0))
+        .child(crate::chrome::trail_arrow(s, true).ml(2.0))
 }
 
 /// The keys while a file is beside the conversation: Escape puts down a file the person opened.

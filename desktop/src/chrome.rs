@@ -837,38 +837,44 @@ fn toast_about(s: &State, toast: &crate::write::Toast) -> El {
 /// What Back's title says it goes back to (`Back to … (⌘[)`, `stopName` in `renderer/src/App.tsx`):
 /// Home, the Inbox's tab, or a thread's name. A conversation opened from nowhere goes back to the
 /// Inbox.
-pub fn back_title(s: &State) -> String {
-    let name = match s.history.last() {
-        Some(View::Home) => "Home".to_string(),
-        Some(View::Thread { id, product }) => s.snap.items.iter().find(|i| &i.id == id && &i.product == product).map_or_else(|| "the thread".to_string(), crate::rules::title::row_title),
-        Some(View::Files { .. }) => "Files".to_string(),
-        Some(View::Inbox) | None => s.inbox_tab.label().to_string(),
-    };
-    format!("Back to {name} (⌘[)")
+pub fn back_title(s: &State) -> Option<String> {
+    s.back_to().map(|to| format!("Back to {} (⌘[)", s.stop_name(&to)))
+}
+/// And Forward's (`Forward to … (⌘])`).
+pub fn forward_title(s: &State) -> Option<String> {
+    s.forward_to().map(|to| format!("Forward to {} (⌘])", s.stop_name(&to)))
 }
 
-/// Back and forward, at the head of the card. Dim while there is nowhere to go. A conversation
-/// has a strip of its own there, with these two in it.
-pub fn back_forward(s: &State) -> El {
-    if let View::Thread { id, product } = &s.view {
-        return crate::thread::head(s, id, product);
+/// Back or Forward (`BackForward.tsx`), 26 points square around a 15-point arrow. One with
+/// somewhere to go is in the text's colour, takes `--film-strong` under the pointer, says where
+/// it leads and its keys in its title, and a press steps there along the trail (`walk.rs`); one
+/// with nowhere is faint at 45%, keeps the arrow pointer and no look (`.back-forward
+/// button:disabled`). Either keeps its press from the strip under it, which moves the window
+/// (`.topbar button { no-drag }`).
+pub fn trail_arrow(s: &State, forward: bool) -> El {
+    let (glyph, title) = if forward { (&icons::FORWARD, forward_title(s)) } else { (&icons::BACK, back_title(s)) };
+    let live = title.is_some();
+    let e = row().size(26.0, 26.0).radius(6.0).center().opacity(if live { 1.0 } else { 0.45 }).child(icon(glyph, 15.0).color(if live { ink() } else { muted() }));
+    match title {
+        Some(title) => e.hover(crate::feel::film()).cursor(rune::Cursor::Pointer).help(title).on_press(move |s: &mut State| s.travel(forward)),
+        None => e.no_window_drag(),
     }
-    // An arrow with somewhere to go takes `--film-strong` under the pointer; one with nowhere
-    // keeps the arrow pointer and no look (`.back-forward button:disabled`). Either keeps its
-    // press from the strip under it, which moves the window (`.topbar button { no-drag }`).
-    let arrow = |glyph: &'static Icon, live: bool| {
-        let e = row().size(26.0, 26.0).radius(6.0).center().opacity(if live { 1.0 } else { 0.45 }).child(icon(glyph, 15.0).color(if live { ink() } else { muted() }));
-        if live { e.hover(crate::feel::film()).cursor(rune::Cursor::Pointer) } else { e.no_window_drag() }
-    };
-    // 44 points into the card (`.gt-inset .topbar`), wherever the rail has put the card. Back
-    // with somewhere to go says where in its title.
-    let back = arrow(&icons::BACK, !s.history.is_empty()).on_press(|s: &mut State| s.back());
-    let back = if s.history.is_empty() { back } else { back.help(back_title(s)) };
-    let arrows = row().absolute(card_left(s) + 44.0, 58.5).gap(2.0).child(back).child(arrow(&icons::FORWARD, false));
-    // The Inbox's title and buttons stand in the same strip as the arrows, and the Files place's name.
-    match s.view {
-        View::Inbox => el().absolute(0.0, 0.0).child(crate::inbox::strip(s)).child(arrows),
-        View::Files { .. } => el().absolute(0.0, 0.0).child(crate::files_page::strip(s)).child(arrows),
-        _ => arrows,
+}
+
+/// The head of the card. Back and Forward are drawn on the inbox page alone: before the
+/// Inbox's title, and in a conversation's own strip (`onInboxPage` in
+/// `renderer/src/back-and-forward.ts`). Home has no strip to be seen, and the Files place has
+/// its name and no arrows.
+pub fn back_forward(s: &State) -> El {
+    match &s.view {
+        View::Thread { id, product } => crate::thread::head(s, id, product),
+        // 44 points into the card (`.gt-inset .topbar`), wherever the rail has put the card, in
+        // the same strip as the Inbox's title and buttons.
+        View::Inbox => {
+            let arrows = row().absolute(card_left(s) + 44.0, 58.5).gap(2.0).child(trail_arrow(s, false)).child(trail_arrow(s, true));
+            el().absolute(0.0, 0.0).child(crate::inbox::strip(s)).child(arrows)
+        }
+        View::Files { .. } => el().absolute(0.0, 0.0).child(crate::files_page::strip(s)),
+        View::Home => el().absolute(0.0, 0.0),
     }
 }

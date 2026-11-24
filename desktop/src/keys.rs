@@ -174,13 +174,11 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
     if s.command_c(e, tx) {
         return true;
     }
-    // ⌘[ is Back, as Back's title says (`Back to … (⌘[)` in `BackForward.tsx`): a conversation
-    // goes back to where it was opened from, any other page to the one before it.
-    if e.mods.cmd && e.key == Key::Command('[') {
-        match s.view {
-            View::Thread { .. } => s.leave_thread(),
-            _ => s.back(),
-        }
+    // ⌘[ is Back and ⌘] Forward, as their titles say (`Back to … (⌘[)` in `BackForward.tsx`):
+    // a step along the trail of the list and the threads stood on (`walk.rs`). The keys are
+    // held on every page and step only on the inbox page (`useBackAndForward`).
+    if e.mods.cmd && !e.mods.shift && !e.mods.alt && (e.key == Key::Command('[') || e.key == Key::Command(']')) {
+        s.travel(e.key == Key::Command(']'));
         return true;
     }
     // A change open beside the conversation answers its own keys before the page's: ⌘S, the

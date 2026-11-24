@@ -443,6 +443,15 @@ pub fn cloud_account_in_use<'a>(accounts: &'a [Value], engine: &str) -> Option<&
     counted(accounts).into_iter().find(|a| text(a, "engine") == Some(engine) && on(a, "inUse"))
 }
 
+/// Why a second account buys no more agents, said over the accounts only where somebody can
+/// see two of their own and every thread runs on this computer: with the cloud on, each place
+/// has its own one, so the line is no longer true (`line=` on Signed in, in `Settings.tsx`:
+/// `tiles.length > 1 && mode === 'mac'`, the mode being the cloud's once it is set up).
+pub fn one_account_line(tiles: usize, cloud: Option<&Value>) -> Option<&'static str> {
+    let mode = cloud.filter(|c| on(c, "setUp")).and_then(|c| text(c, "mode")).unwrap_or("mac");
+    (tiles > 1 && mode == "mac").then_some("Your agents run on one account at a time.")
+}
+
 /// When threads go to the cloud, and on which account (`cloudRunsLine`).
 pub fn cloud_runs_line(mode: &str, in_use: Option<&str>) -> String {
     if mode == "mac" {
@@ -1524,6 +1533,14 @@ mod tests {
         assert_eq!(cloud_runs_line("full", Some("sam@example.com")), "Threads start there when this computer is full, on sam@example.com.");
         assert_eq!(cloud_runs_line("all", None), "Threads start there first, on your cloud account.");
         assert_eq!(cloud_runs_line("mac", None), "Every thread runs on this computer.");
+        // The line over two accounts stands only while every thread runs on this computer.
+        let said = Some("Your agents run on one account at a time.");
+        assert_eq!(one_account_line(2, None), said);
+        assert_eq!(one_account_line(1, None), None);
+        assert_eq!(one_account_line(2, Some(&json!({ "setUp": true, "mode": "mac" }))), said);
+        assert_eq!(one_account_line(2, Some(&json!({ "setUp": true, "mode": "full" }))), None);
+        assert_eq!(one_account_line(2, Some(&json!({ "setUp": true, "mode": "all" }))), None);
+        assert_eq!(one_account_line(2, Some(&json!({ "setUp": false, "mode": "full" }))), said, "a cloud not set up runs nothing");
         assert_eq!(cloud_toggle_target(&json!({ "mode": "full", "whenOn": "full" })), "mac");
         assert_eq!(cloud_toggle_target(&json!({ "mode": "mac", "whenOn": "all" })), "all");
         assert_eq!(cloud_toggle_target(&json!({ "mode": "mac" })), "full");

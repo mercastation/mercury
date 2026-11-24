@@ -63,6 +63,7 @@ pub mod thread_files;
 pub mod threads_made;
 pub mod title;
 pub mod trace;
+pub mod trail;
 pub mod trouble_row;
 pub mod typed;
 pub mod usage;

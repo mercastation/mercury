@@ -129,7 +129,7 @@ fn engine_page(s: &State, engine: Engine, column: f32) -> Vec<El> {
     };
     action = action.child(refresh);
     let warn = if engine == Engine::Claude { t(w, "accountsNote").map(str::to_string) } else { None };
-    let line = (tiles.len() > 1).then(|| "Your agents run on one account at a time.".to_string());
+    let line = rules::one_account_line(tiles.len(), super::pages::part(s, "cloud")).map(str::to_string);
     out.push(place(s, "Signed in", Some(action), warn.or(line), &tiles, Some(engine), column));
     if let Some(cloud) = cloud {
         out.push(use_the_cloud(s, cloud, engine, &cloud_logins));

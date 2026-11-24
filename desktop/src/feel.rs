@@ -739,17 +739,81 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn command_bracket_goes_back_where_backs_title_says() {
-        let mut rt = window("back", &["--view", "inbox"]);
-        assert_eq!(super::super::chrome::back_title(&rt.state), "Back to Home (⌘[)");
-        rt.key(KeyEvent { key: Key::Command('['), mods: Mods { cmd: true, ..Mods::default() } });
-        rt.frame(1.0 / 60.0);
+    fn back_and_forward_walk_the_list_and_the_threads_stood_on_and_only_on_the_inbox_page() {
+        use super::super::chrome::{back_title, forward_title};
+        let bracket = |rt: &mut Runtime<State>, forward: bool| {
+            rt.key(KeyEvent { key: Key::Command(if forward { ']' } else { '[' }), mods: Mods { cmd: true, ..Mods::default() } });
+            rt.frame(1.0 / 60.0);
+            // Each place stays on screen long enough to count (`SETTLE_MS`).
+            run(rt, 0.4);
+        };
+        let mut rt = window("trail", &["--view", "inbox"]);
+        run(&mut rt, 0.4);
+        let row = |rt: &Runtime<State>, n: usize| (rt.state.lists.needs[n].id.clone(), rt.state.lists.needs[n].product.clone(), rt.state.lists.needs[n].title.clone());
+        let (a, b) = (row(&rt, 0), row(&rt, 1));
+        let thread = |(id, product, _): &(String, String, String)| View::Thread { id: id.clone(), product: product.clone() };
+        // On the list with nowhere to have been: both arrows dim, and ⌘[ stays put.
+        assert_eq!((back_title(&rt.state), forward_title(&rt.state)), (None, None));
+        bracket(&mut rt, false);
+        assert_eq!(rt.state.view, View::Inbox);
+        // A thread opened from the list: back names the list by its tab.
+        rt.state.open_thread(&a.0, &a.1);
+        run(&mut rt, 0.4);
+        assert_eq!(back_title(&rt.state).as_deref(), Some("Back to Needs you (⌘[)"));
+        // Escape to the list, which is a visit: back from it is the thread just left.
+        key(&mut rt, Key::Escape);
+        run(&mut rt, 0.4);
+        assert_eq!(rt.state.view, View::Inbox);
+        assert_eq!(back_title(&rt.state), Some(format!("Back to {} (⌘[)", a.2)));
+        // A second thread, then back three times: the list, the first thread, the list, and no further.
+        rt.state.open_thread(&b.0, &b.1);
+        run(&mut rt, 0.4);
+        bracket(&mut rt, false);
+        assert_eq!(rt.state.view, View::Inbox);
+        assert_eq!(forward_title(&rt.state), Some(format!("Forward to {} (⌘])", b.2)));
+        bracket(&mut rt, false);
+        assert_eq!(rt.state.view, thread(&a));
+        bracket(&mut rt, false);
+        assert_eq!(rt.state.view, View::Inbox);
+        assert_eq!(back_title(&rt.state), None, "the start of the trail");
+        bracket(&mut rt, false);
+        assert_eq!(rt.state.view, View::Inbox);
+        // Forward walks back the way back came.
+        bracket(&mut rt, true);
+        assert_eq!(rt.state.view, thread(&a));
+        bracket(&mut rt, true);
+        assert_eq!(rt.state.view, View::Inbox);
+        bracket(&mut rt, true);
+        assert_eq!(rt.state.view, thread(&b));
+        assert_eq!(forward_title(&rt.state), None);
+        // A thread the arrows reached opens over the inbox: Escape leaves it for the list.
+        key(&mut rt, Key::Escape);
+        assert_eq!(rt.state.view, View::Inbox);
+        // Home has no arrows, and the keys, held there too, step nowhere.
+        rt.state.go(View::Home);
+        run(&mut rt, 0.4);
+        assert_eq!((back_title(&rt.state), forward_title(&rt.state)), (None, None));
+        bracket(&mut rt, false);
         assert_eq!(rt.state.view, View::Home);
-        let mut rt = window("back-thread", &["--thread"]);
-        assert_eq!(super::super::chrome::back_title(&rt.state), "Back to Needs you (⌘[)");
-        rt.key(KeyEvent { key: Key::Command('['), mods: Mods { cmd: true, ..Mods::default() } });
-        rt.frame(1.0 / 60.0);
-        assert_eq!(rt.state.view, View::Inbox, "a conversation opened from nowhere goes back to the Inbox");
+        // The last thread stood on is the one the list washes, on the inbox page alone.
+        assert_eq!(rt.state.last_thread(), None);
+        rt.state.go(View::Inbox);
+        run(&mut rt, 0.4);
+        assert_eq!(rt.state.last_thread(), Some(&(b.1.clone(), b.0.clone())));
+    }
+
+    #[test]
+    fn a_place_that_only_flashed_past_is_not_somewhere_the_person_was() {
+        let mut rt = window("trail-flash", &["--view", "inbox"]);
+        run(&mut rt, 0.4);
+        let (id, product) = (rt.state.lists.needs[0].id.clone(), rt.state.lists.needs[0].product.clone());
+        // Into a thread and out again inside 300 ms: back from the list has nowhere to go.
+        rt.state.open_thread(&id, &product);
+        run(&mut rt, 0.1);
+        key(&mut rt, Key::Escape);
+        run(&mut rt, 0.4);
+        assert_eq!(rt.state.view, View::Inbox);
+        assert_eq!(super::super::chrome::back_title(&rt.state), None);
     }
 
     #[test]
