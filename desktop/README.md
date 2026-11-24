@@ -299,13 +299,16 @@ the green dot):
 
 | Scene | 1280 by 760 | 900 by 760 | 1600 by 1000 |
 |---|---|---|---|
-| `home` | 0.86 | 1.00 | 0.69 |
-| `home-typed` | 0.91 | 1.08 | 0.73 |
-| `home-few` | 0.82 | 1.13 | 0.58 |
-| `home-working` | 0.87 | | |
+| `home` | 0.67 | 0.85 | 0.48 |
+| `home-typed` | 0.72 | 0.93 | 0.51 |
+| `home-few` | 0.64 | 0.99 | 0.40 |
+| `home-working` | 0.68 | | |
 
-At 900 by 760 `home` is 1.10 on the card and 0.50 on the rail, which has fewer places and a
-shorter foot than the web window's (see what still differs).
+Those are against the web window as it looks since 2026-11-23 (the deep black, the 10-point
+card 58 points in, the sidebar as a plain list); against the look before it they were 0.86,
+1.00 and 0.69 for `home`. What is left on the sidebar is the places and foot rows this window
+leaves out (see what still differs). A conversation (`thread`) is 0.38, 0.51 and 0.60 at the
+three sizes, and the Inbox 0.31, 0.35 and 0.22.
 
 The Inbox holds at other window sizes too, where its table gives up columns (Priority at a table
 of 915 points, Project at 785). The first tab and `inbox-later-kinds`:
@@ -3399,18 +3402,26 @@ point and stands where the web's does against its neighbours.
 
 ## What still differs from the web app, and why
 
-- **The web window changed on 2026-11-23 and this window has not followed.** An upstream sync
-  that day gave the web window's dark skies a deep black for the warm Ash (`--bg` #0b0b0c,
-  `--surface` #131315, `--bg-raised` #1a1a1c, hairlines #363639 and #424245), a narrower rail
-  with a Recent list, Inbox rows of two lines, a home page for Files (Recent, a section per
-  folder, "Every file, with sizes and the Trash" leading to the grid this window draws), a menu
-  of apps on the open mark, N over a file opened big, and lines for an E or a Z that did nothing
-  ("Open this thread to close it.", "This thread is already done."). The Inbox's rows of two
-  lines, E and Z's lines and the menus without the dark glow are followed since (see "The
-  Inbox's rows, two lines each"; the page is 0.31 again). A conversation that was
-  0.41 of 255 from the web window's is 16 from it now, nearly all of it the ground's colour and
-  the rail's width. Until this window is fitted to it again, a scene's whole-window number says
-  little; a part is compared against the same part (the sign-in card's notes say how).
+- **The web window changed on 2026-11-23, and this window followed on 2026-11-24.** An upstream
+  sync gave the web window's dark skies a deep black for the warm Ash (`--bg` #0b0b0c,
+  `--surface` #131315, `--bg-raised` #1a1a1c, hairlines #363639 and #424245), an opaque main
+  card on a 10-point corner, a sidebar redrawn as a plain list with a Recent list, Inbox rows of
+  two lines, a home page for Files, Back and Forward that walk the threads stood on and stand on
+  the inbox page alone, and lines for an E or a Z that did nothing. A conversation that had been
+  0.41 of 255 from the web window's was 15 from it the day after. All of that is followed now:
+  the colours by name in `theme.rs`, the frame and the sidebar in `chrome.rs`
+  (`docs/parity-sidebar.md`), the rows in `inbox.rs` (`docs/parity-inbox-rows.md`), the Files
+  place in `files_home.rs` and `files_page.rs` (`docs/parity-files-home.md`), the arrows in
+  `walk.rs`. At 1280 by 760 Home is 0.67 (it was 0.86 against the look before), the Inbox 0.31,
+  a conversation 0.38, Settings 0.15 to 0.31, the Files home 0.21. What that left undone, each
+  with its reason in those three documents: on the page of every file, the menus on a tile and
+  on a folder's card, choosing files for the Trash and the total's menu; in a file opened big,
+  the menu of apps on the open mark, renaming from the view, and N starting a thread over it;
+  Upload from computer, which needs a channel the door does not have; dragging a tile onto a
+  folder (Move to… does the same move); New's Document and Table, which open to be read, as
+  this window writes in no document; a second line led by who said it and a face on a
+  teammate's or a person's row, as this window draws no team; and the web window's plain Dark
+  with no sky, its other skies and its light looks, none of which this window has.
 - **What a sweep of the whole web window found, that this list did not have** (2026-11-23; read
   off the code of every component and every call the web window makes, 134 of whose 175 channels
   this window never calls). Left out by agreement, and so not listed again: the team and its
@@ -4063,7 +4074,10 @@ point and stands where the web's does against its neighbours.
   `src/rules/table_edit.rs`: changing one and writing it back in its own shape.
   `docs/parity-tables.md`: every behaviour of the web window's table, and how each was checked.
   `tools/scenes/table*.mjs` with `tools/table.py`: the sheet worked in both windows and measured.
-- `src/files_page.rs`: the Files place. `src/rules/files_shown.rs`: what it shows, in what order,
+- `src/files_home.rs`: the Files place's home, its folders' pages, its menus and New, with its
+  rules in `src/rules/files_home.rs` (`docs/parity-files-home.md`). `src/rules/e_and_z.rs`:
+  what E and Z say when they did nothing (`docs/parity-inbox-rows.md` has the Inbox's rows).
+- `src/files_page.rs`: the page of every file. `src/rules/files_shown.rs`: what it shows, in what order,
   and what a tile says.
   `src/rules/paths.rs`, `mentions.rs`, `roots.rs`: which words name a file, what kind it is and
   what it is called, and where it is looked for. `src/rules/thread_files.rs`: which files a
