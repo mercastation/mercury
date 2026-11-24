@@ -492,7 +492,8 @@ impl State {
                     self.tell(&format!("That {kind} could not be made."), tx);
                 }
             }
-            // The app answers this with the system's file window, over its own window.
+            // Never offered here: the app answers it with the system's file window, over its own
+            // window (`files_home::new_offers`).
             Making::Upload => {}
         }
     }
@@ -911,17 +912,16 @@ pub fn view(s: &State) -> El {
             &mut s.files.query
         })
         .on_input_key(|s: &mut State, e: &rune::KeyEvent, tx: &mut Tx| {
-            // Escape takes back what is typed first, then the keys go back to the page.
+            // Escape takes back what is typed; with nothing typed it does nothing, the page
+            // taking no key from a box (`inInput` in `App.tsx`'s keydown).
             if e.key != rune::edit::Key::Escape {
                 return false;
             }
-            if s.files.query.text.is_empty() {
-                s.files.query.focused = false;
-                tx.blur();
-            } else {
+            if !s.files.query.text.is_empty() {
                 s.files.query = TextEdit::new("");
                 s.files.query.focused = true;
             }
+            let _ = tx;
             true
         });
     let find = row()

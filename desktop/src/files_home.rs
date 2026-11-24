@@ -351,11 +351,15 @@ fn find(s: &State) -> El {
         .caret(ink(), rgba(110, 165, 255, 0.3))
         .on_edit(|s: &mut State| &mut s.files.query)
         .on_input_key(|s: &mut State, e: &rune::KeyEvent, _tx: &mut Tx| {
-            if e.key != rune::edit::Key::Escape || s.files.query.text.is_empty() {
+            // With nothing in it Escape does nothing at all: the page takes no key from a box,
+            // and the box keeps the caret.
+            if e.key != rune::edit::Key::Escape {
                 return false;
             }
-            s.files.query = rune::TextEdit::new("");
-            s.files.query.focused = true;
+            if !s.files.query.text.is_empty() {
+                s.files.query = rune::TextEdit::new("");
+                s.files.query.focused = true;
+            }
             true
         });
     let cap = row()
@@ -552,8 +556,10 @@ fn beside_recent(s: &State, recent: &[home::RecentFile], fh: f32, main: impl Fn(
     if recent.is_empty() {
         return main(fh, 4);
     }
+    // One over the other, the folders still three across (`.fh-split .fh-grid` holds), and the
+    // last day's ten points under Recent kept (the column is a grid item, so its margin stays).
     if !split(s) {
-        return col().child(rail(s, recent)).child(main(fh, 4));
+        return col().child(rail(s, recent).pb(10.0)).child(main(fh, 3));
     }
     let wide = fh - RAIL - RAIL_GAP;
     row().items_start().gap(RAIL_GAP).child(rail(s, recent)).child(col().w(wide).child(main(wide, 3)))
@@ -702,13 +708,15 @@ fn shelf(s: &State, files: &[&Placed], folder: Option<&Folder>, fh: f32) -> El {
     out
 }
 
-/// What New offers on this page, or None where it is not drawn.
+/// What New offers on this page, or None where it is not drawn. Upload from computer is left
+/// out: the app answers it with the system's file window, which it opens over its own window
+/// and not over this one.
 pub fn new_offers(s: &State, list: &List) -> Option<Vec<Making>> {
     let project = here(s).project;
     let folder = project.as_ref().and_then(|_| s.files.folder.as_deref()).and_then(|id| list.folders.iter().find(|f| f.id == id));
     // Folders go one level deep.
     let can_folder = folder.is_none_or(|f| f.parent.is_none());
-    home::new_offers(project.as_deref(), &list.mine, can_folder)
+    home::new_offers(project.as_deref(), &list.mine, can_folder).map(|offers| offers.into_iter().filter(|m| *m != Making::Upload).collect())
 }
 
 /* ------------------------------ the menus ------------------------------ */
@@ -1086,6 +1094,9 @@ mod tests {
         key(&mut rt, Key::Escape);
         assert_eq!(rt.state.files.query.text, "");
         assert!(matches!(rt.state.view, View::Files { .. }), "the first Escape only takes the words back");
+        // With nothing in it, Escape does nothing: Files stays, the caret in the box.
+        key(&mut rt, Key::Escape);
+        assert!(matches!(rt.state.view, View::Files { .. }) && rt.state.files.query.focused);
     }
 
     #[test]
@@ -1145,6 +1156,14 @@ mod tests {
         key(&mut rt, Key::Escape);
         assert!(rt.state.files.renaming.is_none());
         assert_eq!(rt.state.tried.len(), sent);
+        // Leaving the box keeps what was typed (`onBlur`).
+        menu_of(&mut rt, "storefront/week-32.pdf");
+        press_on(&mut rt, "fh-item-Rename");
+        key(&mut rt, Key::Text("Week 32".into()));
+        press(&mut rt, 1200.0, 700.0);
+        rt.frame(1.0 / 60.0);
+        assert!(rt.state.files.renaming.is_none());
+        assert_eq!(rt.state.tried.last(), Some(&(FOLDER_ACT, json!({ "do": "name", "key": "storefront/week-32.pdf", "name": "Week 32" }))));
     }
 
     #[test]
@@ -1216,9 +1235,11 @@ mod tests {
     fn new_makes_a_document_here_or_asks_which_project_and_a_folder_is_named_in_place() {
         let mut rt = files("fh-new", Some("Storefront"), json!({}));
         press_on(&mut rt, crate::files_home::NEW);
-        for words in ["Document", "Table", "Folder", "Upload from computer"] {
+        for words in ["Document", "Table", "Folder"] {
             assert!(says(&rt, words), "{words:?} is not on New's menu");
         }
+        // Upload from computer would open the system's file window over the app's own window.
+        assert!(!says(&rt, "Upload from computer"));
         press_on(&mut rt, "fp-menu-item-Document");
         assert_eq!(rt.state.tried.last(), Some(&(NEW_FILE, json!({ "project": "Storefront", "name": "", "kind": "document", "folder": null }))));
         // A folder: a box as a section, and Return makes it in the project.
