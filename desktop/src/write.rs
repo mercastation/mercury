@@ -284,6 +284,9 @@ pub struct Toast {
     /// reply box of the thread it moved the person to ("Sent to"), where it then stands instead
     /// (`saysWhereItWent`).
     pub sent: Option<String>,
+    /// A warning (`goes.warns`, `.toast-warns`): its line wraps rather than being cut with
+    /// dots, since a warning is read whole or it warns of nothing.
+    pub warns: bool,
 }
 
 /// One answer from the engine: its own, or why it could not be reached.

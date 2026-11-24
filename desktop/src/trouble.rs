@@ -53,15 +53,21 @@ pub fn closed(since: f64) -> (&'static str, Value) {
     (CLOSED_HERE, json!({ "since": since }))
 }
 
-fn holds(s: &mut State, at: f64) {
+/// The put-away's three seconds are up and it is written: the row leaves the lists now, and
+/// this window holds that until the web window's own record says the same. Until then the row
+/// stays where it was, as the web window's does: there the put-away is a fact kept beside the
+/// lists (`troubleClosed`), set only when the held write goes (`deferCommit` in
+/// `closeTroubleRow`), and the row is a made one that the hold does not hide.
+pub(crate) fn written(s: &mut State, at: f64) {
     s.trouble.wanted = Some(at);
     s.local.trouble_closed = at;
     s.refresh();
 }
 
 impl State {
-    /// Puts the row away: out of the lists now, written in three seconds unless Z comes first.
-    /// From inside it, on to the next thread that needs the person.
+    /// Puts the row away: said now with Z beside it, and written in three seconds unless Z
+    /// comes first, which is when it leaves the lists (`written`). From inside it, on to the
+    /// next thread that needs the person at once.
     pub(crate) fn put_the_trouble_away(&mut self, tx: &mut Tx) {
         // Only while there is a pile to put away (`if (since)`).
         let Some(since) = self.snap.supervisor.rest.get("spawnTrouble").and_then(|t| t.get("since")).and_then(Value::as_f64).filter(|since| *since != 0.0) else {
@@ -87,7 +93,6 @@ impl State {
             },
             tx,
         );
-        holds(self, since);
         if inside {
             let now = tx.clock();
             self.move_on_to(next, now);
@@ -109,7 +114,7 @@ pub fn landed(s: &mut State, landed: write::Landed, tx: &mut Tx) {
     if undo {
         // Z's own line, or its refusal, are the pile's (`undo_landed`).
         if landed.refusal().is_none() {
-            holds(s, at);
+            written(s, at);
         }
         return s.undo_landed(landed, tx);
     }
@@ -205,19 +210,24 @@ mod tests {
         assert_eq!(rt.state.lists.needs[0].id, TROUBLE_ID);
         let since = since(&rt);
         key(&mut rt, Key::Text("e".into()));
-        // Out of the list at once, the line said, and nothing written yet.
-        assert!(!rt.state.lists.needs.iter().any(|r| r.id == TROUBLE_ID));
+        // The line said, nothing written yet, and the row still in the list for the three
+        // seconds Z has, as the web window's is (`inbox-trouble-done`).
+        assert!(rt.state.lists.needs.iter().any(|r| r.id == TROUBLE_ID));
         assert_eq!(rt.state.toast.as_ref().map(|t| (t.line.as_str(), t.undo)), Some((DONE_SAID, true)));
         assert!(rt.state.tried.is_empty());
-        // Z inside the three seconds: back, and nothing ever written.
+        // Z inside the three seconds: still there, and nothing ever written.
         key(&mut rt, Key::Text("z".into()));
         assert!(rt.state.lists.needs.iter().any(|r| r.id == TROUBLE_ID));
         assert_eq!(rt.state.toast.as_ref().map(|t| t.line.as_str()), Some("Undone. Still open: what is not running"));
         assert!(rt.state.tried.is_empty());
-        // Again, and let the three seconds pass: the web window is asked to keep it.
+        // Again, and let the three seconds pass: the web window is asked to keep it, and the
+        // row is out of the list.
         key(&mut rt, Key::Text("e".into()));
-        run(&mut rt, 3.2);
+        run(&mut rt, 2.5);
+        assert!(rt.state.lists.needs.iter().any(|r| r.id == TROUBLE_ID), "not before its three seconds");
+        run(&mut rt, 0.7);
         assert_eq!(rt.state.tried, vec![(CLOSED_HERE, json!({ "since": since }))]);
+        assert!(!rt.state.lists.needs.iter().any(|r| r.id == TROUBLE_ID));
         rt.update(|s, tx| s.landed(Landed { sent: Sent::Trouble { closed: since, was: 0.0, undo: false }, answer: Ok(json!({ "ok": true })), snapshot: None }, tx));
         // The web window's record still says nothing: this window holds it until it agrees.
         rt.update(|s, _| s.keep(Local::default()));

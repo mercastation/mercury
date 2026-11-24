@@ -741,7 +741,9 @@ pub fn toast_in_bar(s: &State) -> Option<El> {
                 s.open_what_the_line_names();
             })
             .child(row().w(tw).child(pen(text(title).font(TextStyle::new(12.5, 400.0).lh(17.5)).color(ink()).truncate(), 12.5)))
-            .child(row().w(lw).child(pen(text(toast.line.as_str()).font(TextStyle::new(12.5, 400.0).lh(16.25)).color(muted()).truncate(), 12.5)))
+            // A warning is read whole: its line wraps in its column and the card grows around
+            // it, the thread's name standing at its middle (`.toast-warns .toast-line`).
+            .child(warned(lw, text(toast.line.as_str()).font(TextStyle::new(12.5, 400.0).lh(16.25)).color(muted()), toast.warns).w(lw))
             // The keys' column stands, and its gap with it, when it holds nothing.
             .child(toast_keys(s, toast).unwrap_or_else(el));
         if wide > 0.0 {
@@ -793,7 +795,7 @@ pub fn toast_corner(s: &State) -> Option<El> {
         .py(11.0)
         .px(16.0)
         .radius(10.0)
-        .fill(rgb(54, 52, 49))
+        .fill(pop())
         .border(1.0, edge())
         .border_layout()
         .box_shadow(shadow(0.0, 24.0, 70.0, 0.0, rgba(0, 0, 0, 0.55), false))
@@ -814,7 +816,7 @@ fn toast_about(s: &State, toast: &crate::write::Toast) -> El {
     let card = |e: El| {
         e.pin(None, None, Some(30.0), Some(30.0))
             .radius(10.0)
-            .fill(rgb(54, 52, 49))
+            .fill(pop())
             .border(1.0, edge())
             .border_layout()
             .box_shadow(shadow(0.0, 24.0, 70.0, 0.0, rgba(0, 0, 0, 0.55), false))
@@ -831,10 +833,15 @@ fn toast_about(s: &State, toast: &crate::write::Toast) -> El {
         }
         return plain.child(toast_clock(toast, at, 358.0));
     };
-    let mut second = row().items_center().gap(16.0).child(row().grow(1.0).min_w(0.0).child(pen(text(toast.line.as_str()).font(TextStyle::new(12.5, 400.0).lh(16.25)).color(muted()).truncate(), 12.5)));
+    // The line takes what the keys leave of the card's 326 points inside its edge and padding.
+    let keys_w = rune::memo::layout_size("toast-keys").map_or(0.0, |[w, _]| w + 16.0);
+    let line = text(toast.line.as_str()).font(TextStyle::new(12.5, 400.0).lh(16.25)).color(muted());
+    let mut second = row().items_center().gap(16.0).child(warned(326.0 - keys_w, line, toast.warns).grow(1.0).min_w(0.0));
     if let Some(keys) = keys {
-        second = second.child(keys);
+        second = second.child(keys.key("toast-keys"));
     }
+    // One line of 17 points, or as many as a warning's words take.
+    let second = if toast.warns { second } else { second.h(17.0) };
     card(col())
         .w(360.0)
         .pt(14.0)
@@ -843,8 +850,15 @@ fn toast_about(s: &State, toast: &crate::write::Toast) -> El {
         .gap(8.0)
         // Two lines of the name and no more (`-webkit-line-clamp: 2`).
         .child(pen(text(title).font(TextStyle::new(14.0, 500.0).lh(kept(19.6))).color(ink()).wrap().max_lines(2), 14.0))
-        .child(second.h(17.0))
+        .child(second)
         .child(toast_clock(toast, at, 358.0))
+}
+
+/// A toast's line in its box: cut short with dots on one line (`.toast-line`), or, for a
+/// warning, wrapped at `wide` points and whole (`.toast-warns .toast-line { white-space:
+/// normal }`).
+fn warned(wide: f32, line: El, warns: bool) -> El {
+    if warns { row().child(pen(line.wrap().w(wide), 12.5)) } else { row().child(pen(line.truncate(), 12.5)) }
 }
 
 /// What Back's title says it goes back to (`Back to … (⌘[)`, `stopName` in `renderer/src/App.tsx`):

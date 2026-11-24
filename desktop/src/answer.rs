@@ -813,7 +813,7 @@ impl State {
             self.answering.warned_of = Some(format!("{}:{}", item.product, item.id));
             let since = tx.clock();
             let (line, undo) = crate::rules::compose::toast_parts(&rules::stopped_warning(true));
-            self.toast = Some(write::Toast { line, undo, since, until: since + crate::rules::compose::TOAST_GOES_MS / 1000.0, goes: Some((item.id.clone(), item.product.clone())), sent: None });
+            self.toast = Some(write::Toast { line, undo, since, until: since + crate::rules::compose::TOAST_GOES_MS / 1000.0, goes: Some((item.id.clone(), item.product.clone())), sent: None, warns: true });
             return true;
         }
         self.answering.warned = true;
@@ -1349,7 +1349,8 @@ mod tests {
         run(&mut rt, 1.0);
         key(&mut rt, Key::Text("e".into()));
         assert!(rt.state.held.is_none(), "the press did not land");
-        assert_eq!(sent_line(&rt).as_deref(), Some("This agent is waiting on your answer, and marking it done leaves it stuck. Press again to go ahead."));
+        assert_eq!(sent_line(&rt).as_deref(), Some("This agent has answered and waits on you, so marking it done leaves it stuck. Press again to go ahead."));
+        assert!(rt.state.toast.as_ref().is_some_and(|t| t.warns), "and its line is read whole, not cut");
         // Not learned for being said: only once a press went ahead on the thread it was about.
         assert!(!rt.state.answering.warned);
         key(&mut rt, Key::Text("e".into()));
@@ -1383,7 +1384,7 @@ mod tests {
         run(&mut rt, 1.0);
         key(&mut rt, Key::Text("l".into()));
         assert!(rt.state.later.on.is_some());
-        assert_eq!(rt.state.later.warning.as_deref(), Some("This agent is waiting on your answer, and putting it off leaves it stuck."));
+        assert_eq!(rt.state.later.warning.as_deref(), Some("This agent has answered and waits on you, so putting it off leaves it stuck."));
         key(&mut rt, Key::Escape);
         run(&mut rt, 1.0);
         // Said once for both keys.

@@ -101,8 +101,11 @@ by side, not by whole-window numbers.
   Tests `e_puts_it_away_writes_it_to_the_web_window_three_seconds_later_and_z_puts_it_back`,
   `done_in_its_strip_puts_it_away_and_goes_on_to_the_next_thread`, and the command bar's rows in
   `rules::palette::tests::the_whole_list_is_the_threads_rows_then_the_webs_other_rows_in_its_order`.
-- [x] A3.2 Out of the list at once; "Done: what is not running" in the head strip with Z and
-  Undo for three seconds; nothing written until they pass. Pictures `inbox-trouble-done` (the line
+- [x] A3.2 "Done: what is not running" with Z and Undo for three seconds; nothing written until
+  they pass, and the row stays in the list until they have: the put-away is a fact kept beside
+  the lists (`troubleClosed`), set only when the held write goes, and the hold hides no made
+  row. (This window took it out at once until 2026-11-24, which the web window's picture of
+  `inbox-trouble-done` showed to be wrong.) Pictures `inbox-trouble-done` (the line
   158.12 by 17.55 at 700.45 in both) and `thread-trouble-done` (at 800.57 and 800.44, 62.23, the
   same size; the strip then on the next thread, "Checkout fails…", with Reopen).
 - [x] A3.3 From inside it, on to the next thread in Needs you (`leaveResolved`). Same test and

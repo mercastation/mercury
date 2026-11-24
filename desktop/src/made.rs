@@ -288,7 +288,7 @@ impl State {
         let since = tx.clock();
         let goes = (parent.id.clone(), parent.product.clone());
         self.last_toast = Some((goes.clone(), since));
-        self.toast = Some(write::Toast { line, undo, since, until: since + crate::rules::compose::TOAST_GOES_MS / 1000.0, goes: Some(goes), sent: None });
+        self.toast = Some(write::Toast { line, undo, since, until: since + crate::rules::compose::TOAST_GOES_MS / 1000.0, goes: Some(goes), sent: None, warns: false });
     }
 
     /// Start all and Dismiss all: every proposal of the list answered at once, what was held

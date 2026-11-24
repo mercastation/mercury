@@ -402,7 +402,7 @@ impl State {
     /// One line about what was just done, for as long as the web window keeps its own up.
     fn say(&mut self, line: String, undo: bool, tx: &Tx) {
         let since = tx.clock();
-        self.toast = Some(write::Toast { line, undo, since, until: since + writes::TOAST_MS / 1000.0, goes: None, sent: None });
+        self.toast = Some(write::Toast { line, undo, since, until: since + writes::TOAST_MS / 1000.0, goes: None, sent: None, warns: false });
     }
     /// A line about one thread, as `(id, product)`: it stays up longer, names the thread, and
     /// O opens it. The promise of Z on the line's end becomes the key drawn beside it.
@@ -410,7 +410,7 @@ impl State {
         let (line, undo) = rules::compose::toast_parts(line);
         let since = tx.clock();
         self.last_toast = Some((goes.clone(), since));
-        self.toast = Some(write::Toast { line, undo, since, until: since + rules::compose::TOAST_GOES_MS / 1000.0, goes: Some(goes), sent: None });
+        self.toast = Some(write::Toast { line, undo, since, until: since + rules::compose::TOAST_GOES_MS / 1000.0, goes: Some(goes), sent: None, warns: false });
     }
     /// A line that only tells: nothing was done, so there is nothing for Z.
     pub fn tell(&mut self, line: &str, tx: &Tx) {
@@ -440,7 +440,7 @@ impl State {
                 let goes = held.thread.clone();
                 self.last_toast = Some((goes.clone(), since));
                 let says = rules::answering::sent_line_says(&held.said).to_string();
-                self.toast = Some(write::Toast { line, undo, since, until: since + rules::compose::TOAST_GOES_MS / 1000.0, goes: Some(goes), sent: Some(says) });
+                self.toast = Some(write::Toast { line, undo, since, until: since + rules::compose::TOAST_GOES_MS / 1000.0, goes: Some(goes), sent: Some(says), warns: false });
                 // Out of Needs you now, In progress while it is held: the write can wait, the
                 // lists cannot.
                 self.answering.holding.insert(held.thread.0.clone(), false);
@@ -474,6 +474,10 @@ impl State {
                 let answer = answer.clone();
                 self.hand_over(&answer, &held.thread);
             }
+        }
+        // The stopped-tasks row leaves the lists as its put-away is written, not before.
+        if let write::Sent::Trouble { closed, undo: false, .. } = &held.sent {
+            trouble::written(self, *closed);
         }
         let mut writes = vec![(held.channel, held.payload)];
         writes.extend(held.then);

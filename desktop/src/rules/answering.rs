@@ -245,11 +245,12 @@ pub fn stopped_waiting(item: &Item) -> bool {
 /// The one lesson, for the key that would leave it stuck; E's is held and says to press again,
 /// L's opens its picker with the sentence inside (`stoppedWarning`).
 pub fn stopped_warning(closing: bool) -> String {
-    if closing {
-        "This agent is waiting on your answer, and marking it done leaves it stuck. Press again to go ahead.".to_string()
-    } else {
-        "This agent is waiting on your answer, and putting it off leaves it stuck.".to_string()
-    }
+    // "Has answered", because its row says Answered (`stoppedWarning` in
+    // `renderer/src/stopped-agent.ts`): one lesson, and only the verb for what the key does
+    // differs. E is held, so its line says how to go ahead; L opens its box with the sentence
+    // inside, where "press again" would be said to somebody already in front of it.
+    let lesson = format!("This agent has answered and waits on you, so {} leaves it stuck.", if closing { "marking it done" } else { "putting it off" });
+    if closing { format!("{lesson} Press again to go ahead.") } else { lesson }
 }
 
 #[cfg(test)]
@@ -375,8 +376,8 @@ mod tests {
         let closing = item(json!({ "id": "w-1", "product": "shop", "status": "blocked", "note": "Done.\n\n1. Close this task",
             "wrote": { "note": { "ts": 5, "source": "agent" } } }));
         assert!(!stopped_waiting(&closing));
-        assert_eq!(stopped_warning(true), "This agent is waiting on your answer, and marking it done leaves it stuck. Press again to go ahead.");
-        assert_eq!(stopped_warning(false), "This agent is waiting on your answer, and putting it off leaves it stuck.");
+        assert_eq!(stopped_warning(true), "This agent has answered and waits on you, so marking it done leaves it stuck. Press again to go ahead.");
+        assert_eq!(stopped_warning(false), "This agent has answered and waits on you, so putting it off leaves it stuck.");
     }
 
     #[test]

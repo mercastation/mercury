@@ -1,6 +1,6 @@
-// E on `inbox-trouble`'s row, the first in Needs you: it is out of the list at once, and for
-// three seconds the head strip says "Done: what is not running" with Z beside it
-// (`closeTroubleRow` in `renderer/src/App.tsx`).
+// E on `inbox-trouble`'s row, the first in Needs you: for three seconds a line in the corner
+// says "Done: what is not running" with Z beside it, and the row stays in the list until they
+// have passed and the put-away is written (`closeTroubleRow` in `renderer/src/App.tsx`).
 import { go as toInbox } from './inbox.mjs';
 import { press } from './thread-option-picked.mjs';
 
