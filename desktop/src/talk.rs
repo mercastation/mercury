@@ -108,11 +108,14 @@ pub struct Message {
     /// The uid of the ledger line it came off, when it came off one that has one (`tagWriter` in
     /// `renderer/src/thread-history.ts`).
     pub uid: Option<String>,
+    /// A note the app itself wrote on the row ("Shipped to main as …", `says: 'app'`): the
+    /// app's quiet line, never a checkpoint signed as the agent's.
+    pub app: bool,
 }
 
 impl Message {
     fn new(at: f64, mine: bool, text: String, field: Field) -> Message {
-        Message { at, mine, text, field, same: false, resumed: false, sending: None, uid: None }
+        Message { at, mine, text, field, same: false, resumed: false, sending: None, uid: None, app: false }
     }
     /// What a found line names this message by: its line's uid, or when it was said
     /// (`data-line` in `Thread.tsx`).
@@ -366,7 +369,15 @@ fn events(lines: &[Line]) -> Vec<Said> {
             continue;
         }
         if let Some(text) = words(patch.get("note")) {
-            out.push(Said::Message(Message::new(at, false, text, Field::Note)));
+            let app = line.source == "system";
+            // Trouble the app is seeing to by itself is for the next run, not the person.
+            if app && crate::rules::shipping::for_the_agent(&text) {
+                continue;
+            }
+            // The app's own news on the row is the app's quiet line, never a checkpoint.
+            let mut note = Message::new(at, false, text, Field::Note);
+            note.app = app;
+            out.push(Said::Message(note));
             continue;
         }
         if let Some(name) = patch.get("title").and_then(Value::as_str).filter(|name| title.as_deref() != Some(*name)) {
@@ -952,9 +963,16 @@ impl Talk {
     }
 
     /// The newest answer: the one lifted to the foot, or else the last thing said that was not
-    /// the person's.
+    /// the person's. The app's own note at the foot is not an answer: the page leads with what
+    /// the agent last said, and the note goes under it (`newestAnswer(events, byApp ? null :
+    /// outcome)` in `ItemThread.tsx`).
     pub fn newest(&self) -> Option<&Message> {
-        self.outcome.as_ref().or_else(|| self.said.iter().rev().filter_map(Said::message).find(|m| !m.mine && !m.text.trim().is_empty()))
+        self.outcome.as_ref().filter(|m| !m.app).or_else(|| self.said.iter().rev().filter_map(Said::message).find(|m| !m.mine && !m.text.trim().is_empty()))
+    }
+
+    /// The app's own note, when that is what was lifted to the foot (`byApp`).
+    pub fn app_note(&self) -> Option<&Message> {
+        self.outcome.as_ref().filter(|m| m.app)
     }
 
     fn messages(said: &[Said]) -> usize {
@@ -981,6 +999,8 @@ pub struct Page<'a> {
     pub toggle: Option<String>,
     /// The newest answer, drawn alone.
     pub alone: Option<&'a Message>,
+    /// And the app's own note under it, when the app wrote one after it (`.one-app-note`).
+    pub app_note: Option<&'a Message>,
     /// Otherwise the conversation from here on, with the outcome under it.
     pub said: &'a [Said],
     /// Where `said` starts in the whole conversation (`Talk::said`).
@@ -1012,10 +1032,12 @@ impl Talk {
         let behind = match start {
             Some(from) => Talk::messages(&self.said[..from]) + self.omitted,
             None if alone => {
+                // All but the newest answer, which is one of them unless it was lifted to the
+                // foot (`earlierCount(events, byApp ? null : outcome)`).
                 self.omitted
                     + match &self.outcome {
-                        Some(_) => Talk::messages(&self.said),
-                        None => Talk::messages(&self.said).saturating_sub(1),
+                        Some(lifted) if !lifted.app => Talk::messages(&self.said),
+                        _ => Talk::messages(&self.said).saturating_sub(1),
                     }
             }
             None => 0,
@@ -1031,11 +1053,11 @@ impl Talk {
             None
         };
         if alone && !unfolded && !short {
-            return Page { toggle, alone: newest, said: &[], from: 0, gap: None, omitted: 0 };
+            return Page { toggle, alone: newest, app_note: self.app_note(), said: &[], from: 0, gap: None, omitted: 0 };
         }
         match (short || unfolded, start) {
-            (false, Some(from)) => Page { toggle, alone: None, said: &self.said[from..], from, gap: None, omitted: 0 },
-            _ => Page { toggle, alone: None, said: &self.said, from: 0, gap: gap.map(|g| (g, self.omitted)), omitted: self.omitted },
+            (false, Some(from)) => Page { toggle, alone: None, app_note: None, said: &self.said[from..], from, gap: None, omitted: 0 },
+            _ => Page { toggle, alone: None, app_note: None, said: &self.said, from: 0, gap: gap.map(|g| (g, self.omitted)), omitted: self.omitted },
         }
     }
 }
@@ -1113,6 +1135,67 @@ mod tests {
                 Said::Work(w) => format!("<{} {}>", w.verb, w.subject).replace(" >", ">"),
             })
             .collect()
+    }
+
+    /// A thread asked, answered and closed by its agent, with whatever was written on its row
+    /// after that.
+    fn garden(after: &[Value]) -> Vec<Line> {
+        let t0 = at("2026-11-21T04:00:00Z");
+        let mut lines = vec![
+            line(json!({ "ts": t0, "source": "system", "patch": { "title": "Plan the garden", "status": "open" } })),
+            line(json!({ "ts": t0 + 4.0, "source": "founder", "patch": { "title": "Plan the garden", "body": "Which beds get the tomatoes?" } })),
+            line(json!({ "ts": t0 + 60_000.0, "source": "agent", "patch": { "result": "The two south beds.", "status": "done" } })),
+        ];
+        for (n, patch) in after.iter().enumerate() {
+            let mut with = patch.clone();
+            with["ts"] = json!(t0 + 120_000.0 + 60_000.0 * n as f64);
+            lines.push(line(with));
+        }
+        lines
+    }
+
+    /// `tests/the-apps-own-note-is-never-signed-as-the-agents.test.mts` and
+    /// `the-page-leads-with-the-agents-answer-not-the-apps-shipped-note`: a note the app wrote on
+    /// the row is the app's, the page still leads with the agent's answer, and the note goes
+    /// under it.
+    #[test]
+    fn the_apps_own_note_is_the_apps_and_the_page_still_leads_with_the_agents_answer() {
+        let talk = Talk::read(&garden(&[json!({ "source": "system", "patch": { "note": "Shipped to main as 14c45bfb." } })]), &[], None, false);
+        let lifted = talk.outcome.as_ref().expect("the note is the last word on the row");
+        assert!(lifted.app && lifted.field == Field::Note);
+        assert_eq!(talk.newest().map(|m| m.text.as_str()), Some("The two south beds."));
+        assert_eq!(talk.app_note().map(|m| m.text.as_str()), Some("Shipped to main as 14c45bfb."));
+        let page = talk.page(false, false, false);
+        assert_eq!(page.alone.map(|m| m.text.as_str()), Some("The two south beds."));
+        assert_eq!(page.app_note.map(|m| m.text.as_str()), Some("Shipped to main as 14c45bfb."));
+        // Behind the fold: the ask alone, not the answer the page leads with.
+        assert_eq!(page.toggle.as_deref(), Some("Show 1 earlier message"));
+        // Unfolded, the conversation is drawn with the note at its foot, and no note under an answer.
+        assert!(talk.page(false, true, false).app_note.is_none());
+    }
+
+    #[test]
+    fn the_agents_own_checkpoint_is_still_an_answer_to_lead_with() {
+        let talk = Talk::read(&garden(&[json!({ "source": "agent", "patch": { "note": "Halfway: the herbs go by the door." } })]), &[], None, false);
+        let lifted = talk.outcome.as_ref().unwrap();
+        assert!(!lifted.app);
+        assert_eq!(talk.newest().map(|m| m.text.as_str()), Some("Halfway: the herbs go by the door."));
+        assert!(talk.app_note().is_none() && talk.page(false, false, false).app_note.is_none());
+    }
+
+    /// `tests/trouble-the-app-handles-itself-is-not-drawn-on-the-thread`: a note the app wrote
+    /// for the next run stays on the row and is drawn by no thread.
+    #[test]
+    fn trouble_the_app_is_seeing_to_by_itself_is_not_drawn() {
+        let stopped = json!({ "source": "system", "patch": { "note": "This thread's cloud machine stopped two minutes in. The thread picks up from where it was before that run." } });
+        let talk = Talk::read(&garden(&[stopped.clone()]), &[], None, false);
+        assert_eq!(talk.outcome.as_ref().map(|m| m.text.as_str()), Some("The two south beds."));
+        assert!(!texts(&talk.said).iter().any(|t| t.contains("cloud machine stopped")));
+        // The same words from an agent are its own, and are drawn.
+        let mut by_agent = stopped;
+        by_agent["source"] = json!("agent");
+        let talk = Talk::read(&garden(&[by_agent]), &[], None, false);
+        assert!(talk.outcome.as_ref().is_some_and(|m| m.text.contains("cloud machine stopped") && !m.app));
     }
 
     /// A found line is landed on by its ledger line's uid (`tagWriter`, `data-line`): each

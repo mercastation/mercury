@@ -1008,6 +1008,19 @@ pub fn blocks_typed(source: &str, size: f32, width: f32, files: &Files) -> Vec<B
     lay(settle(nodes(&mut events), files), Page { size, width, ink: ink(), weight: 500.0, leading: 1.55, depth: 0, files, doc: false })
 }
 
+/// The size of the app's own note on a thread (`.one-app-note`): 13 points, or seventy-two
+/// hundredths of the page's reading size where that is more.
+pub fn quiet_size(reading: f32) -> f32 {
+    13.0_f32.max(0.72 * reading)
+}
+
+/// The app's own note on a thread, as markdown in its quiet type and the faint ink
+/// (`<div className="one-app-note">{md(text)}</div>`).
+pub fn blocks_quiet(source: &str, reading: f32, width: f32, files: &Files) -> Vec<Block> {
+    let mut events = Parser::new_ext(source, Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH).peekable();
+    lay(settle(nodes(&mut events), files), Page { size: quiet_size(reading), width, ink: muted(), weight: 400.0, leading: 1.6, depth: 0, files, doc: false })
+}
+
 /// One block that is not markdown, to stack among those that are.
 pub fn block(top: f32, bottom: f32, el: El) -> Block {
     Block::leaf(top, bottom, el)

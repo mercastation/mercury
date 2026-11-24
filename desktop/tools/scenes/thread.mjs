@@ -259,7 +259,7 @@ function conversation(item, found, waiting = false, said = SHIPPED, runs = null,
 // the run taken away. `change` is the code the thread's run changed, a function of what was
 // planted and of the row (`changeFor` in ./change.mjs): the page's reads of the change and of
 // its files are answered from it, and the fixture carries the same (`codeChanges`).
-export async function open(h, { unfold, found = FOUND, shipped = SHIPPED, files = null, waiting = false, then = null, runs = null, reply = REPLY, marks = null, dress = null, fromTab = null, hang = false, runEngine = null, fleet = null, trace = null, ledger = null, change = null }) {
+export async function open(h, { unfold, found = FOUND, shipped = SHIPPED, files = null, waiting = false, then = null, runs = null, reply = REPLY, marks = null, dress = null, fromTab = null, hang = false, runEngine = null, fleet = null, trace = null, ledger = null, change = null, find = false }) {
   const snapshot = await h.evaluate('window.__SNAP__');
   // The Inbox opens on its first row; the snapshot's first thread is not always that one.
   await toInbox(h);
@@ -339,6 +339,27 @@ export async function open(h, { unfold, found = FOUND, shipped = SHIPPED, files 
   if (fromTab) await tab(h, fromTab);
   else if (session) await tab(h, 'In progress');
   else await toInbox(h);
+  // `find` walks the tab's rows down to the thread's own, for one that is not the tab's first,
+  // and looks under the other tabs when it is not under that one.
+  if (find) {
+    const on = () => h.evaluate(`document.querySelector('.list .row.selected')?.dataset.itemId ?? ''`);
+    const there = (id) => id === row.id || id === `${row.product}/${row.id}`;
+    const walk = async () => {
+      for (let n = 0; n < 40 && !there(await on()); n += 1) {
+        await h.call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'j', code: 'KeyJ', windowsVirtualKeyCode: 74, text: 'j' });
+        await h.call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'j', code: 'KeyJ', windowsVirtualKeyCode: 74 });
+        await h.wait(60);
+      }
+      return there(await on());
+    };
+    let found = await walk();
+    for (const label of ['Needs you', 'In progress', 'Later', 'Done']) {
+      if (found) break;
+      await tab(h, label);
+      found = await walk();
+    }
+    if (!found) throw new Error('thread scene: the thread is under none of the Inbox\'s tabs');
+  }
   await h.call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
   await h.call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
   await h.wait(1500);

@@ -33,13 +33,38 @@ const PASTED: &str = "need-code";
 const LANDED: &str = "need-landed";
 
 /// The card's own state.
+/// What a card says under its buttons when the engine did not take something, with what its
+/// boxes held when it was said: a letter typed since takes the line back, as the web window's
+/// boxes do (`onChange` → `setSaid(null)`), and so does the next press.
+#[derive(Default)]
+pub struct Told {
+    why: Option<String>,
+    over: String,
+}
+
+impl Told {
+    fn say(&mut self, why: String, over: String) {
+        *self = Told { why: Some(why), over };
+    }
+    fn clear(&mut self) {
+        self.why = None;
+    }
+    /// The line, while the boxes still hold what they held when it was said.
+    fn shown(&self, typed: &str) -> Option<&str> {
+        self.why.as_deref().filter(|_| self.over == typed)
+    }
+    pub fn is_none(&self) -> bool {
+        self.why.is_none()
+    }
+}
+
 pub struct SignIn {
     /// The thread and the ask it is the card of.
     of: Option<(String, String)>,
     /// A write is on its way: the buttons stand at half strength and take no press.
     pub busy: bool,
     /// What the engine said to the last write, when it did not take it.
-    pub said: Option<String>,
+    pub said: Told,
     /// "Page did not load after signing in?" was pressed: the box for the address is up.
     pub pasting: bool,
     /// The tick that saves a cloud sign-in for every cloud thread, once pressed; before that
@@ -52,7 +77,14 @@ pub struct SignIn {
 
 impl Default for SignIn {
     fn default() -> Self {
-        SignIn { of: None, busy: false, said: None, pasting: false, save: None, pasted: TextEdit::new(""), landed: TextEdit::new("") }
+        SignIn { of: None, busy: false, said: Told::default(), pasting: false, save: None, pasted: TextEdit::new(""), landed: TextEdit::new("") }
+    }
+}
+
+impl SignIn {
+    /// What its two boxes hold.
+    fn typed(&self) -> String {
+        format!("{}\n{}", self.pasted.text, self.landed.text)
     }
 }
 
@@ -103,7 +135,7 @@ impl State {
             return;
         }
         card.busy = true;
-        card.said = None;
+        card.said.clear();
         let (channel, payload) = sign_in::answer(&item, &ask.id, &said);
         if !self.send(channel, payload, Sent::SignInSaid { thread: thread_of(&item), ask: ask.id.clone() }) {
             self.sign_in_refused(false, DID_NOT_REACH.to_string());
@@ -133,7 +165,7 @@ impl State {
         }
         let next = !card.save.unwrap_or(ask.keep);
         card.save = Some(next);
-        card.said = None;
+        card.said.clear();
         let (channel, payload) = sign_in::keep(&item, &ask.id, next);
         if !self.send(channel, payload, Sent::SignInKeep { thread: thread_of(&item), ask: ask.id.clone() }) {
             self.sign_in_refused(true, DID_NOT_REACH.to_string());
@@ -158,7 +190,8 @@ impl State {
         } else {
             card.busy = false;
         }
-        card.said = Some(why);
+        let over = card.typed();
+        card.said.say(why, over);
     }
     /// What the engine said to one of the card's writes (`r.ok ? null : r.error ?? …`).
     pub fn sign_in_landed(&mut self, landed: Landed) {
@@ -205,7 +238,10 @@ pub fn picture(s: &mut State) {
             // With nobody to send to, a write is refused at once; a picture of one on its way
             // holds it there.
             "signed-in" | "skipped" if hangs => card.busy = true,
-            "signed-in" | "skipped" => card.said = Some(DID_NOT_REACH.to_string()),
+            "signed-in" | "skipped" => {
+                let over = card.typed();
+                card.said.say(DID_NOT_REACH.to_string(), over);
+            }
             _ => {}
         }
     }
@@ -320,23 +356,8 @@ pub fn sign_in_card(s: &State, item: &Item, cloud: bool, column: f32) -> Option<
     // The code to type on the service's page, in a frame of its own with Copy at its end
     // (`.need-code-box`).
     if let Some(code) = &ask.code {
-        let label = pen(text("Enter this code").font(TextStyle::new(13.0, 400.0).lh(kept(LINE))).color(dim()), 13.0);
-        let value = readable(text(code.as_str()).font(mono(16.0, kept(25.6)).tracking(2.24)).color(ink()));
         let copy = link("need-copy", "Copy").on_press_tx(|s: &mut State, tx| s.sign_in_copy(tx));
-        said = said.child(
-            row()
-                .mt(12.0)
-                .px(14.0)
-                .py(10.0)
-                .gap(14.0)
-                .items_center()
-                .radius(RADIUS)
-                .border(1.0, edge())
-                .border_layout()
-                .child(label)
-                .child(el().grow(1.0).min_w(0.0).child(value))
-                .child(copy),
-        );
+        said = said.child(code_box(code, copy));
     }
     // Open, I've signed in and Not now (`.need-acts`). A login that waits for a code has no
     // "I've signed in": the code is the answer.
@@ -358,11 +379,7 @@ pub fn sign_in_card(s: &State, item: &Item, cloud: bool, column: f32) -> Option<
     // The box for the code the service's page shows, and Send (`.need-form`).
     if ask.asks_for_code {
         let field = typed(&here.pasted, PASTED, &card.code_placeholder)
-            .on_edit(|s: &mut State| {
-                // Whatever was said of the last one is about words that are gone.
-                s.sign_in_touched().said = None;
-                &mut s.sign_in_touched().pasted
-            })
+            .on_edit(|s: &mut State| &mut s.sign_in_touched().pasted)
             .on_submit(|s: &mut State, _| s.sign_in_send_code());
         let off = busy || here.pasted.text.trim().is_empty();
         let mut send = button("need-send-code", "Send", true, false, off);
@@ -396,10 +413,7 @@ pub fn sign_in_card(s: &State, item: &Item, cloud: bool, column: f32) -> Option<
     }
     if here.pasting {
         let field = typed(&here.landed, LANDED, "Paste the address from the browser")
-            .on_edit(|s: &mut State| {
-                s.sign_in_touched().said = None;
-                &mut s.sign_in_touched().landed
-            })
+            .on_edit(|s: &mut State| &mut s.sign_in_touched().landed)
             .on_submit(|s: &mut State, _| s.sign_in_send_address());
         let off = busy || here.landed.text.trim().is_empty();
         let mut send = button("need-send-address", "Send", true, false, off);
@@ -408,22 +422,12 @@ pub fn sign_in_card(s: &State, item: &Item, cloud: bool, column: f32) -> Option<
         }
         said = said.child(row().mt(14.0).gap(8.0).child(boxed(LANDED, field, here.landed.focused)).child(send));
     }
-    if let Some(why) = &here.said {
-        said = said.child(readable(pen(text(why.as_str()).font(TextStyle::new(12.5, 400.0).lh(17.0)).color(dim()).wrap(), 12.5)).my(8.0));
+    if let Some(why) = here.said.shown(&here.typed()) {
+        said = said.child(told(why));
     }
 
     let body = row().items_start().gap(16.0).px(22.0).py(16.0).child(mark(&card, s.pictures.scale())).child(said);
-    Some(
-        col()
-            .key("need-sign-in")
-            .w(column.min(WIDE))
-            .radius(RADIUS)
-            .fill(raised())
-            .border(1.0, rule())
-            .border_layout()
-            .box_shadow(shadow(0.0, 1.0, 2.0, 0.0, rgba(0, 0, 0, 0.3), false))
-            .child(body),
-    )
+    Some(framed("need-sign-in", column, body))
 }
 
 impl State {
@@ -434,6 +438,296 @@ impl State {
         }
         &mut self.sign_in
     }
+}
+
+/* ------------------------- a ship the push refused for want of GitHub ------------------------- */
+
+/// What the app says of GitHub's own sign-in when it did not start and gave no reason, and of
+/// a token it did not save (`ItemThread.tsx`).
+const GITHUB_DID_NOT_START: &str = "GitHub's sign-in did not start.";
+const TOKEN_DID_NOT_SAVE: &str = "That did not save. Try again.";
+const GITHUB_CONNECTED: &str = "GitHub connected. Shipping it again.";
+/// GitHub's own sign-in for this computer's git, and a token pasted instead.
+pub const GITHUB_BROWSER_SIGN_IN: &str = "zero:github-browser-sign-in";
+pub const GITHUB_SIGN_IN: &str = "zero:github-sign-in";
+
+const TOKEN: &str = "need-token";
+
+/// The card of a ship that could not push for want of a GitHub sign-in on this computer
+/// (`GitHubSignInCard.tsx`), and what it holds. It is the open thread's: leaving the
+/// conversation starts it again.
+pub struct GitHub {
+    of: Option<String>,
+    /// GitHub's sign-in is being started, or a token checked.
+    pub busy: bool,
+    pub said: Told,
+    /// The code GitHub's own sign-in gave, and where to enter it.
+    pub device: Option<(String, String)>,
+    /// "Paste a token instead" was pressed, or GitHub's own sign-in could not start.
+    pub pasting: bool,
+    pub token: TextEdit,
+}
+
+impl Default for GitHub {
+    fn default() -> Self {
+        GitHub { of: None, busy: false, said: Told::default(), device: None, pasting: false, token: TextEdit::new("") }
+    }
+}
+
+impl State {
+    /// The open thread's card, started again when it was another thread's.
+    fn github_card(&mut self) -> Option<&mut GitHub> {
+        let thread = thread_of(self.open_item()?);
+        if self.github.of.as_ref() != Some(&thread) {
+            self.github = GitHub { of: Some(thread), ..GitHub::default() };
+        }
+        Some(&mut self.github)
+    }
+    pub fn leave_the_github_card(&mut self) {
+        self.github = GitHub::default();
+    }
+    /// "Sign in with GitHub": GitHub's own sign-in, in the browser with a code (`begin`).
+    fn github_begin(&mut self) {
+        let Some(card) = self.github_card() else { return };
+        if card.busy {
+            return;
+        }
+        card.busy = true;
+        card.said.clear();
+        let thread = card.of.clone().unwrap_or_default();
+        if !self.send(GITHUB_BROWSER_SIGN_IN, Value::Null, Sent::GitHubBegin { thread }) {
+            self.github_did_not_start(GITHUB_DID_NOT_START.to_string());
+        }
+    }
+    /// It did not start: the card says why, and offers the token instead.
+    fn github_did_not_start(&mut self, why: String) {
+        self.refused = None;
+        self.github.busy = false;
+        self.github_say(why);
+        self.github.pasting = true;
+    }
+    /// The card's line under its buttons, about what its box holds now.
+    fn github_say(&mut self, why: String) {
+        let over = self.github.token.text.clone();
+        self.github.said.say(why, over);
+    }
+    /// Save, and Return in the token's box (`keep`).
+    fn github_save(&mut self) {
+        let Some(card) = self.github_card() else { return };
+        let token = card.token.text.trim().to_string();
+        if card.busy || token.is_empty() {
+            return;
+        }
+        card.busy = true;
+        card.said.clear();
+        let thread = card.of.clone().unwrap_or_default();
+        if !self.send(GITHUB_SIGN_IN, serde_json::json!({ "token": token }), Sent::GitHubToken { thread }) {
+            self.refused = None;
+            self.github.busy = false;
+            self.github_say(TOKEN_DID_NOT_SAVE.to_string());
+        }
+    }
+    fn github_copy(&mut self, tx: &mut Tx) {
+        if let Some((code, _)) = self.github.device.clone() {
+            tx.copy(code);
+            self.tell("Copied", tx);
+        }
+    }
+    fn github_open(&mut self) {
+        if let Some((_, url)) = &self.github.device {
+            crate::files::open_with_system(url);
+        }
+    }
+    fn github_paste_a_token(&mut self) {
+        if let Some(card) = self.github_card() {
+            card.pasting = true;
+        }
+    }
+    /// What the engine said to one of the card's two asks.
+    pub fn github_landed(&mut self, landed: Landed, tx: &mut Tx) {
+        let (thread, token) = match &landed.sent {
+            Sent::GitHubBegin { thread } => (thread, false),
+            Sent::GitHubToken { thread } => (thread, true),
+            _ => return,
+        };
+        if self.github.of.as_ref() != Some(thread) {
+            return;
+        }
+        let ok = landed.answer.as_ref().is_ok_and(|a| crate::data::truthy(a.get("ok")));
+        let words = |field: &str| landed.answer.as_ref().ok().and_then(|a| a.get(field)).and_then(Value::as_str).filter(|w| !w.is_empty()).map(str::to_string);
+        if token {
+            self.github.busy = false;
+            match ok {
+                true => self.tell(GITHUB_CONNECTED, tx),
+                false => self.github_say(words("error").unwrap_or_else(|| TOKEN_DID_NOT_SAVE.to_string())),
+            }
+            return;
+        }
+        match (ok, words("code"), words("url")) {
+            (true, Some(code), Some(url)) => {
+                self.github.busy = false;
+                crate::files::open_with_system(&url);
+                self.github.device = Some((code, url));
+            }
+            _ => self.github_did_not_start(words("error").unwrap_or_else(|| GITHUB_DID_NOT_START.to_string())),
+        }
+    }
+}
+
+/// A picture taken after the GitHub card was pressed says so in its fixture (`gitHubPressed`),
+/// with what GitHub then gave (`gitHubDevice`), or that its sign-in did not start
+/// (`gitHubRefused`), and what was typed into the token's box (`gitHubTyped`).
+pub fn picture_github(s: &mut State) {
+    let pressed: Vec<String> = s.fixture.get("gitHubPressed").and_then(|p| serde_json::from_value(p.clone()).ok()).unwrap_or_default();
+    if pressed.is_empty() {
+        return;
+    }
+    let device = s.fixture.get("gitHubDevice").cloned();
+    let refused = s.fixture.contains_key("gitHubRefused");
+    let typed = s.fixture.get("gitHubTyped").and_then(Value::as_str).map(str::to_string);
+    let Some(card) = s.github_card() else { return };
+    for press in &pressed {
+        match press.as_str() {
+            "token" => card.pasting = true,
+            "sign-in" if refused => {
+                card.said.say(GITHUB_DID_NOT_START.to_string(), String::new());
+                card.pasting = true;
+            }
+            "sign-in" => {
+                let words = |field: &str| device.as_ref().and_then(|d| d.get(field)).and_then(Value::as_str).unwrap_or_default().to_string();
+                card.device = Some((words("code"), words("url")));
+            }
+            _ => {}
+        }
+    }
+    if let Some(typed) = typed {
+        // Typing takes back what was said of the press before it.
+        card.token = TextEdit::new(&typed);
+        card.token.focused = true;
+    }
+}
+
+/// One fact under a token asked for (`.need-facts > div`): its mark in the faint ink, ten
+/// points, its words.
+fn fact(mark: &'static rune::Icon, size: f32, words: El) -> El {
+    row().h(18.0).gap(10.0).items_center().child(icon(mark, size).color(muted())).child(words)
+}
+
+fn fact_words(words: &str) -> El {
+    pen(text(words).font(TextStyle::new(13.0, 400.0).lh(18.0)).color(dim()), 13.0)
+}
+
+/// The card under a note that says the ship could not push for want of a GitHub sign-in on
+/// this computer: GitHub's own sign-in first, in the browser with a code; a pasted token where
+/// this computer has no way to run it. `refused` says GitHub turned away the sign-in that was
+/// saved, so this is signing in again.
+pub fn github_card(s: &State, item: &Item, refused: bool, column: f32) -> El {
+    let fresh = GitHub::default();
+    let here = if s.github.of.as_ref() == Some(&thread_of(item)) { &s.github } else { &fresh };
+    let busy = here.busy;
+    let title = if refused { "Sign in to GitHub again" } else { "Sign in to GitHub" };
+    let mut said = col().grow(1.0).min_w(0.0).child(readable(pen(text(title).font(TextStyle::new(15.0, 500.0).lh(22.0).tracking(-0.09)).color(ink()), 15.0)));
+    if let Some((code, _)) = &here.device {
+        // The code to enter on GitHub's page, and the way there.
+        let copy = link("need-copy", "Copy").on_press_tx(|s: &mut State, tx| s.github_copy(tx));
+        said = said.child(code_box(code, copy));
+        said = said.child(row().mt(14.0).child(button("need-open", "Open GitHub", true, true, false).on_press(|s: &mut State| s.github_open())));
+        said = said.child(readable(pen(text("Ships again as soon as you approve it.").font(TextStyle::new(13.5, 400.0).lh(20.0)).color(dim()), 13.5)).mt(6.0));
+    } else if !here.pasting {
+        let mut begin = button("need-github", if busy { "Starting" } else { "Sign in with GitHub" }, true, true, busy);
+        if !busy {
+            begin = begin.on_press(|s: &mut State| s.github_begin());
+        }
+        let instead = link("need-skip", "Paste a token instead").ml(6.0).on_press(|s: &mut State| s.github_paste_a_token());
+        said = said.child(row().mt(14.0).gap(8.0).items_center().child(begin).child(instead));
+    }
+    if here.pasting {
+        // Where a token comes from, where it is kept, and what it does (`.need-facts`).
+        let from = "Get a token from ";
+        let page = "GitHub's own page";
+        let whole = format!("{from}{page}");
+        let get = pen(
+            text(whole.as_str())
+                .font(TextStyle::new(13.0, 400.0).lh(18.0))
+                .color(dim())
+                .spans(vec![Span::new(from.len(), whole.len()).color(ink())])
+                .decorations(vec![Span::new(from.len(), whole.len()).underline(ink())])
+                .link(rune::Link::new(from.len()..whole.len(), crate::rules::shipping::GITHUB_TOKEN_PAGE.to_string()))
+                .cursor(Cursor::Default)
+                .on_link(|_: &mut State, href: &str, _: &mut Tx| crate::files::open_with_system(href)),
+            13.0,
+        );
+        said = said.child(
+            col()
+                .mt(12.0)
+                .px(14.0)
+                .py(10.0)
+                .gap(7.0)
+                .radius(RADIUS)
+                .border(1.0, edge())
+                .border_layout()
+                .child(fact(&icons::NEED_OUT, 12.0, get))
+                .child(fact(&icons::NEED_LOCK, 13.0, fact_words("Kept on this computer, only for shipping")))
+                .child(fact(&icons::NEED_AGAIN, 13.0, fact_words("Ships again as soon as it is saved"))),
+        );
+        let field = typed(&here.token, TOKEN, "Paste the token")
+            .secure()
+            .on_edit(|s: &mut State| &mut s.github_touched().token)
+            .on_submit(|s: &mut State, _| s.github_save());
+        let off = busy || here.token.text.trim().is_empty();
+        let mut save = button("need-save-token", if busy { "Checking" } else { "Save" }, true, false, off);
+        if !off {
+            save = save.on_press(|s: &mut State| s.github_save());
+        }
+        said = said.child(row().mt(14.0).gap(8.0).child(boxed(TOKEN, field, here.token.focused)).child(save));
+    }
+    if let Some(why) = here.said.shown(&here.token.text) {
+        said = said.child(told(why));
+    }
+    let logo = logos::of("github", 20.0, s.pictures.scale());
+    let inside = match logo {
+        Some(logo) => el().size(20.0, 20.0).pixels_fit(&logo, SurfaceFit::Fit),
+        None => icon(&icons::NEED_KEY, 20.0).color(dim()),
+    };
+    let mark = row().size(40.0, 40.0).center().radius(RADIUS).fill(white(0.04)).border(1.0, rule()).child(inside);
+    framed("need-github-push", column, row().items_start().gap(16.0).px(22.0).py(16.0).child(mark).child(said))
+}
+
+impl State {
+    /// The GitHub card being typed into: the open thread's.
+    fn github_touched(&mut self) -> &mut GitHub {
+        if self.github_card().is_none() {
+            self.github = GitHub::default();
+        }
+        &mut self.github
+    }
+}
+
+/// What the engine said to a write it did not take, under the card's controls (`.need-said`).
+fn told(why: &str) -> El {
+    readable(pen(text(why).font(TextStyle::new(12.5, 400.0).lh(17.0)).color(dim()).wrap(), 12.5)).my(8.0)
+}
+
+/// A code to type on a service's page, in a frame of its own with Copy at its end
+/// (`.need-code-box`).
+fn code_box(code: &str, copy: El) -> El {
+    let label = pen(text("Enter this code").font(TextStyle::new(13.0, 400.0).lh(kept(LINE))).color(dim()), 13.0);
+    let value = readable(text(code).font(mono(16.0, kept(25.6)).tracking(2.24)).color(ink()));
+    row().mt(12.0).px(14.0).py(10.0).gap(14.0).items_center().radius(RADIUS).border(1.0, edge()).border_layout().child(label).child(el().grow(1.0).min_w(0.0).child(value)).child(copy)
+}
+
+/// The card's own frame (`.need`): never wider than 640 points, the strong line round it on
+/// the raised ground, the small shadow.
+fn framed(key: &'static str, column: f32, body: El) -> El {
+    col()
+        .key(key)
+        .w(column.min(WIDE))
+        .radius(RADIUS)
+        .fill(raised())
+        .border(1.0, rule())
+        .border_layout()
+        .box_shadow(shadow(0.0, 1.0, 2.0, 0.0, rgba(0, 0, 0, 0.3), false))
+        .child(body)
 }
 
 #[cfg(test)]
@@ -679,6 +973,141 @@ mod tests {
         rt.key(KeyEvent { key: Key::Command('k'), mods: Mods { cmd: true, ..Default::default() } });
         rt.frame(1.0 / 60.0);
         assert!(rt.state.sign_in.of.is_none());
+    }
+
+    const NO_SIGN_IN: &str = "It did not ship because this computer could not sign in to GitHub.";
+
+    /// The first thread, finished by its agent and then opened again by the app with `note`
+    /// written on its row; `unfolded` draws its whole conversation, as a press on the line
+    /// under its title does.
+    fn noted(name: &str, note: &str, status: &str, unfolded: bool) -> Runtime<State> {
+        let mut rt = window_dressed(name, &["--thread", "w-feel0"], "/fixtures/storefront", "Fixed, and every test passes.", |fixture| {
+            let item = &mut fixture["snapshot"]["items"][0];
+            let answered = item["updatedAt"].as_f64().unwrap();
+            item["note"] = json!(note);
+            item["status"] = json!(status);
+            item["wrote"]["note"] = json!({ "ts": answered + 60_000.0, "source": "system" });
+            item["wrote"]["status"] = json!({ "ts": answered + 60_001.0, "source": "system" });
+            item["updatedAt"] = json!(answered + 60_001.0);
+            if unfolded {
+                fixture["unfolded"] = json!(["storefront/w-feel0"]);
+            }
+        });
+        rt.state.pretend_sent = true;
+        rt
+    }
+
+    fn github_lands(rt: &mut Runtime<State>, token: bool, answer: Result<Value, String>) {
+        let thread = THREAD.to_string();
+        let sent = if token { Sent::GitHubToken { thread } } else { Sent::GitHubBegin { thread } };
+        rt.update(|s, tx| s.landed(Landed { sent, answer, snapshot: None }, tx));
+        rt.frame(1.0 / 60.0);
+    }
+
+    #[test]
+    fn the_apps_note_is_a_quiet_line_under_the_agents_answer_and_at_the_conversations_foot() {
+        let folded = noted("note-folded", "Shipped to main as 14c45bfb.", "done", false);
+        assert!(says(&folded, "Fixed, and every test passes.") && says(&folded, "Shipped to main as 14c45bfb."));
+        // Never a checkpoint of the agent's, nor the page's last word in the answer's place.
+        for never in ["Latest checkpoint", "Checkpoint", "Not shipped"] {
+            assert!(!says(&folded, never), "{never:?} is on the page: {:?}", texts(&folded));
+        }
+        let answer = folded.elements().iter().find(|e| e.text.as_deref() == Some("Fixed, and every test passes.")).map(|e| e.rect[1]).unwrap();
+        let note = folded.elements().iter().find(|e| e.text.as_deref() == Some("Shipped to main as 14c45bfb.")).map(|e| e.rect[1]).unwrap();
+        assert!(answer < note);
+        let unfolded = noted("note-unfolded", "Shipped to main as 14c45bfb.", "done", true);
+        assert!(says(&unfolded, "Shipped to main as 14c45bfb."));
+        for never in ["Latest checkpoint", "Checkpoint", "Not shipped"] {
+            assert!(!says(&unfolded, never), "{never:?} is on the page: {:?}", texts(&unfolded));
+        }
+    }
+
+    #[test]
+    fn a_ship_the_push_refused_ends_on_not_shipped_with_the_card_that_signs_in() {
+        let rt = noted("github-card", NO_SIGN_IN, "open", true);
+        for words in ["Not shipped", NO_SIGN_IN, "Sign in to GitHub", "Sign in with GitHub", "Paste a token instead"] {
+            assert!(says(&rt, words), "{words:?} is not on the page: {:?}", texts(&rt));
+        }
+        assert!(!says(&rt, "Latest checkpoint") && rt.find("need-github-push").is_some());
+        // As the thread first opens the page leads with the agent's answer, the note under it,
+        // and the card is a press on the fold away.
+        let folded = noted("github-folded", NO_SIGN_IN, "open", false);
+        assert!(says(&folded, "Fixed, and every test passes.") && says(&folded, NO_SIGN_IN));
+        assert!(folded.find("need-github-push").is_none() && !says(&folded, "Not shipped"));
+        // A sign-in GitHub turned away is signed in again.
+        let again = noted("github-again", "It did not ship because GitHub refused the sign-in saved on this computer.", "open", true);
+        assert!(says(&again, "Sign in to GitHub again"));
+        // A ship that failed for another reason is Not shipped with no card: its agent has it.
+        let red = noted("github-red", "It did not ship, and it went back to its agent: the tests on main are red", "open", true);
+        assert!(says(&red, "Not shipped") && red.find("need-github-push").is_none());
+    }
+
+    #[test]
+    fn sign_in_with_github_starts_githubs_own_sign_in_and_shows_its_code() {
+        let mut rt = noted("github-begin", NO_SIGN_IN, "open", true);
+        press_on(&mut rt, "need-github");
+        assert_eq!(rt.state.tried, vec![(GITHUB_BROWSER_SIGN_IN, Value::Null)]);
+        // Starting: the button says so and takes no second press.
+        assert!(says(&rt, "Starting") && !says(&rt, "Sign in with GitHub"));
+        press_on(&mut rt, "need-github");
+        assert_eq!(rt.state.tried.len(), 1);
+        github_lands(&mut rt, false, Ok(json!({ "ok": true, "code": "A1B2-C3D4", "url": "https://github.com/login/device" })));
+        for words in ["Enter this code", "A1B2-C3D4", "Open GitHub", "Ships again as soon as you approve it."] {
+            assert!(says(&rt, words), "{words:?} is not on the card: {:?}", texts(&rt));
+        }
+        assert!(rt.find("need-github").is_none() && rt.find("need-skip").is_none());
+        let clip = rune::clipboard::memory();
+        rt.use_clipboard(&clip);
+        press_on(&mut rt, "need-copy");
+        assert_eq!(clip.text().map(|t| t.to_string()).as_deref(), Some("A1B2-C3D4"));
+        assert_eq!(rt.state.toast.as_ref().map(|t| t.line.as_str()), Some("Copied"));
+    }
+
+    #[test]
+    fn where_githubs_sign_in_cannot_start_the_card_takes_a_token() {
+        let mut rt = noted("github-token", NO_SIGN_IN, "open", true);
+        press_on(&mut rt, "need-github");
+        github_lands(&mut rt, false, Ok(json!({ "ok": false })));
+        // It says so, and opens the token's box by itself.
+        for words in [GITHUB_DID_NOT_START, "Kept on this computer, only for shipping", "Ships again as soon as it is saved", "Save"] {
+            assert!(says(&rt, words), "{words:?} is not on the card: {:?}", texts(&rt));
+        }
+        assert!(rt.find("need-github").is_none());
+        // Save takes no press over an empty box.
+        press_on(&mut rt, "need-save-token");
+        assert_eq!(rt.state.tried.len(), 1);
+        // Typing takes back what was said, and the token goes as typed, less the room round it.
+        press_on(&mut rt, TOKEN);
+        type_in(&mut rt, " ghp_invented0000 ");
+        assert!(!says(&rt, GITHUB_DID_NOT_START));
+        key(&mut rt, Key::Enter);
+        assert_eq!(rt.state.tried[1], (GITHUB_SIGN_IN, json!({ "token": "ghp_invented0000" })));
+        assert!(says(&rt, "Checking"));
+        // Refused, with GitHub's own reason; then taken, and said in a line.
+        github_lands(&mut rt, true, Ok(json!({ "ok": false, "error": "GitHub did not accept that token." })));
+        assert!(says(&rt, "GitHub did not accept that token.") && says(&rt, "Save"));
+        press_on(&mut rt, "need-save-token");
+        github_lands(&mut rt, true, Ok(json!({ "ok": false })));
+        assert!(says(&rt, TOKEN_DID_NOT_SAVE));
+        press_on(&mut rt, "need-save-token");
+        github_lands(&mut rt, true, Ok(json!({ "ok": true })));
+        assert_eq!(rt.state.toast.as_ref().map(|t| t.line.as_str()), Some(GITHUB_CONNECTED));
+        assert!(!says(&rt, TOKEN_DID_NOT_SAVE) && rt.state.refused.is_none());
+    }
+
+    #[test]
+    fn paste_a_token_instead_opens_the_box_and_leaving_starts_the_card_again() {
+        let mut rt = noted("github-paste", NO_SIGN_IN, "open", true);
+        press_on(&mut rt, "need-skip");
+        assert!(rt.find(TOKEN).is_some() && rt.find("need-github").is_none() && rt.state.tried.is_empty());
+        press_on(&mut rt, TOKEN);
+        type_in(&mut rt, "ghp_x");
+        // Escape lets go of the box, the next one leaves, and the card is new on coming back.
+        key(&mut rt, Key::Escape);
+        assert!(matches!(rt.state.view, View::Thread { .. }) && rt.state.github.token.text == "ghp_x");
+        key(&mut rt, Key::Escape);
+        assert!(!matches!(rt.state.view, View::Thread { .. }));
+        assert!(!rt.state.github.pasting && rt.state.github.token.text.is_empty());
     }
 
     #[test]

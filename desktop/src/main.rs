@@ -197,6 +197,8 @@ pub struct State {
     pub later: later::Picker,
     /// The card of the sign-in the open thread's agent waits on, and what it holds (`need.rs`).
     pub sign_in: need::SignIn,
+    /// The card of a ship that could not push for want of a GitHub sign-in here (`need.rs`).
+    pub github: need::GitHub,
     /// The command bar ⌘K opens (`palette.rs`).
     pub palette: palette::Bar,
     /// The box a thread is started in, and what it holds.
@@ -274,6 +276,7 @@ impl State {
         self.leave_the_reading();
         self.leave_the_strip();
         self.leave_the_sign_in();
+        self.leave_the_github_card();
         // A file open big belongs to the page it was opened over, and one beside a conversation
         // to the conversation, which keeps it for when it is opened again.
         self.viewer.open = None;
@@ -918,6 +921,7 @@ impl State {
             write::Sent::Palette(_) => return palette::landed(self, landed, tx),
             // A sign-in card's writes are the card's own to say (`need.rs`).
             write::Sent::SignInSaid { .. } | write::Sent::SignInKeep { .. } => return self.sign_in_landed(landed),
+            write::Sent::GitHubBegin { .. } | write::Sent::GitHubToken { .. } => return self.github_landed(landed, tx),
             // Z's own writes: said once the engine has them, or put back on the pile.
             write::Sent::TakenBack { .. } => return self.undo_landed(landed, tx),
             _ => {}
@@ -993,7 +997,9 @@ impl State {
             | write::Sent::SignIn
             | write::Sent::Palette(_)
             | write::Sent::SignInSaid { .. }
-            | write::Sent::SignInKeep { .. } => return,
+            | write::Sent::SignInKeep { .. }
+            | write::Sent::GitHubBegin { .. }
+            | write::Sent::GitHubToken { .. } => return,
         });
     }
     /// Out of a conversation: to where the person came from, and one opened from nowhere came
@@ -1377,6 +1383,7 @@ fn init_from(args: &[String]) -> State {
         hidden: HashSet::new(),
         later: later::Picker::closed(),
         sign_in: need::SignIn::default(),
+        github: need::GitHub::default(),
         palette: palette::Bar::closed(),
         compose: compose::Composer::default(),
         rail: chrome::Rail::default(),
@@ -1490,6 +1497,7 @@ fn init_from(args: &[String]) -> State {
     }
     // And one taken after a sign-in card was pressed or typed into (`signInPressed`).
     need::picture(&mut s);
+    need::picture_github(&mut s);
     // A picture taken with the command bar open (`palette` is what was typed into it).
     palette::picture(&mut s);
     // Nor can it wait for a conversation behind the door to be read.

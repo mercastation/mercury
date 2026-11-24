@@ -1099,6 +1099,12 @@ fn typed_with_files(words: &str, m: &Measure, files: &Files) -> El {
 
 /// One message, and how much of what it holds reaches under it.
 fn message(msg: &Message, turn: (bool, bool), now: f64, m: &Measure, files: &Files) -> El {
+    // The app's own news on the row is its quiet line, with no name over it and never a
+    // checkpoint's tag (`e.says === 'app'` in `Thread.tsx`).
+    if msg.app {
+        let (body, _, bottom) = markdown::stack(markdown::blocks_quiet(&msg.text, m.size, m.column, files), true);
+        return col().child(body).pb(bottom);
+    }
     let (body, leak) = if msg.mine {
         // Still on its way, its words a little fainter (`.msg.sending .msg-body`).
         let body = typed_with_files(&msg.text, m, files);
@@ -1930,13 +1936,38 @@ fn toggle(words: &str, thread: String, m: &Measure) -> El {
     )
 }
 
-/// The agent's last word, whole, at the foot of the conversation.
-fn outcome(answer: &Message, plain: bool, m: &Measure, files: &Files) -> Vec<Block> {
+/// The last word at the foot of the conversation, whole (`answer` in `ItemThread.tsx`). The
+/// app's own note is its quiet line. A ship that failed is "Not shipped", an accent dot before
+/// the words, over the note that says why, with the card that signs in to GitHub under it when
+/// that is what the push wanted. Anything else is the agent's, under "Result" or "Latest
+/// checkpoint" unless `plain`.
+fn outcome(s: &State, item: &Item, answer: &Message, plain: bool, m: &Measure, files: &Files) -> Vec<Block> {
+    use crate::rules::shipping::{self, Foot};
+    let foot = shipping::foot_of(item, answer.field == Field::Note, answer.app);
+    if foot == Foot::App {
+        return markdown::blocks_quiet(&answer.text, m.size, m.column, files);
+    }
     let mut blocks = markdown::blocks(&answer.text, m.size, m.column, files);
-    if !plain {
-        // A thread still in flight says which of the two this is.
-        let words = if answer.field == Field::Result { "Result" } else { "Latest checkpoint" };
-        blocks.insert(0, markdown::block(0.0, 7.0, readable(text(words).font(TextStyle::new(12.5, 400.0).lh(20.0)).color(muted()))));
+    if !plain || foot == Foot::Unshipped {
+        // A thread still in flight says which of these this is.
+        let words = match (answer.field == Field::Result, foot) {
+            (true, _) => "Result",
+            (false, Foot::Unshipped) => "Not shipped",
+            (false, _) => "Latest checkpoint",
+        };
+        let label = readable(text(words).font(TextStyle::new(12.5, 400.0).lh(20.0)).color(muted()));
+        let label = if foot == Foot::Unshipped && answer.field != Field::Result {
+            // The dot stands a point over the middle of the words' line (`.appendix-unshipped::before`).
+            row().items_center().child(el().size(6.0, 6.0).radius(3.0).fill(accent()).mr(7.0).mb(1.0)).child(label)
+        } else {
+            label
+        };
+        blocks.insert(0, markdown::block(0.0, 7.0, label));
+    }
+    if foot == Foot::Unshipped
+        && let Some(why) = shipping::not_shipped(item).filter(|why| shipping::asks_for_github_sign_in(why))
+    {
+        blocks.push(markdown::block(16.0, 6.0, crate::need::github_card(s, item, why == shipping::GITHUB_REFUSED_SIGN_IN, m.column)));
     }
     blocks
 }
@@ -2414,7 +2445,15 @@ pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
             let (body, top, bottom) = markdown::stack(answer_alone(answer, &title, &m, &files), false);
             blocks.push(markdown::block(top.max(28.0), bottom, body));
         }
-        Some(answer) => blocks.extend(answer_alone(answer, &title, &m, &files)),
+        Some(answer) => {
+            blocks.extend(answer_alone(answer, &title, &m, &files));
+            // The app's own note ("Shipped to main as …") goes under the agent's answer rather
+            // than in its place: one quiet line, as written (`<p className="one-app-note">`).
+            if let Some(note) = page.app_note {
+                let size = markdown::quiet_size(m.size);
+                blocks.push(markdown::block(8.0, 8.0, readable(text(note.text.as_str()).font(TextStyle::new(size, 400.0).lh(kept(1.6 * size))).color(muted()).wrap()).w(m.column)));
+            }
+        }
         None if getting => {}
         None => {
             if page.said.is_empty() && talk.outcome.is_none() {
@@ -2429,8 +2468,14 @@ pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
             if let Some(answer) = &talk.outcome {
                 // The agent's own close leads with its result as it is; anything else is labelled.
                 let closed_by_agent = item.status == "done" && item.rest.get("wrote").and_then(|w| w.get("status")).and_then(|st| st.get("source")).and_then(Value::as_str) != Some("founder");
-                let (body, top, bottom) = markdown::stack(outcome(answer, answer.field == Field::Result && closed_by_agent, &m, &files), false);
-                blocks.push(markdown::block(top.max(28.0), bottom.max(8.0), body.key(LAST_MESSAGE)));
+                let (body, top, bottom) = markdown::stack(outcome(s, item, answer, answer.field == Field::Result && closed_by_agent, &m, &files), false);
+                // The app's own note stands 14 points under the conversation, on a line of its
+                // own type, and the conversation's own foot of 22 is over that
+                // (`.one-app-note`); any other last word is an appendix, 28 under it.
+                // and its last paragraph gives up its own foot (`.one-app-note > :last-child`).
+                let quiet = answer.app && crate::rules::shipping::foot_of(item, true, true) == crate::rules::shipping::Foot::App;
+                let (over, under) = if quiet { (14.0, 0.0) } else { (top.max(28.0), bottom.max(8.0)) };
+                blocks.push(markdown::block(over, under, body.key(LAST_MESSAGE)));
             }
         }
     }

@@ -44,6 +44,14 @@ pub static NEED_KEY: Icon = Icon {
 };
 pub static NEED_OUT: Icon = Icon { name: "m-need-out", view: 16.0, body: r#"<path fill="none" stroke="currentColor" stroke-width="1.4" d="M5 11l6-6M6 5h5v5"/>"# };
 pub static NEED_TICK: Icon = Icon { name: "m-need-tick", view: 12.0, body: r#"<path fill="none" stroke="currentColor" stroke-width="1.8" d="M2.5 6.2l2.3 2.3 4.7-5"/>"# };
+// The facts under a token asked for (`GitHubSignInCard.tsx`): where it is kept, and that the
+// ship goes again once it is saved. The first fact wears the arrow above.
+pub static NEED_LOCK: Icon = Icon {
+    name: "m-need-lock",
+    view: 16.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></g>"#,
+};
+pub static NEED_AGAIN: Icon = Icon { name: "m-need-again", view: 16.0, body: r#"<path fill="none" stroke="currentColor" stroke-width="1.4" d="M13 8a5 5 0 1 1-1.5-3.5M13 3v2.5h-2.5"/>"# };
 
 // What the rail has only sometimes: Restart while a new version waits, what is left of the limit.
 pub static RESTART: Icon = Icon {

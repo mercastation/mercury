@@ -103,6 +103,10 @@ pub enum Sent {
     SignInSaid { thread: String, ask: String },
     /// Whether that sign-in is saved for every cloud thread, ticked or unticked on its card.
     SignInKeep { thread: String, ask: String },
+    /// GitHub's own sign-in for this computer's git, started from the card of a ship the push
+    /// refused on that thread, and a token pasted there instead (`need.rs`).
+    GitHubBegin { thread: String },
+    GitHubToken { thread: String },
 }
 
 impl Sent {
@@ -124,7 +128,9 @@ impl Sent {
             | Sent::Priority { thread, .. }
             | Sent::Place { thread, .. }
             | Sent::SignInSaid { thread, .. }
-            | Sent::SignInKeep { thread, .. } => thread,
+            | Sent::SignInKeep { thread, .. }
+            | Sent::GitHubBegin { thread }
+            | Sent::GitHubToken { thread } => thread,
             Sent::Thread { .. } | Sent::Cloud | Sent::Moved { .. } | Sent::SignIn | Sent::Palette(_) => "",
         }
     }
