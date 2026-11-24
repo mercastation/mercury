@@ -602,3 +602,23 @@ pub static FH_UPLOAD: Icon = Icon {
     view: 16.0,
     body: r#"<g fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 10.5V3M5 6l3-3 3 3M3 10.5v2h10v-2"/></g>"#,
 };
+
+// The person's account menu (`renderer/src/team/account-menu.tsx`): Invite people, Settings
+// (`SettingsIcon`, the composer's glyph) and Sign out, and Go invisible's ghost with the facts on
+// its card (`renderer/src/team/rooms/icons.tsx`). The status's smiley waits for its row.
+pub static ACCOUNT_INVITE: Icon = Icon {
+    name: "acct-invite",
+    view: 24.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="10" cy="8.5" r="3.5"/><path d="M3.5 20c.7-3.4 3.3-5.3 6.5-5.3 1.4 0 2.6.3 3.7.9"/><path d="M18 14v6M15 17h6"/></g>"#,
+};
+stroked!(ACCOUNT_SETTINGS, "acct-settings", "1.25", r#"<path d="M4.5 8h8M16.5 8h3M4.5 16h3M11.5 16h8"/><circle cx="14.5" cy="8" r="2"/><circle cx="9.5" cy="16" r="2"/>"#);
+stroked!(ACCOUNT_SIGN_OUT, "acct-sign-out", "1.4", r#"<path d="M14 4h4.5v16H14M10 8l-4 4 4 4M6 12h10"/>"#);
+stroked!(ACCOUNT_GHOST, "acct-ghost", "1.4", r#"<path d="M6 20V11a6 6 0 0 1 12 0v9l-2-1.5-2 1.5-2-1.5-2 1.5-2-1.5z"/><path d="M10 11h.01M14 11h.01" stroke-width="2"/>"#);
+stroked!(
+    ACCOUNT_EYE_OFF,
+    "acct-eye-off",
+    "1.5",
+    r#"<path d="M3 3l18 18"/><path d="M10.6 6.1A9.6 9.6 0 0 1 12 6c5 0 8.5 4.2 9.5 6-.4.8-1.3 2-2.5 3.2M6.6 7.6C4.6 8.9 3.2 10.8 2.5 12c1 1.8 4.5 6 9.5 6 1.5 0 2.9-.4 4.1-1"/><path d="M9.9 10a3 3 0 0 0 4.1 4.1"/>"#
+);
+stroked!(ACCOUNT_LOCK, "acct-lock", "1.4", r#"<rect x="5" y="11" width="14" height="9"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>"#);
+stroked!(ACCOUNT_CHAT, "acct-chat", "1.4", r#"<path d="M5 5h14v10H9l-4 4z"/>"#);

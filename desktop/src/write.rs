@@ -128,6 +128,9 @@ pub enum Sent {
     /// writes taking one back: said, drawn and put on Z's pile once the engine answers
     /// (`files_page::landed`).
     Files(crate::files_page::Wrote),
+    /// A row of the person's account menu: Sign out, their status, going invisible or coming
+    /// back (`account_menu.rs`).
+    Account(crate::account_menu::Wrote),
 }
 
 impl Sent {
@@ -152,7 +155,7 @@ impl Sent {
             | Sent::SignInKeep { thread, .. }
             | Sent::GitHubBegin { thread }
             | Sent::GitHubToken { thread } => thread,
-            Sent::Thread { .. } | Sent::Cloud | Sent::Moved { .. } | Sent::SignIn | Sent::Palette(_) | Sent::Filed(_) | Sent::Trouble { .. } | Sent::Project { .. } | Sent::CloudNeed(_) | Sent::Files(_) => "",
+            Sent::Thread { .. } | Sent::Cloud | Sent::Moved { .. } | Sent::SignIn | Sent::Palette(_) | Sent::Filed(_) | Sent::Trouble { .. } | Sent::Project { .. } | Sent::CloudNeed(_) | Sent::Files(_) | Sent::Account(_) => "",
         }
     }
 }

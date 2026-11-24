@@ -12,6 +12,7 @@
 
 #![forbid(unsafe_code)]
 
+mod account_menu;
 mod answer;
 mod attach;
 mod change;
@@ -232,6 +233,8 @@ pub struct State {
     pub rail: chrome::Rail,
     /// The card of the agents' limits its usage row opens (`usage.rs`).
     pub usage_card: usage::Card,
+    /// The person's account menu, which their own row opens (`account_menu.rs`).
+    pub account: account_menu::Menu,
     /// The control the pointer is on, for a look under it Rune's own hover cannot draw (`feel.rs`).
     pub pointed: feel::Pointed,
     /// The models this Mac's coding agents offer, as the engine's settings say; the ones the
@@ -995,6 +998,8 @@ impl State {
             // The row of tasks that could not run, and a project made (`trouble.rs`, `new_project.rs`).
             write::Sent::Trouble { .. } => return trouble::landed(self, landed, tx),
             write::Sent::Project { .. } => return new_project::landed(self, landed, tx),
+            // The account menu's Sign out, status and going invisible (`account_menu.rs`).
+            write::Sent::Account(_) => return account_menu::landed(self, landed, tx),
             // The Files place's changes, New, the Trash, and Z's writes of them (`files_page.rs`).
             write::Sent::Files(_) => return files_page::landed(self, landed, tx),
             // Z's own writes: said once the engine has them, or put back on the pile.
@@ -1079,7 +1084,8 @@ impl State {
             | write::Sent::Trouble { .. }
             | write::Sent::Project { .. }
             | write::Sent::CloudNeed(_)
-            | write::Sent::Files(_) => return,
+            | write::Sent::Files(_)
+            | write::Sent::Account(_) => return,
         });
     }
     /// Out of a conversation: to where the person came from, and one opened from nowhere came
@@ -1477,6 +1483,7 @@ fn init_from(args: &[String]) -> State {
         compose: compose::Composer::default(),
         rail: chrome::Rail::default(),
         usage_card: usage::Card::default(),
+        account: account_menu::Menu::default(),
         pointed: feel::Pointed::default(),
         models: rules::compose::Models::built(),
         reading_models: Latest::default(),
@@ -1953,6 +1960,8 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
         );
     // The card of the agents' limits, risen from the rail's usage row over the page.
     let root = root.children(usage::layer(s));
+    // The person's account menu, risen from their row at the rail's foot.
+    let root = root.children(account_menu::layer(s));
     // The list a conversation's Files button opens, over the page and under everything else, and
     // what the rest of its strip opens; over the Inbox, what its strip opens.
     let root = root.children(thread::files_list(s)).children(strip::layer(s)).children(head::layer(s));

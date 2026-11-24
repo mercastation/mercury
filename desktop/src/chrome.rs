@@ -215,6 +215,10 @@ impl Rail {
     pub fn width(&self, now: f64) -> f32 {
         self.width.at(now)
     }
+    /// How far its words have come in at `now`, which the account menu's words follow too.
+    pub fn words(&self, now: f64) -> f32 {
+        self.words.at(now)
+    }
     /// Whether it is opening or folding at `now`, when every frame has to be drawn.
     pub fn moving(&self, now: f64) -> bool {
         [self.width, self.words, self.dot, self.line].iter().any(|f| f.moving(now))
@@ -560,7 +564,7 @@ fn foot_card(card: Card, wide: f32, words: f32, press: fn(&mut State, &mut Tx), 
 }
 
 /// The person's own face on their row: two letters on a light disc (`.th-me .tm-av`).
-fn my_face(letters: &str) -> El {
+pub(crate) fn my_face(letters: &str) -> El {
     row()
         .size(20.0, 20.0)
         .radius(10.0)
@@ -639,9 +643,8 @@ fn recent_row(s: &State, item: &crate::data::Item, wide: f32) -> El {
 /// ONLY WHAT WORKS HERE. The web window's sidebar also has Demands, Chats, Connections, Record
 /// meeting and Feedback. Drawn here they were buttons that went nowhere, which is worse than no
 /// button, so they are left out until this window has their pages, and what is under each
-/// stands that much higher. The person's own row opens Settings, where the web window's opens
-/// their account menu (which has Settings in it); with nobody signed in Settings is a row of
-/// its own, as it is there.
+/// stands that much higher. The person's own row opens their account menu, which has Settings
+/// in it (`account_menu.rs`); with nobody signed in Settings is a row of its own, as it is there.
 pub fn rail(s: &State, still: bool) -> El {
     let now = s.at;
     let (wide, words, dot, line) = (s.rail.width(now), s.rail.words.at(now), s.rail.dot.at(now), s.rail.line.at(now));
@@ -823,10 +826,10 @@ pub fn rail(s: &State, still: bool) -> El {
     let mut foot = col().pt(16.0);
     if let Some(letters) = &me {
         // Their face and their name (`.th-me-btn`; the email under it is no longer drawn), the
-        // name ending 48 points short of the row's end where the bar stands. The web window
-        // opens their account menu on it, whose rows are what they are up to, Invite people,
-        // Settings and Sign out; here, with no menu, it goes straight to Settings.
-        // The row's title stands on all of it but the bar, which is no part of the web's button.
+        // name ending 48 points short of the row's end where the bar stands. A press opens their
+        // account menu over it, and the row wears the wash while it is open (`account_menu.rs`).
+        // Its title, "Your account", is there only while the sidebar is folded, when the bar,
+        // which is no part of the web's button, is not drawn.
         let (name, _) = window::my_names(&s.snap).unwrap_or_default();
         let name = el().grow(1.0).min_w(0.0).opacity(words).child(pen(text(name).font(TextStyle::new(14.0, 500.0).lh(20.0)).color(ink()).truncate(), 14.0));
         let mine = row()
@@ -838,10 +841,14 @@ pub fn rail(s: &State, still: bool) -> El {
             .items_center()
             .radius(6.0)
             .clip_rounded(6.0)
+            .key(crate::account_menu::ROW)
+            .fill(if s.account.open { feel::wash() } else { rgba(0, 0, 0, 0.0) })
             .hover(rail_fill())
-            .child(row().grow(1.0).min_w(0.0).h(32.0).items_center().gap(6.0).child(my_face(letters)).child(name).help("Settings"))
-            .children(bar.map(|bar| bar.ml(4.0)));
-        foot = foot.child(utilities).child(mine.on_press_tx(open_settings));
+            .child(row().grow(1.0).min_w(0.0).h(32.0).items_center().gap(6.0).child(my_face(letters)).child(name))
+            .children(bar.map(|bar| bar.ml(4.0)))
+            .label("Your account");
+        let mine = if folded { mine.help("Your account") } else { mine };
+        foot = foot.child(utilities).child(mine.on_press_tx(crate::account_menu::toggle));
     } else {
         let words_of_it = row()
             .grow(1.0)
