@@ -12,11 +12,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { LOCAL_DOOR_NOTE, MARK_UNREAD_EVENT, MARK_UNREAD_HERE, OPEN_CLOUD_SETUP, OPEN_PLAN_SETUP, OPEN_SETTINGS, PLANS, SETTINGS_PAGE_IDS, TOLD_AT_THE_DOOR, TROUBLE_CLOSED_EVENT, TROUBLE_CLOSED_HERE, WINDOW_KEEPS, markUnread, markUnreadScript, openCloudSetup, openLocalDoor, openPlanSetup, openSettings, planOf, tellTheDoorToo, troubleClosed, troubleClosedScript, windowKeeps } from '../main/local-door.mts';
+import { FILES_UPLOAD_HERE, LOCAL_DOOR_NOTE, MARK_UNREAD_EVENT, MARK_UNREAD_HERE, OPEN_CLOUD_SETUP, OPEN_PLAN_SETUP, OPEN_SETTINGS, PLANS, SETTINGS_PAGE_IDS, TOLD_AT_THE_DOOR, TROUBLE_CLOSED_EVENT, TROUBLE_CLOSED_HERE, WINDOW_KEEPS, filesUploadHere, markUnread, markUnreadScript, openCloudSetup, openLocalDoor, openPlanSetup, openSettings, pickedFiles, planOf, tellTheDoorToo, troubleClosed, troubleClosedScript, windowKeeps } from '../main/local-door.mts';
 import { SETTINGS_PAGES } from '../renderer/src/settings-search.ts';
 import { MARK_UNREAD } from '../renderer/src/team/chat-events.ts';
 import { TROUBLE_CLOSED } from '../renderer/src/trouble-row.ts';
-import type { LocalDoor, LocalDoorNote } from '../main/local-door.mts';
+import type { LocalDoor, LocalDoorNote, PickedFiles } from '../main/local-door.mts';
 import type { IpcHandler, PushListener } from '../main/serve.mts';
 
 const open: LocalDoor[] = [];
@@ -486,6 +486,65 @@ describe("the native window's plan bar", () => {
     expect(preload).toMatch(/onOpenPlanSetup: \(fn\) => \{[\s\S]{0,200}'zero:open-plan-setup'/);
     const app = fs.readFileSync(path.join(import.meta.dirname, '..', 'renderer', 'src', 'App.tsx'), 'utf8');
     expect(app).toMatch(/onOpenPlanSetup\?\.\(\(plan\) => \{[\s\S]{0,160}setSetupPlan\(plan\)/);
+  });
+});
+
+describe("the native window's Upload from computer", () => {
+  const anUploadDoor = async (add: (picked: PickedFiles) => Promise<unknown> = async (picked) => ({ ok: true, added: picked.paths.length, refused: [], keys: picked.paths.map((p) => `company/${path.basename(p)}`) })) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'local-door-'));
+    folders.push(dir);
+    const channels = new Map<string, IpcHandler>([['zero:snapshot', () => ({ items: [] })]]);
+    const asked: PickedFiles[] = [];
+    const upload = filesUploadHere(async (picked) => { asked.push(picked); return add(picked); });
+    const door = await openLocalDoor({ channels, note: path.join(dir, LOCAL_DOOR_NOTE), upload });
+    open.push(door);
+    return { door, channels, asked };
+  };
+
+  it('adds the files picked, with the project and folder named, and answers as the upload answers', async () => {
+    const { door, channels, asked } = await anUploadDoor();
+    const res = await ask(door, FILES_UPLOAD_HERE, { key: door.token, body: { project: 'Company', folder: 'f-1', paths: ['/Users/you/Desktop/Logo.png', '/Users/you/Desktop/plan.pdf'], channel: 'zero:compose' } });
+    expect(await res.json()).toEqual({ ok: true, added: 2, refused: [], keys: ['company/Logo.png', 'company/plan.pdf'] });
+    expect(asked).toEqual([{ project: 'Company', folder: 'f-1', paths: ['/Users/you/Desktop/Logo.png', '/Users/you/Desktop/plan.pdf'] }]);
+    // No folder is the project's top.
+    await ask(door, FILES_UPLOAD_HERE, { key: door.token, body: { project: 'Company', paths: ['/tmp/a.png'] } });
+    expect(asked[1]).toEqual({ project: 'Company', folder: null, paths: ['/tmp/a.png'] });
+    // A channel of this door alone: the app's own Map, which the phone's copy is made from, does not grow.
+    expect([...channels.keys()]).toEqual(['zero:snapshot']);
+  });
+
+  it('adds nothing for what is not a project and absolute paths', async () => {
+    const { door, asked } = await anUploadDoor();
+    for (const body of [null, {}, { project: '', paths: ['/a.png'] }, { project: 7, paths: ['/a.png'] }, { project: 'Company', folder: 3, paths: ['/a.png'] },
+      { project: 'Company', paths: [] }, { project: 'Company', paths: 'a.png' }, { project: 'Company', paths: ['a.png'] }, { project: 'Company', paths: ['../a.png'] },
+      { project: 'Company', paths: ['/a\0.png'] }, { project: 'Company', paths: [{ path: '/a.png' }] }, { project: 'Company', paths: Array.from({ length: 501 }, (_, i) => `/f${i}.png`) }]) {
+      const res = await ask(door, FILES_UPLOAD_HERE, { key: door.token, body });
+      expect([body, await res.json()]).toEqual([body, { ok: false, error: 'not files to add' }]);
+    }
+    expect(asked).toEqual([]);
+    expect(pickedFiles({ project: 'Company', folder: null, paths: ['/a.png'], extra: 'x' })).toEqual({ project: 'Company', folder: null, paths: ['/a.png'] });
+  });
+
+  it("says the app's words when adding fails", async () => {
+    const { door } = await anUploadDoor(async () => { throw new Error('that project is gone'); });
+    expect(await (await ask(door, FILES_UPLOAD_HERE, { key: door.token, body: { project: 'Company', paths: ['/a.png'] } })).json()).toEqual({ ok: false, error: 'that project is gone' });
+  });
+
+  it('is not a channel on a door nobody gave it to, still needs the key, and shares the upload the app window runs', async () => {
+    const { door } = await aDoor();
+    expect((await ask(door, FILES_UPLOAD_HERE, { key: door.token, body: { project: 'Company', paths: ['/a.png'] } })).status).toBe(404);
+    const { door: keyed, asked } = await anUploadDoor();
+    expect((await ask(keyed, FILES_UPLOAD_HERE, { body: { project: 'Company', paths: ['/a.png'] } })).status).toBe(403);
+    expect(asked).toEqual([]);
+    const main = fs.readFileSync(path.join(import.meta.dirname, '..', 'main', 'main.mts'), 'utf8');
+    expect(main).toMatch(/const upload = filesUploadHere\(ipc\.addPickedFiles\)/);
+    expect(main).toMatch(/openLocalDoor\(\{[^}]*\bupload\b[^}]*\}\)/);
+    // One piece of code adds the files, after the app's own file window or with the paths given here.
+    const ipc = fs.readFileSync(path.join(import.meta.dirname, '..', 'main', 'ipc.mts'), 'utf8');
+    const handler = ipc.slice(ipc.indexOf("ipcMain.handle('zero:files-place-upload'"), ipc.indexOf("ipcMain.handle('zero:files-place-open'"));
+    expect(handler).toMatch(/return await addPickedFiles\(\{ project, folder, paths: r\.filePaths \}\)/);
+    expect(ipc.match(/filesPlaceNow\(\)\.addFiles\(/g)).toHaveLength(1);
+    expect(ipc).toMatch(/return \{[^}]*\baddPickedFiles\b[^}]*\};\n\}/);
   });
 });
 
