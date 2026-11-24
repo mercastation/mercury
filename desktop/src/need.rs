@@ -266,6 +266,18 @@ fn mark(card: &Card, scale: f32) -> El {
 /// `fallback` otherwise (`<Mark id fallback>`).
 pub(crate) fn mark_of(logo: Option<&str>, fallback: &'static rune::Icon, scale: f32) -> El {
     let inside = match logo.and_then(|id| logos::of(id, 20.0, scale)) {
+        // AWS's mark is its smile under three letters its file sets as text, in the system's
+        // own bold sans, which the rasteriser draws none of. They are set here, where the file
+        // puts them: 22 of its 64 units tall, their middle on its middle, their feet 22 down.
+        Some(smile) if logo == Some("aws") => {
+            let unit = 20.0 / 64.0;
+            let size = 22.0 * unit;
+            let letters = text("aws").font(TextStyle { family: rune::Family::Named("Helvetica, Arial, sans-serif"), ..TextStyle::new(size, 700.0).lh(size) }).color(rgb(232, 230, 227));
+            // The file is 64 by 40, so it stands 3.75 points down the square; a line of this
+            // face as tall as its type has its feet 0.77 of the way down.
+            let top = 3.75 + 22.0 * unit - 0.77 * size;
+            el().size(20.0, 20.0).child(el().absolute(0.0, 0.0).size(20.0, 20.0).pixels_fit(&smile, SurfaceFit::Fit)).child(row().absolute(0.0, top).w(20.0).justify_center().child(letters))
+        }
         Some(logo) => el().size(20.0, 20.0).pixels_fit(&logo, SurfaceFit::Fit),
         None => icon(fallback, 20.0).color(dim()),
     };
@@ -897,6 +909,18 @@ mod tests {
         assert!(says(&rt, DID_NOT_REACH));
         press_on(&mut rt, "need-send-code");
         assert_eq!(rt.state.tried.len(), 2);
+    }
+
+    #[test]
+    fn awss_mark_has_its_letters_over_its_smile() {
+        let rt = asking("need-aws", json!({ "service": "AWS", "url": "https://signin.aws.amazon.com/oauth" }), false);
+        let mark = rt.elements().iter().find(|e| e.text.as_deref() == Some("aws")).map(|e| e.rect).expect("the letters of AWS's mark");
+        // Inside the mark's square of 40, which heads the card.
+        let (_, card) = rt.find("need-sign-in").unwrap();
+        assert!(mark[2] < 20.0 && mark[3] < 10.0 && (mark[1] - card).abs() < 80.0, "{mark:?}");
+        // No other service's mark is written.
+        let other = asking("need-not-aws", cloudflare(), false);
+        assert!(!says(&other, "aws"));
     }
 
     #[test]

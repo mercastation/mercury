@@ -137,8 +137,10 @@ fixture; each card's rectangle is compared with the web's (section H).
 
 - [x] E2.1 A sign-in wears its service's logo (a dark one drawn light), a code the logo of what
   it is for when there is one, else a key; a file the file (`need::mark_of`, the kit's mark made
-  general). Pictures (Supabase, Stripe, Vercel, GitHub, Sentry, npm, the key, the file). The AWS
-  logo's letters are not drawn: see "Deviations" 1.
+  general). Pictures (Supabase, Stripe, Vercel, GitHub, Sentry, npm, the key, the file). AWS's
+  letters, which its file sets as text in the system's bold sans, are set over its smile by this
+  window in the same face (`mark_of`; picture `-aws`, test
+  `awss_mark_has_its_letters_over_its_smile`).
 
 ### E3. Connect a service, add a key (`NeedCard`, `KeyFields`)
 
@@ -332,13 +334,14 @@ rail is the older, wider one: README, "What still differs"); every other number 
 In `thread-needs-unfolded` the three cards stand together 0.49 points higher: the page lands on its
 foot, where this window's scroll rests half a point from the browser's (README, "What still
 differs"). Inside the cards the crops agree to the eye but for the ground's colour (the web's
-newer palette) and the AWS logo's letters.
+newer palette).
 
 ## Deviations for the owner to decide
 
-1. **The AWS logo draws only its smile.** Its letters are an SVG `<text>`, and the rasteriser
-   behind `logos::of` loads no font, so they are not drawn. It is the shared logo kit's (the
-   sign-in card shows the same); left as it was.
+1. **The AWS logo's letters are this window's own text.** Its file sets them as an SVG `<text>`,
+   which the rasteriser behind `logos::of` draws none of, so `mark_of` sets them over the smile
+   in the same system face. On a computer with neither Helvetica nor Arial they fall back to the
+   window's own sans.
 2. **E9.2**, above: no button takes the keys; a box does not select what it holds as it takes
    them.
 3. **The file panel is this window's own.** "Choose another file" and "Choose the file" open the
