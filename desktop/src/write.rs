@@ -110,6 +110,11 @@ pub enum Sent {
     /// A press on the list of the threads a thread filed: said and put on Z's pile once the
     /// engine answers (`made::landed`).
     Filed(crate::made::Wrote),
+    /// The row of tasks that could not run put away as of the pile begun at `closed`, or with
+    /// `undo` put back to it, `was` being what it was before (`trouble.rs`).
+    Trouble { closed: f64, was: f64, undo: bool },
+    /// A project made of the folder `repo`, called `name` (`new_project.rs`).
+    Project { name: String, repo: String },
 }
 
 impl Sent {
@@ -134,7 +139,7 @@ impl Sent {
             | Sent::SignInKeep { thread, .. }
             | Sent::GitHubBegin { thread }
             | Sent::GitHubToken { thread } => thread,
-            Sent::Thread { .. } | Sent::Cloud | Sent::Moved { .. } | Sent::SignIn | Sent::Palette(_) | Sent::Filed(_) => "",
+            Sent::Thread { .. } | Sent::Cloud | Sent::Moved { .. } | Sent::SignIn | Sent::Palette(_) | Sent::Filed(_) | Sent::Trouble { .. } | Sent::Project { .. } => "",
         }
     }
 }

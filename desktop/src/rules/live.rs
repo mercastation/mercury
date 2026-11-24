@@ -17,6 +17,18 @@ use super::js::{self, re};
 use super::place::{self, Why};
 use crate::data::{Item, Supervisor, truthy};
 
+thread_local! {
+    /// Whether the Inbox's bar that says agents cannot start until a plan is signed in is up
+    /// (`signInBar: !!planWords` in `App.tsx`, which every row's facts carry): the window says
+    /// so each time it reads that bar (`plan_bar.rs`), and every fact read after it carries it.
+    static SIGN_IN_BAR: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// The bar is up, or it is not, for every fact read from now on.
+pub fn sign_in_bar_is_up(up: bool) {
+    SIGN_IN_BAR.with(|bar| bar.set(up));
+}
+
 /// One tool call still running (`activity` on `RunningSession`).
 #[derive(Deserialize, Default, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
@@ -147,7 +159,7 @@ pub struct Facts {
     pub remote_held: bool,
     /// `supervisor.signInNeeded[id]`: the tool it is signed out of.
     pub sign_in_needed: Option<String>,
-    /// The Inbox's sign-in bar is up. This window draws no such bar, so it stays false here.
+    /// The Inbox's sign-in bar is up, so a signed-out row points at it (`sign_in_bar_is_up`).
     pub sign_in_bar: bool,
     /// `supervisor.atLimit[id]`: the tool out of usage, and when it resets (0 when no login said).
     pub at_limit: Option<(String, f64)>,
@@ -215,7 +227,7 @@ impl Facts {
             run_now: listed(s, "runNow", id),
             remote_held: listed(s, "remoteHeld", id),
             sign_in_needed: keyed(s, "signInNeeded", id).map(|tool| tool.as_str().unwrap_or("Claude Code").to_string()),
-            sign_in_bar: false,
+            sign_in_bar: SIGN_IN_BAR.with(std::cell::Cell::get),
             at_limit: keyed(s, "atLimit", id).map(|l| (text_of(l, "tool").unwrap_or_default(), l.get("until").and_then(Value::as_f64).unwrap_or(0.0))),
             cannot_start: keyed(s, "cannotStart", id).map(|c| (text_of(c, "why").unwrap_or_default(), text_of(c, "tool").unwrap_or_default())),
             shipping: listed(s, "shipping", id),

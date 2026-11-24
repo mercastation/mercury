@@ -35,7 +35,7 @@ import { followedAfter, freshAgentRow, freshCopy, staysOnTheTask, stillFollowing
 import { List } from './components/List';
 import { LogoOrbit } from './components/LogoOrbit';
 import { cameBackFromACrash, keepHeldWriter, RELOADED_AFTER_A_CRASH } from './after-a-crash';
-import { isTroubleRow, troubleRow } from './trouble-row';
+import { isTroubleRow, troubleRow, TROUBLE_CLOSED } from './trouble-row';
 import { importAnswer, isImportRow, isNotImportedRow, justImported, type ImportChoice } from './import-row';
 import { lookedAtNow, needsYouLit } from './needs-you';
 import { arrivedAt, isUnread, readMoves, seenElsewhere, waitingSince } from './unread';
@@ -482,6 +482,15 @@ export default function App() {
     setTroubleClosed(since);
     try { localStorage.setItem('zero.troubleClosed', String(since)); } catch { /* private mode: it just comes back */ }
   }, []);
+  // AND THE NATIVE WINDOW'S E AND Z ON THAT ROW are kept here too, so both windows agree.
+  useEffect(() => {
+    const put = (e: Event) => {
+      const since = (e as CustomEvent<{ since?: unknown }>).detail?.since;
+      if (typeof since === 'number' && Number.isFinite(since) && since >= 0) setTroubleClosedAt(since);
+    };
+    window.addEventListener(TROUBLE_CLOSED, put);
+    return () => window.removeEventListener(TROUBLE_CLOSED, put);
+  }, [setTroubleClosedAt]);
   // WHETHER THIS INSTALL HAS EVER BEEN TOLD what taking a stopped agent out of
   // the inbox costs. One marker for both keys, written the first time the
   // sentence is said and never read again after that; the rule and the reason
@@ -3275,6 +3284,14 @@ export default function App() {
       setTeamOpen(false);
       setSettingsOpen(false);
       setCloudSetupOpen(true);
+    }) ?? (() => {});
+    return off;
+  }, []);
+  // And the native window's plan bar, on Set up or Sign in, opens the setup card on that plan,
+  // as this window's own bar does (`onSetup={setSetupPlan}`), over the whole window.
+  useEffect(() => {
+    const off = window.zero?.onOpenPlanSetup?.((plan) => {
+      if (plan === 'claude' || plan === 'codex' || plan === 'both') setSetupPlan(plan);
     }) ?? (() => {});
     return off;
   }, []);

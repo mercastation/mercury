@@ -127,10 +127,19 @@ pub fn place_view(s: &State, item: &Item) -> Option<place::View> {
 }
 
 impl State {
+    /// The thread the strip stands over: the open conversation, or the row the app makes itself
+    /// when tasks cannot run, whose strip has the same dots (`trouble.rs`).
+    fn strip_item(&self) -> Option<&Item> {
+        let View::Thread { id, product } = &self.view else {
+            return None;
+        };
+        self.open_item().or_else(|| self.lists.trouble.as_ref().filter(|t| &t.id == id && &t.product == product))
+    }
+
     /// What of the strip is open over the conversation on screen.
     pub fn strip_open(&self) -> Option<&Over> {
         let (thread, over) = self.strip.open.as_ref()?;
-        let item = self.open_item()?;
+        let item = self.strip_item()?;
         (*thread == thread_key(item)).then_some(over)
     }
 
@@ -155,7 +164,7 @@ impl State {
     }
 
     fn open_over(&mut self, over: Over) {
-        let Some(item) = self.open_item() else {
+        let Some(item) = self.strip_item() else {
             return;
         };
         let thread = thread_key(item);
@@ -171,7 +180,7 @@ impl State {
     pub fn toggle_more(&mut self, tx: &mut Tx) {
         if matches!(self.strip_open(), Some(Over::More { .. })) {
             self.close_strip();
-        } else if self.open_item().is_some_and(|item| rows_for(self, item).is_empty()) {
+        } else if self.strip_item().is_some_and(|item| rows_for(self, item).is_empty()) {
             self.close_thread_menus();
             self.tell(NOT_HERE, tx);
         } else {
@@ -190,7 +199,7 @@ impl State {
 
     /// The rows of the menu as it stands: the thread's, or its four levels.
     fn strip_rows(&self) -> Vec<Row> {
-        let Some(item) = self.open_item() else {
+        let Some(item) = self.strip_item() else {
             return Vec::new();
         };
         match self.strip_open() {
@@ -216,14 +225,16 @@ impl State {
         let Some(row) = self.strip_rows().into_iter().nth(at) else {
             return;
         };
-        let Some(item) = self.open_item().cloned() else {
+        let Some(item) = self.strip_item().cloned() else {
             return;
         };
         match (levels, row) {
             (false, Row::Priority(_)) => self.strip.open = Some((thread_key(&item), Over::More { lit: 0, levels: true })),
             (true, Row::Priority(level)) => {
                 self.close_strip();
-                if level != Priority::of(item.priority) {
+                // The row the app makes itself is in no ledger: the web window's write of a level
+                // to it is refused and says nothing, so none is written here.
+                if level != Priority::of(item.priority) && !crate::rules::trouble_row::is_trouble_row(&item) {
                     self.retag(&item, level);
                 }
             }
@@ -482,10 +493,7 @@ fn place_panel(v: &place::View) -> Option<El> {
 /// What stands open over the strip, with the layer around the strip's group of buttons that
 /// closes it on a press's way down: a press on the group goes on to its buttons.
 pub fn layer(s: &State) -> Option<El> {
-    let View::Thread { id, product } = &s.view else {
-        return None;
-    };
-    let item = s.snap.items.iter().find(|i| &i.id == id && &i.product == product)?;
+    let item = s.strip_item()?;
     let open = match s.strip_open()? {
         Over::More { levels, lit } => more_menu(s, item, *levels, *lit)?,
         Over::Place => place_panel(&place_view(s, item)?)?,

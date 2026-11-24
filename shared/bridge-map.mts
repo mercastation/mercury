@@ -296,6 +296,8 @@ export const PUSH_CHANNELS: Readonly<Record<string, string>> = {
   onOpenSettings: 'zero:open-settings',
   // The native window's cloud menu asks for the cloud's setup (main/local-door.mts OPEN_CLOUD_SETUP).
   onOpenCloudSetup: 'zero:open-cloud-setup',
+  // And its plan bar asks for the setup card on a plan (main/local-door.mts OPEN_PLAN_SETUP).
+  onOpenPlanSetup: 'zero:open-plan-setup',
   onScreenDetail: 'zero:screen-detail',
   onEscapeBrowser: 'zero:escape-browser',
   onKeyInTheFile: 'zero:key-in-the-file',

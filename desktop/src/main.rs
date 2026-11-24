@@ -37,10 +37,12 @@ mod logos;
 mod made;
 mod markdown;
 mod need;
+mod new_project;
 mod palette;
 mod pane;
 mod picks;
 mod pictures;
+mod plan_bar;
 mod reads;
 mod reply;
 mod rules;
@@ -53,6 +55,7 @@ mod table;
 mod talk;
 mod theme;
 mod thread;
+mod trouble;
 mod usage;
 mod viewer;
 mod wake;
@@ -112,6 +115,10 @@ pub struct State {
     /// What the screens draw, worked out from `snap` whenever it or the minute changes.
     pub lists: Lists,
     pub local: Local,
+    /// The row of tasks that could not run, put away here and not yet in the web window's record.
+    pub trouble: trouble::Kept,
+    /// The bar that says agents cannot start until a plan is signed in (`plan_bar.rs`).
+    pub plan: plan_bar::Bar,
     /// The rest of a fixture file, for the screen that knows what it is (a thread's words).
     pub fixture: Map<String, Value>,
     /// The clock the rows read, in milliseconds. A fixture brings its own.
@@ -459,6 +466,9 @@ impl State {
             self.answering.asked = None;
             if let Some(item) = &held.closes {
                 self.hidden.remove(&item.id);
+            }
+            if let write::Sent::Trouble { was, .. } = held.sent {
+                self.trouble_taken_back(was);
             }
             let (id, product) = held.thread.clone();
             self.answering.holding.remove(&id);
@@ -858,6 +868,10 @@ impl State {
     /// ever of a thread whose agent waits on the person is held, and a line says what it costs
     /// (`nudgeOnStopped`).
     pub fn close(&mut self, id: &str, product: &str, unshipped: bool, tx: &mut Tx) {
+        // The row the app makes itself is put away by its own route (`trouble.rs`).
+        if id == rules::trouble_row::TROUBLE_ID && product.is_empty() {
+            return self.put_the_trouble_away(tx);
+        }
         let Some(item) = self.snap.items.iter().find(|i| i.id == id && i.product == product).cloned() else {
             return;
         };
@@ -945,6 +959,9 @@ impl State {
             write::Sent::GitHubBegin { .. } | write::Sent::GitHubToken { .. } => return self.github_landed(landed, tx),
             // So are the presses on the list of the threads a thread filed (`made.rs`).
             write::Sent::Filed(_) => return made::landed(self, landed, tx),
+            // The row of tasks that could not run, and a project made (`trouble.rs`, `new_project.rs`).
+            write::Sent::Trouble { .. } => return trouble::landed(self, landed, tx),
+            write::Sent::Project { .. } => return new_project::landed(self, landed, tx),
             // Z's own writes: said once the engine has them, or put back on the pile.
             write::Sent::TakenBack { .. } => return self.undo_landed(landed, tx),
             _ => {}
@@ -1023,7 +1040,9 @@ impl State {
             | write::Sent::SignInKeep { .. }
             | write::Sent::GitHubBegin { .. }
             | write::Sent::GitHubToken { .. }
-            | write::Sent::Filed(_) => return,
+            | write::Sent::Filed(_)
+            | write::Sent::Trouble { .. }
+            | write::Sent::Project { .. } => return,
         });
     }
     /// Out of a conversation: to where the person came from, and one opened from nowhere came
@@ -1121,6 +1140,8 @@ impl State {
             local.seen_at.insert(id.clone(), 0.0);
             local.seen.retain(|seen| seen != id);
         }
+        // And the row of tasks that could not run, put away or back here (`trouble.rs`).
+        trouble::lay_over(&mut self.trouble, &mut local);
         self.local = local;
     }
     /// The rows J and K walk and Enter opens: the open tab's on the Inbox page.
@@ -1133,7 +1154,7 @@ impl State {
     }
     /// The page's box inside the window: under the card's top strip.
     pub fn page_size(&self) -> (f32, f32) {
-        ((self.size.0 - chrome::card_left(self) - chrome::CARD[2]).max(1.0), (self.size.1 - chrome::page_top(&self.view) - chrome::CARD[3]).max(1.0))
+        ((self.size.0 - chrome::card_left(self) - chrome::CARD[2]).max(1.0), (self.size.1 - chrome::page_top(&self.view) - plan_bar::height(self) - chrome::CARD[3]).max(1.0))
     }
     fn refresh(&mut self) {
         // An answer held for Z, or written and not yet read back, has already gone as far as the
@@ -1357,6 +1378,8 @@ fn init_from(args: &[String]) -> State {
         snap: Snapshot::default(),
         lists: Lists::default(),
         local: Local::default(),
+        trouble: trouble::Kept::default(),
+        plan: plan_bar::Bar::default(),
         fixture: Map::new(),
         now: clock(),
         fixed_clock: false,
@@ -1523,6 +1546,8 @@ fn init_from(args: &[String]) -> State {
     // And one taken after a sign-in card was pressed or typed into (`signInPressed`).
     need::picture(&mut s);
     need::picture_github(&mut s);
+    // And what the page was told of this computer's plans (`zero:engine-setup`).
+    plan_bar::picture(&mut s);
     // A picture taken with the command bar open (`palette` is what was typed into it).
     palette::picture(&mut s);
     // Nor can it wait for a conversation behind the door to be read.
@@ -1636,6 +1661,9 @@ fn setup(s: &mut State, wake: Waker) {
     s.retries.wake_with(wake.clone());
     s.repeats.wake_with(wake.clone());
     s.changes.set_waker(wake.clone());
+    // Whether a plan can run an agent, asked as the window opens (`plan_bar.rs`).
+    s.plan.set_waker(wake.clone());
+    plan_bar::check(s);
     if let Source::Door(door) = s.source.clone() {
         front::tell_the_app(door.clone());
         source::follow_door(door, s.mailbox.clone(), move || wake());
@@ -1681,6 +1709,8 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
     }
     // Agentbox Cloud's plan, for the cloud menu's month (`head.rs`).
     changed |= s.plan_landed();
+    // And whether a plan can run an agent at all (`plan_bar.rs`).
+    changed |= plan_bar::poll(s);
     let mut stale = false;
     let mut arrived = None;
     {
@@ -1840,9 +1870,14 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
     // The marks over a change that takes the workspace, woken by the pointer moving, lie under
     // the page, as the web window's lie under the change's own sticky heads (`change.rs`).
     let root = change::over_the_workspace(s, root);
+    // The bar that says agents cannot start until a plan is signed in stands first on the page,
+    // which is laid out under it (`plan_bar.rs`).
+    let bar = plan_bar::view(s, top);
+    let top = top + plan_bar::height(s);
     let root = root
         .child(chrome::rail(s, cx.is_reduced_motion()))
         .child(strip)
+        .children(bar)
         // The page scrolls inside the card, under its top strip.
         .child(
             el().pin(Some(chrome::card_left(s)), Some(top), Some(chrome::CARD[2]), Some(chrome::CARD[3]))

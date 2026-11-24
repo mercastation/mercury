@@ -413,10 +413,10 @@ re!(BLANK_LINE, r"\n\s*\n", "");
 
 /// The line a row prints under its title: whichever of body and result was written last, so a
 /// blocked row with an answer shows the answer, and a finished row shows its result.
-/// `trouble_summary` is the first line of the row the app makes itself, which prints only that.
-pub fn row_summary(i: &Item, trouble_summary: Option<&str>) -> String {
-    if let Some(summary) = trouble_summary {
-        return clip_to_sentence(summary);
+/// `trouble_body` is the body of the row the app makes itself, which prints only its first line.
+pub fn row_summary(i: &Item, trouble_body: Option<&str>) -> String {
+    if let Some(body) = trouble_body {
+        return clip_to_sentence(js::trim(body.split('\n').next().unwrap_or("")));
     }
     // Over the agent's last word, which was written first and says it ships.
     if let Some(unshipped) = not_shipped_line(i) {

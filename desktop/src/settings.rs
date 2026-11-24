@@ -1121,4 +1121,17 @@ mod tests {
         let after = rt.find("find-storage").expect("the same group").1;
         assert!(after < before - 100.0, "the page moved up: {before} to {after}");
     }
+
+    /// New project on the Projects page opens the Mac's folder window over Settings, which stays
+    /// open (`onNewProject` in `App.tsx`'s Settings), rather than handing over to the web window.
+    #[test]
+    fn new_project_on_the_projects_page_opens_the_folder_window_over_settings() {
+        let mut rt = screen("projects-new", "projects");
+        let button = rt.elements().into_iter().find(|e| e.text.as_deref() == Some("New project")).expect("its New project");
+        press(&mut rt, button.rect[0] + 4.0, button.rect[1] + button.rect[3] / 2.0);
+        rt.frame(1.0 / 60.0);
+        assert_eq!(rt.file_dialog().map(|(kind, _)| kind), Some(rune::file_dialog::FileDialogKind::Folder));
+        assert!(rt.state.settings.open);
+        assert!(rt.state.toast.is_none(), "nothing said of the other window");
+    }
 }

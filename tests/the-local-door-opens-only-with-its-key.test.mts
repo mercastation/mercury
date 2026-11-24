@@ -12,9 +12,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { LOCAL_DOOR_NOTE, MARK_UNREAD_EVENT, MARK_UNREAD_HERE, OPEN_CLOUD_SETUP, OPEN_SETTINGS, SETTINGS_PAGE_IDS, TOLD_AT_THE_DOOR, WINDOW_KEEPS, markUnread, markUnreadScript, openCloudSetup, openLocalDoor, openSettings, tellTheDoorToo, windowKeeps } from '../main/local-door.mts';
+import { LOCAL_DOOR_NOTE, MARK_UNREAD_EVENT, MARK_UNREAD_HERE, OPEN_CLOUD_SETUP, OPEN_PLAN_SETUP, OPEN_SETTINGS, PLANS, SETTINGS_PAGE_IDS, TOLD_AT_THE_DOOR, TROUBLE_CLOSED_EVENT, TROUBLE_CLOSED_HERE, WINDOW_KEEPS, markUnread, markUnreadScript, openCloudSetup, openLocalDoor, openPlanSetup, openSettings, planOf, tellTheDoorToo, troubleClosed, troubleClosedScript, windowKeeps } from '../main/local-door.mts';
 import { SETTINGS_PAGES } from '../renderer/src/settings-search.ts';
 import { MARK_UNREAD } from '../renderer/src/team/chat-events.ts';
+import { TROUBLE_CLOSED } from '../renderer/src/trouble-row.ts';
 import type { LocalDoor, LocalDoorNote } from '../main/local-door.mts';
 import type { IpcHandler, PushListener } from '../main/serve.mts';
 
@@ -174,13 +175,16 @@ describe('what the web window keeps for itself', () => {
     expect((await ask(door, WINDOW_KEEPS, { key: door.token })).status).toBe(404);
   });
 
-  it('is read by one fixed script that names three keys and takes nothing from the caller', async () => {
+  it('is read by one fixed script that names four keys and takes nothing from the caller', async () => {
     const scripts: string[] = [];
     const handler = windowKeeps(async (script) => { scripts.push(script); return kept; });
     await handler({ sender: null }, { script: 'localStorage.clear()', key: 'zero.theme' });
     await handler({ sender: null });
     expect(scripts[0]).toBe(scripts[1]);
-    expect(scripts[0].match(/zero\.[A-Za-z]+/g)).toEqual(['zero.seenAt', 'zero.deliveredThrough', 'zero.unreadSince']);
+    expect(scripts[0].match(/zero\.[A-Za-z]+/g)).toEqual(['zero.seenAt', 'zero.deliveredThrough', 'zero.unreadSince', 'zero.troubleClosed']);
+    // The last is the one App.tsx keeps the row of tasks that could not run put away under.
+    const app = fs.readFileSync(path.join(import.meta.dirname, '..', 'renderer', 'src', 'App.tsx'), 'utf8');
+    expect(app).toMatch(/localStorage\.setItem\('zero\.troubleClosed', String\(since\)\)/);
     expect(scripts[0]).not.toMatch(/setItem|removeItem|clear\(|fetch\(|require|import/);
   });
 
@@ -365,6 +369,123 @@ describe("the native window's Mark unread", () => {
     const main = fs.readFileSync(path.join(import.meta.dirname, '..', 'main', 'main.mts'), 'utf8');
     expect(main).toMatch(/const unread = markUnread\(askThisWindow\)/);
     expect(main).toMatch(/openLocalDoor\(\{[^}]*\bunread\b[^}]*\}\)/);
+  });
+});
+
+describe("the native window's E and Z on the row of tasks that could not run", () => {
+  const aDoorThatKeeps = async (run: (script: string) => Promise<unknown> | null) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'local-door-'));
+    folders.push(dir);
+    const channels = new Map<string, IpcHandler>([['zero:snapshot', () => ({ items: [] })]]);
+    const door = await openLocalDoor({ channels, note: path.join(dir, LOCAL_DOOR_NOTE), trouble: troubleClosed(run) });
+    open.push(door);
+    return { door, channels };
+  };
+
+  it('asks the web window, where the put-away is kept, by the event its own row listens for', async () => {
+    const scripts: string[] = [];
+    const { door, channels } = await aDoorThatKeeps(async (script) => { scripts.push(script); return true; });
+    for (const since of [1795000000000, 0]) {
+      const res = await ask(door, TROUBLE_CLOSED_HERE, { key: door.token, body: { since } });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true });
+    }
+    expect(scripts).toEqual([
+      `window.dispatchEvent(new CustomEvent("agentbox:trouble-closed", { detail: {"since":1795000000000} })); true`,
+      `window.dispatchEvent(new CustomEvent("agentbox:trouble-closed", { detail: {"since":0} })); true`,
+    ]);
+    // The event is the web window's own, and it sets what E and Z set there.
+    expect(TROUBLE_CLOSED_EVENT).toBe(TROUBLE_CLOSED);
+    const app = fs.readFileSync(path.join(import.meta.dirname, '..', 'renderer', 'src', 'App.tsx'), 'utf8');
+    expect(app).toMatch(/window\.addEventListener\(TROUBLE_CLOSED, put\)/);
+    expect(app).toMatch(/const put = \(e: Event\) => \{[\s\S]{0,300}setTroubleClosedAt\(since\)/);
+    expect([...channels.keys()]).toEqual(['zero:snapshot']);
+  });
+
+  it('takes a moment and nothing that is not one', async () => {
+    const scripts: string[] = [];
+    const handler = troubleClosed(async (script) => { scripts.push(script); return true; });
+    for (const asked of [null, {}, { since: '5' }, { since: -1 }, { since: Number.NaN }, { since: Number.POSITIVE_INFINITY }, { since: [5] }, { since: '0); localStorage.clear(); (' }]) {
+      expect(await handler({ sender: null }, asked)).toEqual({ ok: false, error: 'not a moment' });
+    }
+    expect(scripts).toEqual([]);
+    expect(troubleClosedScript({ since: 12, extra: 'x' })).not.toContain('extra');
+  });
+
+  it('says so, and keeps nothing, when the app has no window open or the window will not answer', async () => {
+    expect(await troubleClosed(() => null)({ sender: null }, { since: 1 })).toEqual({ ok: false, error: 'the window is gone' });
+    expect(await troubleClosed(async () => { throw new Error('gone'); })({ sender: null }, { since: 1 })).toEqual({ ok: false, error: 'the window did not answer' });
+  });
+
+  it('is not a channel on a door nobody gave it to, still needs the key, and is handed to the door the app opens', async () => {
+    const { door } = await aDoor();
+    expect((await ask(door, TROUBLE_CLOSED_HERE, { key: door.token, body: { since: 1 } })).status).toBe(404);
+    let asked = 0;
+    const { door: keyed } = await aDoorThatKeeps(async () => { asked += 1; return true; });
+    expect((await ask(keyed, TROUBLE_CLOSED_HERE, { body: { since: 1 } })).status).toBe(403);
+    expect(asked).toBe(0);
+    const main = fs.readFileSync(path.join(import.meta.dirname, '..', 'main', 'main.mts'), 'utf8');
+    expect(main).toMatch(/const trouble = troubleClosed\(askThisWindow\)/);
+    expect(main).toMatch(/openLocalDoor\(\{[^}]*\btrouble\b[^}]*\}\)/);
+  });
+});
+
+describe("the native window's plan bar", () => {
+  const aPlanDoor = async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'local-door-'));
+    folders.push(dir);
+    const channels = new Map<string, IpcHandler>([['zero:snapshot', () => ({ items: [] })]]);
+    const state = { forwarded: 0, told: [] as [string, string][] };
+    const planSetup = openPlanSetup(() => { state.forwarded += 1; return true; }, (channel, plan) => state.told.push([channel, plan]));
+    const door = await openLocalDoor({ channels, note: path.join(dir, LOCAL_DOOR_NOTE), planSetup });
+    open.push(door);
+    return { door, channels, state };
+  };
+
+  it("brings the app's window forward on its setup card for the plan pressed, and takes nothing else", async () => {
+    const { door, channels, state } = await aPlanDoor();
+    for (const plan of ['claude', 'codex', 'both']) {
+      const res = await ask(door, OPEN_PLAN_SETUP, { key: door.token, body: { plan, channel: 'zero:compose' } });
+      expect(await res.json()).toEqual({ ok: true });
+    }
+    expect(state.forwarded).toBe(3);
+    expect(state.told).toEqual([['zero:open-plan-setup', 'claude'], ['zero:open-plan-setup', 'codex'], ['zero:open-plan-setup', 'both']]);
+    expect([...channels.keys()]).toEqual(['zero:snapshot']);
+  });
+
+  it('opens nothing, and brings nothing forward, for what is not one of the card\'s plans', async () => {
+    const { door, state } = await aPlanDoor();
+    for (const plan of ['gemini', 'Claude', '', 7, null, ['claude'], { id: 'claude' }]) {
+      const res = await ask(door, OPEN_PLAN_SETUP, { key: door.token, body: { plan } });
+      expect(await res.json()).toEqual({ ok: false, error: 'not a plan' });
+    }
+    expect(await (await ask(door, OPEN_PLAN_SETUP, { key: door.token })).json()).toEqual({ ok: false, error: 'not a plan' });
+    expect(state).toEqual({ forwarded: 0, told: [] });
+    // The plans are the card's own.
+    expect([...PLANS]).toEqual(['claude', 'codex', 'both']);
+    expect(planOf({ plan: 'both' })).toBe('both');
+  });
+
+  it('says so, and tells nothing, when the app has no window to bring forward', async () => {
+    const told: unknown[] = [];
+    const handler = openPlanSetup(() => false, (...said) => told.push(said));
+    expect(await handler({ sender: null }, { plan: 'claude' })).toEqual({ ok: false, error: 'the window is gone' });
+    expect(told).toEqual([]);
+  });
+
+  it('is not a channel on a door nobody gave it to, still needs the key, and the web window opens its card on the push', async () => {
+    const { door } = await aDoor();
+    expect((await ask(door, OPEN_PLAN_SETUP, { key: door.token, body: { plan: 'claude' } })).status).toBe(404);
+    const { door: keyed, state } = await aPlanDoor();
+    expect((await ask(keyed, OPEN_PLAN_SETUP, { body: { plan: 'claude' } })).status).toBe(403);
+    expect(state.forwarded).toBe(0);
+    const main = fs.readFileSync(path.join(import.meta.dirname, '..', 'main', 'main.mts'), 'utf8');
+    expect(main).toMatch(/const planSetup = openPlanSetup\(forward, \(channel, plan\) => window\?\.webContents\.send\(channel, plan\)\)/);
+    expect(main).toMatch(/openLocalDoor\(\{[^}]*\bplanSetup\b[^}]*\}\)/);
+    const preload = fs.readFileSync(path.join(import.meta.dirname, '..', 'preload.cjs'), 'utf8');
+    expect(preload).toMatch(/onOpenPlanSetup: \(fn\) => \{[\s\S]{0,200}'zero:open-plan-setup'/);
+    const app = fs.readFileSync(path.join(import.meta.dirname, '..', 'renderer', 'src', 'App.tsx'), 'utf8');
+    expect(app).toMatch(/onOpenPlanSetup\?\.\(\(plan\) => \{[\s\S]{0,160}setSetupPlan\(plan\)/);
   });
 });
 

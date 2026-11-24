@@ -104,6 +104,8 @@ pub fn reach(window: AppHandle<State>) {
 pub fn focus_changed(s: &mut State, focused: bool, _tx: &mut Tx) {
     // A sheet's menu at a point closes as the window loses the keys (`table.rs`).
     crate::table::window_focus(s, focused);
+    // While the plan bar is up, coming back to the window reads the computer again.
+    crate::plan_bar::came_forward(s, focused);
     if let Some(tell) = TELL.get() {
         let _ = tell.send(Heard::Focus(focused));
     }
