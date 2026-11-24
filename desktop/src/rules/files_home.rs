@@ -466,6 +466,22 @@ pub const FOLDER_ACT: &str = "zero:files-place-folder";
 pub const NEW_FILE: &str = "zero:files-place-new";
 pub const TRASH: &str = "zero:files-place-trash";
 pub const UNTRASH: &str = "zero:files-place-untrash";
+/// Upload from computer once the person has picked files here: what the web window's
+/// `zero:files-place-upload` does after its own file window, given the paths (a channel of the
+/// desktop app's local door alone, `main/local-door.mts`).
+pub const UPLOAD_HERE: &str = "zero:files-place-upload-here";
+/// What the page says when the app turned down an upload, in its own words or else these.
+pub const UPLOAD_REFUSED: &str = "Those files could not be added.";
+
+/// The files an upload left out, as the page says it (`upload`'s notice): a kind Files cannot
+/// show. None when nothing was left out.
+pub fn upload_left_words(left: &[String]) -> Option<String> {
+    match left.len() {
+        0 => None,
+        1 => Some(format!("{} is a kind Files cannot show, so it was not added.", left[0])),
+        _ => Some(format!("{} are kinds Files cannot show, so they were not added.", left.join(", "))),
+    }
+}
 
 impl Act {
     pub fn payload(&self) -> Value {
@@ -960,6 +976,13 @@ mod tests {
         assert_eq!(new_goes_in(None, &mine[..1]).as_deref(), Some("Storefront"));
         assert_eq!(new_goes_in(None, &mine), None);
         assert_eq!(Making::Upload.in_words(), "Add files to");
+    }
+
+    #[test]
+    fn an_upload_names_what_it_left_out_as_the_page_does() {
+        assert_eq!(upload_left_words(&[]), None);
+        assert_eq!(upload_left_words(&["tool.exe".into()]).as_deref(), Some("tool.exe is a kind Files cannot show, so it was not added."));
+        assert_eq!(upload_left_words(&["a.exe".into(), "b.dmg".into()]).as_deref(), Some("a.exe, b.dmg are kinds Files cannot show, so they were not added."));
     }
 
     #[test]

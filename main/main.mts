@@ -49,7 +49,7 @@ import { FreezeWatch } from './freeze-watch.mts';
 import { applyThrough, phoneDevice } from './phone-inbox.mts';
 import type { PhoneChannel } from './phone-inbox.mts';
 import { answerWhatOnlyTheWindowAnswered } from './serve.mts';
-import { LOCAL_DOOR_NOTE, markUnread, openCloudSetup, openLocalDoor, openPlanSetup, openSettings, tellTheDoorToo, troubleClosed, windowKeeps } from './local-door.mts';
+import { LOCAL_DOOR_NOTE, filesUploadHere, markUnread, openCloudSetup, openLocalDoor, openPlanSetup, openSettings, tellTheDoorToo, troubleClosed, windowKeeps } from './local-door.mts';
 import { createNativeWindow } from './native-window.mts';
 import type { CollectingIpcMain, IpcHandler, PushListener } from './serve.mts';
 import { carryHerBriefsAcross, joinMessageRules, setAsideShippedMessageRules, unifyAgentInstructions } from './instruction-settings.mts';
@@ -1079,7 +1079,9 @@ async function createWindow() {
     const trouble = troubleClosed(askThisWindow);
     // And its plan bar's buttons land on this window's setup card for the plan pressed.
     const planSetup = openPlanSetup(forward, (channel, plan) => window?.webContents.send(channel, plan));
-    void openLocalDoor({ channels: phoneChannels, note: path.join(userDir, LOCAL_DOOR_NOTE), keeps: windowKeeps(askThisWindow), listeners: atTheDoor, native: nativeWindow, settings, cloudSetup, unread, trouble, planSetup })
+    // And its Upload from computer adds the files its own file window picked, as this window's does.
+    const upload = filesUploadHere(ipc.addPickedFiles);
+    void openLocalDoor({ channels: phoneChannels, note: path.join(userDir, LOCAL_DOOR_NOTE), keeps: windowKeeps(askThisWindow), listeners: atTheDoor, native: nativeWindow, settings, cloudSetup, unread, trouble, planSetup, upload })
       .then((door) => console.log(`local door: open on 127.0.0.1:${door.port}`))
       .catch((err: Error) => console.warn(`local door: ${err.message}`));
   }

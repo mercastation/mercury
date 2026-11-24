@@ -481,11 +481,14 @@ impl State {
         // Stamped as it starts, so the line it leaves spans its own writes.
         last.at = write::wall_clock();
         self.answering.undoing = Some(last);
-        if !self.send_all(writes, sent) {
+        if !self.send_all(writes, sent.clone()) {
             // Not sent, so not undone: Z still has it.
             if let Some(back) = self.answering.undoing.take() {
                 self.undos.push(back);
             }
+        } else {
+            // What Z puts back on the Files place is drawn as the key is pressed (`actNow`).
+            crate::files_page::undoing(self, &sent);
         }
     }
 

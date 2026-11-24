@@ -3001,14 +3001,19 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
       return { ok: true, key: out.key, title: out.title };
     } catch (err) { return { ok: false, error: String((err as Error)?.message ?? err) }; }
   });
+  // What Upload from computer does once files are picked: here after the app's own file window,
+  // or with the paths the native window's picked (main/local-door.mts's FILES_UPLOAD_HERE).
+  const addPickedFiles = async ({ project, folder, paths }: { project?: unknown; folder?: unknown; paths: string[] }) => {
+    const out = await filesPlaceNow().addFiles({ project: String(project ?? ''), folder: typeof folder === 'string' ? folder : null, paths });
+    if (out.added) push();
+    return { ok: true, ...out };
+  };
   ipcMain.handle('zero:files-place-upload', async (_e, { project, folder }: { project?: unknown; folder?: unknown } = {}) => {
     try {
       const r = await dialog.showOpenDialog(window, { title: `Add files to ${String(project ?? '')}`, buttonLabel: 'Add', properties: ['openFile', 'multiSelections'] });
       if (r.noDialog) return { ok: false, error: `Adding files needs the ${Name} app on this computer.` };
       if (r.canceled || !r.filePaths?.length) return { ok: true, added: 0, refused: [], keys: [] };
-      const out = await filesPlaceNow().addFiles({ project: String(project ?? ''), folder: typeof folder === 'string' ? folder : null, paths: r.filePaths });
-      if (out.added) push();
-      return { ok: true, ...out };
+      return await addPickedFiles({ project, folder, paths: r.filePaths });
     } catch (err) { return { ok: false, error: String((err as Error)?.message ?? err) }; }
   });
   ipcMain.handle('zero:files-place-open', async (_e, { key }: { key?: unknown } = {}) => {
@@ -3444,5 +3449,5 @@ export function registerIpc<W extends IpcWindow>({ store, supervisor, config, wi
     const hash = keeper?.hashAt(file);
     return hash ? keeper!.bringBack(hash) : Promise.resolve(false);
   };
-  return { answerApproval, pendingApprovals, cardSentAt, push, usageForPhone, seenForPhone, comeBackAt };
+  return { answerApproval, pendingApprovals, cardSentAt, push, usageForPhone, seenForPhone, comeBackAt, addPickedFiles };
 }

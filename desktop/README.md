@@ -2237,8 +2237,19 @@ and again as the store changes, at most every two seconds, and at once after a c
   or Not in a folder); the search box over the sky's band, with its `/` cap (`/` puts the caret in
   it, Escape takes back what is typed and otherwise does nothing); and New, whose menu makes a
   document or a table there (`zero:files-place-new`, the file opening big once the app has made
-  it) or a folder (a name box as a section), and on All files asks which project when the person
-  has more than one.
+  it) or a folder (a name box as a section), adds files from the computer, and on All files asks
+  which project when the person has more than one.
+- **Upload from computer** (New's last row, here and in the strip on the page of every file): the
+  Mac's own file window, opened by this window over itself (Rune's `Tx::open_file`, titled "Add
+  files to {project}"), and the file picked handed to the app on
+  `zero:files-place-upload-here` `{ project, folder, paths }`, a channel of the app's local door
+  alone (`main/local-door.mts`) that runs the same code as the web window's
+  `zero:files-place-upload` once its own file window has picked (`addPickedFiles` in
+  `main/ipc.mts`) and answers the same way (`{ ok, added, refused, keys }`). The list is read
+  again at once; a kind Files cannot show is named ("tool.exe is a kind Files cannot show, so it
+  was not added."); a refusal says the app's words or "Those files could not be added."; an app
+  started before it had the channel answers 404, said as "Not done: restart Mercury first, so it
+  can take that from this window."; a cancelled window does and says nothing.
 - **Recent**, down the left (232 points, 44 from the folders): the ten files that changed last,
   under Today, Yesterday or their day, each with its mark; a press opens the file. Under 1100
   points of window it stands over the folders.
@@ -2257,13 +2268,16 @@ and again as the store changes, at most every two seconds, and at once after a c
   to… a folder, Not in a folder or a new folder named in the menu, Move to the Trash) and a
   folder's (Rename, Delete folder). Each change is written on `zero:files-place-folder` (or
   `-trash`) and drawn over the list at once, taken back off with the app's words if it refuses;
-  Z puts a move, a rename, a deleted folder and a file in the Trash back. A press elsewhere or
-  Escape closes a menu.
+  Z puts a move, a rename, a deleted folder and a file in the Trash back, a change drawn as the
+  key is pressed and taken back off if the app refuses it. A press elsewhere or
+  Escape closes a menu; a press on the ⋯ of the menu that is open opens it again at its first
+  rows, under the ⋯, as the web window's press closes it on the way down and lands on the ⋯.
 - **A folder's page, the files in no folder, the search's results**: every file there, sixty at a
   time with Show more; "Matches" and their count, or "No file matches"; "Nothing in this folder
   yet."; "Nothing in Files yet.".
-- **The page of every file**, behind Every file: what this window drew before as the whole place
-  (below), with New in the strip's right, its crumbs going back to the home.
+- **The page of every file**, behind Every file (`FilesPlace.tsx`'s own page, `files-place.css`):
+  the bar, the kinds, the cards and the tiles below, with New in the strip's right, its crumbs
+  going back to the home. Its own checklist is part K of `docs/parity-files-home.md`.
 
 On the page of every file:
 
@@ -2285,12 +2299,40 @@ On the page of every file:
   its size. A picture's face is its top, filling the tile, or the whole of it in the middle where
   filling would cut away more than four tenths (`coverFit`); a document's its title, headings and
   first lines fading out (`docBlocks`); a script's or a table's its first twelve lines; a film's
-  its play mark; a page's, a PDF's and a deck's their kind's word. Sixty at once, the next sixty
-  as the foot comes near (`TILES_AT_ONCE`). As a list, each file one line with a small
-  thumbnail. A press opens the file big ("A file opened big"), with the places it was sent in
-  under it, each of which opens its thread; Back from there comes back to Files.
-- **The keys**: `/`, Escape (a menu first, else it leaves the place for where it was opened
-  from), Z; N still starts a thread.
+  its play mark; a page's, a PDF's and a deck's their kind's word (a PDF's and a deck's on the
+  strong wash). Sixty at once, the next sixty as the foot comes near (`TILES_AT_ONCE`). As a
+  list, each file one line with a small thumbnail. A press opens the file big ("A file opened
+  big"), with the places it was sent in under it, each of which opens its thread; Back from
+  there comes back to Files. While the pointer moves over the tiles or the cards, and while a
+  tile's menu or name box is open, they keep the order they had and a file arriving waits after
+  them, until the pointer has been still for a second and a half (`HOLD_STILL_MS`, `inOrderOf`).
+- **A tile's ⋯** (26 points, eight in from its corner, shown under the pointer or while open;
+  on a row of the list, nine down): its menu, 200 wide, 30 under the ⋯'s top with its right
+  edge on the ⋯'s, opening upward when the ⋯ is under 300 points from the window's foot and
+  kept inside the page (`fitMenu`), scrolling past 280: Rename (the name a box over its own
+  line), Move to with a box that finds a folder once the project has more than three (Return
+  moves into the one it leaves; "No folder called that"), Top of the project for a file in a
+  folder, the project's folders and subfolders (the one it is in faint, not a choice), New
+  folder (a box in its place; Escape goes back to the whole menu, Return makes it and moves the
+  file in), and Move to the Trash with what that frees, for a file Files may move. A file
+  in a code folder has no Trash. The check pictures' line has its own ⋯, moving them all (each
+  file its own `do: 'move'`, one Z for those the app took once it has answered every one).
+- **A folder card's ⋯** (shown under the pointer, fourteen in from its right): Rename (its words
+  give way to a box) and Delete folder.
+- **The total and its menu** (300 wide, under it): "{place} uses {size} of this Mac", Show the
+  biggest first or the newest, Move older versions to the Trash with what they take
+  (`{ keys, older: true }`), Choose files to move to the Trash, and Keep files in the cloud,
+  which opens Settings › Files on a plan with a cap and the cloud's plans otherwise, saying On,
+  Off or Pro (`zero:files-cloud`, read once the page opens).
+- **Choosing files for the Trash**: the bar keeps only the way back and the search; under it
+  "Choose files to move to the Trash", then "2 chosen · 13.1 MB", Cancel, and Move to the Trash
+  (faint and doing nothing until one is chosen). Every tile Files may move wears a ring (white
+  and ticked once chosen, its face edged in the dim ink), the others are faded and pass a press
+  by; a press chooses or unchooses instead of opening. The files go to the Trash together, in
+  the order chosen, named by the one's name or how many. Escape or Cancel stops; the page stays
+  this one while files are chosen, whatever crumb is pressed.
+- **The keys**: `/`, Escape (a menu first, the choosing next, else it leaves the place for where
+  it was opened from), Z; N still starts a thread.
 
 The scenes (`tools/scenes/files*.mjs`), over an invented list built on the planted folder (`kept`
 gives Storefront Pinned, Receipts with Calls inside it and an empty Brand kit): `files` and
@@ -2299,7 +2341,11 @@ gives Storefront Pinned, Receipts with Calls inside it and an empty Brand kit): 
 `files-menu-icon`, `files-menu-icon-picked`, `files-menu-move`, `files-menu-new`, `files-context`,
 `files-folder-menu`, `files-new`, `files-new-all`, `files-everything-new`), a name being typed
 (`files-naming`, `files-rename`), the pointer resting (`files-hover-tile`, `-row`, `-section`,
-`-crumb`), and the page of every file (`files-everything`, `files-list`, `files-name`). A file
+`-crumb`), and the page of every file (`files-everything`, `files-list`, `files-name`, its menus
+`files-everything-menu`, `-menu-low`, `-menu-find`, `-menu-new`, `-folder-menu`, `-total`, the
+choosing `files-everything-choose`, `-chosen`, the name boxes `-rename`, `-folder-rename`, and the
+pointer resting `-hover-tile`, `-hover-folder`; `heavy` makes each file take 400 times its size,
+so the total shows, and puts one in a code folder). A file
 opened big (`file-*`) is pressed under Recent, as a person would. `MERCURY_FILES=<a saved list>`
 photographs the web window on another list. At 1280 by 760, 2x, of 255, the whole window, the
 rail (the sidebar's, the same on every scene), the strip and the page under it; every keyed rect
@@ -2315,11 +2361,29 @@ of the page is where the web window's dump has it, to 0.01 of a point (a folder 
 | `files-search`, `files-search-none` | 0.21, 0.12 | 0.14 | 0.15, 0.04 |
 | `files-menu`, `-icon`, `-icon-picked` | 0.32, 0.30, 0.29 | 0.14 | 0.31, 0.27, 0.26 |
 | `files-menu-move`, `-new`, `files-context`, `files-folder-menu` | 0.40, 0.40, 0.33, 0.32 | 0.14 | 0.40, 0.41, 0.31, 0.30 |
-| `files-new` (a row short, see below), `files-new-all` | 0.42, 0.22 | 0.14 | 0.43, 0.17 |
+| `files-new`, `files-new-all` (Upload from computer in both) | 0.33, 0.22 | 0.14 | 0.31, 0.17 |
 | `files-naming`, `files-rename` | 0.31, 0.32 | 0.14 | 0.29, 0.30 |
 | `files-hover-tile`, `-row`, `-section`, `-crumb` | 0.33, 0.31, 0.31, 0.25 | 0.14 | 0.31, 0.29, 0.29, 0.21 |
 | `files-list` | 0.52 | 0.23 | 0.55 |
-| `files-everything`, `files-everything-new`, `files-name` | 10.64, 10.73, 10.71 | 0.23 | 13.5, the page's white tile |
+| `files-everything`, `files-everything-new`, `files-name` | 10.24, 10.23, 10.64 | 0.23 | the page's white tile |
+
+The page of every file's scenes are all about 10.2 whole for that same tile; their own parts,
+each region of the scene's `regions.json`, of 255:
+
+| Scene | What is measured |
+|---|---|
+| `files-everything-menu` | the menu 0.47, the open tile's corner 0.31, the bar 1.45 |
+| `files-everything-menu-low` | the menu, upward, 0.47; the tile's corner 0.42 |
+| `files-everything-menu-find`, `-menu-new` | the menu 0.41, 0.50 |
+| `files-everything-folder-menu` | the cards 0.30, the menu 0.35 |
+| `files-everything-total` | the menu 0.69, the bar 1.78, the total open 6.49 (its words' dark patch over the strong wash) |
+| `files-everything-choose`, `-chosen` | the row under the bar 0.59, 0.77; the cards 0.29; the tiles and rings 0.36, 0.35 |
+| `files-everything-rename`, `-folder-rename` | the name box 1.38, 1.13 (the caret, the selection's colour) |
+| `files-everything-hover-tile`, `-hover-folder` | the tiles 0.31, the cards 0.30 |
+| `files-everything-new` | New over the sky 2.42 (as before), its menu with Upload 0.36 |
+
+Every keyed rect of these menus, rows, rings, boxes and buttons is where the web window's dump has
+it, to 0.01 of a point (the total, 0.01 wider in the web window's subpixel layout).
 
 The rail is 1.65 on every one: the web window's sidebar has Demands and Connections, which this
 window's does not. The strip counts the arrows this window still draws over it. At 1000 wide,
@@ -3651,30 +3715,30 @@ point and stands where the web's does against its neighbours.
   - A document's inline code takes the message's look, a little smaller than the web window's
     reader draws it.
 - **The Files place, where it still differs:**
-  - New has no Upload from computer: the app answers it with the system's file window, which it
-    opens over its own window, not this one (`zero:files-place-upload` asks for no paths).
+  - Upload from computer picks one file at a time: Rune's file window (`Tx::open_file`) hands
+    back one path, where the web window's takes several (`multiSelections`). Its button is the
+    system's Open, not the web window's "Add" (`buttonLabel`, which Rune's options do not have).
   - A document or a table made with New opens big to read, not ready to write in (`typing`):
     the view of a file here cannot edit a document.
   - A tile or a Recent row cannot be dragged onto a folder, a section or a crumb: the browser
     carries a translucent picture of the tile under the pointer, which this window cannot draw
     the same. Move to… does the same move.
   - A press outside an open menu closes it and does nothing else; the web window's press also
-    lands on what is under it.
-  - Z's writes (a move, a rename, a folder or a file put back) are drawn over the list once the
-    app has them, a moment after the key rather than at it.
+    lands on what is under it (a tile opens, another ⋯ opens its menu). The ⋯ of the menu that
+    is open is the one exception kept: it opens the menu again, as there.
   - The file opened big from Files has none of the web window's newer view: its open mark hands
     the file to the default app rather than offering the Mac's apps for it (`zero:open-with`),
     its comments cannot be handed to an agent, and its name is not renamed in its top.
-  - On the page of every file: no menu on a tile or a folder card (rename, move, a new folder,
-    Move to the Trash, delete), no choosing files for the Trash, and the total is its words,
-    without the menu that frees the space or keeps files in the cloud. Every channel these need
-    is one the door passes.
   - A page's tile on that page is its kind's word: the web window draws the page itself, small.
     A PDF's, a deck's and a film's tiles have no first page, slide or frame, and a film's no
     length.
-  - The order there does not hold still while the pointer moves to a tile and a file arrives
-    (`HOLD_STILL_MS`), and the fold of the check pictures agents took marks itself with a
-    character rather than the web window's chevron.
+  - On that page a tile's name, when the page shows another, is the title of the whole tile,
+    its ⋯ included; the web window's is on the tile's button only, beside which the ⋯ stands.
+  - The total's words, open, sit in a dark patch over the strong wash a little unlike the web
+    window's text-shadow there (6.5 of 255 on the 155 by 26 points of the button).
+  - The ⋯s, the menus' rows, the total, Cancel and Move to the Trash take a press but not Tab:
+    the web window's are buttons Tab walks through (and a ⋯ shows itself while it has the keys,
+    `:focus-within`).
   - The search boxes are drawn with Rune's caret.
 - **The team's card has no rows.** With teammates, Home's second card is the team's week; it says
   so when nobody else is on the team and is bare otherwise, until the Team page is drawn. Its rows

@@ -46,6 +46,8 @@
 //   kept in this app's window, which is asked to keep them.
 // - OPEN_PLAN_SETUP (below): the plan bar's two buttons, which bring this
 //   app's window forward on its setup card for the plan pressed.
+// - FILES_UPLOAD_HERE (below): Files' Upload from computer, with the files the
+//   native window's own file window picked.
 // On its event stream the app tells it two things, and nothing else:
 // - TOLD_AT_THE_DOOR (below): the inbox changed, so it reads it again now.
 // - OPEN_IN_NATIVE (main/native-window.mts): the banner or the tray was
@@ -155,6 +157,8 @@ export interface LocalDoorOptions {
   trouble?: IpcHandler;
   /** What answers `OPEN_PLAN_SETUP` (see `openPlanSetup`). Without it the channel is not there. */
   planSetup?: IpcHandler;
+  /** What answers `FILES_UPLOAD_HERE` (see `filesUploadHere`). Without it the channel is not there. */
+  upload?: IpcHandler;
   token?: string;
 }
 
@@ -317,8 +321,38 @@ export function openPlanSetup(forward: () => boolean, tell: (channel: string, pl
   };
 }
 
+// AND UPLOAD FROM COMPUTER. Files' New offers it, and the app answers it with the
+// system's file window hung on this app's window (`zero:files-place-upload`), which
+// would come up over that window and not the native one. So the native window opens
+// the file window itself, and this door has a channel that does what the upload does
+// with the files picked (main/ipc.mts's own, the same code): copies them into the
+// project's folder. It takes a project, a folder or none, and absolute paths, and
+// nothing else, and answers as `zero:files-place-upload` answers.
+export const FILES_UPLOAD_HERE = 'zero:files-place-upload-here';
+
+export interface PickedFiles { project: string; folder: string | null; paths: string[] }
+
+/** What a caller asked to add, when it is a project, a folder or none, and absolute paths; else null. */
+export function pickedFiles(asked: unknown): PickedFiles | null {
+  const { project, folder = null, paths } = (asked ?? {}) as { project?: unknown; folder?: unknown; paths?: unknown };
+  if (typeof project !== 'string' || !project.trim()) return null;
+  if (folder !== null && typeof folder !== 'string') return null;
+  if (!Array.isArray(paths) || !paths.length || paths.length > 500) return null;
+  if (!paths.every((p) => typeof p === 'string' && path.isAbsolute(p) && !p.includes('\0'))) return null;
+  return { project, folder, paths: [...paths] as string[] };
+}
+
+/** Answers `FILES_UPLOAD_HERE` with `add`, what main/ipc.mts's upload does once files are picked. */
+export function filesUploadHere(add: (picked: PickedFiles) => Promise<unknown>): IpcHandler {
+  return async (_event, asked) => {
+    const picked = pickedFiles(asked);
+    if (!picked) return { ok: false, error: 'not files to add' };
+    try { return await add(picked); } catch (err) { return { ok: false, error: String((err as Error)?.message ?? err) }; }
+  };
+}
+
 /** Opens the door and leaves its note. Rejects if the port cannot be had or the note cannot be written. */
-export async function openLocalDoor({ channels, note, listeners = new Set(), keeps, native = null, settings, cloudSetup, unread, trouble, planSetup, token = newToken() }: LocalDoorOptions): Promise<LocalDoor> {
+export async function openLocalDoor({ channels, note, listeners = new Set(), keeps, native = null, settings, cloudSetup, unread, trouble, planSetup, upload, token = newToken() }: LocalDoorOptions): Promise<LocalDoor> {
   // A folder that is certain to hold no index.html: the note's own name with a suffix.
   const noScreen = `${note}.no-screen`;
   // The door's own channels are looked up before the app's, and the app's Map is left as it was:
@@ -331,6 +365,7 @@ export async function openLocalDoor({ channels, note, listeners = new Set(), kee
   if (unread) own.push([MARK_UNREAD_HERE, unread]);
   if (trouble) own.push([TROUBLE_CLOSED_HERE, trouble]);
   if (planSetup) own.push([OPEN_PLAN_SETUP, planSetup]);
+  if (upload) own.push([FILES_UPLOAD_HERE, upload]);
   const answered = own.length ? new Map<string, IpcHandler>([...channels, ...own]) : channels;
   const server = http.createServer(createHandler({ channels: answered, token, listeners, hungUp: () => native?.hungUp(), dist: noScreen }));
   await new Promise<void>((resolve, reject) => {

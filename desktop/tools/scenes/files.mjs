@@ -88,6 +88,9 @@ const FILES = [
 
 const PROJECT = { storefront: 'Storefront', mobile: 'Mobile' };
 
+// What the cloud keeps (`zero:files-cloud`): no paid plan, so Keep files in the cloud says Pro.
+const CLOUD = { cap: null, bytes: 0, full: false, on: false, offAfterDays: 30, offBytes: 0 };
+
 // What a team kept, for the scenes of the Files home that show folders (`kept`): Storefront's
 // Pinned, Receipts and the Calls inside it, and a Brand kit nobody put anything in yet. Each
 // file is filed by its name; one has a name a person gave it and one an icon a person picked,
@@ -112,9 +115,11 @@ const KEPT = {
 /**
  * The invented list and each file's view over a planting, with the page's clock `now`. With
  * `kept`, Storefront has folders and files in them (`FOLDERS`, `KEPT`); with `empty`, the list
- * has no file at all; `projects` adds projects with nothing in them.
+ * has no file at all; `projects` adds projects with nothing in them; with `heavy`, what each
+ * file takes on the Mac is four hundred times its planted size, so the page of every file has a
+ * total to say and its menu older versions to move.
  */
-export function invent(planted, now, { kept = false, empty = false, projects = [] } = {}) {
+export function invent(planted, now, { kept = false, empty = false, projects = [], heavy = false } = {}) {
   for (const [rel, words] of EXTRA) {
     const file = path.join(planted.dir, rel);
     fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -134,13 +139,16 @@ export function invent(planted, now, { kept = false, empty = false, projects = [
     const own = (kept && KEPT[name]) || {};
     const when = now - (own.ago ?? f.ago) * MIN;
     const agent = f.agent === null ? {} : { agent: f.agent };
-    const onMac = sizes.reduce((a, b) => a + b, 0);
+    const onMac = sizes.reduce((a, b) => a + b, 0) * (heavy ? 400 : 1);
+    const newestTakes = sizes[sizes.length - 1] * (heavy ? 400 : 1);
     if (empty) continue;
     files.push({
       key, project: PROJECT[sent.product], name, kind: f.kind, versions: paths.length, at: when, by: null, ...agent,
       open: 0, approvedBy: [], sentIn: [sent], folder: own.folder ?? null, opened: newest,
       ...(own.title ? { title: own.title } : {}), ...(own.icon ? { icon: own.icon } : {}),
-      bytes: sizes[sizes.length - 1], onMac, older: onMac - sizes[sizes.length - 1], movable: onMac, trashable: true,
+      bytes: sizes[sizes.length - 1], onMac, older: onMac - newestTakes, movable: onMac, trashable: true,
+      // A heavy list has one file that sits in a code folder, which Files counts but never moves.
+      ...(heavy && name === 'receipt-small.png' ? { movable: 0, trashable: false } : {}),
     });
     // One line per version, at the path it opens from (`linesOf` in main/files-place.mts).
     views[key] = {
@@ -194,7 +202,7 @@ export function filesBridge(planted, { list, views }) {
       ...before,
       filesPlace: async () => list,
       filesPlaceOpen: async ({ key } = {}) => views[key] ?? null,
-      filesCloud: async () => ({ cap: null, bytes: 0, full: false, on: false, offAfterDays: 30, offBytes: 0 }),
+      filesCloud: async () => (${JSON.stringify(CLOUD)}),
       fileLine: async () => [],
       fileElsewhere: async () => [],
       readDoc: async ({ src } = {}) => { const at = where(src); return at && at in texts ? { ok: true, text: texts[at], mtime: 0 } : { ok: false, error: String(src) + ' could not be found.' }; },
@@ -213,14 +221,14 @@ export function filesBridge(planted, { list, views }) {
  * The fixture says the same for the native window: `filesProject`, `filesFolder` (the
  * folder's id, or `not-in-a-folder`) and `filesEverything`.
  */
-export async function openFiles(h, { project = null, kept = false, empty = false, projects = [], folder = null, everything = false, then = null } = {}) {
+export async function openFiles(h, { project = null, kept = false, empty = false, projects = [], heavy = false, folder = null, everything = false, then = null } = {}) {
   const snapshot = await h.evaluate('window.__SNAP__');
   const planted = plant({ thread: 'w-readme0' });
   const now = await h.evaluate('Date.now()');
   // MERCURY_FILES names a list the running app answered (`zero:files-place`, read through its
   // door into a file outside the repository), to hold the native page's tiles to the web
   // window's on a person's own files. Its files are not planted, so their faces stay blank.
-  const invented = process.env.MERCURY_FILES ? { list: JSON.parse(fs.readFileSync(process.env.MERCURY_FILES, 'utf8')), views: {} } : invent(planted, now, { kept, empty, projects });
+  const invented = process.env.MERCURY_FILES ? { list: JSON.parse(fs.readFileSync(process.env.MERCURY_FILES, 'utf8')), views: {} } : invent(planted, now, { kept, empty, projects, heavy });
   await h.call('Page.addScriptToEvaluateOnNewDocument', { source: standIn(planted) });
   await h.call('Page.addScriptToEvaluateOnNewDocument', { source: filesBridge(planted, invented) });
   await h.goto(h.origin);
@@ -232,7 +240,7 @@ export async function openFiles(h, { project = null, kept = false, empty = false
     await h.evaluate(`[...document.querySelectorAll('.fh-open')].find((b) => b.getAttribute('aria-label') === ${JSON.stringify(`Open ${project}`)})?.click()`);
     await h.wait(900);
   }
-  const fixture = { snapshot, filesPlace: invented.list, filesPlaceViews: invented.views, ...(project ? { filesProject: project } : {}) };
+  const fixture = { snapshot, filesPlace: invented.list, filesPlaceViews: invented.views, filesCloud: CLOUD, ...(project ? { filesProject: project } : {}) };
   if (folder) {
     const name = folder === 'not-in-a-folder' ? 'Not in a folder' : invented.list.folders.find((f) => f.id === folder)?.name;
     await h.evaluate(`[...document.querySelectorAll('.fh-link')].find((b) => b.textContent.trim() === ${JSON.stringify(name)})?.click()`);

@@ -385,6 +385,32 @@ pub fn on_mac_of(files: &[&Placed]) -> f64 {
     files.iter().map(|f| f.on_mac.unwrap_or(0.0)).sum()
 }
 
+/// What their older versions take, which Move older versions to the Trash gives back
+/// (`onMacOf`'s `older`).
+pub fn older_of(files: &[&Placed]) -> f64 {
+    files.iter().map(|f| f.older.unwrap_or(0.0)).sum()
+}
+
+/// The folders a Move menu's search leaves: every word in the name, any case (`foldersMatching`).
+pub fn folders_matching<'a>(folders: &[&'a Folder], query: &str) -> Vec<&'a Folder> {
+    let words: Vec<String> = fold(query).split_whitespace().map(str::to_string).collect();
+    folders.iter().copied().filter(|f| words.iter().all(|w| fold(&f.name).contains(w.as_str()))).collect()
+}
+
+/// `items` in the order `before` had them, anything new after the rest in its own order
+/// (`inOrderOf`): the tiles hold still under a pointer on its way to one.
+pub fn in_order_of<T: Clone>(items: &[T], before: &[String], key_of: impl Fn(&T) -> String) -> Vec<T> {
+    let rank = |t: &T| before.iter().position(|k| *k == key_of(t)).unwrap_or(before.len());
+    let mut out = items.to_vec();
+    out.sort_by_key(rank);
+    out
+}
+
+/// The line over the tiles while files are being chosen for the Trash (`.fp-chosen-words`).
+pub fn chosen_words(count: usize, bytes: f64) -> String {
+    if count == 0 { "Choose files to move to the Trash".to_string() } else { format!("{count} chosen · {}", size_words(bytes)) }
+}
+
 /// Whether the page says that total at all: only once it reaches a megabyte (`showsTotal`).
 pub fn shows_total(bytes: f64) -> bool {
     bytes >= 1024.0 * 1024.0
@@ -657,5 +683,42 @@ mod tests {
         assert_eq!(more_tiles(120, 168), 168);
         assert!(is_scratch(&Placed { agent: Some(String::new()), ..file("page-2026-10-31T17-42-40-037Z.png") }));
         assert!(!is_scratch(&file("page-2026-10-31T17-42-40-037Z.png")));
+    }
+
+    // tests/a-file-keeps-its-place-and-its-own-name-whoever-names-it.test.mts: the Move menu's search.
+    #[test]
+    fn the_move_menus_search_finds_a_folder_by_any_part_of_its_name() {
+        let folder = |id: &str, name: &str, parent: Option<&str>| Folder { id: id.into(), project: "C".into(), name: name.into(), parent: parent.map(str::to_string), at: 1.0 };
+        let all = [folder("1", "Launch", None), folder("2", "Design", None), folder("3", "Launch films", Some("2"))];
+        let refs: Vec<&Folder> = all.iter().collect();
+        let ids = |q: &str| folders_matching(&refs, q).iter().map(|f| f.id.clone()).collect::<Vec<_>>();
+        assert_eq!(ids("LAUN"), vec!["1", "3"]);
+        assert_eq!(ids("  ").len(), 3);
+        assert!(ids("zzz").is_empty());
+    }
+
+    // tests/a-file-arriving-does-not-move-the-tile-you-are-about-to-click.test.mts
+    #[test]
+    fn the_order_held_under_the_pointer_keeps_tiles_where_they_were() {
+        let keys = |k: &[&str]| k.iter().map(|s| s.to_string()).collect::<Vec<String>>();
+        let held = |items: &[&str], before: &[&str]| in_order_of(&keys(items), &keys(before), |k| k.clone());
+        assert_eq!(held(&["new", "a", "b", "c"], &["a", "b", "c"]), keys(&["a", "b", "c", "new"]));
+        assert_eq!(held(&["n1", "n2", "a"], &["a"]), keys(&["a", "n1", "n2"]));
+        assert_eq!(held(&["a", "c"], &["a", "b", "c"]), keys(&["a", "c"]));
+        assert_eq!(held(&["c", "a", "b"], &[]), keys(&["c", "a", "b"]));
+    }
+
+    // tests/settings-and-side-pages-keep-the-accent-small-and-the-words-short.test.mts, and
+    // tests/files-says-what-each-file-takes-and-moves-old-ones-to-the-trash.test.mts's sizes.
+    #[test]
+    fn the_total_says_something_from_a_megabyte_and_counts_the_older_versions() {
+        assert!(!shows_total(0.0));
+        assert!(!shows_total(1024.0 * 1024.0 - 1.0));
+        assert!(shows_total(1024.0 * 1024.0));
+        let film = Placed { bytes: Some(250.0), on_mac: Some(350.0), older: Some(100.0), movable: Some(350.0), ..file("film.mp4") };
+        let shot = Placed { bytes: Some(40.0), on_mac: Some(40.0), older: Some(0.0), movable: Some(0.0), ..file("a.png") };
+        assert_eq!((on_mac_of(&[&film, &shot]), older_of(&[&film, &shot])), (390.0, 100.0));
+        assert_eq!(chosen_words(0, 0.0), "Choose files to move to the Trash");
+        assert_eq!(chosen_words(2, 13.1 * 1024.0 * 1024.0), "2 chosen · 13.1 MB");
     }
 }
