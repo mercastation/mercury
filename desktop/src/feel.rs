@@ -75,13 +75,15 @@ pub enum Align {
 }
 
 /// A control's hint: its name in `HINTS`, the layout key the plate is hung from, how it lines
-/// up, and the key of the words inside the control it lines its first key up with.
+/// up, the key of the words inside the control it lines its first key up with, and whether the
+/// plate is hung over the control rather than under it (`data-hint-side="above"`).
 #[derive(Clone, PartialEq, Debug)]
 pub struct Hint {
     pub id: &'static str,
     pub key: String,
     pub align: Align,
     pub words: Option<String>,
+    pub above: bool,
 }
 
 /// What each hint says, line by line: the key, and what it does (`HINTS` in
@@ -100,6 +102,9 @@ fn hint_lines(id: &str) -> &'static [(&'static str, &'static str)] {
         "thread-files" => &[("", "Files in this thread")],
         "runs-on" => &[("", "Where this thread runs")],
         "more" => &[("", "More actions")],
+        // The button after the sidebar's pencil, which says what a press does now.
+        "keep-sidebar" => &[("⌘\\", "Keep sidebar open")],
+        "shrink-sidebar" => &[("⌘\\", "Shrink sidebar to icons")],
         _ => &[],
     }
 }
@@ -141,7 +146,16 @@ pub fn titled_unless_hinted(s: &State, e: El, title: &str) -> El {
 /// is open says nothing at all, as the plate would sit on the menu's first row: a press on one
 /// calls `pressed`, and `menu_open` knows which have menus.
 pub fn hinted(e: El, id: &'static str, key: impl Into<String>, align: Align, words: Option<String>) -> El {
-    let hint = Hint { id, key: key.into(), align, words };
+    hinted_on(e, Hint { id, key: key.into(), align, words, above: false })
+}
+
+/// `hinted`, for a control whose plate is hung over it, where one under it would cover what the
+/// control acts on (`data-hint-side="above"`): the button that keeps the sidebar open.
+pub fn hinted_above(e: El, id: &'static str, key: impl Into<String>, align: Align) -> El {
+    hinted_on(e, Hint { id, key: key.into(), align, words: None, above: true })
+}
+
+fn hinted_on(e: El, hint: Hint) -> El {
     let control = e.key(hint.key.clone());
     let left = hint.key.clone();
     // A column, so a control as wide as a list is as wide inside it as it was.
@@ -267,9 +281,10 @@ pub fn plate(s: &State) -> Option<El> {
     // own gap is nought, puts half of itself after the words' column (CSS subgrid).
     let plate_w = 2.0 + 20.0 + if caps_col > 0.0 { caps_col + 10.0 } else { 5.0 } + words_col;
     let plate_h = 2.0 + 14.0 + lines.iter().map(|(key, _)| line_h(key)).sum::<f32>() + 4.0 * (lines.len() - 1) as f32;
-    // Where it goes (`placeHint`): under the control, or above it when there is no room under.
+    // Where it goes (`placeHint`): under the control, or above it when there is no room under;
+    // and for one that asks to be over its control, above it while there is room there.
     let (vw, vh) = s.size;
-    let rose = y + h + HINT_GAP + plate_h > vh - HINT_MARGIN;
+    let rose = if hint.above { y - HINT_GAP - plate_h >= HINT_MARGIN } else { y + h + HINT_GAP + plate_h > vh - HINT_MARGIN };
     let top = if rose { y - HINT_GAP - plate_h } else { y + h + HINT_GAP };
     let wanted = match hint.align {
         Align::Right => x + w - plate_w,
@@ -503,25 +518,142 @@ pub(crate) mod tests {
     fn the_rail_opens_once_the_pointer_has_rested_on_it_and_folds_when_it_leaves() {
         let mut rt = window("rail", &[]);
         assert_eq!(rt.state.lists.needs.len(), 4, "the invented inbox needs the person four times");
-        // Onto Files, under Workspace: the arrow still, as on every row of the sidebar (`cursor:
-        // default` in `sidebar.css`), and the rail still folded until 140 ms have gone by.
-        rt.pointer_move(28.0, 290.0);
-        rt.frame(1.0 / 60.0);
-        assert_eq!(rt.cursor(), Cursor::Default);
-        rt.pointer_move(28.0, 256.0);
-        rt.frame(1.0 / 60.0);
+        // From the card onto Files, under Workspace: the arrow still, as on every row of the
+        // sidebar (`cursor: default` in `sidebar.css`), and the rail still folded until 140 ms
+        // have gone by.
+        onto_the_rail(&mut rt, 256.0);
         assert_eq!(rt.cursor(), Cursor::Default);
         run(&mut rt, 0.1);
         assert_eq!(rt.state.rail.width(rt.state.at), 28.0);
-        // Then it eases open over 0.24 s, the card moving over with it.
+        // Then it eases open over 0.24 s, 210 points wide, the card moving over with it.
         run(&mut rt, 0.4);
-        assert_eq!(rt.state.rail.width(rt.state.at), 220.0);
+        assert_eq!(rt.state.rail.width(rt.state.at), 210.0);
         assert_eq!(chrome::card_left(&rt.state), 246.0);
-        // Off it and onto the card: it folds at once, over 0.2 s.
+        // Off it and onto the card: it stays open 300 ms more, then folds over 0.2 s.
         rt.pointer_move(700.0, 400.0);
-        run(&mut rt, 0.3);
+        run(&mut rt, 0.25);
+        assert_eq!(rt.state.rail.width(rt.state.at), 210.0, "open for 300 ms after the pointer left");
+        run(&mut rt, 0.35);
         assert_eq!(rt.state.rail.width(rt.state.at), 28.0);
         assert_eq!(chrome::card_left(&rt.state), 58.0);
+    }
+
+    /// The pointer coming from the card onto the folded sidebar's marks at `y` and resting
+    /// there, as a hand does: one move on the card, the next on the sidebar.
+    pub(crate) fn onto_the_rail(rt: &mut Runtime<State>, y: f32) {
+        rt.pointer_move(400.0, y);
+        rt.frame(1.0 / 60.0);
+        rt.pointer_move(28.0, y);
+        rt.frame(1.0 / 60.0);
+    }
+
+    // `tests/the-sidebar-opens-only-for-a-pointer-that-came-into-it.test.mts` and
+    // `the-sidebar-opens-only-once-the-pointer-rests-on-it.test.mts`, in the window itself.
+    #[test]
+    fn the_rail_opens_only_for_a_pointer_that_came_onto_it_and_rested() {
+        // A pointer that was on it from the start, and moves along it, was never come onto it.
+        let mut rt = window("rail-inside", &[]);
+        rt.pointer_move(28.0, 290.0);
+        rt.frame(1.0 / 60.0);
+        rt.pointer_move(28.0, 256.0);
+        run(&mut rt, 0.6);
+        assert_eq!(rt.state.rail.width(rt.state.at), 28.0, "nudged, not entered");
+        // One passing over it on the way to the window's edge is gone before its wait is up.
+        let mut rt = window("rail-passing", &[]);
+        onto_the_rail(&mut rt, 256.0);
+        rt.pointer_move(4.0, 256.0);
+        run(&mut rt, 0.6);
+        assert_eq!(rt.state.rail.width(rt.state.at), 28.0, "passing over");
+        // And one still travelling along it starts the wait over with each fast move: 100 ms
+        // after the last of them the rail is still shut, and 140 ms after it, opening.
+        let mut rt = window("rail-travelling", &[]);
+        onto_the_rail(&mut rt, 600.0);
+        for step in 1..=8 {
+            rt.pointer_move(28.0, 600.0 - 40.0 * step as f32);
+            rt.frame(1.0 / 60.0);
+        }
+        run(&mut rt, 0.1);
+        assert_eq!(rt.state.rail.width(rt.state.at), 28.0, "the wait began again at the last fast move");
+        run(&mut rt, 0.4);
+        assert_eq!(rt.state.rail.width(rt.state.at), 210.0);
+    }
+
+    #[test]
+    fn the_open_rail_keeps_a_pointer_that_comes_back_or_slips_just_past_its_edge() {
+        let mut rt = window("rail-back", &[]);
+        onto_the_rail(&mut rt, 256.0);
+        run(&mut rt, 0.6);
+        assert_eq!(rt.state.rail.width(rt.state.at), 210.0);
+        // Off it for 200 ms and back: the fold that was coming is called off.
+        rt.pointer_move(700.0, 400.0);
+        run(&mut rt, 0.2);
+        rt.pointer_move(100.0, 256.0);
+        run(&mut rt, 0.5);
+        assert_eq!(rt.state.rail.width(rt.state.at), 210.0, "back before 300 ms");
+        // Ten points past its right edge is still on it: the 22 up to the card are its own
+        // (`.workspace-navigation::after`). On the card it is off it.
+        rt.pointer_move(234.0, 256.0);
+        run(&mut rt, 0.6);
+        assert_eq!(rt.state.rail.width(rt.state.at), 210.0, "on the bridge");
+        rt.pointer_move(250.0, 256.0);
+        run(&mut rt, 0.6);
+        assert_eq!(rt.state.rail.width(rt.state.at), 28.0, "on the card");
+    }
+
+    #[test]
+    fn the_button_after_the_pencil_and_its_keys_keep_the_sidebar_open_or_let_it_shrink() {
+        let mut rt = window("rail-keep", &["--view", "inbox"]);
+        onto_the_rail(&mut rt, 256.0);
+        run(&mut rt, 0.6);
+        // The button stands at the end of the team's row, 196 to 224 across and 58 to 86 down
+        // (`.ws-keep`). Its plate comes 700 ms after the pointer, hung over it, and says what a
+        // press does now.
+        rt.pointer_move(209.0, 71.0);
+        rt.frame(1.0 / 60.0);
+        rt.pointer_move(210.0, 72.0);
+        run(&mut rt, 0.8);
+        assert_eq!(rt.state.pointed.hint.as_ref().map(|h| h.id), Some("keep-sidebar"));
+        let (_, y) = rt.find("hint-plate").expect("its plate is drawn");
+        assert!((y - (58.0 - 7.0 - 37.0 / 2.0)).abs() < 1.0, "the plate hangs over the button, its middle at {y}");
+        assert!(rt.elements().iter().any(|e| e.text.as_deref() == Some("Keep sidebar open")));
+        // A press keeps the sidebar open: the plate goes, and the pointer leaving folds nothing.
+        press(&mut rt, 210.0, 72.0);
+        assert_eq!(rt.state.picks.get().rail_shrinks, Some(false));
+        assert!(rt.state.pointed.hint.is_none());
+        rt.pointer_move(700.0, 400.0);
+        run(&mut rt, 0.8);
+        assert_eq!(rt.state.rail.width(rt.state.at), 210.0, "kept open");
+        // Now it says the other thing, and a press lets the sidebar shrink once the pointer is away.
+        rt.pointer_move(209.0, 71.0);
+        rt.frame(1.0 / 60.0);
+        rt.pointer_move(210.0, 72.0);
+        run(&mut rt, 0.8);
+        assert_eq!(rt.state.pointed.hint.as_ref().map(|h| h.id), Some("shrink-sidebar"));
+        press(&mut rt, 210.0, 72.0);
+        assert_eq!(rt.state.picks.get().rail_shrinks, Some(true));
+        assert_eq!(rt.state.rail.width(rt.state.at), 210.0, "open while the pointer is on it");
+        rt.pointer_move(700.0, 400.0);
+        run(&mut rt, 0.8);
+        assert_eq!(rt.state.rail.width(rt.state.at), 28.0);
+        // ⌘\ is the same switch, from anywhere: it eases open with the pointer away, and shut.
+        let chord = || KeyEvent { key: Key::Command('\\'), mods: Mods { cmd: true, ..Mods::default() } };
+        rt.key(chord());
+        rt.frame(1.0 / 60.0);
+        assert_eq!(rt.state.picks.get().rail_shrinks, Some(false));
+        run(&mut rt, 0.1);
+        let part = rt.state.rail.width(rt.state.at);
+        assert!(part > 28.0 && part < 210.0, "easing open, {part} wide a tenth of a second in");
+        run(&mut rt, 0.4);
+        assert_eq!(rt.state.rail.width(rt.state.at), 210.0);
+        // With the caret in the command bar's box too.
+        rt.key(KeyEvent { key: Key::Command('k'), mods: Mods { cmd: true, ..Mods::default() } });
+        rt.frame(1.0 / 60.0);
+        assert!(rt.state.palette.open);
+        rt.key(chord());
+        run(&mut rt, 0.5);
+        assert_eq!(rt.state.picks.get().rail_shrinks, Some(true));
+        assert!(rt.state.palette.open, "the bar stays as it was");
+        assert_eq!(rt.state.rail.width(rt.state.at), 28.0);
     }
 
     #[test]
@@ -541,22 +673,24 @@ pub(crate) mod tests {
     fn a_sections_name_folds_its_rows_only_while_the_sidebar_is_open_and_the_pencil_starts_a_thread() {
         let mut rt = window("rail-folds", &["--view", "inbox"]);
         // Folded to its marks, Workspace's name takes no press (`pointer-events: none`).
-        press(&mut rt, 28.0, 230.0);
+        press(&mut rt, 28.0, 224.0);
         assert!(rt.state.picks.get().rail_folds.is_empty());
-        // Open, a press on it folds Files away, and the next brings it back.
-        rt.pointer_move(28.0, 300.0);
-        rt.frame(1.0 / 60.0);
-        rt.pointer_move(28.0, 301.0);
+        // Open, a press on it folds Files away, and the next brings it back. Its name stands 214
+        // to 234 down, twelve under the Inbox, and Files right under it.
+        onto_the_rail(&mut rt, 300.0);
         run(&mut rt, 0.6);
-        assert_eq!(rt.state.rail.width(rt.state.at), 220.0);
-        press(&mut rt, 40.0, 230.0);
+        assert_eq!(rt.state.rail.width(rt.state.at), 210.0);
+        press(&mut rt, 40.0, 224.0);
         assert_eq!(rt.state.picks.get().rail_folds, vec!["workspace".to_string()]);
-        press(&mut rt, 40.0, 257.0);
+        press(&mut rt, 40.0, 249.0);
         assert_eq!(rt.state.view, View::Inbox, "no Files row to press while Workspace is folded");
-        press(&mut rt, 40.0, 230.0);
+        press(&mut rt, 40.0, 224.0);
         assert!(rt.state.picks.get().rail_folds.is_empty());
-        // The pencil at the end of the team's row opens the New thread card (`.ws-new`).
-        press(&mut rt, 220.0, 72.0);
+        press(&mut rt, 40.0, 249.0);
+        assert!(matches!(rt.state.view, View::Files { .. }), "Files is back under its name");
+        // The pencil near the end of the team's row opens the New thread card (`.ws-new`, 166
+        // to 194 across).
+        press(&mut rt, 180.0, 72.0);
         assert!(rt.state.compose.card, "the pencil starts a thread");
     }
 
@@ -594,10 +728,14 @@ pub(crate) mod tests {
         assert!(!rt.state.palette.open);
         run(&mut rt, 0.6);
         assert_eq!(rt.state.rail.width(rt.state.at), 28.0, "uncovered under a still pointer");
-        // The pointer's next move opens it.
+        // Nor does its next move along the rail: it never came onto it (`crossedIn`).
         rt.pointer_move(28.0, 257.0);
         run(&mut rt, 0.6);
-        assert_eq!(rt.state.rail.width(rt.state.at), 220.0, "once the pointer moves");
+        assert_eq!(rt.state.rail.width(rt.state.at), 28.0, "nudged, not entered");
+        // Off it and back on, it opens.
+        onto_the_rail(&mut rt, 257.0);
+        run(&mut rt, 0.6);
+        assert_eq!(rt.state.rail.width(rt.state.at), 210.0, "once the pointer comes onto it");
     }
 
     #[test]
@@ -631,12 +769,134 @@ pub(crate) mod tests {
         rt.set_system_reduced_motion(true);
         rt.frame(1.0 / 60.0);
         // Still after 140 ms of rest, and then open whole in the next frames, with no easing.
-        rt.pointer_move(28.0, 256.0);
+        onto_the_rail(&mut rt, 256.0);
         run(&mut rt, 0.2);
-        assert_eq!(rt.state.rail.width(rt.state.at), 220.0);
+        assert_eq!(rt.state.rail.width(rt.state.at), 210.0);
+        // And 300 ms after the pointer leaves it folds whole.
         rt.pointer_move(700.0, 400.0);
+        run(&mut rt, 0.25);
+        assert_eq!(rt.state.rail.width(rt.state.at), 210.0);
+        run(&mut rt, 0.1);
+        assert_eq!(rt.state.rail.width(rt.state.at), 28.0, "and folds whole once its wait is up");
+        // ⌘\ opens it whole too, and shuts it whole.
+        rt.key(KeyEvent { key: Key::Command('\\'), mods: Mods { cmd: true, ..Mods::default() } });
         run(&mut rt, 1.0 / 30.0);
-        assert_eq!(rt.state.rail.width(rt.state.at), 28.0, "and folds whole as the pointer leaves");
+        assert_eq!(rt.state.rail.width(rt.state.at), 210.0);
+        rt.key(KeyEvent { key: Key::Command('\\'), mods: Mods { cmd: true, ..Mods::default() } });
+        run(&mut rt, 1.0 / 30.0);
+        assert_eq!(rt.state.rail.width(rt.state.at), 28.0);
+    }
+
+    /// The invented inbox while the app has `update` to say about its own version, and `picks`
+    /// kept from before.
+    fn with_update(name: &str, update: Value, picks: Value) -> Runtime<State> {
+        window_dressed(name, &[], "/fixtures/storefront", "Done.", move |fixture| {
+            fixture["snapshot"]["update"] = update;
+            fixture["picks"] = picks;
+        })
+    }
+    fn says(rt: &Runtime<State>, words: &str) -> bool {
+        rt.elements().iter().any(|e| e.text.as_deref() == Some(words))
+    }
+    fn open_the_rail(rt: &mut Runtime<State>) {
+        onto_the_rail(rt, 256.0);
+        run(rt, 0.6);
+        assert_eq!(rt.state.rail.width(rt.state.at), 210.0);
+    }
+    /// A press on the thing laid out under `key`, the pointer brought onto it a frame before,
+    /// as a hand's is: the card's × is drawn only once the pointer is on the card.
+    fn press_on(rt: &mut Runtime<State>, key: &str) {
+        let (x, y) = rt.find(key).unwrap_or_else(|| panic!("{key} is drawn"));
+        rt.pointer_move(x, y);
+        rt.frame(1.0 / 60.0);
+        press(rt, x, y);
+    }
+    const NOT_RESTARTED: &str = "Mercury could not restart onto the new version. Try again in a moment.";
+
+    #[test]
+    fn a_new_version_is_a_mark_in_the_folded_sidebars_foot_and_a_card_in_the_open_ones() {
+        let mut rt = with_update("update-card", json!({ "ready": true, "installing": false, "newVersion": "0.2.0", "changes": ["The inbox reads faster"], "behind": 3 }), json!({}));
+        // Folded, the card is not drawn; its mark stands over Settings' (676 to 706 down), and
+        // a press on it is the restart, which this window with no app behind it says it could not ask.
+        assert!(!says(&rt, "New version ready"));
+        press(&mut rt, 28.0, 691.0);
+        assert_eq!(rt.state.toast.as_ref().map(|t| t.line.as_str()), Some(NOT_RESTARTED));
+        rt.update(|s, _| s.toast = None);
+        // Open, the card: its heading, how long a restart takes, and the button, which is the
+        // row itself, in its place (658 to 688 down, twelve points in from either side).
+        open_the_rail(&mut rt);
+        assert!(says(&rt, "New version ready") && says(&rt, "Restarting takes about a minute.") && says(&rt, "Restart to update"));
+        let (x, y) = rt.find(chrome::CARD_BUTTON).expect("the card's button");
+        assert!((x - 119.0).abs() < 0.5 && (y - 673.0).abs() < 0.5, "the button's middle is at {x}, {y}");
+        press(&mut rt, x, y);
+        assert_eq!(rt.state.toast.as_ref().map(|t| t.line.as_str()), Some(NOT_RESTARTED));
+        rt.update(|s, _| s.toast = None);
+        // Its × hides it until a newer version: the card and the row both, open and folded.
+        let (x, y) = rt.find(chrome::CARD_CLOSE).expect("the card's ×");
+        assert!((x - 206.0).abs() < 0.5 && (y - 608.6).abs() < 0.5, "the ×'s middle is at {x}, {y}");
+        press_on(&mut rt, chrome::CARD_CLOSE);
+        assert_eq!(rt.state.picks.get().update_closed.as_deref(), Some("0.2.0"));
+        assert!(!says(&rt, "New version ready") && !says(&rt, "Restart to update"));
+        rt.pointer_move(700.0, 400.0);
+        run(&mut rt, 0.8);
+        press(&mut rt, 28.0, 691.0);
+        assert!(rt.state.toast.is_none(), "no mark left in the folded foot to press");
+        // A newer version brings it back.
+        rt.update(|s, _| {
+            if let Some(update) = s.snap.rest.get_mut("update") {
+                update["newVersion"] = json!("0.3.0");
+            }
+        });
+        open_the_rail(&mut rt);
+        assert!(says(&rt, "New version ready"));
+    }
+
+    #[test]
+    fn while_the_new_version_is_built_the_row_says_updating_and_takes_no_press() {
+        // The × of an earlier day does not hide it: Updating is how a press is seen to have worked.
+        let mut rt = with_update("update-installing", json!({ "ready": false, "installing": true, "newVersion": "0.2.0" }), json!({ "update_closed": "0.2.0" }));
+        open_the_rail(&mut rt);
+        assert!(says(&rt, "Updating") && !says(&rt, "New version ready") && !says(&rt, "Restart to update"));
+        assert!(rt.find(chrome::CARD_BUTTON).is_none() && rt.find(chrome::CARD_CLOSE).is_none(), "no card to rise");
+        // It is one more of the foot's rows, over Settings (676 to 706), and a press does nothing.
+        press(&mut rt, 100.0, 691.0);
+        assert!(rt.state.toast.is_none() && rt.state.tried.is_empty() && !rt.state.settings.open);
+    }
+
+    #[test]
+    fn a_restart_that_did_not_finish_says_why_on_the_card() {
+        let mut rt = with_update("update-failed", json!({ "ready": true, "installing": false, "newVersion": "0.2.0", "error": "The new code would not build" }), json!({}));
+        open_the_rail(&mut rt);
+        assert!(says(&rt, "The new code would not build. Pressing it again tries again."));
+        assert!(!says(&rt, "Restarting takes about a minute."));
+    }
+
+    #[test]
+    fn a_copy_that_cannot_update_itself_has_its_own_card_where_the_update_card_would_be() {
+        let mut rt = with_update("update-stuck", json!({ "canMove": true, "place": "disk-image", "ready": false, "installing": false }), json!({}));
+        open_the_rail(&mut rt);
+        assert!(says(&rt, "Updates are stuck") && says(&rt, "Mercury can’t update itself from the disk image.") && says(&rt, "Move to Applications"));
+        // Its button asks the app for the move, and says nothing itself: the card says a failure.
+        press_on(&mut rt, chrome::CARD_BUTTON);
+        assert_eq!(rt.state.tried.iter().map(|w| w.0).collect::<Vec<_>>(), ["zero:update-move"]);
+        assert!(rt.state.toast.is_none());
+        // Its × hides it for this place, and it is kept.
+        press_on(&mut rt, chrome::CARD_CLOSE);
+        assert_eq!(rt.state.picks.get().move_closed.as_deref(), Some("disk-image"));
+        assert!(!says(&rt, "Updates are stuck") && !says(&rt, "Move to Applications"));
+        // Never both: a version on the disk is the news, and the stuck card stands in its place
+        // only once that one is closed.
+        let mut both = with_update("update-both", json!({ "canMove": true, "place": "translocated", "ready": true, "installing": false, "newVersion": "0.2.0" }), json!({}));
+        open_the_rail(&mut both);
+        assert!(says(&both, "New version ready") && !says(&both, "Updates are stuck"));
+        press_on(&mut both, chrome::CARD_CLOSE);
+        assert!(!says(&both, "New version ready") && says(&both, "Updates are stuck") && says(&both, "Mercury can’t update itself from the copy macOS made."));
+    }
+
+    #[test]
+    fn a_window_whose_sidebar_is_kept_open_draws_it_open_from_its_first_frame() {
+        let rt = window_dressed("rail-kept", &[], "/fixtures/storefront", "Done.", |fixture| fixture["picks"] = json!({ "rail_shrinks": false }));
+        assert_eq!(rt.state.rail.width(rt.state.at), 210.0, "open with no easing, two frames in");
     }
 
     #[test]

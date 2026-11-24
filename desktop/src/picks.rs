@@ -61,6 +61,13 @@ pub struct Picks {
     /// own (`agentbox.sidebarFolds`): `workspace`, `recent`.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub rail_folds: Vec<String>,
+    /// The version whose card in the sidebar was closed with its ×, which stays away until a
+    /// newer one arrives, and the place of a copy that cannot update itself whose card was
+    /// closed the same way (`zero.updateClosed`, `zero.moveClosed`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub update_closed: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub move_closed: Option<String>,
 }
 
 /// Where the person was in one conversation when they left it (`ThreadPlace`): its newest answer

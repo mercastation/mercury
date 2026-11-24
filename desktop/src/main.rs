@@ -1885,9 +1885,25 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
     let (w, h) = s.size;
     // A picture's copy is made for this screen's pixels.
     s.pictures.set_scale(cx.env().scale);
+    let still = cx.is_reduced_motion();
     let root = el().w_full()
         .h_full()
         .fill(theme::page())
+        // Where the pointer was one move ago, anywhere in the window, which the sidebar asks
+        // before it opens: whether the pointer came onto it from outside, and how fast
+        // (`followPointer` in `renderer/src/sidebar-shrinks.ts`). A pointer gone from the window
+        // comes back from outside. Neither changes what is drawn.
+        .on_pointer_move_local(move |s: &mut State, p, tx| {
+            tx.live_only();
+            s.rail.hears(still);
+            s.rail.saw(p.window_x, p.window_y, tx.clock());
+        })
+        .on_hover_change(|s: &mut State, inside, tx| {
+            tx.live_only();
+            if !inside {
+                s.rail.lost_the_pointer();
+            }
+        })
         // A press changes the page at once, as in the web window, whose pages, tabs, rows and
         // rail have no transition of their own. Rune would otherwise carry what two pages share
         // from its old place to its new one on a spring, fade the rest across and blend each

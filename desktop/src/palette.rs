@@ -589,6 +589,13 @@ impl State {
         self.write_what_waits();
         self.send(write.0, write.1, write::Sent::Palette(wrote));
     }
+
+    /// The sidebar's Move to Applications (`api.updateMove` from `SidebarMove`): the bar's own
+    /// write, with nothing said of its answer, since a move that worked relaunches the app and
+    /// one that did not is said by the card it was pressed on (`moveError`).
+    pub(crate) fn move_to_applications(&mut self) {
+        self.palette_write(("zero:update-move", Value::Null), Wrote::Quiet);
+    }
 }
 
 fn thread_of(item: &Item) -> (String, String) {

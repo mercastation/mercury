@@ -4,9 +4,9 @@
 
 use std::time::Duration;
 
-use rune::{Cursor, Easing, El, Icon, LineCap, Shape, TextCase, TextStyle, Tx, col, el, icon, row, spacer, text};
+use rune::{Easing, El, Icon, LineCap, Shape, TextCase, TextStyle, Tx, col, el, icon, row, spacer, text};
 
-use crate::rules::{recent, window};
+use crate::rules::{recent, sidebar, update, window};
 use crate::theme::*;
 use crate::{State, View, feel, front, icons};
 
@@ -20,7 +20,16 @@ pub const PAGE_TOP: f32 = 104.0;
 /// `renderer/src/sidebar.css`: folded, as wide as the column each mark keeps when open).
 pub const RAIL_LEFT: f32 = 14.0;
 pub const FOLDED: f32 = 28.0;
-pub const OPEN: f32 = 220.0;
+pub const OPEN: f32 = 210.0;
+/// A pointer that slips off the open sidebar's edge on its way to a button is still on it:
+/// this far past its right edge (`.gt-rail-nav.workspace-navigation::after`).
+const BRIDGE: f32 = 22.0;
+/// The button that keeps the sidebar open, which its plate is hung over; and the button and
+/// the × of the card in the sidebar's foot.
+pub const KEEP: &str = "rail-keep";
+pub const CARD_BUTTON: &str = "rail-card-button";
+pub const CARD_CLOSE: &str = "rail-card-close";
+const CARD_GROUP: &str = "rail-card";
 /// Where the card starts beside the open rail (`--workspace-left`: 44 points past the older
 /// `--workspace-width` of 202, which the sidebar's sheet leaves standing; folded it is `CARD[0]`).
 const CARD_OPEN: f32 = 246.0;
@@ -79,31 +88,106 @@ impl Fade {
 /// Open, it moves the card over rather than covering it.
 pub struct Rail {
     open: bool,
-    /// When it opens, 140 ms after the pointer moved onto it, and whether it then opens whole.
+    /// When it opens, 140 ms after a pointer that came into it last stopped travelling, and
+    /// whether it then opens whole.
     due: Option<(f64, bool)>,
+    /// When it folds, 300 ms after the pointer left it, unless it comes back first.
+    leaving: Option<(f64, bool)>,
     width: Fade,
     /// The words, the team's name, Inbox's count and the keys beside Search.
     words: Fade,
     /// The dot on Inbox while something waits, which the count stands for when open.
     dot: Fade,
+    /// The short line that stands in a section's name's place while the sidebar is folded.
+    line: Fade,
     /// The pointer is on it.
     pointed: bool,
+    /// Whether the pointer on it came in from outside and is waited on (`hoverIntent`), where
+    /// the pointer was one move ago anywhere in the window (`pointerTrail`), and where it was
+    /// at the last move heard on the sidebar itself, since a move that goes nowhere is none
+    /// (`pointerMoved`).
+    intent: sidebar::Intent,
+    trail: sidebar::Trail,
+    last_on: Option<(f32, f32)>,
+    /// The version whose card was closed with its × in this run, and the place of the copy
+    /// whose stuck card was: either may be the empty word, for one the app could not name,
+    /// which is kept nowhere else (`updateClosed`, `moveClosed` in `WorkspaceNavigation.tsx`).
+    update_closed: Option<String>,
+    move_closed: Option<String>,
+    /// Reduce motion, as the view last heard it, and whether the poll has run once.
+    still: bool,
+    begun: bool,
 }
 
 impl Default for Rail {
     fn default() -> Rail {
-        Rail { open: false, due: None, width: Fade::still(FOLDED), words: Fade::still(0.0), dot: Fade::still(1.0), pointed: false }
+        Rail {
+            open: false,
+            due: None,
+            leaving: None,
+            width: Fade::still(FOLDED),
+            words: Fade::still(0.0),
+            dot: Fade::still(1.0),
+            line: Fade::still(1.0),
+            pointed: false,
+            intent: sidebar::Intent::default(),
+            trail: sidebar::Trail::default(),
+            last_on: None,
+            update_closed: None,
+            move_closed: None,
+            still: false,
+            begun: false,
+        }
     }
 }
 
 impl Rail {
+    /// The pointer moved, anywhere in the window (`followPointer`): the trail keeps where it
+    /// was one move ago. The window's root hears every move; one heard twice counts once.
+    pub fn saw(&mut self, x: f32, y: f32, at: f64) {
+        if self.trail.now().is_none_or(|now| now.x != x || now.y != y) {
+            self.trail.moved(x, y, at * 1000.0);
+        }
+    }
+    /// The pointer went out of the window, so its next move comes in from outside.
+    pub fn lost_the_pointer(&mut self) {
+        self.trail.left();
+    }
+    /// Where the pointer was before the move to `here`, whether the window's root has heard
+    /// that move yet or not.
+    fn before(&self, here: (f32, f32)) -> Option<sidebar::At> {
+        match self.trail.now() {
+            Some(now) if now.x == here.0 && now.y == here.1 => self.trail.before(),
+            now => now,
+        }
+    }
+    /// A move over the sidebar, to `here` at `now`, the sidebar standing in `sides`
+    /// (`onMouseMove` in `WorkspaceNavigation.tsx`): a move back onto it calls off the fold that
+    /// was coming, and the answer is whether the wait to open starts over.
+    fn moved_on(&mut self, here: (f32, f32), now: f64, sides: &sidebar::Sides) -> bool {
+        self.leaving = None;
+        if self.last_on.replace(here) == Some(here) {
+            return false;
+        }
+        let before = self.before(here);
+        self.intent.moved(before, sidebar::At { x: here.0, y: here.1, t: Some(now * 1000.0) }, sides)
+    }
+    /// The pointer left the sidebar (`onMouseLeave`): nothing waits to open any more, and it
+    /// folds 300 ms from `now` unless the pointer comes back first.
+    fn left(&mut self, now: f64, still: bool) {
+        self.pointed = false;
+        self.due = None;
+        self.last_on = None;
+        self.intent.left();
+        self.leaving = Some((now + sidebar::CLOSES_AFTER, still));
+    }
     /// The pointer's 140 ms on the rail are up, or it left the rail (`on`). The rules
     /// are `renderer/src/team/rooms/rooms.css`'s: the width eases open over 0.24 s and shut
     /// over 0.2 s; the words come in 0.08 s later over 0.14 s and go over 0.06 s; Inbox's dot
-    /// crosses in 0.1 s, its `ease` both ways. Search has no line under it to cross any more
-    /// (`.workspace-find`). Under the system's Reduce motion (`still`) none of it moves: it opens
-    /// and folds whole, as the same rules' `prefers-reduced-motion` block takes every transition
-    /// away.
+    /// crosses in 0.1 s, its `ease` both ways, and the short line in a section's place in 0.06 s.
+    /// Search has no line under it to cross any more (`.workspace-find`). Under the system's
+    /// Reduce motion (`still`) none of it moves: it opens and folds whole, as the same rules'
+    /// `prefers-reduced-motion` block takes every transition away.
     fn point(&mut self, on: bool, now: f64, still: bool) {
         if on == self.open {
             return;
@@ -114,10 +198,12 @@ impl Rail {
             self.width = self.width.toward(OPEN, now, 0.0, 0.24 * k, Easing::cubic(0.22, 0.61, 0.36, 1.0));
             self.words = self.words.toward(1.0, now, 0.08 * k, 0.14 * k, ease);
             self.dot = self.dot.toward(0.0, now, 0.0, 0.1 * k, ease);
+            self.line = self.line.toward(0.0, now, 0.0, 0.06 * k, ease);
         } else {
             self.width = self.width.toward(FOLDED, now, 0.0, 0.2 * k, Easing::cubic(0.4, 0.0, 0.2, 1.0));
             self.words = self.words.toward(0.0, now, 0.0, 0.06 * k, ease);
             self.dot = self.dot.toward(1.0, now, 0.0, 0.1 * k, ease);
+            self.line = self.line.toward(1.0, now, 0.0, 0.06 * k, ease);
         }
     }
     /// Whether it is open, or opening: the web window's rail stops being folded the moment it
@@ -131,24 +217,47 @@ impl Rail {
     }
     /// Whether it is opening or folding at `now`, when every frame has to be drawn.
     pub fn moving(&self, now: f64) -> bool {
-        [self.width, self.words, self.dot].iter().any(|f| f.moving(now))
+        [self.width, self.words, self.dot, self.line].iter().any(|f| f.moving(now))
+    }
+    /// What the system says about motion, as the view last heard it (`still`: Reduce motion is
+    /// on), for the opening and folding the poll starts with no handler of the view's in hand.
+    pub fn hears(&mut self, still: bool) {
+        self.still = still;
     }
 }
 
-/// The poll's part: the rail opens once its 140 ms are up, and while it opens or folds each
-/// frame is drawn and asks for the next.
+/// ⌘\, the button after the sidebar's pencil and Settings' switch: the sidebar is kept open, or
+/// shrinks to its marks again once the pointer is away (`toggleSidebarShrinks`).
+pub fn keep_or_shrink(s: &mut State) {
+    let shrinks = s.picks.get().rail_shrinks.unwrap_or(true);
+    s.picks.change(|p| p.rail_shrinks = Some(!shrinks));
+}
+
+/// The poll's part: the rail opens once its 140 ms are up and folds once the pointer has been
+/// off it for 300, and while it opens or folds each frame is drawn and asks for the next.
 pub fn rail_moves(s: &mut State, at: f64, tx: &mut Tx) -> bool {
+    let shrinks = s.picks.get().rail_shrinks.unwrap_or(true);
     if let Some((due, still)) = s.rail.due.filter(|&(due, _)| at >= due) {
         s.rail.due = None;
         s.rail.point(true, due, still);
     }
-    // With the sidebar's shrinking turned off in Settings the rail stands open, and folds again
-    // once it is turned back on (`useSidebarShrinks`).
-    let shrinks = s.picks.get().rail_shrinks.unwrap_or(true);
+    if let Some((due, still)) = s.rail.leaving.filter(|&(due, _)| at >= due) {
+        s.rail.leaving = None;
+        // A pointer back on it by then keeps it open, and so does the sidebar being kept open.
+        if shrinks && !s.rail.pointed {
+            s.rail.point(false, due, still);
+        }
+    }
+    // With the sidebar kept open (Settings' switch, the button after the pencil, ⌘\) the rail
+    // stands open, and folds again once it is let go with the pointer away (`sidebarFolded`).
+    // Either way it eases as it does under the pointer, but a window that opens with its
+    // sidebar kept open draws it open from its first frame.
+    let whole = s.rail.still || !s.rail.begun;
+    s.rail.begun = true;
     if !shrinks && !s.rail.open {
-        s.rail.point(true, at, true);
-    } else if shrinks && s.rail.open && s.rail.due.is_none() && !s.rail.pointed {
-        s.rail.point(false, at, true);
+        s.rail.point(true, at, whole);
+    } else if shrinks && s.rail.open && s.rail.due.is_none() && s.rail.leaving.is_none() && !s.rail.pointed {
+        s.rail.point(false, at, whole);
     }
     let moving = s.rail.moving(at);
     if moving {
@@ -304,7 +413,8 @@ fn rail_row(wide: f32) -> El {
     row().size(wide, 30.0).radius(6.0).items_center().px(6.0).gap(8.0).clip_rounded(6.0)
 }
 
-/// A row's mark: drawn 18 points across in its 16-point column (`margin: -1px`).
+/// A row's mark: drawn 18 points across in its 16-point column (`margin: -1px`), in the ink of
+/// the word beside it (`color: inherit`).
 fn rail_mark(glyph: &'static Icon, tone: rune::Color) -> El {
     icon(glyph, 18.0).color(tone).ml(-1.0).mr(-1.0)
 }
@@ -315,31 +425,138 @@ fn rail_word(word: &str, tone: rune::Color) -> El {
 }
 
 /// One of the sidebar's places or the foot's buttons: its mark, and the word beside it that
-/// shows while the sidebar is open. The page on screen is lit, its word in the text's colour
-/// and its mark a step brighter; any other takes the same under the pointer
-/// (`.workspace-tab.active`, `:hover`).
+/// shows while the sidebar is open. The page on screen is lit, its word and its mark in the
+/// text's colour; any other takes the same under the pointer (`.workspace-tab.active`, `:hover`).
 fn rail_button(glyph: &'static Icon, word: &str, active: bool, wide: f32, words: f32) -> El {
     let b = rail_row(wide);
     let b = if active { b.fill(rail_fill()) } else { b.hover_group().hover(rail_fill()) };
-    let (mark, tone) = if active { (dim(), ink()) } else { (muted(), dim()) };
-    b.child(rail_mark(glyph, mark).group_color(dim())).child(rail_word(word, tone).group_color(ink()).opacity(words))
+    let tone = if active { ink() } else { dim() };
+    b.child(rail_mark(glyph, tone).group_color(ink())).child(rail_word(word, tone).group_color(ink()).opacity(words))
 }
 
-/// Restart to update, which keeps the older row's shape (`.sb-update-row`): 36 points tall,
-/// its mark ten points in and its word eleven past it, in the faint ink.
-fn update_row(wide: f32, words: f32) -> El {
-    row().size(wide, 36.0)
-        .radius(6.0)
+/// What the foot says while a new version waits, or while this copy cannot update itself: the
+/// move card stands where the update card would, and never both (`showUpdate`, `showMove` in
+/// `WorkspaceNavigation.tsx`). A card closed with its × stays away, for that version or that
+/// place.
+enum Foot {
+    Update(update::Waiting),
+    Stuck(update::Stuck),
+}
+
+fn foot_says(s: &State) -> Option<Foot> {
+    let kept = s.picks.get();
+    if let Some(waiting) = update::waiting(&s.snap) {
+        let closed = s.rail.update_closed.as_deref().or(kept.update_closed.as_deref());
+        if !update::closed_here(&waiting, closed) {
+            return Some(Foot::Update(waiting));
+        }
+    }
+    let stuck = update::stuck(&s.snap)?;
+    let closed = s.rail.move_closed.as_deref().or(kept.move_closed.as_deref());
+    (!update::stuck_closed_here(&stuck, closed)).then_some(Foot::Stuck(stuck))
+}
+
+/// Restart to update: the app quits onto the new version and comes back, and this window finds
+/// its new door (`api.updateInstall`).
+fn restart(s: &mut State, tx: &mut Tx) {
+    s.ask_the_app(front::INSTALL_UPDATE, "Mercury could not restart onto the new version. Try again in a moment.", tx);
+}
+
+/// The ×s: the update card stays away until a newer version, and the stuck card for this place
+/// (`closeUpdate`, `closeMove`). One the app could not name is closed for this run only.
+fn close_update(s: &mut State, version: Option<String>) {
+    if let Some(keep) = update::to_keep(version.as_deref()) {
+        s.picks.change(|p| p.update_closed = Some(keep));
+    }
+    s.rail.update_closed = Some(version.unwrap_or_default());
+}
+fn close_move(s: &mut State, place: Option<String>) {
+    if let Some(keep) = update::to_keep(place.as_deref()) {
+        s.picks.change(|p| p.move_closed = Some(keep));
+    }
+    s.rail.move_closed = Some(place.unwrap_or_default());
+}
+
+/// A row of the foot folded to its mark, as the update's and the stuck copy's are while the
+/// sidebar is shut, and as Updating is open or shut (`.sb-update-row` as one more of the foot's
+/// rows): the mark in the sidebar's dim ink and the word beside it.
+fn foot_row(glyph: El, word: &str, wide: f32, words: f32) -> El {
+    rail_row(wide).child(glyph).child(rail_word(word, dim()).group_color(ink()).opacity(words))
+}
+
+/// The new version's card, or the stuck copy's, in the open sidebar (`RailCard` in
+/// `SidebarUpdate.tsx`, `.sb-update-slot` and `.sb-update-rise` in `threads/pages.css` and
+/// `sidebar.css`): the row keeps its place in the foot and is the card's button, and the rest of
+/// the card stands on the row's slot and grows upward over what is above, so nothing under the
+/// pointer moves. Its × shows while the pointer is on the card or its slot.
+struct Card {
+    glyph: &'static Icon,
+    title: &'static str,
+    line: String,
+    button: &'static str,
+    /// The button's title, the card's (what changed, when the app says) and the ×'s.
+    tip: String,
+    changed: String,
+    close_tip: &'static str,
+}
+
+fn foot_card(card: Card, wide: f32, words: f32, press: fn(&mut State, &mut Tx), close: impl Fn(&mut State) + 'static) -> El {
+    let inside = (wide - 26.0).max(0.0);
+    let heading = row()
+        .h(20.0)
+        .gap(8.0)
+        .pr(22.0)
         .items_center()
-        .pl(10.0)
-        .pr(10.0)
-        .gap(11.0)
-        .clip_rounded(6.0)
-        .cursor(Cursor::Pointer)
+        .child(icon(card.glyph, 18.0).color(dim()))
+        .child(pen(text(card.title).font(TextStyle::new(13.5, 500.0).lh(20.0)).color(ink()), 13.5));
+    let line = pen(text(card.line).font(TextStyle::new(12.0, 500.0).lh(17.4)).color(muted()).wrap().w(inside), 12.0);
+    let x = row()
+        .size(22.0, 22.0)
+        .radius(6.0)
+        .center()
         .hover_group()
-        .hover(feel::wash())
-        .child(icon(&icons::RESTART, 18.0).color(muted()).group_color(ink()))
-        .child(pen(text("Restart to update").font(TextStyle::new(13.0, 500.0).lh(20.0)).color(muted()).group_color(ink()), 13.0).opacity(words))
+        .child(icon(&icons::CARD_CLOSE, 13.0).color(dim()).group_color(ink()))
+        .key(CARD_CLOSE)
+        .label("Close")
+        .help(card.close_tip)
+        .on_press(close);
+    // The pointer anywhere on the card or on its slot shows the × (`.sb-update-card:hover`,
+    // `.sb-update-slot:hover`): the two are one group, since the card rises out of the slot's
+    // own box and holds nothing else the pointer would be found on.
+    let mut risen = col()
+        .pin(Some(0.0), None, Some(0.0), Some(0.0))
+        .hover_group_shared(CARD_GROUP)
+        .radius(6.0)
+        .border(1.0, rule())
+        .border_layout()
+        .pt(12.0)
+        .px(12.0)
+        .pb(52.0)
+        .gap(6.0)
+        .opacity(words)
+        .child(heading)
+        .child(line)
+        .child(el().pin(None, Some(6.0), Some(6.0), None).group_opacity(0.0, 1.0).child(x));
+    if !card.changed.is_empty() {
+        risen = risen.help(card.changed);
+    }
+    let button = row()
+        .key(CARD_BUTTON)
+        .absolute(12.0, 0.0)
+        .size((wide - 24.0).max(0.0), 30.0)
+        .radius(6.0)
+        .center()
+        .fill(white(0.04))
+        .hover(white(0.08))
+        .border(1.0, rule())
+        .clip_rounded(6.0)
+        // The button is there the moment the sidebar starts to open; its word comes in with
+        // the sidebar's other words.
+        .child(pen(text(card.button).font(TextStyle::new(13.0, 500.0).lh(20.0)).color(ink()), 13.0).opacity(words))
+        .label(card.button)
+        .help(card.tip)
+        .on_press_tx(press);
+    el().size(wide, 42.0).mb(6.0).hover_group_shared(CARD_GROUP).child(risen).child(button)
 }
 
 /// The person's own face on their row: two letters on a light disc (`.th-me .tm-av`).
@@ -354,26 +571,43 @@ fn my_face(letters: &str) -> El {
 
 /// A section's name (`SectionHead`, `.ws-sec`): a press folds its rows away and the next
 /// brings them back, kept for the next time the window opens. It shows only while the sidebar
-/// is open, and folded it keeps its height, so no mark under it moves when the sidebar opens.
-fn section_head(s: &State, id: &'static str, word: &str, words: f32) -> El {
+/// is open; folded, `line` is how much of a short line stands in its place at its height, so
+/// no mark under it moves when the sidebar opens (`.ws-sec::before`, which only a section of
+/// the sidebar's own has, and Recent's, never drawn folded, has not).
+fn section_head(s: &State, id: &'static str, word: &str, words: f32, line: Option<f32>) -> El {
     let folded = s.picks.get().rail_folds.iter().any(|f| f == id);
-    let arrow = icon(&icons::RAIL_FOLD, 7.0).color(muted()).group_color(ink()).opacity(0.75);
+    let arrow = icon(&icons::RAIL_FOLD, 7.0).color(muted()).group_color(ink()).opacity(0.75 * words);
     let arrow = if folded { arrow.rotate(-std::f32::consts::FRAC_PI_2) } else { arrow };
-    let head = row()
-        .h(24.0)
+    let mut head = row()
+        .h(20.0)
         .px(6.0)
         .gap(4.0)
         .items_center()
         .radius(6.0)
-        .opacity(words)
-        .hover_group()
-        .hover(rail_fill())
-        .child(pen(text(word).font(TextStyle::new(12.0, 500.0).lh(14.0)).color(muted()).group_color(ink()), 12.0))
+        .child(pen(text(word).font(TextStyle::new(12.0, 500.0).lh(14.0)).color(muted()).group_color(ink()), 12.0).opacity(words))
         .child(arrow);
-    // Folded to its marks the sidebar's sections take no press (`pointer-events: none`).
-    let head = if s.rail.open { head.on_press(move |s: &mut State| s.picks.change(|p| p.rail_folds = recent::toggle_fold(&p.rail_folds, id))) } else { head };
-    // As wide as its words, not the sidebar (`align-self: flex-start`), sixteen under what is over it.
-    row().mt(16.0).child(head)
+    if let Some(line) = line {
+        head = head.child(el().absolute(6.0, 10.0).size(16.0, 1.0).fill(rule()).opacity(line));
+    }
+    // Folded to its marks the sidebar's sections take no press and no light (`pointer-events: none`).
+    let head = if s.rail.open { head.hover_group().hover(rail_fill()).on_press(move |s: &mut State| s.picks.change(|p| p.rail_folds = recent::toggle_fold(&p.rail_folds, id))) } else { head };
+    // As wide as its words, not the sidebar (`align-self: flex-start`), twelve under what is over it.
+    row().mt(12.0).child(head)
+}
+
+/// Whose thread a row of Recent is (`.ws-recent-mark`): the agent's mark bare, like the marks
+/// above it, since its tile is grey on grey on this ground, 20 points across in the marks'
+/// 16-point column so its ink is as tall as theirs, Claude Code's in its own orange; and for a
+/// harness with no mark the agent's two eyes in their ring, 18 points in that column.
+fn recent_mark(harness: &str) -> El {
+    let glyph = match harness {
+        "claude" => &icons::HARNESS_CLAUDE,
+        "codex" => &icons::HARNESS_CODEX,
+        "antigravity" => &icons::HARNESS_ANTIGRAVITY,
+        _ => return el().size(16.0, 16.0).child(crate::inbox::harness_mark(harness).absolute(-1.0, -1.0)),
+    };
+    let tone = if harness == "claude" { rgb(0xd9, 0x77, 0x57) } else { ink() };
+    el().size(16.0, 16.0).child(icon(glyph, 20.0).color(tone).absolute(-2.0, -2.0))
 }
 
 /// A thread in Recent (`.ws-recent-row`): whose it is, its name, and a dot while it waits on
@@ -384,8 +618,7 @@ fn recent_row(s: &State, item: &crate::data::Item, wide: f32) -> El {
     let open_here = matches!(&s.view, View::Thread { id, product } if *id == item.id && *product == item.product);
     let waits = !open_here && s.lists.needs.iter().any(|r| r.id == item.id && r.product == item.product);
     let (id, product) = (item.id.clone(), item.product.clone());
-    // An 18-point face in the marks' 16-point column, so every name starts on one line.
-    let mark = el().size(16.0, 16.0).child(crate::inbox::harness_mark(harness).absolute(-1.0, -1.0));
+    let mark = recent_mark(harness);
     let name = el().grow(1.0).min_w(0.0).child(pen(text(title.as_str()).font(TextStyle::new(14.0, 500.0).lh(20.0)).color(dim()).group_color(ink()).truncate(), 14.0));
     let mut r = rail_row(wide).hover_group().hover(rail_fill()).child(mark).child(name);
     if waits {
@@ -395,12 +628,13 @@ fn recent_row(s: &State, item: &crate::data::Item, wide: f32) -> El {
 }
 
 /// The sidebar (`WorkspaceNavigation.tsx`, drawn as `renderer/src/sidebar.css` draws it): the
-/// team's mark and name with the pencil that starts a thread, Search as a field that shows its
-/// keys, Home and the Inbox, Workspace with Files under it, Recent with the threads last
-/// opened, and at its foot Restart to update while a new version waits and the person's own
-/// row, with what is left of their limit as a small bar on it. Folded it is the marks alone;
-/// while the pointer rests on it, it opens to the whole sidebar (`Rail`). `still`: the system
-/// asks for reduced motion.
+/// team's mark and name with the pencil that starts a thread and the button that keeps the
+/// sidebar open, Search as a field that shows its keys, Home and the Inbox, Workspace with Files
+/// under it, Recent with the threads last opened, and at its foot the card of a new version
+/// that waits (or of a copy that cannot update itself) and the person's own row, with what is
+/// left of their limit as a small bar on it. Folded it is the marks alone; once a pointer that
+/// came onto it rests there, it opens to the whole sidebar, and it folds a moment after the
+/// pointer leaves (`Rail`). `still`: the system asks for reduced motion.
 ///
 /// ONLY WHAT WORKS HERE. The web window's sidebar also has Demands, Chats, Connections, Record
 /// meeting and Feedback. Drawn here they were buttons that went nowhere, which is worse than no
@@ -410,7 +644,7 @@ fn recent_row(s: &State, item: &crate::data::Item, wide: f32) -> El {
 /// its own, as it is there.
 pub fn rail(s: &State, still: bool) -> El {
     let now = s.at;
-    let (wide, words, dot) = (s.rail.width(now), s.rail.words.at(now), s.rail.dot.at(now));
+    let (wide, words, dot, line) = (s.rail.width(now), s.rail.words.at(now), s.rail.dot.at(now), s.rail.line.at(now));
     // Folded, a button's title names it; open, its word does (`title={collapsed ? … : undefined}`).
     let folded = !s.rail.open;
     let button = |glyph: &'static Icon, word: &str, active: bool| {
@@ -436,8 +670,10 @@ pub fn rail(s: &State, still: bool) -> El {
     let tabs = col().mt(12.0).gap(2.0).child(button(&icons::RAIL_HOME, "Home", on_home).on_press(|s: &mut State| s.go(View::Home))).child(inbox);
 
     // The team's mark, its name beside it while the sidebar is open (`.th-team`), and at the
-    // row's end the pencil that starts a thread (`.ws-new`), which the sidebar's edge cuts off
-    // while it is folded.
+    // row's end the pencil that starts a thread (`.ws-new`) and, two points past it, the button
+    // that keeps the sidebar open (`.ws-keep`); the sidebar's edge cuts both off while it is
+    // folded. Kept open, that button is lit and a press lets the sidebar shrink again. It has
+    // no title: its plate, hung over it, says what a press does now and the keys that do it.
     let name = window::team_name(&s.snap);
     let mut team = row()
         .size(wide, 28.0)
@@ -460,20 +696,38 @@ pub fn rail(s: &State, still: bool) -> El {
             .label("New thread")
             .help("New thread (N)");
         team = team.child(if s.rail.open { pencil.on_press_tx(|s: &mut State, tx| s.open_card(tx)) } else { pencil });
+        let kept = !s.picks.get().rail_shrinks.unwrap_or(true);
+        let keep = row()
+            .size(28.0, 28.0)
+            .radius(6.0)
+            .center()
+            .opacity(words)
+            .child(icon(&icons::RAIL_KEEP, 16.0).color(if kept { ink() } else { muted() }).group_color(ink()))
+            .label(if kept { "Shrink sidebar to icons" } else { "Keep sidebar open" });
+        let keep = if kept { keep.fill(rail_fill()) } else { keep.hover_group().hover(rail_fill()) };
+        let keep = if s.rail.open {
+            keep.on_press(|s: &mut State| {
+                feel::pressed(s);
+                keep_or_shrink(s);
+            })
+        } else {
+            keep
+        };
+        team = team.child(feel::hinted_above(keep, if kept { "shrink-sidebar" } else { "keep-sidebar" }, KEEP, feel::Align::Left).ml(-4.0));
     }
     let team = if folded { team } else { team.help(name) };
     // Search, over the places (`.workspace-find`): a field while the sidebar is open, on the
     // card's own black inside a rule, with its glass, its word and its keys, all in the faint
-    // ink; folded, the glass alone on no ground. Under the pointer its word and keys brighten a
-    // step and the glass does not (`.workspace-find button:hover` names the button's colour, and
-    // the glass keeps `--text-faint` from the rule for every mark). It opens the command bar,
-    // as ⌘K does.
+    // ink; folded, the glass alone on no ground, the field's ground and rule going and coming
+    // at once with nothing to ease them. Under the pointer the three brighten a step
+    // (`.workspace-find button:hover`). It opens the command bar, as ⌘K does.
+    let field = if s.rail.open { 1.0 } else { 0.0 };
     let search = rail_row(wide)
         .mt(12.0)
-        .fill(surface_at(words))
-        .box_shadow(shadow(0.0, 0.0, 0.0, 1.0, rule_at(words), true))
+        .fill(surface_at(field))
+        .box_shadow(shadow(0.0, 0.0, 0.0, 1.0, rule_at(field), true))
         .hover_group()
-        .child(icon(&icons::RAIL_SEARCH, 20.0).color(muted()).ml(-2.0).mr(-2.0))
+        .child(rail_mark(&icons::RAIL_SEARCH, muted()).group_color(dim()))
         .child(pen(text("Search").font(TextStyle::new(14.0, 400.0).lh(20.0)).color(muted()).group_color(dim()), 14.0).opacity(words))
         .child(spacer())
         .child(pen(text("⌘K").font(TextStyle::new(12.0, 400.0).lh(20.0)).color(muted()).group_color(dim()), 12.0).opacity(words))
@@ -492,7 +746,7 @@ pub fn rail(s: &State, still: bool) -> El {
     let direct = |slug: &str| s.snap.products.iter().any(|p| p.slug == slug && crate::rules::compose::is_direct(p));
     let opened = recent::threads(s.snap.items.iter().filter(|i| !direct(&i.product)), &s.local.seen_at);
     let recents = (words > 0.0 && !opened.is_empty()).then(|| {
-        let mut block = col().shrink().min_h(0.0).clip_rounded(0.0).opacity(words).child(section_head(s, recent::RECENT, "Recent", words));
+        let mut block = col().shrink().min_h(0.0).clip_rounded(0.0).opacity(words).child(section_head(s, recent::RECENT, "Recent", 1.0, None));
         if !folds.iter().any(|f| f == recent::RECENT) {
             block = block.child(col().gap(2.0).children(opened.iter().map(|i| recent_row(s, i, wide))));
         }
@@ -520,11 +774,51 @@ pub fn rail(s: &State, still: bool) -> El {
         crate::usage::answering(pill, &reading.last.engine)
     });
     let mut utilities = col().gap(2.0);
-    if window::update_waits(&s.snap) {
-        // Restart to update stands first, with the room its card rises from (`.sb-update-slot`).
-        // The app quits onto the new version and comes back, and this window finds its new door.
-        let restart = update_row(wide, words).help("Restart to update").on_press_tx(|s: &mut State, tx| s.ask_the_app(front::INSTALL_UPDATE, "Mercury could not restart onto the new version. Try again in a moment.", tx));
-        utilities = utilities.child(el().pb(9.0).child(restart));
+    // First in the foot, what the app has to say about its own version (`SidebarUpdate.tsx`).
+    // Open, a card risen over its button: "New version ready" and Restart to update, or
+    // "Updates are stuck" and Move to Applications for a copy that cannot update itself. Folded,
+    // the button's mark alone, one more of the foot's marks. And while the new version is being
+    // built there is nothing to press, so no card: the row says Updating, its mark turning.
+    match foot_says(s) {
+        Some(Foot::Update(waiting)) if waiting.installing => {
+            let turning = rail_mark(&icons::RAIL_RESTART, dim()).group_color(ink()).looping(rune::LoopSpec::rotation(1.4));
+            utilities = utilities.child(foot_row(turning, update::UPDATING, wide, words).hover_group().hover(rail_fill()).label(update::UPDATING).help(update::UPDATING_SAID));
+        }
+        Some(Foot::Update(waiting)) if folded => {
+            let mark = rail_mark(&icons::RAIL_RESTART, dim());
+            utilities = utilities.child(foot_row(mark, update::RESTART, wide, words).label(update::RESTART).help(update::tip(&waiting)).on_press_tx(restart));
+        }
+        Some(Foot::Update(waiting)) => {
+            let version = waiting.version.clone();
+            let card = Card {
+                glyph: &icons::RESTART,
+                title: update::TITLE,
+                line: update::line(&waiting),
+                button: update::RESTART,
+                tip: update::tip(&waiting),
+                changed: update::changed(&waiting),
+                close_tip: update::CLOSE_TIP,
+            };
+            utilities = utilities.child(foot_card(card, wide, words, restart, move |s: &mut State| close_update(s, version.clone())));
+        }
+        Some(Foot::Stuck(stuck)) if folded => {
+            let mark = rail_mark(&icons::RAIL_MOVE, dim());
+            utilities = utilities.child(foot_row(mark, update::MOVE, wide, words).label(update::MOVE).help(update::stuck_tip(&stuck)).on_press_tx(|s: &mut State, _| s.move_to_applications()));
+        }
+        Some(Foot::Stuck(stuck)) => {
+            let place = stuck.place.clone();
+            let card = Card {
+                glyph: &icons::MOVE_IN,
+                title: update::STUCK_TITLE,
+                line: update::why(&stuck),
+                button: update::MOVE,
+                tip: update::stuck_tip(&stuck),
+                changed: String::new(),
+                close_tip: update::STUCK_CLOSE_TIP,
+            };
+            utilities = utilities.child(foot_card(card, wide, words, |s: &mut State, _| s.move_to_applications(), move |s: &mut State| close_move(s, place.clone())));
+        }
+        None => {}
     }
     let mut foot = col().pt(16.0);
     if let Some(letters) = &me {
@@ -555,50 +849,53 @@ pub fn rail(s: &State, still: bool) -> El {
             .h(30.0)
             .items_center()
             .gap(8.0)
-            .child(rail_mark(&icons::RAIL_SETTINGS, muted()).group_color(dim()))
+            .child(rail_mark(&icons::RAIL_SETTINGS, dim()).group_color(ink()))
             .child(rail_word("Settings", dim()).group_color(ink()).opacity(words))
             .help("Settings");
         let settings = rail_row(wide).hover_group().hover(rail_fill()).child(words_of_it).children(bar);
         foot = foot.child(utilities.child(settings.on_press_tx(open_settings)));
     }
 
-    let mut rail = col()
-        .pin(Some(RAIL_LEFT), Some(50.0), None, Some(22.0))
-        .w(wide)
-        // It opens 140 ms after the pointer moves onto it and folds the moment it leaves
-        // (`hoverAt` in `WorkspaceNavigation.tsx`): a pointer passing over on its way somewhere
-        // else is gone before then, and one that did not move opens nothing, so a rail uncovered
-        // under a pointer standing still stays folded (`pointerMoved` in `sidebar-shrinks.ts`).
-        .on_pointer_move_local(move |s: &mut State, _, tx| {
-            if s.rail.open || s.rail.due.is_some() {
-                tx.live_only();
-                return;
-            }
-            s.rail.due = Some((tx.clock() + 0.14, still));
-            tx.wake_after(Duration::from_millis(140));
-        })
-        .on_hover_change(move |s: &mut State, inside, tx| {
-            s.rail.pointed = inside;
-            if inside || !s.picks.get().rail_shrinks.unwrap_or(true) {
-                tx.live_only();
-                return;
-            }
-            s.rail.due = None;
-            s.rail.point(false, tx.clock(), still);
-            tx.wake_after(Duration::ZERO);
-        })
-        .child(team)
-        .child(search)
-        .child(tabs)
-        .child(section_head(s, recent::WORKSPACE, "Workspace", words));
+    let mut column = col().w(wide).h_full().child(team).child(search).child(tabs).child(section_head(s, recent::WORKSPACE, "Workspace", words, Some(line)));
     if let Some(places) = places {
-        rail = rail.child(places);
+        column = column.child(places);
     }
     if let Some(recents) = recents {
-        rail = rail.child(recents);
+        column = column.child(recents);
     }
     // The foot stands on the sidebar's end, whatever is over it (`.workspace-bottom`, `flex: none`).
-    rail.child(spacer()).child(foot)
+    let column = column.child(spacer()).child(foot);
+    // While it is open, a pointer that slips off its right edge on the way to a button is still
+    // on it for the 22 points up to the card (`.workspace-navigation::after`).
+    let bridge = if s.rail.open { BRIDGE } else { 0.0 };
+    row()
+        .pin(Some(RAIL_LEFT), Some(50.0), None, Some(22.0))
+        .w(wide + bridge)
+        // It opens 140 ms after a pointer that came onto it from outside last stopped
+        // travelling, and folds 300 ms after the pointer leaves unless it comes back first
+        // (`hover` in `WorkspaceNavigation.tsx`, `rules::sidebar`): a hand passing over on its
+        // way somewhere else, or overshooting a tab beside it and swinging back, never rests
+        // there, and a sidebar uncovered under a pointer standing still was not come onto. None
+        // of this changes what is drawn; the poll does, once a wait is up (`rail_moves`).
+        .on_pointer_move_local(move |s: &mut State, p, tx| {
+            tx.live_only();
+            let now = tx.clock();
+            let sides = sidebar::Sides { left: RAIL_LEFT, top: 50.0, right: RAIL_LEFT + s.rail.width(now), bottom: s.size.1 - 22.0 };
+            if s.rail.moved_on((p.window_x, p.window_y), now, &sides) && !s.rail.open {
+                s.rail.due = Some((now + sidebar::OPENS_AFTER, still));
+                tx.wake_after(Duration::from_secs_f64(sidebar::OPENS_AFTER));
+            }
+        })
+        .on_hover_change(move |s: &mut State, inside, tx| {
+            tx.live_only();
+            if inside {
+                s.rail.pointed = true;
+            } else {
+                s.rail.left(tx.clock(), still);
+                tx.wake_after(Duration::from_secs_f64(sidebar::CLOSES_AFTER));
+            }
+        })
+        .child(column)
 }
 
 /// Settings, from the rail: the screen over everything, on General, as the web window's cog

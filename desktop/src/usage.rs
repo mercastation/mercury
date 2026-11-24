@@ -216,7 +216,7 @@ mod tests {
 
     /// The invented inbox with two agents read this week, Claude Code's just now; the rail
     /// kept open when `kept_open`. Nobody is signed in, so its bar stands at the end of
-    /// Settings, the open sidebar's last row: 196 to 228 points across, 713 to 733 down.
+    /// Settings, the open sidebar's last row: 186 to 218 points across, 713 to 733 down.
     fn read(name: &str, kept_open: bool) -> Runtime<State> {
         window_dressed(name, &[], "/fixtures/storefront", "Done.", |fixture| {
             let now = fixture["now"].as_f64().unwrap();
@@ -239,11 +239,9 @@ mod tests {
     fn the_card_opens_on_the_first_move_once_the_rail_is_open_and_lingers_after_the_pointer_leaves() {
         let mut rt = read("usage-card", false);
         // Folded, the sidebar draws no bar (`.workspace-collapsed … .workspace-usage`): the
-        // pointer on its last row meets Settings alone, and the sidebar opens 140 ms later.
-        rt.pointer_move(24.0, 719.0);
-        rt.frame(1.0 / 60.0);
-        rt.pointer_move(28.0, 723.0);
-        rt.frame(1.0 / 60.0);
+        // pointer come from the card onto its last row meets Settings alone, and the sidebar
+        // opens 140 ms later.
+        crate::feel::tests::onto_the_rail(&mut rt, 723.0);
         assert_eq!(rt.cursor(), Cursor::Default);
         run(&mut rt, 0.5);
         assert!(rt.state.rail.is_open());
@@ -263,15 +261,19 @@ mod tests {
         assert!(rt.state.usage_card.open, "it lingers");
         run(&mut rt, 0.08);
         assert!(!rt.state.usage_card.open, "then goes");
-        // Back on the bar and off the rail altogether: the rail folds, and the card with it.
+        // Back on the bar and off the rail altogether: the card lingers as it does anywhere and
+        // is gone before the rail folds, 300 ms after the pointer left it.
         rt.pointer_move(212.0, 723.0);
         run(&mut rt, 0.2);
         assert!(rt.state.usage_card.open);
         rt.pointer_move(700.0, 400.0);
-        rt.frame(1.0 / 60.0);
-        rt.frame(1.0 / 60.0);
-        assert!(!rt.state.usage_card.open, "the rail folding closes it at once");
+        run(&mut rt, 0.18);
+        assert!(rt.state.usage_card.open && rt.state.rail.is_open(), "it lingers on a rail still open");
+        run(&mut rt, 0.08);
+        assert!(!rt.state.usage_card.open, "then goes");
         assert!(!drawn(&rt, "Last used"));
+        run(&mut rt, 0.1);
+        assert!(!rt.state.rail.is_open(), "and the rail folds after it");
     }
 
     #[test]

@@ -82,13 +82,6 @@ pub fn greeted(snap: &Snapshot) -> Option<&str> {
     text(me, "name")?.split_whitespace().next()
 }
 
-/// The foot's Restart row: a new version is on the disk, or is being built
-/// (`announcesUpdate` in `renderer/src/update-row.ts`). The web window also keeps, for itself,
-/// which version's card the person closed; this window has no such memory yet.
-pub fn update_waits(snap: &Snapshot) -> bool {
-    part(snap, "update").is_some_and(|u| truthy(u.get("ready")) || truthy(u.get("installing")))
-}
-
 /// How many agents are held on a yes or a no from the person (`approvals` on the snapshot,
 /// drawn by the web window as a card over the page). This window draws no such card yet, so
 /// it says that one waits: an agent stopped on a question nobody is shown stays stopped.
@@ -186,14 +179,6 @@ mod tests {
         assert_eq!(approvals_waiting(&snap(json!({}))), 0);
         assert_eq!(approvals_waiting(&snap(json!({ "approvals": [] }))), 0);
         assert_eq!(approvals_waiting(&snap(json!({ "approvals": [{ "id": "a1", "tool": "Bash" }, { "id": "a2", "tool": "Edit" }] }))), 2);
-    }
-
-    #[test]
-    fn the_foot_has_restart_while_a_new_version_waits_or_is_being_built() {
-        assert!(!update_waits(&snap(json!({}))));
-        assert!(!update_waits(&snap(json!({ "update": { "ready": false, "installing": false } }))));
-        assert!(update_waits(&snap(json!({ "update": { "ready": true } }))));
-        assert!(update_waits(&snap(json!({ "update": { "ready": false, "installing": true } }))));
     }
 
     #[test]

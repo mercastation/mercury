@@ -29,6 +29,11 @@ fn next_tab(s: &State, back: bool) -> crate::data::Tab {
     shown[(at + if back { shown.len() - 1 } else { 1 }) % shown.len()]
 }
 
+/// ⌘\, or Control with it (`(e.metaKey || e.ctrlKey) && e.key === '\\'`).
+fn keeps_the_sidebar(e: &KeyEvent) -> bool {
+    e.is_command('\\') || (e.mods.ctrl && !e.mods.alt && matches!(&e.key, Key::Text(t) if t == "\\"))
+}
+
 /// The keys the reply box does not keep for typing: ⌘Return sends, Escape folds the box, or
 /// only lets go of it while it holds words or files, which hold it open (`held` in
 /// `DockComposer`'s keys): the next Escape is the page's, which folds it.
@@ -136,6 +141,14 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
     // Settings owns the keyboard while it is up, as the web window's does.
     if let Some(taken) = crate::settings::key(s, e, tx) {
         return taken;
+    }
+    // ⌘\ keeps the sidebar open or lets it shrink to its marks again, from anywhere but
+    // Settings, the caret in a box or the command bar open included (`toggleSidebarShrinks`,
+    // beside ⌘K in the web window's keys). It is the switch in Settings and the button after
+    // the sidebar's pencil.
+    if keeps_the_sidebar(e) {
+        crate::chrome::keep_or_shrink(s);
+        return true;
     }
     // ⌘K from anywhere, and every key while the command bar is open, are the bar's. One thing
     // stands over the page at a time, as the web window's one `modal`: the bar opening closes

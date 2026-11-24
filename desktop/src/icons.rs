@@ -22,28 +22,48 @@ macro_rules! stroked {
 // The Inbox's three lines, as a conversation's strip draws them on its way back there.
 stroked!(INBOX, "m-inbox", "1.25", r#"<path d="M5 7h14M5 12h14M5 17h9"/>"#);
 // The sidebar. The web window's has Demands, Chats, Connections, Record meeting and Feedback
-// too; this one has none of them (`chrome::rail`), and their marks went with them. It draws its
-// marks heavier than their own strokes: they are on a 24 grid for 18 and 20 points, and its
-// sheet sizes each so its ink weighs 1.55 (`renderer/src/sidebar.css`: 2.07 on a mark drawn at
-// 18, and 2.33 inside Search's group, which is scaled to .8 as the web app draws it, at 20).
-stroked!(RAIL_HOME, "m-rail-home", "2.07", r#"<path d="M5 10.4 12 5l7 5.4v8.6a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z"/><path d="M10 20v-4.6a2 2 0 0 1 4 0V20"/>"#);
-stroked!(RAIL_INBOX, "m-rail-inbox", "2.07", r#"<path d="M5 7h14M5 12h14M5 17h9"/>"#);
-stroked!(RAIL_FILES, "m-rail-files", "2.07", r#"<path d="M7 4.5h6.5l4 4V19a.5.5 0 0 1-.5.5H7a.5.5 0 0 1-.5-.5V5a.5.5 0 0 1 .5-.5z"/><path d="M13.5 4.5v4h4"/>"#);
+// too; this one has none of them (`chrome::rail`), and their marks went with them. Its marks are
+// on a 24 grid and drawn at 18 points, and its sheet gives each a line of 1.2 on the screen
+// (`renderer/src/sidebar.css`: a stroke of 1.6, and 1.8 inside Search's group, which is scaled
+// to .8 as the web app draws it and so reads a little lighter).
+stroked!(RAIL_HOME, "m-rail-home", "1.6", r#"<path d="M5 10.4 12 5l7 5.4v8.6a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z"/><path d="M10 20v-4.6a2 2 0 0 1 4 0V20"/>"#);
+stroked!(RAIL_INBOX, "m-rail-inbox", "1.6", r#"<path d="M5 7h14M5 12h14M5 17h9"/>"#);
+stroked!(RAIL_FILES, "m-rail-files", "1.6", r#"<path d="M7 4.5h6.5l4 4V19a.5.5 0 0 1-.5.5H7a.5.5 0 0 1-.5-.5V5a.5.5 0 0 1 .5-.5z"/><path d="M13.5 4.5v4h4"/>"#);
 stroked!(
     RAIL_SETTINGS,
     "m-rail-settings",
-    "2.07",
+    "1.6",
     r#"<path d="M4.5 8h8M16.5 8h3M4.5 16h3M11.5 16h8"/><circle cx="14.5" cy="8" r="2"/><circle cx="9.5" cy="16" r="2"/>"#
 );
 pub static RAIL_SEARCH: Icon = Icon {
     name: "m-rail-search",
     view: 24.0,
-    body: r#"<g fill="none" stroke="currentColor" stroke-linecap="round"><g transform="translate(12 12) scale(.8) translate(-12 -12)" stroke-width="2.33"><circle cx="10.8" cy="10.8" r="6.6"/><path d="M15.6 15.6 20 20"/></g></g>"#,
+    body: r#"<g fill="none" stroke="currentColor" stroke-linecap="round"><g transform="translate(12 12) scale(.8) translate(-12 -12)" stroke-width="1.8"><circle cx="10.8" cy="10.8" r="6.6"/><path d="M15.6 15.6 20 20"/></g></g>"#,
 };
-// The pencil beside the team's name, which starts a thread (`.ws-new`), and the small arrow
-// after a section's name, which folds it (`SectionHead`).
+// The pencil beside the team's name, which starts a thread (`.ws-new`), the button after it
+// that keeps the sidebar open (`.ws-keep`: a window with its sidebar marked off), and the small
+// arrow after a section's name, which folds it (`SectionHead`).
 stroked!(RAIL_NEW, "m-rail-new", "1.5", r#"<path d="M12 20h8"/><path d="m4 20 1-4.5L15.5 5a2.1 2.1 0 0 1 3 3L8 18.5 4 20Z"/>"#);
+pub static RAIL_KEEP: Icon = Icon {
+    name: "m-rail-keep",
+    view: 16.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3.5" width="11" height="9" rx="2"/><path d="M6.5 3.75v8.5"/></g>"#,
+};
 pub static RAIL_FOLD: Icon = Icon { name: "m-rail-fold", view: 8.0, body: r#"<path d="M1.2 2.4h5.6L4 6.2z" fill="currentColor"/>"# };
+// The foot's row while a new version waits, folded to its mark, and the same for a copy that
+// cannot update itself (`RestartIcon` and `MoveIcon` in `SidebarUpdate.tsx`, at the sidebar's
+// own stroke); and the × in the corner of either's card (`CloseIcon`).
+pub static RAIL_RESTART: Icon = Icon {
+    name: "m-rail-restart",
+    view: 24.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.6"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4.5v4h-4"/></g>"#,
+};
+pub static RAIL_MOVE: Icon = Icon {
+    name: "m-rail-move",
+    view: 24.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 14v5a1.5 1.5 0 0 0 1.5 1.5h13A1.5 1.5 0 0 0 20 19v-5"/><path d="M12 3.5v10"/><path d="M8.5 10 12 13.5 15.5 10"/></g>"#,
+};
+pub static CARD_CLOSE: Icon = Icon { name: "m-card-close", view: 24.0, body: r#"<path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M7 7l10 10M17 7L7 17"/>"# };
 // A card that asks the person for something (`need.rs`): the key in its mark when the service
 // has no logo of its own (`SignInCard.tsx`), the arrow after "Open …", and the tick in its box.
 pub static NEED_KEY: Icon = Icon {
@@ -75,11 +95,17 @@ pub static NEED_LAPTOP: Icon = Icon {
     body: r#"<g fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2 19h20"/></g>"#,
 };
 
-// What the rail has only sometimes: Restart while a new version waits, what is left of the limit.
+// The marks in the heading of the new version's card and of the stuck copy's, at their own
+// stroke (`.sb-update-card-title svg`).
 pub static RESTART: Icon = Icon {
     name: "m-restart",
     view: 24.0,
     body: r#"<g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4.5v4h-4"/></g>"#,
+};
+pub static MOVE_IN: Icon = Icon {
+    name: "m-move-in",
+    view: 24.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 14v5a1.5 1.5 0 0 0 1.5 1.5h13A1.5 1.5 0 0 0 20 19v-5"/><path d="M12 3.5v10"/><path d="M8.5 10 12 13.5 15.5 10"/></g>"#,
 };
 
 // Send in a reply box too narrow for its word (`SendGlyph`, `.dock-send-arrow`).
