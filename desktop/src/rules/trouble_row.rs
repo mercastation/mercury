@@ -230,7 +230,7 @@ mod tests {
         let row = trouble_row(&her_night(), &her_items());
         assert_eq!((row.created_at, row.updated_at), (Some(SINCE), Some(SINCE)));
         assert_eq!(row.body.as_deref().unwrap().split('\n').next(), Some("4 need a login · 7 back at 6pm"));
-        assert_eq!(super::super::list::row_summary(&row, row.body.as_deref()), "4 need a login · 7 back at 6pm");
+        assert_eq!(super::super::list::row_summary(&row, "inbox", row.body.as_deref()), "4 need a login · 7 back at 6pm");
     }
 
     #[test]

@@ -370,7 +370,7 @@ fn summary(i: &Item, hay: &Hay, terms: &[String], phrase: &str) -> String {
     }
     // The row the app makes itself is not a thread and is never searched, so no first line of
     // its own is handed over.
-    row_summary(i, None)
+    row_summary(i, if finished { "done" } else { "inbox" }, None)
 }
 
 /// The first sentence with the phrase, else the first with a word, cut around the match

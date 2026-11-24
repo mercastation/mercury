@@ -21,6 +21,7 @@ pub mod cloud;
 pub mod code;
 pub mod compose;
 pub mod display;
+pub mod e_and_z;
 pub mod engine;
 pub mod filed_in_thread;
 pub mod files_shown;
@@ -337,6 +338,8 @@ fn row(w: &World, i: &Item, tab: &str, to_approve: &HashMap<String, usize>) -> R
         _ => (at, page::updated_words(at, w.now)),
     };
     let trouble = (id == nowhere::TROUBLE_ID).then(|| i.body.as_deref().unwrap_or(""));
+    // Who said it leads the line only for a person or a teammate, whom this window has none of.
+    let line = list::line_for(&title, &list::row_summary(i, tab, trouble), None).map(|l| l.text).unwrap_or_default();
     Row {
         id: i.id.clone(),
         product: i.product.clone(),
@@ -345,7 +348,7 @@ fn row(w: &World, i: &Item, tab: &str, to_approve: &HashMap<String, usize>) -> R
         project: i.product_name.clone().unwrap_or_default(),
         priority: Priority::of(i.priority),
         at: Some(at),
-        line: list::row_summary(i, trouble),
+        line,
         status,
         // Unread while its latest answer is newer than when it was last opened (`isUnread` in
         // `renderer/src/unread.ts`). Only Needs you draws it.

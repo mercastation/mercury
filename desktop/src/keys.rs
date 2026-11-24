@@ -81,8 +81,8 @@ pub(crate) fn picked_row(s: &State) -> Option<(String, String)> {
 }
 
 /// E: marks done the thread the keys are on. That is the open conversation, or the Inbox's
-/// picked row under Needs you and In progress. Under Later E brings the thread back instead,
-/// and under Done there is nothing to close.
+/// picked row under Needs you. Under Later E brings the thread back instead. Under In progress
+/// and Done it closes nothing and says why, so the press is never silent (`eOnThisList`).
 pub fn close_under_the_keys(s: &mut State, tx: &mut Tx) {
     match s.view.clone() {
         View::Thread { .. } => s.close_thread(false, tx),
@@ -91,9 +91,9 @@ pub fn close_under_the_keys(s: &mut State, tx: &mut Tx) {
                 return;
             };
             match s.inbox_tab {
-                crate::data::Tab::Needs | crate::data::Tab::Progress => s.close(&id, &product, false, tx),
+                crate::data::Tab::Needs => s.close(&id, &product, false, tx),
                 crate::data::Tab::Later => s.bring_back(&id, &product),
-                _ => {}
+                tab => s.tell(crate::rules::e_and_z::e_on_this_list(tab.view()), tx),
             }
         }
         _ => {}
@@ -212,8 +212,14 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
     if matches!(e.key, Key::Down | Key::Up | Key::Escape | Key::Tab) || letter == "j" || letter == "k" {
         s.pointed.row = None;
     }
-    // Z takes back the last thing done, wherever the person is by then.
+    // Z takes back the last thing done, wherever the person is by then. Two quick Zs are one Z:
+    // the second is the same press said twice, not a second undo, nor the yes to the question
+    // the first one asked (`stray-letters.ts`).
     if letter == "z" {
+        if crate::rules::e_and_z::z_said_twice(s.answering.z_at.map(|at| at * 1000.0), s.at * 1000.0) {
+            return true;
+        }
+        s.answering.z_at = Some(s.at);
         s.undo(tx);
         return true;
     }
