@@ -3141,9 +3141,20 @@ mark is the service's own logo when the link is the service's own (`src/logos.rs
 window's 23 files, copied to `assets/logos`, which a test holds to the originals), a key
 otherwise.
 
+A note the app itself writes on a thread's row ("Shipped to main as …") is the app's quiet
+line, never the agent's checkpoint: under the agent's answer on the page that leads with it, at
+the foot of the unfolded conversation, and where it was written in the middle of one
+(`Message::app` in `src/talk.rs`, `foot_of` in `src/rules/shipping.rs`); a note it wrote for the
+next run is drawn nowhere. A ship that failed ends the conversation on "Not shipped", and when
+the push wanted a GitHub sign-in on this computer the card that gives one is under the note
+(`github_card` in `src/need.rs`, from `GitHubSignInCard.tsx`): GitHub's own sign-in with a code,
+or a pasted token, on `zero:github-browser-sign-in` and `zero:github-sign-in`. Scenes
+`thread-app-note`, `-unfolded`, `-said`, `thread-not-shipped`, `-folded`, `-device`, `-token`
+and `-again`.
+
 `docs/parity-asks.md` is the checklist it was built from, and the list of the other things an
-agent or the app asks for in a conversation that this window does not draw yet. The scenes are
-`thread-sign-in`, `-code`, `-paste`, `-cloud`, `-cloud-pasting`, `-refused`, `-busy` and three
+agent or the app asks for in a conversation that this window does not draw yet. The sign-in
+card's scenes are `thread-sign-in`, `-code`, `-paste`, `-cloud`, `-cloud-pasting`, `-refused`, `-busy` and three
 with the pointer resting on a control (`-hover-open`, `-hover-signed`, `-hover-skip`). In every
 one the card is the web window's size to a hundredth of a point and stands at the same height.
 
@@ -3220,14 +3231,14 @@ point and stands where the web's does against its neighbours.
   terminal, the agent's browser, plans and billing, notes and sharing on files, writing in Files.
   Not agreed, and not here:
   - *In a conversation:* everything still open in part B of `docs/parity-asks.md` (what a
-    cloud run needs, a key typed into a reply, GitHub's sign-in on a refused ship, "Waiting on …
+    cloud run needs, a key typed into a reply, "Waiting on …
     · open →", the actions row of a thread put off, the remote control card); a close's
     question under a file opened over the whole card, drawn in a frame of its own rather than
     as the reply card's lid; a mermaid chart, drawn as its
     source; the copy button on a block of code; a thread named by its id or a thread link, which
     stays words and whose press does nothing; a link that cannot be opened, which says nothing;
-    the first message of a filed thread and its way back to the parent; the app's own notes,
-    signed as the agent's; who wrote an answer where there are several agents; the summary under
+    the first message of a filed thread and its way back to the parent; who wrote an answer
+    where there are several agents; the summary under
     the title, which cannot be pressed open; "#" naming another thread and a repeat phrase in a
     reply; "Waiting for memory" on the working line; the usage gauge on the reply's model chip.
   - *Around it:* the plan bar's setup card, which its buttons open in the web window; the row

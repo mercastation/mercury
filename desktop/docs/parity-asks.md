@@ -119,8 +119,8 @@ it with. Worst first.
 - [ ] B2 **A key or a code typed into the reply box of a thread that asked for one** is saved as
   the key, or sent as the code, and never goes out as words (`keyFromReply` in `key-asks.ts`,
   `Focus.tsx`). Here it is sent as words.
-- [ ] B3 **"Sign in to GitHub" on a ship the push refused** (`GitHubSignInCard.tsx`), and the
-  answer's label "Not shipped".
+- [x] B3 **"Sign in to GitHub" on a ship the push refused** (`GitHubSignInCard.tsx`), and the
+  answer's label "Not shipped". Ported: part C below.
 - [x] B4 **The app's own question after a run that left a change and asked nothing**
   (`ship-offer.ts`): "Ship this change?", "This change was never committed.", and the two for a
   Git with no name or files to add, answered by the numbers. Ported: `docs/parity-ship-and-close.md`.
@@ -144,3 +144,79 @@ it with. Worst first.
   window.
 - [ ] B11 A session started outside Mercury, its choices and "Respond in terminal": this window
   lists no such session (`rules.rs`).
+
+## C. The app's own note, and a ship the push refused
+
+The spec: `R/thread-history.ts` (a `note` line: `forTheAgent`, `says: 'app'`), `S/notes-for-the-agent.mts`,
+`R/one-thing-at-a-time.ts` (`appWrote`, `footOf`, `newestAnswer`, `earlierCount`), their use in
+`R/components/ItemThread.tsx` (`byApp`, `answer`, `signInWhy`) and `Thread.tsx`
+(`e.says === 'app'`), `R/one-thing-at-a-time.css` (`.one-app-note`), `R/styles.css`
+(`.appendix-*`), `S/not-shipped.mts`, `S/github-push-sign-in.mts`,
+`R/components/GitHubSignInCard.tsx`, and `zero:github-browser-sign-in` and
+`zero:github-sign-in` in `main/ipc.mts`. Tests in `src/talk.rs`, `src/rules/shipping.rs` and
+`src/need.rs`; scenes `thread-app-note*` and `thread-not-shipped*`.
+
+### C1. A note the app wrote on the row
+
+- [x] C1.1 A note written as `system` is the app's (`says: 'app'`): never signed as the
+  agent's, never tagged a checkpoint. A note the agent wrote is still its checkpoint. Tests
+  `the_apps_own_note_is_the_apps_…`, `the_agents_own_checkpoint_is_still_an_answer_to_lead_with`.
+- [x] C1.2 A note the app wrote for the next run (a cloud machine that stopped, a ship waiting
+  for memory, a cause cleared) is drawn by no thread (`forTheAgent`). Tests.
+- [x] C1.3 The page that leads with the newest answer leads with the agent's, not with the
+  app's note at the foot: the note is one quiet line under the answer, 13 points (or 0.72 of
+  the reading size where that is more) in the faint ink, eight points under it, as written and
+  not as markdown. "Show N earlier messages" counts all but that answer. Scene `thread-app-note`
+  (the line at the web's y, 305.54, and size, 760 by 20.8); tests.
+- [x] C1.4 Unfolded, the note at the conversation's foot is that quiet line, as markdown, 14
+  points under the conversation's own foot and with no room of its own under it, where an
+  agent's last word wears "Result" or "Latest checkpoint". Scene `thread-app-note-unfolded`
+  (610.66 in both).
+- [x] C1.5 In the middle of a conversation the note is the same quiet line where it was
+  written, with no name over it. Scene `thread-app-note-said` (half a point from the web's,
+  the page's own rounding).
+- [ ] C1.6 The web window signs the note with the app's name for a screen reader (`from`). This
+  window gives it no name.
+
+### C2. A ship that failed
+
+- [x] C2.1 While the row's note says the work did not reach main and the agent has not spoken
+  since (`notShipped`), the conversation's foot is that note under "Not shipped", an accent dot
+  of six points before the words, whoever is taken to have written the note. Scene
+  `thread-not-shipped` (label, note and card each within half a point of the web's); tests.
+- [x] C2.2 As the thread first opens the page leads with the agent's answer and the note is the
+  quiet line under it, with no card: the card is at the conversation's foot. Scene
+  `thread-not-shipped-folded`; test.
+- [x] C2.3 The card is drawn only for a push that could not sign in to GitHub
+  (`asksForGitHubSignIn`): a ship that failed for any other reason went back to its agent.
+  Test `a_ship_the_push_refused_ends_on_not_shipped_with_the_card_that_signs_in`.
+
+### C3. The card (`GitHubSignInCard.tsx`)
+
+- [x] C3.1 "Sign in to GitHub", or "Sign in to GitHub again" when GitHub refused the sign-in
+  that was saved; GitHub's mark, drawn light. Scenes `thread-not-shipped`, `-again`.
+- [x] C3.2 "Sign in with GitHub" starts GitHub's own sign-in (`zero:github-browser-sign-in`);
+  while it starts the button says "Starting" and takes no press. Test
+  `sign_in_with_github_starts_githubs_own_sign_in_and_shows_its_code`.
+- [x] C3.3 Started: the code to enter with Copy ("Copied"), "Open GitHub", which opens the
+  address the engine gave (it is opened once by itself as it arrives, as the web window does),
+  and "Ships again as soon as you approve it." Scene `thread-not-shipped-device` (640 by 189.59
+  in both); test.
+- [x] C3.4 It could not start: the card says why (the engine's reason, else "GitHub's sign-in
+  did not start.") and opens the token's box by itself. "Paste a token instead" opens it too.
+  Scene `thread-not-shipped-token`; tests.
+- [x] C3.5 The token's box: the three facts, the first with a link to GitHub's own page for a
+  token with the one box a push needs ticked; a box that hides what is typed, "Paste the
+  token"; Save, which takes no press over an empty box, says "Checking" while it is checked,
+  and writes `zero:github-sign-in` with the token trimmed. Return saves too. Scene
+  `thread-not-shipped-again` (the box holding a token); test
+  `where_githubs_sign_in_cannot_start_the_card_takes_a_token`.
+- [x] C3.6 A token the engine does not take is said under the box (its reason, else "That did
+  not save. Try again."); one it takes is said in a line, "GitHub connected. Shipping it
+  again." A letter typed takes back what was said. Tests.
+- [x] C3.7 Escape lets go of the box; leaving the conversation starts the card again. Test.
+- [ ] C3.8 Tab does not walk the card's buttons (as A3.12).
+
+Who wrote an answer where there are several agents ("Claude Code, Opus 5.5" in the label's
+place and after "Latest checkpoint") is not here: every label says "Result" or "Latest
+checkpoint".
