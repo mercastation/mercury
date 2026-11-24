@@ -708,15 +708,14 @@ fn shelf(s: &State, files: &[&Placed], folder: Option<&Folder>, fh: f32) -> El {
     out
 }
 
-/// What New offers on this page, or None where it is not drawn. Upload from computer is left
-/// out: the app answers it with the system's file window, which it opens over its own window
-/// and not over this one.
+/// What New offers on this page, or None where it is not drawn. Upload from computer opens the
+/// Mac's file window over this window (`files_page::upload_from_computer`).
 pub fn new_offers(s: &State, list: &List) -> Option<Vec<Making>> {
     let project = here(s).project;
     let folder = project.as_ref().and_then(|_| s.files.folder.as_deref()).and_then(|id| list.folders.iter().find(|f| f.id == id));
     // Folders go one level deep.
     let can_folder = folder.is_none_or(|f| f.parent.is_none());
-    home::new_offers(project.as_deref(), &list.mine, can_folder).map(|offers| offers.into_iter().filter(|m| *m != Making::Upload).collect())
+    home::new_offers(project.as_deref(), &list.mine, can_folder)
 }
 
 /* ------------------------------ the menus ------------------------------ */
@@ -771,6 +770,8 @@ fn menu_body(s: &State, list: &List, m: &Menu) -> Option<(El, f32, f32)> {
             let f = list.files.iter().find(|f| &f.key == key)?;
             Some(file_menu(s, list, f, m.step))
         }
+        // The page of every file's own (`files_page::every_layer`).
+        MenuOn::Scratch | MenuOn::Total => None,
     }
 }
 
@@ -855,7 +856,7 @@ fn new_menu(s: &State, list: &List, asking: Option<Making>) -> Option<El> {
     let offers = new_offers(s, list)?;
     // Under the home's New 40 points down (`.fh-top .fp-new-box .fp-menu`); under the strip's,
     // on the page of every file, 38 (`.fp-new-box .fp-menu`).
-    let (anchor, down) = if s.files.everything { (crate::files_page::STRIP_NEW, 38.0) } else { (NEW, 40.0) };
+    let (anchor, down) = if crate::files_page::every_page(s) { (crate::files_page::STRIP_NEW, 38.0) } else { (NEW, 40.0) };
     let [x, y, w, _] = rune::memo::window_layout(anchor)?;
     let row_of = |words: &str, mark: Option<&'static rune::Icon>| {
         let mut r = row().key(format!("fp-menu-item-{words}")).w(168.0).h(28.0).px(8.0).gap(8.0).radius(6.0).items_center().hover(feel::wash_strong()).cursor(Cursor::Pointer).role("menuitem");
@@ -891,19 +892,33 @@ fn new_menu(s: &State, list: &List, asking: Option<Making>) -> Option<El> {
 /// Whatever menu of Files stands open, over the page: a file's, a folder's, or New's. A press
 /// anywhere else closes it (`Menu`'s and `useClosesOutside`'s `mousedown`).
 pub fn layer(s: &State) -> Option<El> {
-    if !matches!(s.view, crate::View::Files { .. }) || (s.files.everything && s.files.new_menu.is_none()) {
+    if !matches!(s.view, crate::View::Files { .. }) {
         return None;
     }
     let list = crate::files_page::list_of(s)?;
+    // The ⋯ a home's menu was opened from: a press on it while the menu is open closes the menu
+    // and the same press opens it again under it, as the web window's press first closes it
+    // (`mousedown`) and then lands on the ⋯ (`click`).
+    let mut from: Option<([f32; 4], MenuOn)> = None;
     let open = if let Some(asking) = s.files.new_menu {
         new_menu(s, &list, asking)?
+    } else if crate::files_page::every_page(s) {
+        crate::files_page::every_layer(s)?
     } else {
         let m = s.files.menu.as_ref()?;
         let (body, w, h) = menu_body(s, &list, m)?;
+        let button = match &m.on {
+            MenuOn::File(key) => format!("fh-more-{key}"),
+            MenuOn::Folder(id) => format!("fh-fmore-{id}"),
+            _ => return None,
+        };
+        // Where the ⋯ was last drawn, kept for the press that may land on it.
+        let rect = rune::memo::window_layout(&button);
+        from = rect.map(|r| (r, m.on.clone()));
         let at = match (m.at, &m.on) {
             (Some(at), _) => at,
-            (None, MenuOn::File(key)) => home::at_button(rune::memo::window_layout(&format!("fh-more-{key}"))?, false),
-            (None, MenuOn::Folder(id)) => home::at_button(rune::memo::window_layout(&format!("fh-fmore-{id}"))?, true),
+            (None, MenuOn::Folder(_)) => home::at_button(rect?, true),
+            (None, _) => home::at_button(rect?, false),
         };
         let (x, y) = home::menu_place(at, (w, h), s.size);
         col()
@@ -919,16 +934,28 @@ pub fn layer(s: &State) -> Option<El> {
             .child(body)
     };
     let (ww, wh) = s.size;
-    let away = el().absolute(0.0, 0.0).size(ww, wh).on_drag(|s: &mut State, d: &mut Drag, _| {
+    let away = el().absolute(0.0, 0.0).size(ww, wh).on_drag(move |s: &mut State, d: &mut Drag, _| {
         if d.phase == Phase::Down {
             s.close_files_menus();
+            if let Some(([x, y, w, h], on)) = &from
+                && d.x >= *x
+                && d.x < x + w
+                && d.y >= *y
+                && d.y < y + h
+            {
+                match on {
+                    MenuOn::File(key) => s.toggle_file_menu(key, None),
+                    MenuOn::Folder(id) => s.toggle_folder_menu(id),
+                    _ => {}
+                }
+            }
         }
     });
     Some(el().absolute(0.0, 0.0).size(ww, wh).child(away).child(open))
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use rune::Runtime;
     use rune::edit::Key;
     use serde_json::{Value, json};
@@ -944,7 +971,7 @@ mod tests {
 
     /// An invented list: Storefront with Pinned, Receipts (and Calls inside it) and an empty
     /// Brand kit, files in them and in none, and a Mobile project with one file in none.
-    fn list() -> Value {
+    pub(crate) fn list() -> Value {
         let file = |name: &str, project: &str, folder: Option<&str>, ago: f64, kind: &str| {
             json!({ "key": format!("{}/{name}", project.to_lowercase()), "project": project, "name": name, "kind": kind, "versions": 1, "at": NOW - ago * MIN,
                 "by": null, "agent": "", "open": 0, "approvedBy": [], "sentIn": [{ "kind": "thread", "product": "storefront", "id": "w-feel0", "title": "Invented thread number 0" }],
@@ -972,7 +999,7 @@ mod tests {
 
     /// Files opened on `project`'s home (All files for None), with `more` in its fixture; what
     /// is written is taken as sent.
-    fn files(name: &str, project: Option<&str>, more: Value) -> Runtime<State> {
+    pub(crate) fn files(name: &str, project: Option<&str>, more: Value) -> Runtime<State> {
         let project = project.map(str::to_string);
         let mut rt = window_dressed(name, &["--view", "files"], "/fixtures/storefront", "Done.", move |fixture| {
             fixture["filesPlace"] = list();
@@ -988,13 +1015,13 @@ mod tests {
         rt
     }
 
-    fn press_on(rt: &mut Runtime<State>, key: &str) {
+    pub(crate) fn press_on(rt: &mut Runtime<State>, key: &str) {
         let (x, y) = rt.find(key).unwrap_or_else(|| panic!("{key} is not on the page"));
         press(rt, x, y);
     }
 
     /// The pointer onto `over`, which shows the ⋯ in it, then a press on the ⋯ `more`.
-    fn press_shown(rt: &mut Runtime<State>, over: &str, more: &str) {
+    pub(crate) fn press_shown(rt: &mut Runtime<State>, over: &str, more: &str) {
         let (x, y) = rt.find(over).unwrap_or_else(|| panic!("{over} is not on the page"));
         rt.pointer_move(x, y);
         rt.frame(1.0 / 60.0);
@@ -1006,21 +1033,21 @@ mod tests {
         press_shown(rt, &format!("fh-tile-{file}"), &format!("fh-more-{file}"));
     }
 
-    fn says(rt: &Runtime<State>, words: &str) -> bool {
+    pub(crate) fn says(rt: &Runtime<State>, words: &str) -> bool {
         rt.elements().iter().any(|e| e.text.as_deref() == Some(words))
     }
 
-    fn lands(rt: &mut Runtime<State>, answer: Value) {
+    pub(crate) fn lands(rt: &mut Runtime<State>, answer: Value) {
         let sent = rt.state.last_sent.clone().expect("something was sent");
         rt.update(|s, tx| s.landed(Landed { sent, answer: Ok(answer), snapshot: None }, tx));
         rt.frame(1.0 / 60.0);
     }
 
-    fn toast(rt: &Runtime<State>) -> Option<String> {
+    pub(crate) fn toast(rt: &Runtime<State>) -> Option<String> {
         rt.state.toast.as_ref().map(|t| t.line.clone())
     }
 
-    fn folder_of(rt: &Runtime<State>, key: &str) -> Option<String> {
+    pub(crate) fn folder_of(rt: &Runtime<State>, key: &str) -> Option<String> {
         crate::files_page::list_of(&rt.state).and_then(|l| l.files.iter().find(|f| f.key == key).and_then(|f| f.folder.clone()))
     }
 
@@ -1235,11 +1262,9 @@ mod tests {
     fn new_makes_a_document_here_or_asks_which_project_and_a_folder_is_named_in_place() {
         let mut rt = files("fh-new", Some("Storefront"), json!({}));
         press_on(&mut rt, crate::files_home::NEW);
-        for words in ["Document", "Table", "Folder"] {
+        for words in ["Document", "Table", "Folder", "Upload from computer"] {
             assert!(says(&rt, words), "{words:?} is not on New's menu");
         }
-        // Upload from computer would open the system's file window over the app's own window.
-        assert!(!says(&rt, "Upload from computer"));
         press_on(&mut rt, "fp-menu-item-Document");
         assert_eq!(rt.state.tried.last(), Some(&(NEW_FILE, json!({ "project": "Storefront", "name": "", "kind": "document", "folder": null }))));
         // A folder: a box as a section, and Return makes it in the project.
@@ -1259,6 +1284,25 @@ mod tests {
         press_on(&mut rt, "fp-menu-item-Mobile");
         assert_eq!(rt.state.view, View::Files { project: Some("Mobile".into()) });
         assert_eq!(rt.state.tried.last(), Some(&(NEW_FILE, json!({ "project": "Mobile", "name": "", "kind": "table", "folder": null }))));
+    }
+
+    #[test]
+    fn a_press_on_the_dots_of_an_open_menu_opens_it_again_under_them() {
+        // The web window's press closes the menu on its way down and opens it again as it lands
+        // on the ⋯: at its first rows, under the ⋯, wherever it stood before.
+        let mut rt = files("fh-again", Some("Storefront"), json!({}));
+        menu_of(&mut rt, "storefront/rounding.md");
+        press_on(&mut rt, "fh-item-Change icon…");
+        assert_eq!(rt.state.files.menu.as_ref().map(|m| m.step), Some(Step::Icon));
+        press_on(&mut rt, "fh-more-storefront/rounding.md");
+        let m = rt.state.files.menu.clone().expect("open again");
+        assert_eq!((m.on, m.step, m.at), (MenuOn::File("storefront/rounding.md".into()), Step::Menu, None));
+        // A folder's the same; a press anywhere else only closes.
+        press_shown(&mut rt, "fh-sec-rec", "fh-fmore-rec");
+        press_on(&mut rt, "fh-fmore-rec");
+        assert_eq!(rt.state.files.menu.as_ref().map(|m| m.on.clone()), Some(MenuOn::Folder("rec".into())));
+        press(&mut rt, 1200.0, 700.0);
+        assert!(rt.state.files.menu.is_none());
     }
 
     #[test]

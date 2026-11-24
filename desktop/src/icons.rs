@@ -571,6 +571,23 @@ pub static FH_SHEET: Icon = Icon {
     view: 16.0,
     body: r#"<g fill="none" stroke="currentColor" stroke-width="1.2"><rect x="2.5" y="3" width="11" height="10" rx="1"/><path d="M2.5 6.4h11M2.5 9.7h11M6.2 6.4V13"/></g>"#,
 };
+/// The tick in a chosen tile's ring on the page of every file (`CheckGlyph` in `FilesPlace.tsx`).
+pub static FP_CHECK: Icon = Icon {
+    name: "fp-check",
+    view: 16.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.3l3 3 6-6.6"/></g>"#,
+};
+/// The check pictures' line, folded and open (`.fp-scratch`'s mark).
+pub static FP_FOLD_SHUT: Icon = Icon {
+    name: "fp-fold-shut",
+    view: 16.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4l4 4-4 4"/></g>"#,
+};
+pub static FP_FOLD_OPEN: Icon = Icon {
+    name: "fp-fold-open",
+    view: 16.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10l4-4 4 4"/></g>"#,
+};
 pub static FH_UPLOAD: Icon = Icon {
     name: "fh-upload",
     view: 16.0,
