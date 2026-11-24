@@ -11,6 +11,7 @@
 //! those rows. `tools/rows.mjs` holds these lists against the rows the web window draws from
 //! the same snapshot.
 
+pub mod account_menu;
 pub mod answering;
 pub mod answers;
 pub mod attach;

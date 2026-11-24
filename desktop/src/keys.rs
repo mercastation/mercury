@@ -146,6 +146,11 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
         }
         return true;
     }
+    // The person's account menu puts itself away on Escape before the page hears it, and lets
+    // every other key go on (`account_menu.rs`).
+    if let Some(taken) = crate::account_menu::key(s, e, tx) {
+        return taken;
+    }
     // A sheet's open menu, and Escape clearing what its search box holds, come before the page
     // and the view it is in, as the web window's listeners on the window do (`table.rs`).
     if let Some(taken) = crate::table::key(s, e, tx) {
