@@ -482,3 +482,97 @@ pub static TRY_AGAIN: Icon = Icon {
     view: 16.0,
     body: r#"<g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 8a6 6 0 1 1-6-6c1.7 0 3.3.7 4.5 1.8L14 5.3"/><path d="M14 2v3.3h-3.3"/></g>"#,
 };
+
+// Files' home (`GLYPHS` in `renderer/src/files/FilesHome.tsx`): the marks a tile wears and a
+// person picks from, a 24-unit square at a hairline of 1.35, and the folder's.
+stroked!(FH_PAGE, "fh-page", "1.35", r#"<path d="M6.5 3.5h7l4 4v13h-11z"/><path d="M13.5 3.5v4h4M9 12.5h6M9 16h4"/>"#);
+stroked!(FH_TABLE, "fh-table", "1.35", r#"<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M3.5 9.5h17M9.5 9.5v10"/>"#);
+stroked!(FH_IMAGE, "fh-image", "1.35", r#"<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><circle cx="9" cy="10" r="1.6"/><path d="M4 17.5l4.8-4.5 3.4 3 2.6-2.1 5.2 4.6"/>"#);
+stroked!(FH_FILM, "fh-film", "1.35", r#"<rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><path d="M10.2 9.4l4.6 2.6-4.6 2.6z"/>"#);
+stroked!(FH_WINDOW, "fh-window", "1.35", r#"<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M3.5 9h17"/>"#);
+stroked!(FH_SLIDES, "fh-slides", "1.35", r#"<rect x="3.5" y="4.5" width="17" height="11" rx="2"/><path d="M12 15.5v4M8.5 19.5h7"/>"#);
+stroked!(FH_CODE, "fh-code", "1.35", r#"<path d="M9 7.5l-4.5 4.5L9 16.5M15 7.5l4.5 4.5-4.5 4.5"/>"#);
+stroked!(FH_TAG, "fh-tag", "1.35", r#"<path d="M3.5 12.3V4.5a1 1 0 0 1 1-1h7.8l8.2 8.2a1.4 1.4 0 0 1 0 2l-6.3 6.3a1.4 1.4 0 0 1-2 0z"/><circle cx="8.2" cy="8.2" r="1.4"/>"#);
+stroked!(FH_COMPASS, "fh-compass", "1.35", r#"<circle cx="12" cy="12" r="8.5"/><path d="M15.6 8.4l-2.2 5-5 2.2 2.2-5z"/>"#);
+stroked!(FH_PEOPLE, "fh-people", "1.35", r#"<circle cx="9" cy="8.5" r="3.2"/><path d="M3.5 19.5c.6-3.4 2.8-5.3 5.5-5.3s4.9 1.9 5.5 5.3M15.4 5.6a3 3 0 0 1 0 5.8M17.2 14.4c1.8.6 2.9 2.4 3.3 5.1"/>"#);
+stroked!(FH_PHONE, "fh-phone", "1.35", r#"<path d="M8.4 4.2l1.8 3.7-1.7 1.4a10 10 0 0 0 5.9 5.9l1.4-1.7 3.7 1.8-.8 3a1.3 1.3 0 0 1-1.3 1A14.8 14.8 0 0 1 4 6.4a1.3 1.3 0 0 1 1-1.3z"/>"#);
+stroked!(FH_CLOUD, "fh-cloud", "1.35", r#"<path d="M7.2 18.5h10a4 4 0 0 0 .5-8 5.8 5.8 0 0 0-11.1 1.4 3.3 3.3 0 0 0 .6 6.6z"/>"#);
+stroked!(FH_BINOCULARS, "fh-binoculars", "1.35", r#"<circle cx="7" cy="15.5" r="3.6"/><circle cx="17" cy="15.5" r="3.6"/><path d="M10.6 15.2h2.8M5.2 12.4L7.2 5h2.6l.8 7M18.8 12.4L16.8 5h-2.6l-.8 7"/>"#);
+stroked!(FH_CHART, "fh-chart", "1.35", r#"<path d="M4 19.5h16M5.5 15.5l4-4.5 3.2 2.7 5.3-6.2"/><path d="M14.5 7.5H18V11"/>"#);
+stroked!(FH_PALETTE, "fh-palette", "1.35", r#"<path d="M12 3.5a8.5 8.5 0 1 0 0 17c1.3 0 1.9-.9 1.6-2-.4-1.4.5-2.6 2-2.6h1.6a3.3 3.3 0 0 0 3.3-3.4C20.3 7.6 16.6 3.5 12 3.5z"/><circle cx="7.8" cy="11" r="1.1"/><circle cx="10.4" cy="7.5" r="1.1"/><circle cx="14.8" cy="7.6" r="1.1"/>"#);
+stroked!(FH_CHAT, "fh-chat", "1.35", r#"<path d="M4 5.5h16v10.5h-7.5L8 19.8V16H4z"/><path d="M8 9.5h8M8 12.5h5"/>"#);
+stroked!(FH_BOX, "fh-box", "1.35", r#"<path d="M12 3.5l8 4v9l-8 4-8-4v-9z"/><path d="M4 7.5l8 4 8-4M12 11.5v9"/>"#);
+stroked!(FH_BOOK, "fh-book", "1.35", r#"<path d="M3.5 6c2.8-1.4 5.7-1.4 8.5.4 2.8-1.8 5.7-1.8 8.5-.4v12c-2.8-1.4-5.7-1.4-8.5.4-2.8-1.8-5.7-1.8-8.5-.4z"/><path d="M12 6.4v12"/>"#);
+stroked!(FH_SHIELD, "fh-shield", "1.35", r#"<path d="M12 3.5l7 3v5c0 4.2-3 7.6-7 9-4-1.4-7-4.8-7-9v-5z"/>"#);
+stroked!(FH_CHIP, "fh-chip", "1.35", r#"<rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/>"#);
+stroked!(FH_LAYERS, "fh-layers", "1.35", r#"<path d="M12 3.5l8.5 4.5-8.5 4.5L3.5 8z"/><path d="M3.5 12l8.5 4.5 8.5-4.5M3.5 16l8.5 4.5 8.5-4.5"/>"#);
+stroked!(FH_MOBILE, "fh-mobile", "1.35", r#"<rect x="7" y="2.8" width="10" height="18.4" rx="2.2"/><path d="M10.8 17.8h2.4"/>"#);
+stroked!(FH_FOLDER, "fh-folder", "1.35", r#"<path d="M3.5 7c0-.8.7-1.5 1.5-1.5h4l1.6 1.8h8.4c.8 0 1.5.7 1.5 1.5v8.7c0 .8-.7 1.5-1.5 1.5H5c-.8 0-1.5-.7-1.5-1.5z"/>"#);
+
+/// A mark of Files' home by its name (`GlyphIcon`).
+pub fn files_glyph(name: &str) -> &'static Icon {
+    match name {
+        "table" => &FH_TABLE,
+        "image" => &FH_IMAGE,
+        "film" => &FH_FILM,
+        "window" => &FH_WINDOW,
+        "slides" => &FH_SLIDES,
+        "code" => &FH_CODE,
+        "tag" => &FH_TAG,
+        "compass" => &FH_COMPASS,
+        "people" => &FH_PEOPLE,
+        "phone" => &FH_PHONE,
+        "cloud" => &FH_CLOUD,
+        "binoculars" => &FH_BINOCULARS,
+        "chart" => &FH_CHART,
+        "palette" => &FH_PALETTE,
+        "chat" => &FH_CHAT,
+        "box" => &FH_BOX,
+        "book" => &FH_BOOK,
+        "shield" => &FH_SHIELD,
+        "chip" => &FH_CHIP,
+        "layers" => &FH_LAYERS,
+        "mobile" => &FH_MOBILE,
+        "folder" => &FH_FOLDER,
+        _ => &FH_PAGE,
+    }
+}
+
+// The rest of Files' home, each a 16-unit square: the ⋯ of a tile and a folder (`Dots`), the
+// chevron between crumbs, the tick on a menu's row, New's plus, and New's menu's marks
+// (`DocGlyph`, `TableGlyph`, `UploadGlyph`; its folder is `FOLDER`).
+pub static FH_DOTS: Icon = Icon {
+    name: "fh-dots",
+    view: 16.0,
+    body: r#"<g fill="currentColor"><circle cx="3.5" cy="8" r="1.2"/><circle cx="8" cy="8" r="1.2"/><circle cx="12.5" cy="8" r="1.2"/></g>"#,
+};
+pub static FH_CHEVRON: Icon = Icon {
+    name: "fh-chevron",
+    view: 16.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5l4.5 4.5L6 12.5"/></g>"#,
+};
+pub static FH_CHECK: Icon = Icon {
+    name: "fh-check",
+    view: 16.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.3l3 3 6-6.6"/></g>"#,
+};
+pub static FH_PLUS: Icon = Icon {
+    name: "fh-plus",
+    view: 16.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></g>"#,
+};
+pub static FH_DOC: Icon = Icon {
+    name: "fh-doc",
+    view: 16.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"><path d="M4 2.5h5l3 3v8H4z M9 2.5v3h3 M6 8.5h4 M6 10.8h4"/></g>"#,
+};
+pub static FH_SHEET: Icon = Icon {
+    name: "fh-sheet",
+    view: 16.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.2"><rect x="2.5" y="3" width="11" height="10" rx="1"/><path d="M2.5 6.4h11M2.5 9.7h11M6.2 6.4V13"/></g>"#,
+};
+pub static FH_UPLOAD: Icon = Icon {
+    name: "fh-upload",
+    view: 16.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 10.5V3M5 6l3-3 3 3M3 10.5v2h10v-2"/></g>"#,
+};

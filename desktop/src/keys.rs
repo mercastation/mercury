@@ -167,7 +167,12 @@ pub fn pressed(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
     // Then what stands open over a conversation: the strip's menu or panel, and the reply box's
     // model menu; and over the Inbox, a menu of its strip. Each takes its own keys, Escape
     // first, and lets the rest go on to the page.
-    if crate::strip::key(s, e, tx) == Some(true) || crate::reply::menu_key(s, e, tx) == Some(true) || crate::chips::key(s, e, tx) == Some(true) || crate::head::key(s, e, tx) == Some(true) {
+    if crate::strip::key(s, e, tx) == Some(true)
+        || crate::reply::menu_key(s, e, tx) == Some(true)
+        || crate::chips::key(s, e, tx) == Some(true)
+        || crate::head::key(s, e, tx) == Some(true)
+        || crate::files_page::menu_key(s, e) == Some(true)
+    {
         return true;
     }
     // ⌘C turns the cloud on or off, unless it is Copy (`cloudChord`).

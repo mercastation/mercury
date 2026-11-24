@@ -88,8 +88,33 @@ const FILES = [
 
 const PROJECT = { storefront: 'Storefront', mobile: 'Mobile' };
 
-/** The invented list and each file's view over a planting, with the page's clock `now`. */
-export function invent(planted, now) {
+// What a team kept, for the scenes of the Files home that show folders (`kept`): Storefront's
+// Pinned, Receipts and the Calls inside it, and a Brand kit nobody put anything in yet. Each
+// file is filed by its name; one has a name a person gave it and one an icon a person picked,
+// and three are older, so Recent has more than one day.
+const FOLDERS = [
+  { id: 'pin', project: 'Storefront', name: 'Pinned', parent: null },
+  { id: 'rec', project: 'Storefront', name: 'Receipts', parent: null },
+  { id: 'calls', project: 'Storefront', name: 'Calls', parent: 'rec' },
+  { id: 'brand', project: 'Storefront', name: 'Brand kit', parent: null },
+];
+const KEPT = {
+  'rounding-v2.md': { folder: 'pin' },
+  'receipt-plan.md': { folder: 'rec' },
+  'round-tax.ts': { folder: 'calls', title: 'Tax rounding script' },
+  'failed-orders.csv': { folder: 'rec', icon: 'chart' },
+  'total-line-v2.png': { folder: 'rec' },
+  'checkout.html': { ago: 60 * 27 },
+  'week-32.pdf': { ago: 60 * 30 },
+  'cart-b.png': { ago: 60 * 24 * 4 },
+};
+
+/**
+ * The invented list and each file's view over a planting, with the page's clock `now`. With
+ * `kept`, Storefront has folders and files in them (`FOLDERS`, `KEPT`); with `empty`, the list
+ * has no file at all; `projects` adds projects with nothing in them.
+ */
+export function invent(planted, now, { kept = false, empty = false, projects = [] } = {}) {
   for (const [rel, words] of EXTRA) {
     const file = path.join(planted.dir, rel);
     fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -106,12 +131,15 @@ export function invent(planted, now) {
     const name = path.basename(newest);
     const sent = THREADS[f.in];
     const key = `${sent.product}/${name}`;
-    const when = now - f.ago * MIN;
+    const own = (kept && KEPT[name]) || {};
+    const when = now - (own.ago ?? f.ago) * MIN;
     const agent = f.agent === null ? {} : { agent: f.agent };
     const onMac = sizes.reduce((a, b) => a + b, 0);
+    if (empty) continue;
     files.push({
       key, project: PROJECT[sent.product], name, kind: f.kind, versions: paths.length, at: when, by: null, ...agent,
-      open: 0, approvedBy: [], sentIn: [sent], folder: null, opened: newest,
+      open: 0, approvedBy: [], sentIn: [sent], folder: own.folder ?? null, opened: newest,
+      ...(own.title ? { title: own.title } : {}), ...(own.icon ? { icon: own.icon } : {}),
       bytes: sizes[sizes.length - 1], onMac, older: onMac - sizes[sizes.length - 1], movable: onMac, trashable: true,
     });
     // One line per version, at the path it opens from (`linesOf` in main/files-place.mts).
@@ -121,7 +149,9 @@ export function invent(planted, now) {
       marks: { notes: [], approvals: [], seen: {} },
     };
   }
-  return { list: { files, projects: ['Storefront', 'Mobile'], folders: [], mine: ['Storefront', 'Mobile'] }, views };
+  const folders = kept ? FOLDERS.map((f, i) => ({ ...f, at: now - (60 - i) * MIN })) : [];
+  const named = empty ? projects : ['Storefront', 'Mobile', ...projects];
+  return { list: { files, projects: named, folders, mine: named }, views };
 }
 
 /**
@@ -174,17 +204,23 @@ export function filesBridge(planted, { list, views }) {
 }
 
 /**
- * The Files place on All files, or, with `project`, that project's page. `then` is what the
- * scene does on it before the picture (a tile pressed, the list view).
+ * The Files place: its home on All files, or, with `project`, that project's home, its tile
+ * pressed on All files. `kept`, `empty` and `projects` shape the invented list (`invent`).
+ * `folder` then presses a section's name, which opens that folder's page ("Not in a folder"
+ * for the files in none); `everything` presses "Every file, with sizes and the Trash". `then`
+ * is what the scene does on it before the picture (a tile pressed, a menu opened).
+ *
+ * The fixture says the same for the native window: `filesProject`, `filesFolder` (the
+ * folder's id, or `not-in-a-folder`) and `filesEverything`.
  */
-export async function openFiles(h, { project = null, then = null } = {}) {
+export async function openFiles(h, { project = null, kept = false, empty = false, projects = [], folder = null, everything = false, then = null } = {}) {
   const snapshot = await h.evaluate('window.__SNAP__');
   const planted = plant({ thread: 'w-readme0' });
   const now = await h.evaluate('Date.now()');
   // MERCURY_FILES names a list the running app answered (`zero:files-place`, read through its
   // door into a file outside the repository), to hold the native page's tiles to the web
   // window's on a person's own files. Its files are not planted, so their faces stay blank.
-  const invented = process.env.MERCURY_FILES ? { list: JSON.parse(fs.readFileSync(process.env.MERCURY_FILES, 'utf8')), views: {} } : invent(planted, now);
+  const invented = process.env.MERCURY_FILES ? { list: JSON.parse(fs.readFileSync(process.env.MERCURY_FILES, 'utf8')), views: {} } : invent(planted, now, { kept, empty, projects });
   await h.call('Page.addScriptToEvaluateOnNewDocument', { source: standIn(planted) });
   await h.call('Page.addScriptToEvaluateOnNewDocument', { source: filesBridge(planted, invented) });
   await h.goto(h.origin);
@@ -193,19 +229,62 @@ export async function openFiles(h, { project = null, then = null } = {}) {
   await h.evaluate(`document.querySelector('button.workspace-tab[data-tab="files"]')?.click()`);
   await h.wait(1500);
   if (project) {
-    await h.evaluate(`[...document.querySelectorAll('.fp-folder-open')].find((b) => b.getAttribute('aria-label') === ${JSON.stringify(`Open ${project}`)})?.click()`);
+    await h.evaluate(`[...document.querySelectorAll('.fh-open')].find((b) => b.getAttribute('aria-label') === ${JSON.stringify(`Open ${project}`)})?.click()`);
     await h.wait(900);
   }
-  const did = then ? (await then(h)) ?? {} : {};
+  const fixture = { snapshot, filesPlace: invented.list, filesPlaceViews: invented.views, ...(project ? { filesProject: project } : {}) };
+  if (folder) {
+    const name = folder === 'not-in-a-folder' ? 'Not in a folder' : invented.list.folders.find((f) => f.id === folder)?.name;
+    await h.evaluate(`[...document.querySelectorAll('.fh-link')].find((b) => b.textContent.trim() === ${JSON.stringify(name)})?.click()`);
+    await h.wait(900);
+    fixture.filesFolder = folder;
+  }
+  if (everything) {
+    await h.evaluate(`document.querySelector('.fh-every')?.click()`);
+    await h.wait(900);
+    fixture.filesEverything = true;
+  }
+  const did = then ? (await then(h, invented.list)) ?? {} : {};
   if (then) await h.wait(900);
-  return { snapshot, filesPlace: invented.list, filesPlaceViews: invented.views, ...(project ? { filesProject: project } : {}), ...did };
+  return { ...fixture, ...did };
 }
 
-/** Presses the tile of the file called `name` and says so for the native window (`fileOpen`). */
+/**
+ * Presses the file called `name` where a person finds it on Files' home: its row under Recent,
+ * which lists the ten files that changed last, newest first. Says so for the native window
+ * (`fileOpen`).
+ */
 export async function openTile(h, name) {
-  await h.evaluate(`[...document.querySelectorAll('.fp-open-file')].find((b) => b.getAttribute('aria-label') === ${JSON.stringify(`Open ${name}`)})?.click()`);
+  await h.evaluate(`(async () => {
+    const list = await window.zero.filesPlace();
+    const order = [...list.files].sort((a, b) => b.at - a.at);
+    document.querySelectorAll('.fh-rrow')[order.findIndex((f) => f.name === ${JSON.stringify(name)})]?.click();
+  })()`);
   await h.wait(1200);
   return { fileOpen: name };
+}
+
+/** Types `words` into the home's search box, as a person does after `/`. */
+export async function search(h, words) {
+  await h.evaluate(`(() => {
+    const box = document.querySelector('.fh-find input');
+    box.focus();
+    const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    set.call(box, ${JSON.stringify(words)});
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+  })()`);
+  await h.wait(600);
+  return { filesQuery: words };
+}
+
+/** A press on the element `selector` finds whose words or label are `label` (or the first). */
+export async function press(h, selector, label = null) {
+  await h.evaluate(`(() => {
+    const all = [...document.querySelectorAll(${JSON.stringify(selector)})];
+    const hit = ${JSON.stringify(label)} === null ? all[0] : all.find((b) => b.textContent.trim() === ${JSON.stringify(label)} || b.getAttribute('aria-label') === ${JSON.stringify(label)});
+    hit?.click();
+  })()`);
+  await h.wait(500);
 }
 
 export const go = (h) => openFiles(h);
