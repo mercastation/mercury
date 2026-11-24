@@ -476,33 +476,58 @@ words can be selected and where a press moves the window, and its scripts say wh
 pointer resting. This window does the same, read off the web window the way its screens were.
 `src/feel.rs` holds what several screens share; each screen draws its own controls' looks.
 
-- **The rail opens.** 140 ms after the pointer moves onto the rail it opens from 28 points to 220
-  (`--sidebar-w` in `renderer/src/sidebar.css`; 38 and 202 before the web window's sidebar was
-  redrawn), the whole sidebar with its words, and leaving it folds it at once (`hoverAt` in
-  `WorkspaceNavigation.tsx`): a pointer passing over it on its way somewhere is gone before then,
-  and a pointer that did not move opens nothing, so a rail uncovered under a pointer standing
-  still (by the command bar closing, say) stays folded until it moves (`pointerMoved`). It
+- **The rail opens.** It opens from 28 points to 210 (`--sidebar-w` in
+  `renderer/src/sidebar.css`; 220 before the sidebar's second pass, and 38 and 202 before it was
+  redrawn at all), the whole sidebar with its words, 140 ms after a pointer that came onto it
+  from outside last stopped travelling, and folds 300 ms after the pointer leaves unless it comes
+  back first (`hoverIntent` in `renderer/src/sidebar-shrinks.ts`, ported with its cases in
+  `src/rules/sidebar.rs`). So a hand passing over it on its way somewhere, or overshooting a tab
+  beside it and swinging back, never opens it: faster than 0.15 of a point a millisecond the
+  pointer is still on its way, and each such move starts the wait over. Nor does a pointer that
+  was on it all along, as when the command bar closes over one standing there: it never came
+  onto it, and has to leave and come back (`crossedIn`). For that the window's root keeps where
+  the pointer was one move ago, anywhere in the window (`followPointer`). While it is open the
+  22 points past its right edge, up to the card, are still its own, so a pointer that slips off
+  the edge on its way to a button folds nothing. The button after the pencil (`.ws-keep`) and
+  ⌘\ from anywhere but Settings, the caret in a box included, keep it open or let it shrink
+  again, which is Settings' "Shrink the sidebar to icons"; the button's plate hangs over it and
+  says which of the two a press does now. Kept open by a key with the pointer away it eases as
+  it does under the pointer, and a window that opens with it kept open draws it open from its
+  first frame. It
   eases open over 0.24 s (`cubic-bezier(.22,.61,.36,1)`) and shut over 0.2 s
-  (`cubic-bezier(.4,0,.2,1)`); the words come in 0.08 s later over 0.14 s and go over 0.06 s, and
-  Inbox's dot crosses over 0.1 s (`team/rooms/rooms.css`), each frame drawn while it moves.
-  Search's field (its ground and its rule) comes and goes with the words. The card moves over
-  with it, from 58 points in to 246, on the same curve, rather than being covered, and the skies
-  stay painted for the folded card and pinned to its right edge, so the rail uncovers them rather
-  than painting them again (`sky-follows-the-card.ts`). Open, it says what the web window's says:
-  the team's name with the pencil that starts a thread at the row's end (`.ws-new`, the New
+  (`cubic-bezier(.4,0,.2,1)`); the words come in 0.08 s later over 0.14 s and go over 0.06 s,
+  Inbox's dot crosses over 0.1 s (`team/rooms/rooms.css`), and the short line that stands in a
+  section's name's place while it is folded over 0.06 s, each frame drawn while it moves.
+  Search's field (its ground and its rule) comes and goes at once, with nothing to ease it. The
+  card moves over with it, from 58 points in to 246, on the same curve, rather than being
+  covered. While the sidebar folds away under the pointer the skies stay painted for the folded
+  card and pinned to its right edge, so the rail uncovers them rather than painting them again;
+  kept open, they are stretched to the card as it stands and painted again for it once it has
+  held still (`sky-follows-the-card.ts`). Open, it says what the web window's says:
+  the team's name with the pencil that starts a thread near the row's end (`.ws-new`, the New
   thread card), Search as a field with ⌘K, each place's word, Inbox's count in small figures in
   the dim ink where the dot was, Workspace and Recent under their names, and at the foot the
   person's name beside their face with the bar of their limit at the row's end (resting on it
   opens the card of the agents' limits, "The agents' limits"). A section's name folds its rows
   and the next press brings them back, kept in `native-picks.json` as the web window keeps its
-  own (`agentbox.sidebarFolds`); folded to its marks the sidebar shows no section name, takes no
-  press on one, and draws no Recent and no bar. Recent is the threads last opened, newest first,
-  six at most, each with its harness's mark, its name and a dot while it waits on the person and
-  is not the one open (`recent-threads.ts`, `rules/recent.rs`); a press opens it. A row takes
-  the text's colour at six hundredths under the pointer and while its page is on screen, its
-  word the text's colour and its mark a step brighter; no row takes the pointing hand any more
-  (`cursor: default`). Search keeps its black field under the pointer, its word and keys a step
-  brighter and its glass as it was.
+  own (`agentbox.sidebarFolds`); folded to its marks the sidebar shows a short line where
+  Workspace's name was, takes no press on it, and draws no Recent and no bar. Recent is the
+  threads last opened, newest first, six at most, each with its harness's mark bare, as the marks
+  over it are, its name and a dot while it waits on the person and is not the one open
+  (`recent-threads.ts`, `rules/recent.rs`); a press opens it. A row takes the text's colour at
+  six hundredths under the pointer and while its page is on screen, its word and its mark both
+  the text's colour (a mark wears the ink of its word, at the sheet's lighter stroke); no row
+  takes the pointing hand any more (`cursor: default`). Search keeps its black field under the
+  pointer, its glass, its word and its keys a step brighter.
+  At the foot, the app's word on its own version (`SidebarUpdate.tsx`, `src/rules/update.rs`):
+  while a new one waits the open sidebar draws its card, "New version ready" and how long a
+  restart takes (or why the last did not finish), risen over the Restart to update button, which
+  keeps the row's place so nothing under the pointer moves; pointing at the card shows its ×,
+  which hides card and row until a newer version (kept in `native-picks.json`, as the web keeps
+  `zero.updateClosed`); folded, it is one more mark in the foot; and while the version is built
+  there is no card, the row says Updating and its mark turns. A copy that cannot update itself
+  has the same card, "Updates are stuck" with Move to Applications (`zero:update-move`), in the
+  update card's place and never beside it, its × kept by the place it runs from.
   Under the system's Reduce motion it opens and folds whole, as the same stylesheet's
   `prefers-reduced-motion` block takes every one of those transitions away.
 - **Under the pointer.** Every control these screens draw takes the web window's look while the
@@ -3477,11 +3502,15 @@ point and stands where the web's does against its neighbours.
   (`docs/parity-sidebar.md`), the rows in `inbox.rs` (`docs/parity-inbox-rows.md`), the Files
   place in `files_home.rs` and `files_page.rs` (`docs/parity-files-home.md`), the arrows in
   `walk.rs`. At 1280 by 760 Home is 0.67 (it was 0.86 against the look before), the Inbox 0.31,
-  a conversation 0.38, Settings 0.15 to 0.31, the Files home 0.21. What that left undone, each
-  with its reason in those three documents: on the page of every file, the menus on a tile and
-  on a folder's card, choosing files for the Trash and the total's menu; in a file opened big,
-  the menu of apps on the open mark, renaming from the view, and N starting a thread over it;
-  Upload from computer, which needs a channel the door does not have; dragging a tile onto a
+  a conversation 0.38, Settings 0.15 to 0.31, the Files home 0.21. The day after, the web
+  window's sidebar had its second pass (210 wide, lighter marks, the button that keeps it open,
+  a new rule for when it opens, the new version's card) and that is followed too, with the
+  account menu on the person's own row, the menus of the page of every file and Upload from
+  computer: an open sidebar is 0.9 to 1.1 from the web window's, of which what is left is the
+  rows this window has no pages for. What all of that left undone, each with its reason in those
+  three documents: in the account menu, the row that sets a status and the box it opens; in a
+  file opened big, the menu of apps on the open mark, renaming from the view, and N starting a
+  thread over it; Upload from computer taking one file at a time; dragging a tile onto a
   folder (Move to… does the same move); New's Document and Table, which open to be read, as
   this window writes in no document; a second line led by who said it and a face on a
   teammate's or a person's row, as this window draws no team; and the web window's plain Dark
@@ -3871,18 +3900,22 @@ point and stands where the web's does against its neighbours.
   yes and where to give it. Where every project runs on full access no agent ever asks.
 - **Several rows cannot be ticked**, so nothing is done to many threads at once.
 - **The sidebar has only what works here** (`docs/parity-sidebar.md` goes through the web
-  window's line by line): the pencil, Search, Home, the Inbox, Workspace with Files, Recent,
-  Restart to update while a new version waits, and the person's own row with the bar of their
-  limit, or Settings in its place while nobody is signed in. The web window's also has Demands,
+  window's line by line): the pencil and the button that keeps it open, Search, Home, the Inbox,
+  Workspace with Files, Recent, the new version's card, and the person's own row with the bar of
+  their limit, or Settings in its place while nobody is signed in. The web window's also has Demands,
   Chats (with teammates), Connections, Record meeting, Feedback and a row to sign in. Drawn here
   they were buttons that went nowhere, so they are left out until this window has their pages,
   and what stands under each stands that much higher: Workspace's name where the web window has
   Demands, Files where it has Connections. The team's own logo or initial is the app's mark
   here; a Recent row always wears its harness's mark, where the web window's wears a teammate's
   or a person's face on their threads; a section's arrow turns at once, not over 0.12 s. The
-  person's row opens Settings ("Settings", above), where the web window's opens their account
-  menu, which has Settings in it. A mouse's side buttons do not step back and forward: Rune
-  hands this window no such buttons.
+  person's row opens their account menu, as the web window's does (`src/account_menu.rs`), but
+  for one row: with Multiplayer on the web's menu has "Set a status", which opens a sentence to
+  write in ("I'm … until …"), its words an editable run inside prose that wraps with them and
+  its end a menu with a box to type a time in. Rune's text box is a box of its own, so that row
+  is not drawn rather than drawn simpler. Upload from computer picks one file at a time, as
+  Rune's file window hands back one path. A mouse's side buttons do not step back and forward:
+  Rune hands this window no such buttons.
 - **Settings has only the pages that are used**, and sends the rest to the web window
   ("Settings", above). Within its pages:
   - A line of a wrapped description can stand a device pixel lower than the web window's:
