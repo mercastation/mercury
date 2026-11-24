@@ -534,11 +534,28 @@ pointer resting. This window does the same, read off the web window the way its 
   would sit on the menu's first row (`aria-expanded`): the cloud, the Files button, the place
   button and ⋯.
 - **Titles.** What the web window says in a `title` this one says with Rune's `help`: Back's "Back
-  to Home (⌘[)" and the rest, New thread's "New thread (N)", the cloud's question, "View and
+  to Needs you (⌘[)" and Forward's "Forward to … (⌘])" while each has somewhere to go, New
+  thread's "New thread (N)", the cloud's question, "View and
   filters", each rail place, the box's chips, clip, Send and caret, a conversation's whole name, a
   mention's address, a picture's or a folder's path, and a file in a box: its name, Remove, or why
   it cannot go. A Mac window hands them to AppKit, which keeps its own wait and look, as Electron's
-  are the system's. ⌘[ goes back, as Back's title says.
+  are the system's.
+- **Back and Forward.** The web window's arrows walk a trail of the list and each thread once,
+  where the person was in it last, and are drawn on the inbox page alone: before the Inbox's
+  title on any tab, and in a conversation's strip; Home, the Files place and Settings have none
+  (`renderer/src/back-and-forward.ts`). Here the same: `rules/trail.rs` is that file's rules with
+  its cases as tests (a random walk of four hundred sessions among them), and `walk.rs` what
+  feeds them. A place counts once it has stayed on screen 300 ms, so the list a closing thread
+  passes through is not somewhere the person was. ⌘[ and ⌘] step along it, held on every page
+  and stepping only on the inbox page. Back to the list leaves the thread as Escape does, the
+  keys where they were; a tab other than the one on screen opens from its first row; a thread
+  opens over the inbox, so Escape from it leads there. Each arrow is dim with nowhere to go and
+  says where it leads in its title with somewhere. Before 2026-11-24 this window's Back led to
+  the page before, whatever it was, and its Forward never lit. Escape and a conversation's own
+  way back are a different thing and unchanged: they lead to where the thread was opened from.
+  A window opened straight onto a conversation for a picture (`--thread`) is taken to have come
+  from the list, as the web window's picture of it did. The last thread stood on is kept
+  (`State::last_thread`) for the wash the list gives its row.
 - **Moving the window.** As the web window's `-webkit-app-region: drag`: the band along the window's
   top, 40 points, over everything but the command bar while it is open
   (`.workspace-layout::after`), and the card's top strip on the Inbox and over a conversation,
@@ -664,8 +681,11 @@ after the pointer moves onto it and folds when it leaves, whole under Reduce mot
 folded under the command bar and when the bar closes over a pointer standing still; a hint comes
 700 ms after the pointer moved onto its control, hangs where the web window's does, goes with the
 pointer or a key, comes back on the next move, and is claimed by no row that slides under a still
-pointer; the row under the pointer takes Enter until J walks the list; ⌘[ goes where Back's title
-says; the bands move the window and their buttons keep their presses; and a right press on an
+pointer; the row under the pointer takes Enter until J walks the list; ⌘[ and ⌘] walk the list
+and the threads stood on, each once, and step nowhere off the inbox page; the sidebar's rows
+stand where the web window's do, a section's name folds its rows only while the sidebar is open,
+and the pencil starts a thread; the bands move the window and their buttons keep their presses;
+and a right press on an
 address, a picture's name, a picture named short and one named whole opens the web window's menu
 for it, each item putting on the clipboard what the web window's does.
 
@@ -3793,8 +3813,11 @@ point and stands where the web's does against its neighbours.
   foot, a project's colour) and `place.rs` (where a conversation runs, what its panel says and
   what a pick there writes). `engine.rs`: which coding agent a row is on, as Home names it
   (`row_engine`) and as the Inbox's mark shows it (`harness_on`, `harness_mark`).
-- `src/chrome.rs`: the page, the card, the rail and how it opens, the bands that move the window.
-  `src/theme.rs`: colours and type.
+- `src/chrome.rs`: the page, the card, the sidebar and how it opens, Back and Forward, the bands
+  that move the window. `src/theme.rs`: every ground and line by the web's own variable, and
+  type. `src/walk.rs`: the trail Back and Forward walk on the inbox page, and when a place
+  counts; its rules in `src/rules/trail.rs`. `src/rules/recent.rs`: the sidebar's Recent and
+  its sections' folds. `docs/parity-sidebar.md`: the web's sidebar and arrows, line by line.
 - `src/feel.rs`: what the screens share of answering the pointer: the key hints and their plate,
   the row under the pointer, the strip's framed buttons, the washes; and the tests of how the
   window feels. `tools/scenes/pointer.mjs` rests the pointer in a reference picture, and
@@ -3838,7 +3861,7 @@ point and stands where the web's does against its neighbours.
   carries of them, the narrow bar's fold, and the little arrow that folds an agent's choices.
   `src/rules/reply_chips.rs`: each agent's modes and their words, the ring Shift+Tab walks, the
   line a change says, what a reply writes, and which round of choices a fold holds.
-- `src/usage.rs`: the rail's usage row and the card of the agents' limits it opens, and when.
+- `src/usage.rs`: the card of the agents' limits the sidebar's bar opens, and when.
   `src/rules/usage.rs`: which agents are in use and which used last, which windows a reading
   still answers for, the card's rows and their resets, and how old a reading is.
 - `src/compose.rs`: the box a thread is started in, on Home and as the New thread card, its
