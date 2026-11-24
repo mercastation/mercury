@@ -229,8 +229,11 @@ function tableRows(dump) {
       harness: tile ? ['claude', 'codex', 'antigravity'].find((engine) => t.has(tile, engine)) ?? 'other' : 'face',
       title,
       aside: (asideBox && t.first(asideBox, (k) => t.has(k, 'th-aside'))?.text) ?? '',
+      // The second line under the title (`.th-line`), what came back; none on a row with nothing
+      // more to say than its title.
+      line: t.first(r, (k) => t.has(k, 'th-line'))?.text ?? '',
       // "not started" is faint words of its own, straight in the cell.
-      held: (t.kids.get(titleCell.id) ?? []).some((k) => t.has(k, 'th-aside') && !t.has(k, 'th-demand')),
+      held:(t.kids.get(titleCell.id) ?? []).some((k) => t.has(k, 'th-aside') && !t.has(k, 'th-demand')),
       pinned: !!t.first(titleCell, (k) => t.has(k, 'th-pin')),
       status: state?.text ?? '',
       mark,
@@ -322,7 +325,9 @@ const asHomeNeeds = (r) => ({ face: 'agent', title: r.title, priority: r.priorit
 const asHomeProgress = (r) => ({ face: 'agent', title: r.title, progressLine: `${r.engine} · ${r.project}`, when: r.when });
 const asTable = (r) => ({
   harness: r.harness,
-  title: r.title, aside: r.aside, held: r.held, pinned: r.pinned, status: r.status, mark: r.mark,
+  // Faint words the second line says again are not drawn (`.aside-moved`), and the dump keeps
+  // only what is drawn.
+  title: r.title, aside: r.aside && r.aside === r.line ? '' : r.aside, line: r.line, held: r.held, pinned: r.pinned, status: r.status, mark: r.mark,
   retry: r.retry, statusTitle: r.why ? '' : (r.statusTitle ?? ''), whyCard: !!r.why,
   place: r.place, placeMore: r.placeMore,
   priority: r.priority, priorityLabel: LABEL[r.priority], when: r.when, unread: r.unread,
@@ -331,7 +336,7 @@ const asTable = (r) => ({
 /* ------------------------------------------------------------ comparing */
 
 // A Stopped row's sentence is its result's first line, so the hover sentence is the thread's words too.
-const WORDS_OF_THE_THREAD = new Set(['title', 'project', 'place', 'aside', 'progressLine', 'statusTitle']);
+const WORDS_OF_THE_THREAD = new Set(['title', 'project', 'place', 'aside', 'line', 'progressLine', 'statusTitle']);
 const said = (field, value) => (show || !WORDS_OF_THE_THREAD.has(field) ? JSON.stringify(value) : `«${String(value).length} characters»`);
 
 function compare(name, drawn, native, what = 'rows') {
