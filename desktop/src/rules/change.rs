@@ -55,6 +55,8 @@ pub struct Change {
     /// Where the folder stood when the run ended, or when the pane read it.
     pub committed: Option<bool>,
     pub uncommitted: Option<bool>,
+    /// Whether Git there can name an author for a commit (`knowsYou`, the ship question's).
+    pub knows_you: Option<bool>,
     /// The folders the run worked in, where a file of it is looked for.
     pub roots: Vec<String>,
 }
@@ -101,6 +103,7 @@ impl Change {
             ended_at: at("endedAt"),
             committed: v.get("committed").and_then(Value::as_bool),
             uncommitted: v.get("uncommitted").and_then(Value::as_bool),
+            knows_you: v.get("knowsYou").and_then(Value::as_bool),
             roots: v.get("roots").and_then(Value::as_array).map(|r| r.iter().filter_map(Value::as_str).filter(|r| !r.is_empty()).map(str::to_string).collect()).unwrap_or_default(),
         })
     }

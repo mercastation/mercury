@@ -16,11 +16,13 @@ pub mod answers;
 pub mod attach;
 pub mod calendar;
 pub mod change;
+pub mod close_asks;
 pub mod cloud;
 pub mod code;
 pub mod compose;
 pub mod display;
 pub mod engine;
+pub mod filed_in_thread;
 pub mod files_shown;
 pub mod film;
 pub mod folded;
@@ -47,12 +49,14 @@ pub mod reply_pick;
 pub mod roots;
 pub mod search;
 pub mod settings;
+pub mod ship_offer;
 pub mod shipping;
 pub mod sign_in;
 pub mod status;
 pub mod table_edit;
 pub mod table_file;
 pub mod thread_files;
+pub mod threads_made;
 pub mod title;
 pub mod trace;
 pub mod typed;
@@ -324,7 +328,7 @@ fn row(w: &World, i: &Item, tab: &str, to_approve: &HashMap<String, usize>) -> R
             let said = |field: &str| i.object(field).and_then(|o| o.get("said")).and_then(Value::as_str).map(str::to_string);
             let commented = link_comment_line(i.list("linkComments")).or_else(|| if list::wait_came_back(i) { said("waitEnded") } else { None }).or_else(|| said("handedOver"));
             let waiting = to_approve.get(&format!("{}/{}", i.product, i.id)).copied().unwrap_or(0);
-            let words = commented.or_else(|| (waiting > 0).then(|| format!("{waiting} task{} to approve", if waiting == 1 { "" } else { "s" })));
+            let words = commented.or_else(|| (waiting > 0).then(|| threads_made::to_approve_words(waiting)));
             (product.map_or(String::new(), |p| p.name.clone()), 0, list::aside_besides(&title, words.as_deref()), kinds::not_started(i), page::pinned_open(i))
         }
     };

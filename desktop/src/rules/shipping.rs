@@ -41,6 +41,32 @@ fn not_shipped(item: &Item) -> Option<String> {
     None
 }
 
+/// Whether the latest note says the work did not reach main and the agent has not spoken since
+/// (`!!notShipped(item)`): a close then asks first.
+pub fn is_not_shipped(item: &Item) -> bool {
+    not_shipped(item).is_some()
+}
+
+/// The branch a cloud run set the work aside on, when its note names one (`notShipped`'s
+/// `branch`).
+fn kept_aside_on(item: &Item) -> Option<String> {
+    let note = item.text("note")?;
+    let text = note.strip_prefix(CLOSED_UNSHIPPED).unwrap_or(note);
+    if !text.starts_with(KEPT_ASIDE) {
+        return None;
+    }
+    ON_THE_BRANCH.exec(text).map(|m| group(&m, 1).to_string())
+}
+
+/// What the agent is asked when the person picks "Have the agent ship it" (`shipItAsk`).
+pub fn ship_it_ask(item: &Item) -> Option<String> {
+    not_shipped(item)?;
+    Some(match kept_aside_on(item) {
+        Some(branch) => format!("Bring the work on {branch} into this folder, check it against current main, then ship it."),
+        None => "Fix what stopped the ship, then ship it.".to_string(),
+    })
+}
+
 /// The row's line: "Not shipped. <why>".
 pub fn not_shipped_line(item: &Item) -> Option<String> {
     not_shipped(item).map(|why| format!("Not shipped. {}", js::upper_first(&why)))
@@ -94,5 +120,19 @@ mod tests {
         replied["wrote"]["answer"] = json!({ "ts": 30, "source": "founder" });
         assert!(!shipped_by_the_app(&item(replied)));
         assert!(closed_unshipped(&item(json!({ "status": "done", "note": "Closed without its work reaching main." }))));
+    }
+
+    /// `tests/a-thread-whose-work-never-reached-main-is-not-closed-unasked.test.mts`.
+    #[test]
+    fn the_agent_is_asked_to_ship_it_in_words_that_name_where_the_work_is() {
+        let conflict = item(json!({ "status": "open", "note": "It did not ship, and it went back to its agent: CONFLICT (content): Merge conflict in cloud/sandbox/server.mjs", "wrote": { "note": { "ts": 200, "source": "system" }, "result": { "ts": 100 } } }));
+        assert!(is_not_shipped(&conflict));
+        assert_eq!(ship_it_ask(&conflict).as_deref(), Some("Fix what stopped the ship, then ship it."));
+        let aside = item(json!({ "status": "open", "note": "This thread's cloud run finished, but its work was not laid into the task folder: it is on the branch cloud/w-21b638d821. Nothing is lost.", "wrote": { "note": { "ts": 200, "source": "system" } } }));
+        assert_eq!(ship_it_ask(&aside).as_deref(), Some("Bring the work on cloud/w-21b638d821 into this folder, check it against current main, then ship it."));
+        let spoke_since = item(json!({ "status": "open", "note": "It did not ship, and it went back to its agent: x", "wrote": { "note": { "ts": 200 }, "result": { "ts": 300 } } }));
+        assert!(!is_not_shipped(&spoke_since) && ship_it_ask(&spoke_since).is_none());
+        assert!(!is_not_shipped(&item(json!({ "status": "open", "note": "Shipped to main as d202b199.", "wrote": { "note": { "ts": 200 } } }))));
+        assert!(!is_not_shipped(&item(json!({ "status": "open" }))));
     }
 }

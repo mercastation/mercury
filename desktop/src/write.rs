@@ -103,6 +103,9 @@ pub enum Sent {
     SignInSaid { thread: String, ask: String },
     /// Whether that sign-in is saved for every cloud thread, ticked or unticked on its card.
     SignInKeep { thread: String, ask: String },
+    /// A press on the list of the threads a thread filed: said and put on Z's pile once the
+    /// engine answers (`made::landed`).
+    Filed(crate::made::Wrote),
 }
 
 impl Sent {
@@ -125,7 +128,7 @@ impl Sent {
             | Sent::Place { thread, .. }
             | Sent::SignInSaid { thread, .. }
             | Sent::SignInKeep { thread, .. } => thread,
-            Sent::Thread { .. } | Sent::Cloud | Sent::Moved { .. } | Sent::SignIn | Sent::Palette(_) => "",
+            Sent::Thread { .. } | Sent::Cloud | Sent::Moved { .. } | Sent::SignIn | Sent::Palette(_) | Sent::Filed(_) => "",
         }
     }
 }
@@ -218,8 +221,10 @@ pub struct Undo {
     /// (`undoAsk`), in the words of `undoes`.
     pub at: f64,
     pub undoes: String,
-    /// What the thread says once Z has run.
+    /// What the thread says once Z has run, and the other threads, as `product/id`, that say it
+    /// too (one Z over a whole list of proposals).
     pub mark: Option<Mark>,
+    pub also: Vec<String>,
     /// What a reply gives back to its box once Z has run, when the box holds nothing newer.
     pub back: Option<GivenBack>,
 }
@@ -235,7 +240,7 @@ pub struct GivenBack {
 impl Undo {
     /// An entry with nothing but its own writes and lines, stamped now.
     pub fn plain(said: String, undoes: String, writes: Vec<Write>, sent: Sent, thread: (String, String), opens: bool) -> Undo {
-        Undo { said, writes, sent, thread, opens, at: wall_clock(), undoes, mark: None, back: None }
+        Undo { said, writes, sent, thread, opens, at: wall_clock(), undoes, mark: None, also: Vec::new(), back: None }
     }
 }
 

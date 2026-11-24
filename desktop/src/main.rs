@@ -17,6 +17,7 @@ mod attach;
 mod change;
 mod chips;
 mod chrome;
+mod closing;
 mod compose;
 mod data;
 mod drafts;
@@ -33,6 +34,7 @@ mod inbox;
 mod keys;
 mod later;
 mod logos;
+mod made;
 mod markdown;
 mod need;
 mod palette;
@@ -43,6 +45,7 @@ mod reads;
 mod reply;
 mod rules;
 mod settings;
+mod ship;
 mod sky;
 mod source;
 mod strip;
@@ -197,6 +200,8 @@ pub struct State {
     pub later: later::Picker,
     /// The card of the sign-in the open thread's agent waits on, and what it holds (`need.rs`).
     pub sign_in: need::SignIn,
+    /// What a close on the open thread is asking first (`closing.rs`).
+    pub closing: closing::Closing,
     /// The command bar ⌘K opens (`palette.rs`).
     pub palette: palette::Bar,
     /// The box a thread is started in, and what it holds.
@@ -291,8 +296,10 @@ impl State {
         self.reply = TextEdit::new("");
         self.option = None;
         self.refused = None;
-        // The question before a discard belongs to the thread it was asked on.
+        // The question before a discard belongs to the thread it was asked on, and so does the
+        // one a close asks first.
         self.answering.discard = None;
+        self.leave_the_close_ask();
     }
     fn take_the_reply_out(&mut self) {
         if let View::Thread { id, product } = &self.view {
@@ -779,7 +786,7 @@ impl State {
         let Some(item) = self.open_item().cloned() else {
             return;
         };
-        let Some(choice) = thread::live_options(&item).into_iter().nth(at) else {
+        let Some(choice) = ship::offer_now(self, &item).into_iter().nth(at) else {
             return;
         };
         self.option = None;
@@ -856,13 +863,27 @@ impl State {
         }
         self.close_now(id, product, unshipped, tx);
     }
-    /// The close itself, with no warning before it.
+    /// The close itself, with no warning before it, unless it asks first: work that never
+    /// reached main, or filed tasks still waiting for a yes (`closing.rs`).
     pub(crate) fn close_now(&mut self, id: &str, product: &str, unshipped: bool, tx: &mut Tx) {
         let Some(item) = self.snap.items.iter().find(|i| i.id == id && i.product == product).cloned() else {
             return;
         };
         // Already closed by the person: there is nothing left to mark. A thread its agent
         // finished still needs them, and E is how they say they have read it.
+        if item.status == "done" && item.wrote("status").is_some_and(|w| w.source == "founder") {
+            return;
+        }
+        if self.close_asks_first(&item, unshipped, false) {
+            return;
+        }
+        self.close_unasked(id, product, unshipped, tx);
+    }
+    /// The close, held three seconds, asking nothing.
+    pub(crate) fn close_unasked(&mut self, id: &str, product: &str, unshipped: bool, tx: &mut Tx) {
+        let Some(item) = self.snap.items.iter().find(|i| i.id == id && i.product == product).cloned() else {
+            return;
+        };
         if item.status == "done" && item.wrote("status").is_some_and(|w| w.source == "founder") {
             return;
         }
@@ -918,6 +939,8 @@ impl State {
             write::Sent::Palette(_) => return palette::landed(self, landed, tx),
             // A sign-in card's writes are the card's own to say (`need.rs`).
             write::Sent::SignInSaid { .. } | write::Sent::SignInKeep { .. } => return self.sign_in_landed(landed),
+            // So are the presses on the list of the threads a thread filed (`made.rs`).
+            write::Sent::Filed(_) => return made::landed(self, landed, tx),
             // Z's own writes: said once the engine has them, or put back on the pile.
             write::Sent::TakenBack { .. } => return self.undo_landed(landed, tx),
             _ => {}
@@ -993,7 +1016,8 @@ impl State {
             | write::Sent::SignIn
             | write::Sent::Palette(_)
             | write::Sent::SignInSaid { .. }
-            | write::Sent::SignInKeep { .. } => return,
+            | write::Sent::SignInKeep { .. }
+            | write::Sent::Filed(_) => return,
         });
     }
     /// Out of a conversation: to where the person came from, and one opened from nowhere came
@@ -1377,6 +1401,7 @@ fn init_from(args: &[String]) -> State {
         hidden: HashSet::new(),
         later: later::Picker::closed(),
         sign_in: need::SignIn::default(),
+        closing: closing::Closing::default(),
         palette: palette::Bar::closed(),
         compose: compose::Composer::default(),
         rail: chrome::Rail::default(),
@@ -1538,7 +1563,11 @@ fn press_what_the_picture_pressed(s: &mut State, tx: &mut Tx) {
     }
     // And one taken a moment after a reply was sent from the open thread's box (`replySent`),
     // and after the next keys pressed there (`answer::picture`).
+    // A close asked first (`closePressed`), before the keys pressed after it.
+    crate::closing::picture(s, tx);
     crate::answer::picture(s, tx);
+    // And a press on the threads it filed (`filedPressed`).
+    crate::made::picture(s, tx);
     // One taken with a menu of that box open says which (`menu`).
     if let Some(which) = s.fixture.remove("menu") {
         s.picture_menu(which.as_str().unwrap_or_default(), tx);
@@ -1719,6 +1748,8 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
     changed |= s.tend_the_found_line(tx);
     // Where the person was in the conversation they left, and where they land in this one.
     changed |= s.tend_the_reading(tx);
+    // A close's question just raised, brought onto the screen once it is drawn.
+    changed |= closing::bring_it(s, tx);
     if let Some((key, answer)) = s.asking.take() {
         // Whether it came back is said under the working line's steps (`thread.rs`).
         s.read_came_back(&key, answer.is_ok());

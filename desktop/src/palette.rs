@@ -490,6 +490,12 @@ impl State {
         let Some(approval) = rules::approval(item) else {
             return self.close(&item.id, &item.product, false, tx);
         };
+        self.approve_as(item, approval, tx);
+    }
+
+    /// The approval itself, as `resolve` makes it: also New thread beside a thread another
+    /// filed, from which the person stays on the thread they pressed it from (`made.rs`).
+    pub(crate) fn approve_as(&mut self, item: &Item, approval: rules::Approval, tx: &mut Tx) {
         let thread = thread_of(item);
         let inside = self.is_open(&thread);
         let next = next_after(self, &thread);
