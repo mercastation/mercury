@@ -2442,6 +2442,12 @@ pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
     if !talk.after.is_empty() {
         blocks.push(markdown::block(22.0, 0.0, col().gap(9.0).children(talk.after.iter().enumerate().map(|(at, act)| act_line(act, s.now, at > 0)))));
     }
+    // The sign-in its agent handed over and waits on, as a card under all that was said
+    // (`signInHere` in `ItemThread.tsx`, `.need`: 16 points over it and 6 under).
+    let in_the_cloud = session.as_ref().is_some_and(|run| run.place.as_deref() == Some("cloud"));
+    if let Some(card) = crate::need::sign_in_card(s, item, in_the_cloud, m.column) {
+        blocks.push(markdown::block(16.0, 6.0, card));
+    }
     // And whether anything is happening, under the last message and over the reply box.
     if let Some(line) = live::foot(item, &facts, true) {
         let run = format!("{thread}|{}", session.as_ref().map_or(0.0, |r| r.started_at));

@@ -3123,8 +3123,76 @@ every quarter second only while a run is in the browser, every two seconds while
 and never for a finished run once read. A picture of the window with no app behind it is told
 the films' folder by `MERCURY_FILM_ROOT`.
 
+## What an agent asks the person for
+
+An agent that needs the person to sign in to a service hands the service's own link to its
+`sign_in` tool and waits (`shared/sign-in-ask.mts`). The thread carries the ask (`signIn`), goes
+to Needs you, says Asking at its foot, and draws the ask as a card under the conversation
+(`src/need.rs`, from `SignInCard.tsx`): the address the link opens, the agent's reason, a code to
+type there when the service gives one, and Open, "I've signed in" and "Not now". A login that
+waits for a code the service shows has a box for it instead of "I've signed in". A run on
+another machine adds a tick that saves the sign-in for every cloud thread, and, for a link that
+comes back to localhost, a box for the address the browser ended on. Each control writes what the
+web window's writes (`zero:sign-in-answer`, `zero:sign-in-keep`, in `src/rules/sign_in.rs`), the
+card holds still until the engine has answered, and a refusal is said under the buttons. The
+mark is the service's own logo when the link is the service's own (`src/logos.rs`: the web
+window's 23 files, copied to `assets/logos`, which a test holds to the originals), a key
+otherwise.
+
+`docs/parity-asks.md` is the checklist it was built from, and the list of the other things an
+agent or the app asks for in a conversation that this window does not draw yet. The scenes are
+`thread-sign-in`, `-code`, `-paste`, `-cloud`, `-cloud-pasting`, `-refused`, `-busy` and three
+with the pointer resting on a control (`-hover-open`, `-hover-signed`, `-hover-skip`). In every
+one the card is the web window's size to a hundredth of a point and stands at the same height.
+
 ## What still differs from the web app, and why
 
+- **The web window changed on 2026-11-23 and this window has not followed.** An upstream sync
+  that day gave the web window's dark skies a deep black for the warm Ash (`--bg` #0b0b0c,
+  `--surface` #131315, `--bg-raised` #1a1a1c, hairlines #363639 and #424245), a narrower rail
+  with a Recent list, Inbox rows of two lines, a home page for Files (Recent, a section per
+  folder, "Every file, with sizes and the Trash" leading to the grid this window draws), a menu
+  of apps on the open mark, N over a file opened big, and lines for an E or a Z that did nothing
+  ("Open this thread to close it.", "This thread is already done."). A conversation that was
+  0.41 of 255 from the web window's is 16 from it now, nearly all of it the ground's colour and
+  the rail's width. Until this window is fitted to it again, a scene's whole-window number says
+  little; a part is compared against the same part (the sign-in card's notes say how).
+- **What a sweep of the whole web window found, that this list did not have** (2026-11-23; read
+  off the code of every component and every call the web window makes, 134 of whose 175 channels
+  this window never calls). Left out by agreement, and so not listed again: the team and its
+  rooms, Demands, Connections, Feedback, meetings, first run and import, the light theme, the
+  terminal, the agent's browser, plans and billing, notes and sharing on files, writing in Files.
+  Not agreed, and not here:
+  - *In a conversation:* everything in part B of `docs/parity-asks.md` (what a cloud run needs,
+    a key typed into a reply, GitHub's sign-in on a refused ship, the app's own "Ship this
+    change?", what a close asks first, the threads a thread filed, "Waiting on … · open →", the
+    actions row of a thread put off, the remote control card); a mermaid chart, drawn as its
+    source; the copy button on a block of code; a thread named by its id or a thread link, which
+    stays words and whose press does nothing; a link that cannot be opened, which says nothing;
+    the first message of a filed thread and its way back to the parent; the app's own notes,
+    signed as the agent's; who wrote an answer where there are several agents; the summary under
+    the title, which cannot be pressed open; "#" naming another thread and a repeat phrase in a
+    reply; "Waiting for memory" on the working line; the usage gauge on the reply's model chip.
+  - *Around it:* the bar that says agents cannot start until a plan is signed in, and its setup
+    card; the row that offers the cloud when this computer is running all it can; the row of
+    tasks that could not run, which is drawn but opens onto nothing and takes no E; the chip
+    that says agents are paused; the chip for an urgent thread that arrived; the line that says
+    agents were put back on their work after a crash; "Updating" and a failed restart on the
+    update row, and the card for a copy that cannot update itself; a new project, whose menu row
+    only says where to make one; older finished threads, which are never fetched past what the
+    snapshot carries; the dot on Needs you for an arrival; an answer read in place, which stays
+    unread; dragging a row to reorder or pin it; R on a row; J and K inside a thread opened from
+    any tab but Needs you; ⌘] and the mouse's back and forward; ⌘F; the window's zoom; a thread
+    put off while it asks, which stays in Needs you.
+  - *Files:* a file is found only under the folders this window knows to try, where the web
+    window asks the engine, which also searches the project by name and reads a finished
+    thread's copy back from its branch, so some files the web window opens are "not found"
+    here; a file kept in the cloud says "could not be found" while it is on its way back, and is
+    not read again when it lands; a tile whose file does not open says nothing; "Show in Finder".
+  - *Settings:* the Cloud group and "Add to cloud" on an agent's page when the cloud has no
+    login of that agent; Escape while selecting projects, which closes Settings; a refused list
+    of sites, which closes the box and loses what was typed; a project's Instructions, which
+    open at every agent's; which account is "In use" when the cloud runs every thread.
 - **The window opens where it was left, and as large.** The web window opens at one size,
   centred, every time. This one keeps its frame, since each install closes and opens it (see
   "Where the window stood").
@@ -3508,9 +3576,8 @@ the films' folder by `MERCURY_FILM_ROOT`.
   - It finds threads only, the best five, with no "See all" row, since this window has no search
     page. The web's bar also finds people and groups, repeating tasks, teammates' threads, and
     lines, files, comments and decisions inside things, which its main process searches. The
-    lines, files and comments are not here yet: a line opens its thread scrolled to that message
-    and marks it, which needs this window's conversation to keep each message's line id (it keeps
-    none), and a comment opens its file big at the comment, which the big view does not draw.
+    lines and files are here (see "The command bar"); a comment is not: it opens its file big at
+    the comment, which the big view does not draw.
   - Pause agents closes the bar as it is pressed; the web's closes it once the engine has
     answered, a few milliseconds later.
   - Resume this agent says what the web window says of the engine's answer, and that answer
@@ -3636,6 +3703,9 @@ the films' folder by `MERCURY_FILM_ROOT`.
   window's working line against the web window's (`MERCURY_FILM` in `tools/reference.mjs`).
 - `src/later.rs`: the Later picker. `src/rules/later.rs` reads the time typed into it, on the
   calendar `src/rules/calendar.rs` keeps.
+- `src/need.rs`: the card of a sign-in an agent waits on, under its conversation, and what the
+  card holds. `src/rules/sign_in.rs` says which ask is open, what the card says of it and what
+  each control writes; `src/logos.rs` draws the services' logos from `assets/logos`.
 - `src/reply.rs`: the model and level a conversation's reply box is on, and its model menu (the
   box's own, from `compose.rs`). `src/rules/reply_pick.rs`: what the box opens on, what a pick
   keeps and what the next reply writes. `src/strip.rs`: what the strip over a conversation

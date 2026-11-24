@@ -35,6 +35,9 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 # A pasted picture is sent to the engine as its bytes in base64, as the web window sends it.
 # Already built for Rune, so this adds nothing to compile.
 base64 = "0.22"
+# A sign-in card names the host its link opens and reads where the link comes back to, as a
+# browser's own URL does. Already built for ureq, so this adds nothing to compile.
+url = "2"
 
 # Cargo does not inherit a dependency's patches, and Rune's README asks an app to repeat them.
 [patch.crates-io]

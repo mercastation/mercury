@@ -98,6 +98,11 @@ pub enum Sent {
     /// A row of the command bar's, with what is said and done once the engine answers
     /// (`palette::landed`).
     Palette(crate::palette::Wrote),
+    /// What the person did with the sign-in link the thread `product/id` waits on, by the
+    /// ask's id: the card says so itself if the engine does not take it (`need.rs`).
+    SignInSaid { thread: String, ask: String },
+    /// Whether that sign-in is saved for every cloud thread, ticked or unticked on its card.
+    SignInKeep { thread: String, ask: String },
 }
 
 impl Sent {
@@ -117,7 +122,9 @@ impl Sent {
             | Sent::TakenBack { thread }
             | Sent::Withdraw { thread, .. }
             | Sent::Priority { thread, .. }
-            | Sent::Place { thread, .. } => thread,
+            | Sent::Place { thread, .. }
+            | Sent::SignInSaid { thread, .. }
+            | Sent::SignInKeep { thread, .. } => thread,
             Sent::Thread { .. } | Sent::Cloud | Sent::Moved { .. } | Sent::SignIn | Sent::Palette(_) => "",
         }
     }

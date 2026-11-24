@@ -32,7 +32,9 @@ mod icons;
 mod inbox;
 mod keys;
 mod later;
+mod logos;
 mod markdown;
+mod need;
 mod palette;
 mod pane;
 mod picks;
@@ -193,6 +195,8 @@ pub struct State {
     hidden: HashSet<String>,
     /// The Later picker L opens.
     pub later: later::Picker,
+    /// The card of the sign-in the open thread's agent waits on, and what it holds (`need.rs`).
+    pub sign_in: need::SignIn,
     /// The command bar ⌘K opens (`palette.rs`).
     pub palette: palette::Bar,
     /// The box a thread is started in, and what it holds.
@@ -269,6 +273,7 @@ impl State {
     fn put_the_reply_away(&mut self) {
         self.leave_the_reading();
         self.leave_the_strip();
+        self.leave_the_sign_in();
         // A file open big belongs to the page it was opened over, and one beside a conversation
         // to the conversation, which keeps it for when it is opened again.
         self.viewer.open = None;
@@ -911,6 +916,8 @@ impl State {
             write::Sent::Cloud | write::Sent::Moved { .. } | write::Sent::SignIn => return self.cloud_landed(landed, tx),
             write::Sent::Carry { .. } => return self.carried(landed, tx),
             write::Sent::Palette(_) => return palette::landed(self, landed, tx),
+            // A sign-in card's writes are the card's own to say (`need.rs`).
+            write::Sent::SignInSaid { .. } | write::Sent::SignInKeep { .. } => return self.sign_in_landed(landed),
             // Z's own writes: said once the engine has them, or put back on the pile.
             write::Sent::TakenBack { .. } => return self.undo_landed(landed, tx),
             _ => {}
@@ -978,7 +985,15 @@ impl State {
             write::Sent::Priority { .. } => format!("Could not change its priority: {why}"),
             write::Sent::Place { .. } => format!("Could not change where it runs: {why}"),
             // These went their own way above.
-            write::Sent::Thread { .. } | write::Sent::Withdraw { .. } | write::Sent::Carry { .. } | write::Sent::Cloud | write::Sent::Moved { .. } | write::Sent::SignIn | write::Sent::Palette(_) => return,
+            write::Sent::Thread { .. }
+            | write::Sent::Withdraw { .. }
+            | write::Sent::Carry { .. }
+            | write::Sent::Cloud
+            | write::Sent::Moved { .. }
+            | write::Sent::SignIn
+            | write::Sent::Palette(_)
+            | write::Sent::SignInSaid { .. }
+            | write::Sent::SignInKeep { .. } => return,
         });
     }
     /// Out of a conversation: to where the person came from, and one opened from nowhere came
@@ -1361,6 +1376,7 @@ fn init_from(args: &[String]) -> State {
         last_toast: None,
         hidden: HashSet::new(),
         later: later::Picker::closed(),
+        sign_in: need::SignIn::default(),
         palette: palette::Bar::closed(),
         compose: compose::Composer::default(),
         rail: chrome::Rail::default(),
@@ -1472,6 +1488,8 @@ fn init_from(args: &[String]) -> State {
             s.later.refused = s.fixture.get("laterRefused").and_then(Value::as_bool).unwrap_or(false);
         }
     }
+    // And one taken after a sign-in card was pressed or typed into (`signInPressed`).
+    need::picture(&mut s);
     // A picture taken with the command bar open (`palette` is what was typed into it).
     palette::picture(&mut s);
     // Nor can it wait for a conversation behind the door to be read.

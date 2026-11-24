@@ -6,8 +6,10 @@
 //!
 //! One person, with no team: where a team's rule would hook in is said in a comment at the
 //! place. A terminal agent the app did not start is not listed either (`agentRows` in
-//! `App.tsx`, off unless the setting turns it on). `tools/rows.mjs` holds these lists against
-//! the rows the web window draws from the same snapshot.
+//! `App.tsx`): the web window lists one unless the setting turns it off (`outsideAgentsMode`
+//! in `main/settings.mts`, on by default), so with that setting on this window is short of
+//! those rows. `tools/rows.mjs` holds these lists against the rows the web window draws from
+//! the same snapshot.
 
 pub mod answering;
 pub mod answers;
@@ -46,6 +48,7 @@ pub mod roots;
 pub mod search;
 pub mod settings;
 pub mod shipping;
+pub mod sign_in;
 pub mod status;
 pub mod table_edit;
 pub mod table_file;

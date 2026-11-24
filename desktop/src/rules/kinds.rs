@@ -100,14 +100,9 @@ pub fn cause_word(n: usize) -> String {
     format!("{n} waiting")
 }
 
-/// The sign-in this thread still waits on (`openSignIn` in `shared/sign-in-ask.mts`).
+/// Whether this thread still waits on a sign-in (`openSignIn` in `shared/sign-in-ask.mts`).
 pub fn open_sign_in(i: &Item) -> bool {
-    let Some(ask) = i.object("signIn") else { return false };
-    let Some(id) = ask.get("id").and_then(Value::as_str).filter(|id| !id.is_empty()) else { return false };
-    if crate::data::truthy(ask.get("done")) || i.status == "done" {
-        return false;
-    }
-    i.object("signInAnswer").and_then(|a| a.get("id")).and_then(Value::as_str) != Some(id)
+    super::sign_in::open(i).is_some()
 }
 
 /// A conversation brought in from Codex, there to be read (`isCodexRow` in

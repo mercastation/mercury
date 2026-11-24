@@ -35,6 +35,16 @@ stroked!(
     "1.25",
     r#"<path d="M4.5 8h8M16.5 8h3M4.5 16h3M11.5 16h8"/><circle cx="14.5" cy="8" r="2"/><circle cx="9.5" cy="16" r="2"/>"#
 );
+// A card that asks the person for something (`need.rs`): the key in its mark when the service
+// has no logo of its own (`SignInCard.tsx`), the arrow after "Open …", and the tick in its box.
+pub static NEED_KEY: Icon = Icon {
+    name: "m-need-key",
+    view: 24.0,
+    body: r#"<g fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="14" r="4"/><path d="M11 11l8-8M16 6l2 2M14 8l2 2"/></g>"#,
+};
+pub static NEED_OUT: Icon = Icon { name: "m-need-out", view: 16.0, body: r#"<path fill="none" stroke="currentColor" stroke-width="1.4" d="M5 11l6-6M6 5h5v5"/>"# };
+pub static NEED_TICK: Icon = Icon { name: "m-need-tick", view: 12.0, body: r#"<path fill="none" stroke="currentColor" stroke-width="1.8" d="M2.5 6.2l2.3 2.3 4.7-5"/>"# };
+
 // What the rail has only sometimes: Restart while a new version waits, what is left of the limit.
 pub static RESTART: Icon = Icon {
     name: "m-restart",

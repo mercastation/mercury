@@ -35,6 +35,14 @@ pub fn rule() -> Color {
 pub fn accent() -> Color {
     rgb(238, 96, 24)
 }
+/// `--bg-raised`: the ground of a card that stands on the page, and of a menu.
+pub fn raised() -> Color {
+    rgb(47, 45, 44)
+}
+/// `--surface`: the ground of a box to type in on such a card.
+pub fn surface() -> Color {
+    rgb(40, 38, 37)
+}
 pub fn page() -> Color {
     rgb(26, 24, 23)
 }
