@@ -124,6 +124,10 @@ pub enum Sent {
     /// A write of a card a cloud run's line drew, said on the card or in a line once the engine
     /// answers (`cloud_need.rs`).
     CloudNeed(crate::cloud_need::Wrote),
+    /// A change made in the Files place, a file made with New, files moved to the Trash, or Z's
+    /// writes taking one back: said, drawn and put on Z's pile once the engine answers
+    /// (`files_page::landed`).
+    Files(crate::files_page::Wrote),
 }
 
 impl Sent {
@@ -148,7 +152,7 @@ impl Sent {
             | Sent::SignInKeep { thread, .. }
             | Sent::GitHubBegin { thread }
             | Sent::GitHubToken { thread } => thread,
-            Sent::Thread { .. } | Sent::Cloud | Sent::Moved { .. } | Sent::SignIn | Sent::Palette(_) | Sent::Filed(_) | Sent::Trouble { .. } | Sent::Project { .. } | Sent::CloudNeed(_) => "",
+            Sent::Thread { .. } | Sent::Cloud | Sent::Moved { .. } | Sent::SignIn | Sent::Palette(_) | Sent::Filed(_) | Sent::Trouble { .. } | Sent::Project { .. } | Sent::CloudNeed(_) | Sent::Files(_) => "",
         }
     }
 }

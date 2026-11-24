@@ -43,6 +43,12 @@ pub struct Placed {
     pub on_mac: Option<f64>,
     pub older: Option<f64>,
     pub cloud: bool,
+    /// The icon a person picked for its tile on Files' home (`icon`).
+    pub icon: Option<String>,
+    /// False for a file Files cannot move to the Trash; absent is a file it can (`trashable`).
+    pub trashable: Option<bool>,
+    /// What moving it to the Trash would give back on this Mac (`movable`).
+    pub movable: Option<f64>,
 }
 
 /// A folder a person made in a project (`FileFolder`).
@@ -53,6 +59,7 @@ pub struct Folder {
     pub project: String,
     pub name: String,
     pub parent: Option<String>,
+    pub at: f64,
 }
 
 /// What `zero:files-place` answers (`FilesPlaceList`).
@@ -109,7 +116,7 @@ pub fn thumb_word(kind: Option<&str>) -> &'static str {
 /// Lower case and without its accents, as a search compares words (`fold`, which decomposes
 /// each letter and drops the marks): the Latin letters a name is written in, each to its own
 /// letter, and a combining mark dropped.
-fn fold(s: &str) -> String {
+pub(crate) fn fold(s: &str) -> String {
     s.to_lowercase().chars().filter(|c| !('\u{300}'..='\u{36f}').contains(c)).map(bare_letter).collect()
 }
 
@@ -140,7 +147,7 @@ pub(crate) fn bare_letter(c: char) -> char {
 }
 
 /// The words of a name: its runs of letters and figures (`partsOf`).
-fn parts_of(s: &str) -> Vec<String> {
+pub(crate) fn parts_of(s: &str) -> Vec<String> {
     fold(s).split(|c: char| !c.is_alphanumeric()).filter(|p| !p.is_empty()).map(str::to_string).collect()
 }
 
@@ -566,9 +573,9 @@ mod tests {
     #[test]
     fn the_place_on_the_page() {
         let folders = vec![
-            Folder { id: "f1".into(), project: "Lumen app".into(), name: "Launch".into(), parent: None },
-            Folder { id: "f2".into(), project: "Lumen app".into(), name: "Assets".into(), parent: Some("f1".into()) },
-            Folder { id: "f3".into(), project: "Plans".into(), name: "Launch".into(), parent: None },
+            Folder { id: "f1".into(), project: "Lumen app".into(), name: "Launch".into(), parent: None, at: 1.0 },
+            Folder { id: "f2".into(), project: "Lumen app".into(), name: "Assets".into(), parent: Some("f1".into()), at: 1.0 },
+            Folder { id: "f3".into(), project: "Plans".into(), name: "Launch".into(), parent: None, at: 1.0 },
         ];
         let at = |name: &str, folder: Option<&str>| Placed { folder: folder.map(str::to_string), ..file(name) };
         let files = vec![at("top.png", None), at("in.png", Some("f1")), at("deep.png", Some("f2")), at("gone.png", Some("not-here"))];

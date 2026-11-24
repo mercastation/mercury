@@ -25,6 +25,7 @@ mod drafts;
 mod feel;
 mod files;
 mod film;
+mod files_home;
 mod files_page;
 mod foot;
 mod front;
@@ -994,6 +995,8 @@ impl State {
             // The row of tasks that could not run, and a project made (`trouble.rs`, `new_project.rs`).
             write::Sent::Trouble { .. } => return trouble::landed(self, landed, tx),
             write::Sent::Project { .. } => return new_project::landed(self, landed, tx),
+            // The Files place's changes, New, the Trash, and Z's writes of them (`files_page.rs`).
+            write::Sent::Files(_) => return files_page::landed(self, landed, tx),
             // Z's own writes: said once the engine has them, or put back on the pile.
             write::Sent::TakenBack { .. } => return self.undo_landed(landed, tx),
             _ => {}
@@ -1075,7 +1078,8 @@ impl State {
             | write::Sent::Filed(_)
             | write::Sent::Trouble { .. }
             | write::Sent::Project { .. }
-            | write::Sent::CloudNeed(_) => return,
+            | write::Sent::CloudNeed(_)
+            | write::Sent::Files(_) => return,
         });
     }
     /// Out of a conversation: to where the person came from, and one opened from nowhere came
@@ -1804,7 +1808,7 @@ fn poll(s: &mut State, at: f64, tx: &mut Tx) -> bool {
     // A picture the engine has turned for the box a thread is started in.
     changed |= s.land_staged();
     // The Files place's list, read again as the store changes, and a tile's file opening.
-    changed |= files_page::tend(s, clock(), stale);
+    changed |= files_page::tend(s, clock(), stale, tx);
     // What Settings' reads and writes were answered.
     changed |= settings::tend(s, tx);
     // The file beside a conversation: opened by the newest answer, and read again as it changes.
@@ -1932,6 +1936,8 @@ fn view(s: &State, cx: &mut Cx<State>) -> El {
     // The list a conversation's Files button opens, over the page and under everything else, and
     // what the rest of its strip opens; over the Inbox, what its strip opens.
     let root = root.children(thread::files_list(s)).children(strip::layer(s)).children(head::layer(s));
+    // A menu of Files' home: a file's, a folder's or New's (`files_home.rs`).
+    let root = root.children(files_home::layer(s));
     // The card saying why the cloud has not got a thread, while the pointer rests on its word.
     let root = root.children(foot::why_layer(s));
     // The box a thread is started in: its open menu over the page it hangs in, or the New

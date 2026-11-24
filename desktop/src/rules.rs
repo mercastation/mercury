@@ -24,6 +24,7 @@ pub mod display;
 pub mod e_and_z;
 pub mod engine;
 pub mod filed_in_thread;
+pub mod files_home;
 pub mod files_shown;
 pub mod film;
 pub mod folded;

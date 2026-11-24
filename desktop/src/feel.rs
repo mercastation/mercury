@@ -1008,11 +1008,11 @@ pub(crate) mod tests {
             s.go(View::Home);
         });
         rt.frame(1.0 / 60.0);
-        // The rail's third place is Files, on All files.
+        // The rail's third place is Files, on All files: its home, the file under Recent.
         press(&mut rt, 41.0, 244.0);
         assert_eq!(rt.state.view, View::Files { project: None });
         rt.frame(1.0 / 60.0);
-        let [x, y, w, h] = rect_of(&rt, "files-tile-storefront/shot.png").expect("the tile is drawn");
+        let [x, y, w, h] = rect_of(&rt, "fh-rrow-storefront/shot.png").expect("the file's row under Recent is drawn");
         press(&mut rt, x + w / 2.0, y + h / 3.0);
         let open = rt.state.viewer.open.as_ref().expect("the tile opens big");
         assert_eq!(open.from, crate::viewer::From::Files("storefront/shot.png".into()));
