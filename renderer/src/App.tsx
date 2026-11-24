@@ -1,7 +1,7 @@
 import { previewFocus } from './preview-focus';
 import { picturesNamedIn, warmPictures } from './components/FittedImg';
 import { PhoneStatus } from './components/PhoneStatus';
-import { sidebarFolded, useSidebarShrinks } from './sidebar-shrinks';
+import { sidebarFolded, toggleSidebarShrinks, useSidebarShrinks } from './sidebar-shrinks';
 import { GlassBand } from './components/GlassBand';
 import { cloudChord, cloudOffAsks, cloudToggleNote, cloudToggleTarget, threadPlace } from './cloud-menu';
 import { usePhoneBack, onCloudPhone, onPhone } from './phone-screen';
@@ -56,7 +56,7 @@ import { whatTheFileSentUp } from '../../shared/artifact-keys.mts';
 import { ALIVE_EVERY_MS, markWindowAlive, type Place, placeIsSomewhere, readPlace, windowWasJustHere, writePlace, writeScroll } from './where-she-was';
 import { Rail } from './components/Rail';
 import { ThreadComposer, type ComposeStart } from './threads/ThreadComposer';
-import { continueStart } from './threads/continue-thread';
+import { carriedForFile, continueStart } from './threads/continue-thread';
 import { OpenTeammateThread } from './threads/ContinuedFrom';
 import { handOffStart, joinNames, laterHint, replyWaitsUntil, taskHandOff, tabAfterSending, writingMovesToTheDialog, projectsOffered, projectOnScreen, teammates } from './threads/composer-rules';
 import { keyOnAnOpenThread, keyOnTheList, rowKey as actsOnARow, replyingTo, screenJustChanged, aWordFollows, HELD_AFTER_A_CHANGE, NOWHERE_TO_TYPE, STILL_TYPING_MS, WORD_FOLLOWS_MS } from './reply-keys';
@@ -78,7 +78,8 @@ import { ImportAgents } from './components/ImportAgents';
 import { importedLine } from './agent-import-card';
 import { whenLabel } from './components/When';
 import { RepeatFocus } from './components/RepeatFocus';
-import { Palette } from './components/Palette';
+import { Palette, type DescribedAnswer } from './components/Palette';
+import { aboutThread } from '../../shared/find-by-description.mts';
 import { CloudOffAsk } from './components/CloudOffAsk';
 import { Standing, STANDING } from './components/Standing';
 import { Settings } from './components/Settings';
@@ -211,7 +212,7 @@ import { engineLabel } from '../../shared/engines.mts';
 import { URGENT_PRIORITY, itemPriority, shownPriority, moveProduct, placeScore, placedScore } from '../../shared/rank.mts';
 import { rankProducts } from './project-priority';
 import { threadsMade, approvableFiled, doItHereWrites, answerAllWrites, RUN_IT } from './threads-made';
-import { waitingCounts } from './threads-made';
+import { waitingCounts, stateWord } from './threads-made';
 import { closeAsk, closeAskOwnsKey, unshippedAsk } from './close-asks-first';
 import { notShipped, shipItAsk } from '../../shared/not-shipped.mts';
 import { wasBeforeClose } from '../../shared/reopen-as-it-was.mts';
@@ -257,7 +258,7 @@ import { shippedAtOf, shownToTeam } from '../../shared/thread-cards.mts';
 import { setByPerson, waitChoices as waitChoicesOf, waitWords } from '../../shared/thread-waits.mts';
 import { blockChoices, blockedWords, dayDeadline, dueSaid, lateForMe } from '../../shared/team-tasks.mts';
 import type { ArtifactOpen } from './components/ArtifactView';
-import { familyOfName, fileNewsFor, newestOfFamily, shownName, stillWaiting } from '../../shared/artifact-marks.mts';
+import { fileNewsFor, newestOfFamily, shownName, stillWaiting } from '../../shared/artifact-marks.mts';
 import { commentsToHand, withComments, type HandedComment } from './threads/comments-to-hand';
 import { notesOnThread } from './threads/thread-notes';
 import { helpedWhen, isTheAskOn, teammateThreadsFound } from './threads/teammate-thread';
@@ -2572,15 +2573,11 @@ export default function App() {
     setFocused(null);
     openTeammateCard(card);
   }, [weekCards, openTeammateCard]);
-  // `files`: from one file's notes, which carries that file's newest version and no other.
   const continueTeammateThread = useCallback((card: ThreadCard, comments: HandedComment[] = [], files?: string[]) => {
     void api.teamContinueBrief({ personId: card.personId, threadId: card.threadId })
       .then((b) => {
         const start = continueStart(b, card, snap?.products ?? []);
-        const families = new Set((files ?? []).map((f) => familyOfName(f)));
-        const ofTheFile = start.attachments.filter((a) => families.has(familyOfName(a.name)));
-        const attachments = files?.length && ofTheFile.length ? { attachments: ofTheFile.slice(-1) } : {};
-        setComposeInitial({ ...start, ...attachments, ...(comments.length ? { comments, body: withComments(start.body, comments, { nameOf: commenter }), caret: [0, 0] as [number, number] } : {}) });
+        setComposeInitial({ ...start, attachments: carriedForFile(start.attachments, files), ...(comments.length ? { comments, body: withComments(start.body, comments, { nameOf: commenter }), caret: [0, 0] as [number, number] } : {}) });
         setModal('compose');
       })
       .catch((err) => showToast(String(err?.message ?? err)));
@@ -3267,7 +3264,9 @@ export default function App() {
     // each run sends the whole of Needs you to the corner tag.
   }, [!snap, inbox, snap?.approvals, runningRows.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // The corner tag's "Turn off…" lands on the switch that turns it off.
+  // MERCURY: the native window's Settings and the notch island's "Turn off in
+  // Settings…" land on the page asked for. (Agentbox's corner tag turns itself
+  // off from its own list now and no longer asks for this.)
   useEffect(() => {
     const off = window.zero?.onOpenSettings?.(({ pane }) => {
       setTeamOpen(false);
@@ -3484,6 +3483,33 @@ export default function App() {
     })),
     ];
   }, [repeats, items, agentList, searchContext, snap?.products, search, closeSearch, markSeen, weekCards, team, openTeammateCard, stateOfMine, focused?.id]);
+  // A thread described in a sentence, found by a small AI (shared/find-by-description.mts).
+  const askAiToFind = useMemo(() => api.findByDescription(), []);
+  const findByDescription = useCallback(async (description: string): Promise<DescribedAnswer> => {
+    if (!askAiToFind) return { ok: false, error: 'This copy of the app cannot search with AI yet.' };
+    const projectOf = (slug: string) => snap?.products.find((p) => p.slug === slug)?.name ?? slug;
+    const candidates = items.map((i) => ({
+      key: `${i.product}/${i.id}`, product: i.product, title: threadSearchDetails(i, searchContext).title,
+      about: aboutThread(i), where: stateWord(stateOfMine(i) ?? (i.status === 'done' ? 'done' : null)) || 'Open',
+      at: i.updatedAt ?? i.createdAt, project: projectOf(i.product),
+    }));
+    const answer = await askAiToFind({ description, candidates });
+    if (!answer.ok) return answer;
+    const byKey = new Map(items.map((i) => [`${i.product}/${i.id}`, i]));
+    const now = Date.now();
+    return {
+      ok: true,
+      rows: answer.picks.flatMap((p) => {
+        const item = byKey.get(p.key);
+        return item ? [{
+          id: `thread-${item.product}-${item.id}`,
+          label: threadSearchDetails(item, searchContext).title,
+          ...threadResult(item, { state: stateOfMine(item), summary: p.why, project: projectOf(item.product), now }),
+          run: () => { setModal(null); if (search !== null) closeSearch(); setFocused(item); markSeen(item); },
+        }] : [];
+      }),
+    };
+  }, [askAiToFind, items, searchContext, snap?.products, stateOfMine, search, closeSearch, markSeen]);
   // J AND K FROM AN OPEN THREAD OR AN OPEN TEAMMATE CARD (w-fb16bcaeba): open
   // the next stop, whoever's it is. Yours opens as your thread, theirs as
   // their card, exactly as a click on its row would.
@@ -3799,6 +3825,11 @@ export default function App() {
     toastTimer.current = setTimeout(() => setToast(null), goes ? TOAST_GOES_MS : 2500);
   }, []);
   showToastRef.current = showToast;
+  // Every menu's Pin thread says what it did: from inside a thread the list it moves on is out of sight.
+  const pinFromMenu = (id: string, pin: boolean) => {
+    pinThread(id, pin, true);
+    showToast(pin ? 'Pinned to the top of your list' : 'Unpinned');
+  };
   // The thread a session was just brought in as, opened the moment it is in the list.
   const [movedIn, setMovedIn] = useState<{ product: string; id: string; reply: boolean } | null>(null);
   // R on one of those sessions is its Continue in Agentbox, and lands in the reply box.
@@ -6059,6 +6090,7 @@ export default function App() {
         setModal((m) => (m === 'palette' ? null : 'palette'));
         return;
       }
+      if ((e.metaKey || e.ctrlKey) && e.key === '\\' && !onPhone()) { e.preventDefault(); toggleSidebarShrinks(); return; }
       const toastsO = oIsTheToasts(e.key, toast, sentAt.current, Date.now(), lastToast.current);
       // A ROOM OWNS THE KEYBOARD WHILE IT IS OPEN, as Settings does: the list
       // behind it is not on the screen. Escape goes back to the threads and
@@ -7366,7 +7398,7 @@ export default function App() {
         // Next tick, as Add people below: the menu is on the thread's page, which may only just be opening.
         setTimeout(() => window.dispatchEvent(new Event('zero:choose-people')), 60);
         return;
-      case 'pin': pinThread(item.id, d.pin, true); showToast(d.pin ? 'Pinned to the top of your list' : 'Unpinned'); return;
+      case 'pin': pinFromMenu(item.id, d.pin); return;
       case 'place': placeThread(item, d.keep); return;
       case 'code': setOpenDoc({ product: item.product, src: changePathFor(item.id) }); return;
       case 'end-repeat': { const rule = ruleOf(item); if (rule) void endRule(rule); return; }
@@ -7622,7 +7654,7 @@ export default function App() {
       const ended = from && i.ask && i.status === 'done' && team ? taskWords(i, team.products.get(i.product), team.me, (id) => firstName(team.byId.get(id) ?? null), true)?.word ?? null : null;
       const asks = from && i.ask && i.assignee === team?.me && !ended ? (i.ask.kind === 'help' ? ' asks for help' : ' asks for a review') : '';
       const photo = sent && !sent.agent ? team?.byId.get(sent.from)?.avatarUrl : null;
-      return { key: `${i.product}/${i.id}`, ...(mate ? { face: faceSeed(mate) } : {}), ...(!from && !mate ? { agent: true } : {}), ...(photo ? { photo } : {}), letter: sent ? initialsOf(team?.byId.get(sent.from)?.name || from || '?') : from ? from.slice(0, 1).toUpperCase() : engineLetter(rowEngine(i, engineFacts)), title: rowTitle(i), from: ended ?? (from ? `${from}${asks}` : null), priority: rowPriorityId(shownPriority(i)), project, at: sentAtOf(i), unread: isUnread(i, seenAt, unreadSince, team?.me ?? null) };
+      return { key: `${i.product}/${i.id}`, ...(mate ? { face: faceSeed(mate) } : {}), ...(!from && !mate ? { agent: true, engine: rowEngine(i, engineFacts) } : {}), ...(photo ? { photo } : {}), letter: sent ? initialsOf(team?.byId.get(sent.from)?.name || from || '?') : from ? from.slice(0, 1).toUpperCase() : engineLetter(rowEngine(i, engineFacts)), title: rowTitle(i), from: ended ?? (from ? `${from}${asks}` : null), priority: rowPriorityId(shownPriority(i)), project, at: sentAtOf(i), unread: isUnread(i, seenAt, unreadSince, team?.me ?? null), ...(i.pinned && i.status !== 'done' ? { pinned: true } : {}) };
     },
   }) : [];
   const homeTeam = !homeShown || !teamMode ? null : teamCard(members.filter((m) => m.kind === 'person' || (m.kind === 'mate' && m.key.startsWith('mate:'))).map((m): TeamRow => {
@@ -7648,7 +7680,7 @@ export default function App() {
   };
   const homeProgress: ProgressRow[] = homeShown && !teamMode ? progressTab.slice(0, 60).map((i) => {
     const engine = rowEngine(i, engineFacts);
-    return { key: `${i.product}/${i.id}`, letter: engineLetter(engine), title: rowTitle(i), line: `${engineName(engine)} · ${i.productName}`, at: sentAtOf(i) };
+    return { key: `${i.product}/${i.id}`, letter: engineLetter(engine), engine, title: rowTitle(i), line: `${engineName(engine)} · ${i.productName}`, at: sentAtOf(i) };
   }) : [];
   const homeOpenRow = (key: string) => {
     const opens = homeRowOpens(key, needsList, progressTab, keyOf);
@@ -7906,6 +7938,7 @@ export default function App() {
       <WorkspaceNavigation
         onPalette={() => setModal('palette')}
         recent={recentRows}
+        keptOpen={!sidebarShrinks} onKeepOpen={toggleSidebarShrinks}
         update={announcesUpdate(snap?.update, { closed: '' }) ? { installing: !!snap?.update?.installing, version: snap?.update?.newVersion, changes: snap?.update?.changes, behind: snap?.update?.behind, error: snap?.update?.error } : null}
         onUpdate={() => { void api.updateInstall(); }}
         /* AND THE COPY THAT CANNOT UPDATE ITSELF FROM WHERE IT IS
@@ -8426,7 +8459,7 @@ export default function App() {
                   onReplyClose={() => setModal(null)}
                   onStop={() => stopAgent(focused)}
                   onRunNow={() => runNow(focused)}
-                  onPin={focused.agent ? undefined : (pin) => pinThread(focused.id, pin, true)}
+                  onPin={focused.agent ? undefined : (pin) => pinFromMenu(focused.id, pin)}
                   place={focused.agent ? null : threadPlace(focused, snap.supervisor.running.find((r) => r.itemId === focused.id) ?? null, snap.cloud ?? null, runningEngine)}
                   onPlace={(keep) => placeThread(focused, keep, false)}
                   pageAsk={threadAsk?.key === keyOf(focused) ? threadAsk : null}
@@ -8907,6 +8940,7 @@ export default function App() {
         findThreads={findThreads}
         findChats={findChats}
         findInside={insideForPalette}
+        findByDescription={askAiToFind ? findByDescription : undefined}
         onSearchFor={searchFor}
         itemCommands={(() => {
           // A chat covers the list, so nothing here may act on a row behind it.

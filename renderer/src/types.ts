@@ -327,6 +327,8 @@ export interface PlacedFile {
   name: string;
   /** The name a person gave it in Files; `name` stays its name on disk. */
   title?: string;
+  /** Its later versions' own names, when they differ from `name`. */
+  versionNames?: string[];
   /** The icon a person picked for its tile. */
   icon?: string;
   kind: FileKind | null;
@@ -499,7 +501,7 @@ export interface FoundWhere {
   updatedAt: number;
 }
 export interface FoundLine extends FoundWhere { uid: string; by: string | null; source: 'founder' | 'agent' | 'system'; at: number; comment: boolean; text: string }
-export interface FoundFile extends FoundWhere { how: 'name' | 'contents'; src: string; name: string; by: string | null; at: number; text: string }
+export interface FoundFile extends FoundWhere { how: 'name' | 'contents'; src: string; name: string; by: string | null; agent?: string; at: number; text: string }
 export interface FoundComment extends FoundWhere { src: string; name: string; by: string | null; at: number; resolved: boolean; noteId: string; fileId: string; text: string }
 /** What the finder in main answers (main/everything-found.mts). */
 export interface FoundInThreads {
@@ -1925,6 +1927,7 @@ declare global {
       teamThreadWork(p: { personId: string; threadId: string }): Promise<TeammateThreadWork>;
       findInThreads(p: { query: string; limit?: { lines?: number; files?: number; comments?: number }; opened?: Record<string, number> }): Promise<FoundInThreads>;
       warmFindInThreads(): Promise<boolean>;
+      findByDescription?(p: { description: string; candidates: import('../../shared/find-by-description.mts').FindCandidate[] }): Promise<import('../../shared/find-by-description.mts').FindAnswer>;
       fileMark(p: { product: string; id: string; mark: ArtifactMark }): Promise<{ ok: boolean; error?: string }>;
       fileNewVersion?(p: { product: string; id: string; path: string; text: string; since?: string | null }): Promise<{ ok: boolean; path?: string; error?: string }>;
       teamMarkFile(p: { personId: string; threadId: string; mark: ArtifactMark }): Promise<TeamCallResult>;
@@ -2052,7 +2055,8 @@ declare global {
         ready: { id: string; title: string; says: string; since?: number; open?: string | null }[];
         working: number;
       }): Promise<void>;
-      // The corner tag's "Turn off…": open Settings on this page.
+      // MERCURY: the native window and the notch island's "Turn off in
+      // Settings…": open Settings on this page.
       onOpenSettings?(fn: (p: { pane?: string }) => void): () => void;
       onOpenCloudSetup?(fn: () => void): () => void;
       // The native window's plan bar: open the setup card on this plan.

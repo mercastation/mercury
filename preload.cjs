@@ -103,6 +103,7 @@ contextBridge.exposeInMainWorld('zero', {
   teamThreadWork: (payload) => ipcRenderer.invoke('zero:team-thread-work', payload),
   findInThreads: (payload) => ipcRenderer.invoke('zero:find-in-threads', payload),
   warmFindInThreads: () => ipcRenderer.invoke('zero:warm-find-in-threads'),
+  findByDescription: (payload) => ipcRenderer.invoke('zero:find-by-description', payload),
   teamComment: (payload) => ipcRenderer.invoke('zero:team-comment', payload),
   teamContinueBrief: (payload) => ipcRenderer.invoke('zero:team-continue-brief', payload),
   teamContinued: (payload) => ipcRenderer.invoke('zero:team-continued', payload),
@@ -462,7 +463,9 @@ contextBridge.exposeInMainWorld('zero', {
     ipcRenderer.on('zero:open-item', handler);
     return () => ipcRenderer.removeListener('zero:open-item', handler);
   },
-  // The corner tag's "Turn off…": opens Settings at the switch that does it.
+  // MERCURY: the native window (main/local-door.mts) and the notch island's
+  // "Turn off in Settings…" open Settings at a page. Agentbox dropped this
+  // when its corner tag learnt to turn itself off from its own list.
   onOpenSettings: (fn) => {
     const handler = (_e, payload) => fn(payload);
     ipcRenderer.on('zero:open-settings', handler);

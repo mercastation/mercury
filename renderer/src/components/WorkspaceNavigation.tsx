@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { SettingsIcon } from './SettingsIcon';
 import type { TeamState, View } from '../types';
 import { Face } from '../team/people';
@@ -12,7 +12,7 @@ import { changeLines, closedHere, readMoveClosed, readUpdateClosed, writeMoveClo
 import { AccountMenu } from '../team/account-menu';
 import type { Invisible } from '../team/rooms/GoInvisible';
 import { chord } from '../this-keyboard';
-import { pointerMoved } from '../sidebar-shrinks';
+import { CLOSES_AFTER_MS, OPENS_AFTER_MS, followPointer, hoverIntent, pointerMoved, pointerTrail } from '../sidebar-shrinks';
 import { actsOnPress } from '../press';
 import { foldedSet, toggleFold } from '../teammates/chat-lines';
 
@@ -64,7 +64,9 @@ function SearchGlyph() {
  *  deselected tab that is --text-faint at 400, exactly the word Inbox beside it;
  *  on the active one it is --text at 500. There is one rule rather than two.
  */
-export function WorkspaceNavigation({ view, collapsed, onView, onSearch: _onSearch, onCompose, recent = [], inboxCount = 0, scheduledCount: _scheduledCount = 0, usage, onSettings, onInstructions, page: pageIn, hasTeam = false, onTeam, teamPage = false, team = null, onInvite, statuses = true, onAccount, onSignIn, onFeedback, onSignOut, update = null, onUpdate, move = null, onMove, meeting = null, onMeeting, onRecord, invisible = null, inboxLabel = 'Inbox', onPalette, rail = false, onHover, groups = null, onGroupsPage = false, onTeammatesPage = false, onDemands, demandsPage = false, onFiles, filesPage = false, onConnections, connectionsPage = false, onTasks, tasksPage = false, onHome, homePage = false }: {
+export function WorkspaceNavigation({ view, collapsed, onView, onSearch: _onSearch, onCompose, recent = [], keptOpen = false, onKeepOpen, inboxCount = 0, scheduledCount: _scheduledCount = 0, usage, onSettings, onInstructions, page: pageIn, hasTeam = false, onTeam, teamPage = false, team = null, onInvite, statuses = true, onAccount, onSignIn, onFeedback, onSignOut, update = null, onUpdate, move = null, onMove, meeting = null, onMeeting, onRecord, invisible = null, inboxLabel = 'Inbox', onPalette, rail = false, onHover, groups = null, onGroupsPage = false, onTeammatesPage = false, onDemands, demandsPage = false, onFiles, filesPage = false, onConnections, connectionsPage = false, onTasks, tasksPage = false, onHome, homePage = false }: {
+  /** Whether the sidebar stays open with the pointer away, and the press that flips it. */
+  keptOpen?: boolean; onKeepOpen?: () => void;
   /** The threads you last had open, newest first. Drawn on a desktop, and not while the sidebar is closed. */
   recent?: RecentRow[];
   /** Whether one of the teammates' pages is up, which unlights Threads. */
@@ -149,9 +151,26 @@ export function WorkspaceNavigation({ view, collapsed, onView, onSearch: _onSear
   const inboxLit = !homePage && !page && !onGroupsPage && !onTeammatesPage && !filesPage && !connectionsPage && !demandsPage && !tasksPage && (['inbox', 'progress', 'snoozed', 'done'] as string[]).includes(view);
   // A pointer passing over on its way somewhere else does not open it.
   const hoverAt = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const leaveAt = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const navBox = useRef<HTMLElement>(null);
+  const [intent] = useState(hoverIntent);
+  const [pointer] = useState(pointerTrail);
+  useEffect(() => (rail ? followPointer(window, pointer) : undefined), [rail, pointer]);
   const hover = rail && onHover ? {
-    onMouseMove: (e: { movementX: number; movementY: number }) => { if (hoverAt.current || !pointerMoved(e)) return; hoverAt.current = setTimeout(() => onHover(true), 140); },
-    onMouseLeave: () => { if (hoverAt.current) clearTimeout(hoverAt.current); hoverAt.current = null; onHover(false); },
+    onMouseMove: (e: { movementX: number; movementY: number; clientX: number; clientY: number; timeStamp: number }) => {
+      if (leaveAt.current) { clearTimeout(leaveAt.current); leaveAt.current = null; }
+      if (!pointerMoved(e) || !navBox.current) return;
+      if (!intent.move(pointer.before(), { x: e.clientX, y: e.clientY, t: e.timeStamp }, navBox.current.getBoundingClientRect())) return;
+      if (hoverAt.current) clearTimeout(hoverAt.current);
+      hoverAt.current = setTimeout(() => onHover(true), OPENS_AFTER_MS);
+    },
+    onMouseLeave: () => {
+      if (hoverAt.current) clearTimeout(hoverAt.current);
+      hoverAt.current = null;
+      intent.left();
+      if (leaveAt.current) clearTimeout(leaveAt.current);
+      leaveAt.current = setTimeout(() => { leaveAt.current = null; onHover(false); }, CLOSES_AFTER_MS);
+    },
   } : {};
   const me = team?.signedIn ? team.me : null;
   // Your account menu has Settings in it, so the foot does not say it twice.
@@ -203,11 +222,14 @@ export function WorkspaceNavigation({ view, collapsed, onView, onSearch: _onSear
     onPointerDown: (e: { target: EventTarget }) => { const b = e.target instanceof Element ? e.target.closest('button') : null; if (b) b.dataset.clicked = ''; },
     onBlur: (e: { target: EventTarget }) => { if (e.target instanceof HTMLElement) delete e.target.dataset.clicked; },
   };
-  return <aside className={`workspace-navigation${rail ? ' gt-rail-nav' : ''}`} aria-label="Workspace" {...hover} {...clicked}>
+  return <aside ref={navBox} className={`workspace-navigation${rail ? ' gt-rail-nav' : ''}`} aria-label="Workspace" {...hover} {...clicked}>
     <div className="th-team" title={collapsed ? undefined : teamName}>
       {mark}<span className="th-team-name">{teamName}</span>
       {rail && onCompose && <button type="button" className="ws-new" aria-label="New thread" title="New thread (N)" onClick={onCompose}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 20h8" /><path d="m4 20 1-4.5L15.5 5a2.1 2.1 0 0 1 3 3L8 18.5 4 20Z" /></svg>
+      </button>}
+      {rail && onKeepOpen && <button type="button" className="ws-keep" aria-label={keptOpen ? 'Shrink sidebar to icons' : 'Keep sidebar open'} aria-pressed={keptOpen} {...(keptOpen ? { 'data-hint': 'shrink-sidebar' } : { 'data-hint': 'keep-sidebar' })} data-hint-side="above" onClick={onKeepOpen}>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="9" rx="2" /><path d="M6.5 3.75v8.5" /></svg>
       </button>}
     </div>
     {/* Search is a way to look, not a place to go, so it sits above the tabs

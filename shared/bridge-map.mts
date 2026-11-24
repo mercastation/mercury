@@ -68,6 +68,7 @@ export const REQUEST_CHANNELS: Readonly<Record<string, string>> = {
   // Lines, files and comments inside threads that a query finds, and the call that reads them ahead.
   findInThreads: 'zero:find-in-threads',
   warmFindInThreads: 'zero:warm-find-in-threads',
+  findByDescription: 'zero:find-by-description',
   teamComment: 'zero:team-comment',
   teamContinueBrief: 'zero:team-continue-brief',
   teamContinued: 'zero:team-continued',
@@ -293,6 +294,7 @@ export const PUSH_CHANNELS: Readonly<Record<string, string>> = {
   onThreadLink: 'zero:thread-link',
   onSharedFile: 'zero:shared-file',
   onOpenItem: 'zero:open-item',
+  // MERCURY: the native window and the notch island open Settings on a page.
   onOpenSettings: 'zero:open-settings',
   // The native window's cloud menu asks for the cloud's setup (main/local-door.mts OPEN_CLOUD_SETUP).
   onOpenCloudSetup: 'zero:open-cloud-setup',

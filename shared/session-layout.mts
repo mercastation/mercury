@@ -99,9 +99,7 @@ function sentences(s: string): string[] {
   return out.map((x) => x.split(HOLD).join('.').trim()).filter(Boolean);
 }
 
-// MERCURY: `[a]ny` is the word, written so tests/no-type-check-is-switched-off-and-any-only-goes-down
-// does not count it as a type (it read `|any (` as one; red on Agentbox's main at the 2026-11-23 sync).
-const ASKING = /^(?:(?:so|then|and|or|otherwise|now|also|separately|finally|for now)[,:]?\s+)?(?:want|should|shall|may|can|could|would|do|does this|did|are you|is (?:it|this|that) (?:ok|okay|fine|right|good|alright)|is there|which|what(?:'s| is| would| do| should| can| did| happened)?\b|how (?:would|should|do|did)|ready|ok(?:ay)? to|[a]ny (?:preference|thoughts|objection)|where|when|who|anything)\b/i;
+const ASKING = /^(?:(?:so|then|and|or|otherwise|now|also|separately|finally|for now)[,:]?\s+)?(?:want|should|shall|may|can|could|would|do|does this|did|are you|is (?:it|this|that) (?:ok|okay|fine|right|good|alright)|is there|which|what(?:'s| is| would| do| should| can| did| happened)?\b|how (?:would|should|do|did)|ready|ok(?:ay)? to|any (?:preference|thoughts|objection)|where|when|who|anything)\b/i;
 const ADDRESSED = /\b(you|your|I|me|my|we|us|happened)\b/i;
 
 // "Should the button say Book now or Book a visit?" names no one, and is still

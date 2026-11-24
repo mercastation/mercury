@@ -33,6 +33,11 @@ const rulesEndingIn = (target) => [...stripComments(allCss).matchAll(/([^{}]+)\{
   .map((m) => ({ selector: m[1].trim(), body: m[2] }));
 const radiiOn = (target) => rulesEndingIn(target).filter((r) => /border-radius:/.test(r.body));
 
+// The two-line inbox was picked over nine rounds of pictures on 2026-11-23 with
+// every face, a person's included, on a 7px tile. That one row keeps it.
+const INBOX_TILE = '.th-table .row:not(.th-head) .th-slot :is(.tm-av, .tq, i.mate-face, .harness-mark)';
+const outsideTheInbox = (r) => r.selector !== INBOX_TILE;
+
 describe('a person is drawn by one component', () => {
   it('keeps the class that draws a face inside team/people.tsx', () => {
     const others = tsx
@@ -57,12 +62,6 @@ describe('a person is drawn by one component', () => {
   });
 });
 
-// MERCURY: red on Agentbox's own main at the 2026-11-23 sync (623c035b): its
-// two-line inbox row, new that day ("its face sits on the title"), squares the
-// faces in the row's slot. Kept as Agentbox drew it until it settles it; only
-// this one rule is let through.
-const UPSTREAM_SQUARE = '.th-table .row:not(.th-head) .th-slot :is(.tm-av, .tq, i.mate-face, .harness-mark)';
-
 describe('a person is round', () => {
   it('rounds the face once, on the class itself', () => {
     const base = rulesEndingIn('.tm-av').find((r) => r.selector === '.tm-av');
@@ -70,8 +69,14 @@ describe('a person is round', () => {
   });
 
   it('lets no surface give a person a corner of its own', () => {
-    const corners = radiiOn('.tm-av').filter((r) => r.selector !== '.tm-av' && !/\.bot$/.test(r.selector) && r.selector !== UPSTREAM_SQUARE);
+    const corners = radiiOn('.tm-av').filter((r) => r.selector !== '.tm-av' && !/\.bot$/.test(r.selector)).filter(outsideTheInbox);
     expect(corners.map((r) => r.selector)).toEqual([]);
+  });
+
+  it('gives the inbox row its approved 7px tile, and only that row', () => {
+    const tiles = rulesEndingIn('.tq').filter((r) => !outsideTheInbox(r));
+    expect(tiles.map((r) => r.body.trim())).toEqual(['border-radius: 7px;']);
+    expect(allCss.split(INBOX_TILE).length - 1).toBe(1);
   });
 
   it('draws a person round on a phone too, and a teammate round in a dashed ring', () => {
@@ -98,9 +103,9 @@ describe('an AI teammate is dashed and round, the same everywhere', () => {
   });
 
   it.each(['.tq', '.agent-face', '.ev-ai', '.tm-av.bot'])('%s wears that corner and no other', (mark) => {
-    const radii = radiiOn(mark);
+    const radii = radiiOn(mark).filter(outsideTheInbox);
     expect(radii.length).toBeGreaterThan(0);
-    for (const r of radii) if (r.selector !== UPSTREAM_SQUARE) expect(r.body, r.selector).toMatch(/border-radius: var\(--mate-corner\)/);
+    for (const r of radii) expect(r.body, r.selector).toMatch(/border-radius: var\(--mate-corner\)/);
   });
 
   // The agent's own face lost its dashes on 2026-11-20 (w-585619d660): "I'm not

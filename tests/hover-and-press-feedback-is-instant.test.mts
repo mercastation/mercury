@@ -80,7 +80,12 @@ function eased(body: string): string[] {
 const ownsTransition = (body: string) =>
   [...body.matchAll(/(?:^|;)\s*transition(?:-[a-z]+)?\s*:\s*([^;]+)/g)].some((d) => !/^\s*(none|0m?s)\b/.test(d[1]));
 
-const lastCompound = (sel: string) => sel.replace(POINTER, '').split(/\s*[ >+~]\s*/).pop()!.replace(new RegExp(POINTER.source, 'g'), '');
+// A bare tag such as `svg` names nothing on its own, so it is keyed with the compound before it.
+const lastCompound = (sel: string) => {
+  const parts = sel.replace(new RegExp(POINTER.source, 'g'), '').split(/\s*[ >+~]\s*/);
+  const last = parts.pop()!;
+  return /^[a-z][a-z0-9-]*$/i.test(last) && parts.length ? `${parts.pop()} ${last}` : last;
+};
 
 function slowFeedback(all: Rule[]) {
   const found: string[] = [];
@@ -139,6 +144,12 @@ describe('slowFeedback', () => {
     expect(run('.bar { transition: width .3s; } .side { transition: opacity .14s; } .collapsed .side { opacity: 0; }')).toEqual([]);
     expect(run('.caret { transition: transform .12s; } .open .caret { transform: rotate(90deg); } .row:hover .caret { color: red; }')).toEqual([]);
     expect(run('/* transition: color .2s */ .a { color: red; }')).toEqual([]);
+    expect(run('.sec > svg { transition: opacity .14s; } .tag:hover svg { opacity: 1; }')).toEqual([]);
+  });
+
+  it('still finds a bare tag that fades in under its own parent\'s pointer', () => {
+    expect(run('.card svg { opacity: 0; transition: opacity .12s; } .card:hover svg { opacity: 1; }'))
+      .toEqual(['x.css: .card svg eases the opacity that .card:hover svg changes']);
   });
 
   it('lets the named exceptions keep their timing', () => {
@@ -154,12 +165,8 @@ describe('every renderer stylesheet but the tray\'s', () => {
     expect(files.length).toBeGreaterThan(20);
   });
 
-  // MERCURY: red on Agentbox's own main at the 2026-11-23 sync (623c035b): its
-  // home page's team rows and the sidebar's find button, both new that day.
-  // Kept as Agentbox drew them until it settles them; only these are let through.
-  const UPSTREAM_RED = [/^home\/home\.css: \.hm-(?:mate-act|week) eases /, /^sidebar\.css: .*\.workspace-find button eases /];
   it('answers hover, focus and press on the frame they happen', () => {
-    expect(slowFeedback(all).filter((s) => !UPSTREAM_RED.some((r) => r.test(s)))).toEqual([]);
+    expect(slowFeedback(all)).toEqual([]);
   });
 
   it('keeps each exception only while its rule still exists', () => {
