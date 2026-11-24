@@ -1202,10 +1202,11 @@ impl State {
                 self.compose.project = Some(slug);
                 self.close_menu(true, tx);
             }
-            // The card that makes a project is the web window's, and this one has none yet.
+            // The Mac's folder window over the box, whose words stay; the project made is the
+            // one the thread is then addressed to (`new_project.rs`).
             Entry::NewProject => {
                 self.close_menu(true, tx);
-                self.refused = Some("A new project is made in Mercury's own window.".to_string());
+                self.new_project(tx);
             }
             Entry::Level(level) => {
                 self.compose.level = level;

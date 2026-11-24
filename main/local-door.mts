@@ -41,6 +41,11 @@
 //   itself, which brings this app's window forward on that page.
 // - OPEN_CLOUD_SETUP (below): its cloud menu's Manage, Fix, Try again and Set
 //   up the cloud, which bring this app's window forward on the cloud's setup.
+// - MARK_UNREAD_HERE and TROUBLE_CLOSED_HERE (below): a thread set back to
+//   unread, and the row of tasks that could not run put away or back, both
+//   kept in this app's window, which is asked to keep them.
+// - OPEN_PLAN_SETUP (below): the plan bar's two buttons, which bring this
+//   app's window forward on its setup card for the plan pressed.
 // On its event stream the app tells it two things, and nothing else:
 // - TOLD_AT_THE_DOOR (below): the inbox changed, so it reads it again now.
 // - OPEN_IN_NATIVE (main/native-window.mts): the banner or the tray was
@@ -64,15 +69,17 @@ export const LOCAL_DOOR_NOTE = 'local-door.json';
 // localStorage (zero.deliveredThrough, zero.unreadSince, zero.seenAt), and
 // its lists are decided by it. A native window beside it has to decide from
 // the same facts or it shows a different Inbox. So this door has one channel
-// of its own, which asks the web window for exactly those three and nothing
-// else: the script is fixed here and takes nothing from the caller.
+// of its own, which asks the web window for exactly those and nothing else:
+// the script is fixed here and takes nothing from the caller. The fourth is
+// when the pile of tasks that could not run began, as of the last time that
+// row was put away (zero.troubleClosed), which hides it until a new pile.
 export const WINDOW_KEEPS = 'zero:window-keeps';
 
 const READ_WHAT_THE_WINDOW_KEEPS = `(() => {
   const number = (key) => Number(localStorage.getItem(key) ?? 0) || 0;
   let seenAt = {};
   try { seenAt = JSON.parse(localStorage.getItem('zero.seenAt') ?? '{}') ?? {}; } catch { /* an unreadable list is an empty one */ }
-  return { deliveredThrough: number('zero.deliveredThrough'), unreadSince: number('zero.unreadSince'), seenAt };
+  return { deliveredThrough: number('zero.deliveredThrough'), unreadSince: number('zero.unreadSince'), seenAt, troubleClosed: number('zero.troubleClosed') };
 })()`;
 
 /**
@@ -144,6 +151,10 @@ export interface LocalDoorOptions {
   cloudSetup?: IpcHandler;
   /** What answers `MARK_UNREAD_HERE` (see `markUnread`). Without it the channel is not there. */
   unread?: IpcHandler;
+  /** What answers `TROUBLE_CLOSED_HERE` (see `troubleClosed`). Without it the channel is not there. */
+  trouble?: IpcHandler;
+  /** What answers `OPEN_PLAN_SETUP` (see `openPlanSetup`). Without it the channel is not there. */
+  planSetup?: IpcHandler;
   token?: string;
 }
 
@@ -239,8 +250,75 @@ export function markUnread(run: (script: string) => Promise<unknown> | null): Ip
   };
 }
 
+// THE ROW OF TASKS THAT COULD NOT RUN, PUT AWAY. E on that row puts it away
+// until a new pile begins, and the web window keeps when the pile it was put
+// away against began, in its own storage (zero.troubleClosed, `closeTroubleRow`
+// in renderer/src/App.tsx), as it keeps what has been read. So a native window
+// that puts the row away, or takes that back with Z, asks the web window the
+// same way it asks for a thread set back to unread: by an event on its page,
+// which sets it exactly as the web window's own E and Z set it. From the caller
+// it takes one moment, a number, written into the script as data.
+export const TROUBLE_CLOSED_HERE = 'zero:trouble-closed-here';
+
+/** The event the web window listens for (`TROUBLE_CLOSED` in renderer/src/trouble-row.ts). */
+export const TROUBLE_CLOSED_EVENT = 'agentbox:trouble-closed';
+
+/** The script that asks the web window to keep `asked.since`; null when it is not a moment. */
+export function troubleClosedScript(asked: unknown): string | null {
+  const since = (asked as { since?: unknown } | null | undefined)?.since;
+  if (typeof since !== 'number' || !Number.isFinite(since) || since < 0) return null;
+  return `window.dispatchEvent(new CustomEvent(${JSON.stringify(TROUBLE_CLOSED_EVENT)}, { detail: ${JSON.stringify({ since })} })); true`;
+}
+
+/**
+ * Answers `TROUBLE_CLOSED_HERE`. `run` is the web window's own executeJavaScript; an app with no
+ * window open, or one that will not answer, says so and keeps nothing.
+ */
+export function troubleClosed(run: (script: string) => Promise<unknown> | null): IpcHandler {
+  return async (_event, asked) => {
+    const script = troubleClosedScript(asked);
+    if (!script) return { ok: false, error: 'not a moment' };
+    try {
+      return (await run(script)) ? { ok: true } : { ok: false, error: 'the window is gone' };
+    } catch {
+      return { ok: false, error: 'the window did not answer' };
+    }
+  };
+}
+
+// AND THE PLAN BAR'S SETUP. The native window draws the bar that says agents
+// cannot start until a plan is signed in (components/PlanSetup.tsx's PlanBar),
+// and not the setup card its buttons open, which is the first run's and stays
+// this window's. So this door has a channel that brings this app's window
+// forward on that card, for the plan pressed. The plan is the one thing it takes
+// from the caller, and only as one of the card's three: anything else opens nothing.
+export const OPEN_PLAN_SETUP = 'zero:open-plan-setup-here';
+
+/** The plans the setup card sets up (`Plan` in renderer/src/plan-setup.ts). */
+export const PLANS: readonly string[] = Object.freeze(['claude', 'codex', 'both']);
+
+/** The plan a caller asked for, when it is one of the card's; else null. */
+export function planOf(asked: unknown): string | null {
+  const plan = (asked as { plan?: unknown } | null | undefined)?.plan;
+  return typeof plan === 'string' && PLANS.includes(plan) ? plan : null;
+}
+
+/**
+ * Answers `OPEN_PLAN_SETUP`. `forward` brings the app's window to the front and says whether
+ * there is one; `tell` sends that window the push that opens its setup card on the plan.
+ */
+export function openPlanSetup(forward: () => boolean, tell: (channel: string, plan: string) => void): IpcHandler {
+  return (_event, asked) => {
+    const plan = planOf(asked);
+    if (!plan) return { ok: false, error: 'not a plan' };
+    if (!forward()) return { ok: false, error: 'the window is gone' };
+    tell('zero:open-plan-setup', plan);
+    return { ok: true };
+  };
+}
+
 /** Opens the door and leaves its note. Rejects if the port cannot be had or the note cannot be written. */
-export async function openLocalDoor({ channels, note, listeners = new Set(), keeps, native = null, settings, cloudSetup, unread, token = newToken() }: LocalDoorOptions): Promise<LocalDoor> {
+export async function openLocalDoor({ channels, note, listeners = new Set(), keeps, native = null, settings, cloudSetup, unread, trouble, planSetup, token = newToken() }: LocalDoorOptions): Promise<LocalDoor> {
   // A folder that is certain to hold no index.html: the note's own name with a suffix.
   const noScreen = `${note}.no-screen`;
   // The door's own channels are looked up before the app's, and the app's Map is left as it was:
@@ -251,6 +329,8 @@ export async function openLocalDoor({ channels, note, listeners = new Set(), kee
   if (settings) own.push([OPEN_SETTINGS, settings]);
   if (cloudSetup) own.push([OPEN_CLOUD_SETUP, cloudSetup]);
   if (unread) own.push([MARK_UNREAD_HERE, unread]);
+  if (trouble) own.push([TROUBLE_CLOSED_HERE, trouble]);
+  if (planSetup) own.push([OPEN_PLAN_SETUP, planSetup]);
   const answered = own.length ? new Map<string, IpcHandler>([...channels, ...own]) : channels;
   const server = http.createServer(createHandler({ channels: answered, token, listeners, hungUp: () => native?.hungUp(), dist: noScreen }));
   await new Promise<void>((resolve, reject) => {

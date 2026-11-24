@@ -211,7 +211,8 @@ impl Measure {
 }
 
 fn item<'a>(s: &'a State, id: &str, product: &str) -> Option<&'a Item> {
-    s.snap.items.iter().find(|i| i.id == id && i.product == product)
+    // Or the row the app makes itself when tasks cannot run, which no ledger has (`trouble.rs`).
+    s.snap.items.iter().find(|i| i.id == id && i.product == product).or_else(|| s.lists.trouble.as_ref().filter(|t| t.id == id && t.product == product))
 }
 
 fn name(item: &Item) -> String {
@@ -2370,6 +2371,10 @@ pub fn view(s: &State, id: &str, product: &str, still: bool) -> El {
     let Some(item) = item(s, id, product) else {
         return row().w(page_w).pt(36.0).pl(m.indent).child(label("This conversation is not here any more.", 14.0, 400.0, muted()));
     };
+    // The row the app makes itself has no conversation and nothing to reply to (`made` in `Focus.tsx`).
+    if crate::rules::trouble_row::is_trouble_row(item) {
+        return crate::trouble::page(s, item, (page_w, page_h), (m.size, m.column, m.indent, m.right));
+    }
     let thread = key(product, id);
     // What the supervisor says about it, the run on it right now among it, and the sentence that
     // run is typing this second (`crate::foot::facts`).

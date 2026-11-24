@@ -192,8 +192,8 @@ pub fn list_page(s: &State, column: f32) -> Vec<El> {
         ui.picked.clear();
         ui.undone = None;
     });
-    // A new project is made on the web window's card.
-    let new = kit::ghost("New project", true).on_press_tx(|s: &mut State, tx| super::bridge(s, PageId::Projects, tx));
+    // The Mac's folder window, over Settings, and a project made of the folder picked (`new_project.rs`).
+    let new = kit::ghost("New project", true).on_press_tx(|s: &mut State, tx| s.new_project(tx));
     let mut top = row().mt(4.0).gap(8.0).items_center().child(find);
     if !rows.is_empty() {
         top = top.child(select);

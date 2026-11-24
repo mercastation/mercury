@@ -1,12 +1,10 @@
-//! The app's own word that a run got nowhere, and the row that says tasks have not been able
-//! to run. The sentences are `shared/spawn-trouble.mts`'s, read back here the way its
-//! `saysARunGotNowhere` reads them; the row is `renderer/src/trouble-row.ts`.
+//! The app's own word that a run got nowhere, and how the tasks that have not been able to run
+//! are counted. The sentences are `shared/spawn-trouble.mts`'s, read back here the way its
+//! `saysARunGotNowhere` reads them; the row that counts them is `trouble_row.rs`.
 
 use std::sync::LazyLock;
 
-use serde_json::{Map, Value};
-
-use super::js::{self, group, re};
+use super::js::{self, re};
 
 // The app's name, as `shared/product-name.mjs` spells it at the start of a sentence.
 const NAME: &str = "Mercury";
@@ -84,56 +82,9 @@ pub fn stranded_title(count: f64) -> String {
     format!("{n} task{} {} not been able to run", if many { "s" } else { "" }, if many { "have" } else { "has" })
 }
 
-re!(BACK_AT, r"at (\d[^.]*)\.", "");
-
-/// What one cause's tasks are waiting on, in a few words (`shortNext`).
-fn short_next(cause: &str, next: &str) -> String {
-    match cause {
-        "at-limit" => BACK_AT.exec(next).map_or("back when the limit resets".to_string(), |m| format!("back at {}", group(&m, 1))),
-        "signed-out" => "need a login".into(),
-        "no-plan" => "need a plan to run on".into(),
-        "org-blocked" => "need an admin".into(),
-        "subscription-ended" => "need a renewed subscription".into(),
-        "workspace" => "need the folder trusted".into(),
-        "interrupted" => "retrying on their own".into(),
-        "model-not-on-plan" => "need another model".into(),
-        "level-not-offered" => "need another thinking level".into(),
-        "too-old" => "need Claude Code updated".into(),
-        "network" => "need the network set up".into(),
-        "api-key" => "need a ChatGPT login".into(),
-        "codex-config" => "need config.toml fixed".into(),
-        "open-elsewhere" => "need the other Codex window closed".into(),
-        _ => "stopped, still trying".into(),
-    }
-}
-
-/// The pile, cause by cause: how many tasks and what each is waiting on. A supervisor from
-/// before the breakdown existed says one cause for all of them (`causes`).
-fn causes(t: &Map<String, Value>) -> Vec<(String, f64, String)> {
-    let text = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").to_string();
-    match t.get("byCause").and_then(Value::as_array).filter(|list| !list.is_empty()) {
-        Some(list) => list.iter().map(|c| (text(c, "cause"), c.get("count").and_then(Value::as_f64).unwrap_or(0.0), text(c, "next"))).collect(),
-        None => {
-            let cause = t.get("cause").and_then(Value::as_str).unwrap_or("");
-            vec![(if cause == "mixed" { "unknown".into() } else { cause.to_string() }, t.get("count").and_then(Value::as_f64).unwrap_or(1.0), t.get("remedy").and_then(Value::as_str).unwrap_or("").to_string())]
-        }
-    }
-}
-
-/// How many tasks the row counts (`troubleCount`).
-pub fn trouble_count(t: &Map<String, Value>) -> f64 {
-    t.get("count").and_then(Value::as_f64).unwrap_or_else(|| causes(t).iter().map(|c| c.1).sum())
-}
-
-/// The row's first line, which is all a list prints of it (`troubleSummary`).
-pub fn trouble_summary(t: &Map<String, Value>) -> String {
-    causes(t).iter().map(|(cause, count, next)| format!("{count} {}", short_next(cause, next))).collect::<Vec<_>>().join(" · ")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
 
     #[test]
     fn the_apps_own_sentences_are_read_back() {
@@ -149,17 +100,8 @@ mod tests {
     }
 
     #[test]
-    fn the_trouble_row_counts_and_says_what_each_pile_waits_on() {
+    fn the_stopped_tasks_are_counted_as_one_task_has_or_many_have() {
         assert_eq!(stranded_title(1.0), "1 task has not been able to run");
         assert_eq!(stranded_title(3.0), "3 tasks have not been able to run");
-        let t = json!({ "since": 5, "cause": "mixed", "message": "", "remedy": "", "byCause": [
-            { "cause": "signed-out", "count": 2, "what": "", "next": "" },
-            { "cause": "at-limit", "count": 1, "what": "", "next": "It resets at 6:40pm. Nothing to do." },
-        ] });
-        let t = t.as_object().unwrap();
-        assert_eq!(trouble_count(t), 3.0);
-        assert_eq!(trouble_summary(t), "2 need a login · 1 back at 6:40pm");
-        let old = json!({ "since": 5, "cause": "mixed", "message": "", "remedy": "" });
-        assert_eq!(trouble_summary(old.as_object().unwrap()), "1 stopped, still trying");
     }
 }

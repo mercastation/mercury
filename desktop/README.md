@@ -1503,7 +1503,8 @@ puts it, doing what it does, through what this window's own key, button or page 
 on the web row's own channel; `docs/parity-command-bar.md` lists every row of the web's, with
 what this window does of each and why a row is left out:
 
-- New thread (N), which opens the New thread card.
+- New project…, which opens the Mac's folder window ("Around the Inbox", below), then New
+  thread (N), which opens the New thread card.
 - On the thread under the keys (the open conversation, else the Inbox's row under the pointer,
   else its picked row, the one E acts on; Home has none), in the web's order: Approve recommended,
   Approve as proposed or Approve and run, by what the agent asks, held three seconds as an answer
@@ -1558,8 +1559,8 @@ seconds with nothing said. A file opens its thread with the file beside it, or b
 files are left out, as this window draws none (`docs/parity-command-bar.md`, "Found inside
 things").
 
-New thread is drawn first, with N beside it (the web has it after New project, which this bar
-does not offer): it opens the New thread card, Home included, with the caret in its words
+New thread is drawn second, after New project, with N beside it: it opens the New thread card,
+Home included, with the caret in its words
 (`starts_a_thread` in `src/palette.rs`). The bar and the card stand over the page one at a
 time: ⌘K over the card closes the card, keeping its words.
 
@@ -3046,7 +3047,8 @@ The rest bring the web window forward on its page (`zero:open-settings-here` wit
 Appearance, Shortcuts, Instructions, Team and Rooms, from the menu or a search; and from a button,
 a paid plan's own summary and choosing a plan (both go on to Stripe), signing an account in or
 adding one, Get link and choosing the agent's program by hand, the Android app, signing in to use
-the phone, a new project, a project's picture and its instructions. The window says in a line when
+the phone, a project's picture and its instructions. New project on the Projects page opens the
+Mac's folder window over Settings, as the web window's does ("Around the Inbox", below). The window says in a line when
 the web window is not there to come forward.
 
 The scenes: `settings` (General), `settings-running`, `-claude`, `-antigravity`, `-codex`,
@@ -3145,6 +3147,36 @@ agent or the app asks for in a conversation that this window does not draw yet. 
 with the pointer resting on a control (`-hover-open`, `-hover-signed`, `-hover-skip`). In every
 one the card is the web window's size to a hundredth of a point and stands at the same height.
 
+## Around the Inbox: tasks that could not run, the plan bar, a new project
+
+Three things the web window puts in front of the person outside a conversation, ported from its
+code line by line (`docs/parity-inbox-bars.md` is the checklist, with what is left out and why):
+
+- **The row "N tasks have not been able to run"** opens (`src/trouble.rs`, the rules in
+  `src/rules/trouble_row.rs` from `renderer/src/trouble-row.ts`): a conversation's strip over
+  what is stopped and on what, cause by cause, each task by name, with no reply box. E, Done,
+  or ⌘K's Mark done put it away until a new pile begins, with the web window's line and its Z.
+  What is kept is the web window's own (`zero.troubleClosed`): this window reads it through
+  `zero:window-keeps` and asks the web window to write it on `zero:trouble-closed-here`, three
+  seconds after the press, and again when Z takes it back, so both windows agree.
+- **The bar that says agents cannot start until a plan is signed in** (`src/plan_bar.rs`,
+  `src/rules/plan_setup.rs` from `renderer/src/plan-setup.ts`) stands first on Home, the Inbox
+  and Files, never over a conversation or while anything runs, from `zero:engine-setup`'s
+  `ready` for both agents, asked at start and when the window comes back to the front while it
+  is up; while it is up a signed-out thread's line points at it. Its buttons hand over to the web
+  window, whose setup card is the first run's (`zero:open-plan-setup-here`, by agreement).
+- **New project**, from the box's project menu, the command bar's first row and Settings ›
+  Projects (`src/new_project.rs`, `src/rules/project_folder.rs`): the Mac's folder window as this
+  window's own sheet, where the app's opens, the folder checked as the app checks it, then
+  `zero:create-product`, and the web window's line, or its refusal in the walk's words.
+
+The scenes: `inbox-trouble`, `thread-trouble`, `thread-trouble-menu`, `inbox-trouble-done`,
+`thread-trouble-done`, `palette-trouble`; `inbox-plan-bar`, `-codex`, `-both`, `-hover`,
+`home-plan-bar`, `thread-plan-bar-line`; `palette-new-project` and `-taken` (which plant a folder:
+photograph them with `MERCURY_PLANTED`, and draw the native picture with a `--script` of ⌘K,
+Return and a `file-dialog` answer). In each the part is the web window's size to a hundredth of a
+point and stands where the web's does against its neighbours.
+
 ## What still differs from the web app, and why
 
 - **The web window changed on 2026-11-23 and this window has not followed.** An upstream sync
@@ -3173,13 +3205,11 @@ one the card is the web window's size to a hundredth of a point and stands at th
     signed as the agent's; who wrote an answer where there are several agents; the summary under
     the title, which cannot be pressed open; "#" naming another thread and a repeat phrase in a
     reply; "Waiting for memory" on the working line; the usage gauge on the reply's model chip.
-  - *Around it:* the bar that says agents cannot start until a plan is signed in, and its setup
-    card; the row that offers the cloud when this computer is running all it can; the row of
-    tasks that could not run, which is drawn but opens onto nothing and takes no E; the chip
+  - *Around it:* the plan bar's setup card, which its buttons open in the web window; the row
+    that offers the cloud when this computer is running all it can; the chip
     that says agents are paused; the chip for an urgent thread that arrived; the line that says
     agents were put back on their work after a crash; "Updating" and a failed restart on the
-    update row, and the card for a copy that cannot update itself; a new project, whose menu row
-    only says where to make one; older finished threads, which are never fetched past what the
+    update row, and the card for a copy that cannot update itself; older finished threads, which are never fetched past what the
     snapshot carries; the dot on Needs you for an arrival; an answer read in place, which stays
     unread; dragging a row to reorder or pin it; R on a row; J and K inside a thread opened from
     any tab but Needs you; ⌘] and the mouse's back and forward; ⌘F; the window's zoom; a thread
@@ -3706,6 +3736,9 @@ one the card is the web window's size to a hundredth of a point and stands at th
 - `src/need.rs`: the card of a sign-in an agent waits on, under its conversation, and what the
   card holds. `src/rules/sign_in.rs` says which ask is open, what the card says of it and what
   each control writes; `src/logos.rs` draws the services' logos from `assets/logos`.
+- `src/trouble.rs`, `src/plan_bar.rs`, `src/new_project.rs`: the row of tasks that could not run
+  opened and put away, the plan bar, and a new project; their rules are
+  `src/rules/trouble_row.rs`, `src/rules/plan_setup.rs` and `src/rules/project_folder.rs`.
 - `src/reply.rs`: the model and level a conversation's reply box is on, and its model menu (the
   box's own, from `compose.rs`). `src/rules/reply_pick.rs`: what the box opens on, what a pick
   keeps and what the next reply writes. `src/strip.rs`: what the strip over a conversation

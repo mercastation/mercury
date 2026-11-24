@@ -37,6 +37,8 @@ pub type Thread = (String, String);
 /// named, so the rows can be decided and tested with no window.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Does {
+    /// Opens the Mac's folder window, and makes a project of the folder picked.
+    NewProject,
     /// Opens the box a new thread is written in.
     NewThread,
     Home,
@@ -172,6 +174,12 @@ pub const LATER_OLD_NAMES: &[&str] = &["remind me", "snooze"];
 /// No "inbox" among them: typed alone it means going there, and this row would sit above Go
 /// to Inbox under the Return key (`REOPEN_KEYWORDS`).
 pub const REOPEN_KEYWORDS: &str = "unmark undo undone not done open again bring back put back";
+
+/// New project (`new-project` in `Palette.tsx`): the Mac's folder window, and a project made of
+/// the folder picked (`new_project.rs`). No hint, no key, no words besides its name.
+pub fn new_project_row() -> Row {
+    Row::command("new-project", "New project…", Does::NewProject)
+}
 
 /// New thread, which N also does (`new-thread` in `Palette.tsx`): the row the web's list has
 /// second, after New project. It is offered only once this window can start a thread.
@@ -447,6 +455,9 @@ pub fn priority_rows(item: &Item, snap: &Snapshot) -> Vec<Row> {
 /// after Reply where the window offers it (`with_try_again`), which these rules cannot tell;
 /// View code changes is its own control's to bring.
 pub fn thread_commands(f: &Facts, item: &Item, open: bool) -> Vec<Row> {
+    if super::trouble_row::is_trouble_row(item) {
+        return trouble_commands(item, open);
+    }
     let thread = || (item.id.clone(), item.product.clone());
     let agent = item.truthy("agent");
     let mut rows = Vec::new();
@@ -522,6 +533,24 @@ pub fn thread_commands(f: &Facts, item: &Item, open: bool) -> Vec<Row> {
         rows.push(Row::command("open", "Open", Does::Open(thread())).on_key("↵"));
     }
     rows.extend(priority_rows(item, f.snap));
+    rows
+}
+
+/// What can be done to the row the app makes itself when tasks have not been able to run, of
+/// what the web's bar offers on it (`itemCommands` with that row under the keys), in its order.
+/// Approve and run and Mark done both put it away (`resolve` hands that row to `markDone`);
+/// Later says there is nothing to put off; Open opens it from the Inbox. Left out, as each
+/// would do nothing or write into nothing here, as it does in the web window, where no ledger
+/// has this row: Reply (it has no reply box), Resume this agent, Mark read and unread (the door
+/// takes only a project's thread), the models, Move to each project and the four levels.
+pub fn trouble_commands(item: &Item, open: bool) -> Vec<Row> {
+    let thread = || (item.id.clone(), item.product.clone());
+    let mut later = Row::command("snooze", "Later", Does::Later(thread())).found_by(LATER_KEYWORDS).on_key("L");
+    later.old_names = LATER_OLD_NAMES;
+    let mut rows = vec![Row::command("approve", Approval::Run.label(), Does::Done(thread())), Row::command("done", "Mark done", Does::Done(thread())).on_key("E"), later];
+    if !open {
+        rows.push(Row::command("open", "Open", Does::Open(thread())).on_key("↵"));
+    }
     rows
 }
 
@@ -655,7 +684,8 @@ pub fn with_try_again(rows: &mut Vec<Row>, thread: Thread) {
 /// Settings and the key hints (`commands` in `Palette.tsx`). `under` is the thread the keys
 /// are on, and whether it is the conversation on screen.
 pub fn commands(f: &Facts, under: Option<(&Item, bool)>) -> Vec<Row> {
-    let mut rows = Vec::new();
+    // First, and called "project" because that is the word people type (`new-project`).
+    let mut rows = vec![new_project_row()];
     if f.starts_threads {
         rows.push(new_thread_row());
     }
@@ -1559,19 +1589,31 @@ mod tests {
     fn the_whole_list_is_the_threads_rows_then_the_webs_other_rows_in_its_order() {
         let w = World::empty();
         let head = |under: Option<(&Item, bool)>| commands(&w.facts(NOW), under).into_iter().map(|r| r.id).collect::<Vec<_>>();
-        // With no thread under the keys, as on Home: New thread, then the rest of the web's list
-        // that this window does.
+        // With no thread under the keys, as on Home: New project, New thread, then the rest of the
+        // web's list that this window does.
         assert_eq!(head(None), [
-            "new-thread", "projects-page", "rank-shop", "view-home", "view-inbox", "view-progress", "view-later", "view-done", "files-all",
+            "new-project", "new-thread", "projects-page", "rank-shop", "view-home", "view-inbox", "view-progress", "view-later", "view-done", "files-all",
             "update-check", "pause", "resume-stopped", "usage", "settings", "shortcuts", "keyhints",
         ]);
         // The thread's rows go between New thread and the Projects page.
         let rows = head(Some((&answered(), false)));
-        assert_eq!((rows[0].as_str(), rows[1].as_str()), ("new-thread", "reopen"));
+        assert_eq!((rows[0].as_str(), rows[1].as_str(), rows[2].as_str()), ("new-project", "new-thread", "reopen"));
         assert_eq!(rows[rows.iter().position(|id| id == "priority-low").unwrap() + 1], "projects-page");
         let rows = commands(&w.facts(NOW), None);
-        assert_eq!((rows[0].label.as_str(), rows[0].key), ("New thread", Some("N")));
-        assert!(matches_query("compose", &rows[0]) && matches_query("new", &rows[0]));
+        // New project has no key and no hint, and "project" and "new" find it (`new-project`).
+        assert_eq!((rows[0].label.as_str(), rows[0].key, rows[0].hint.as_deref(), &rows[0].does), ("New project…", None, None, &Does::NewProject));
+        assert!(matches_query("project", &rows[0]) && matches_query("new", &rows[0]));
+        assert_eq!(icon_for(&rows[0].id, &rows[0].label), "plus");
+        assert_eq!((rows[1].label.as_str(), rows[1].key), ("New thread", Some("N")));
+        assert!(matches_query("compose", &rows[1]) && matches_query("new", &rows[1]));
+        // The row the app makes itself when tasks cannot run: what of the web's rows do something
+        // to it, in the web's order, Approve and run and Mark done both putting it away.
+        let trouble: Item = item(json!({ "id": "trouble", "product": "", "productName": "", "status": "open", "kind": "trouble", "title": "3 tasks have not been able to run", "priority": 5 }));
+        let on_it = thread_commands(&w.facts(NOW), &trouble, false);
+        let made = |id: &str| (String::from("trouble"), String::from(id));
+        assert_eq!(on_it.iter().map(|r| (r.id.as_str(), r.label.as_str(), r.key)).collect::<Vec<_>>(), [("approve", "Approve and run", None), ("done", "Mark done", Some("E")), ("snooze", "Later", Some("L")), ("open", "Open", Some("↵"))]);
+        assert_eq!((&on_it[0].does, &on_it[1].does), (&Does::Done(made("")), &Does::Done(made(""))));
+        assert!(!ids(&thread_commands(&w.facts(NOW), &trouble, true)).contains(&"open"));
         let said = |id: &str| rows.iter().find(|r| r.id == id).map(|r| (r.label.as_str(), r.hint.as_deref())).unwrap();
         assert_eq!(said("projects-page"), ("Projects…", Some("order, names and rules")));
         assert_eq!(said("rank-shop"), ("Rank Storefront first", Some("not ranked yet")));

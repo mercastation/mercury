@@ -62,7 +62,7 @@ In the order `Palette.tsx` puts them together. The thread's rows go where the fi
 
 | Id | Words | Drawing | Key, or hint | When | Does | Status |
 |---|---|---|---|---|---|---|
-| `new-project` | New project… | plus | | always | Opens the new project card | out: the new project card is a screen this window does not have |
+| `new-project` | New project… | plus | | always | Opens the Mac's folder window and makes a project of the folder picked (`NewProject.tsx`) | done: the same folder window as this window's own sheet, the app's checks and `zero:create-product` (`src/new_project.rs`, `docs/parity-inbox-bars.md` part C) |
 | `new-thread` | New thread | compose | N (hint "ask an agent" not drawn) | always | Opens the New thread card (`setModal('compose')`) | done |
 | `record-meeting` | Record meeting | record | "into <project>" | the recorder can record | Starts recording a meeting | out: no recording here |
 | `stop-recording` | Stop recording | stop | | a meeting is being recorded | Stops it | out: no recording here |

@@ -41,6 +41,8 @@ pub mod palette;
 pub mod pane;
 pub mod paths;
 pub mod place;
+pub mod plan_setup;
+pub mod project_folder;
 pub mod rank;
 pub mod reply_chips;
 pub mod reply_pick;
@@ -55,6 +57,7 @@ pub mod table_file;
 pub mod thread_files;
 pub mod title;
 pub mod trace;
+pub mod trouble_row;
 pub mod typed;
 pub mod usage;
 pub mod viewer;
@@ -176,27 +179,15 @@ impl<'a> World<'a> {
 
 /// The row the app makes itself when tasks have not been able to run, shaped as a thread so
 /// everything downstream treats it as one (`troubleRow` in `renderer/src/trouble-row.ts`).
-/// Both its times are when the pile began. Its body here is only its first line, the one a
-/// list prints; the rest names the stuck tasks for the opened row.
+/// Both its times are when the pile began. Its body is what the opened row says; a list prints
+/// its first line.
 fn trouble_row(snap: &Snapshot, local: &Local) -> Option<Item> {
     let t = snap.supervisor.rest.get("spawnTrouble")?.as_object()?;
-    let since = t.get("since").and_then(Value::as_f64);
     // It goes quiet when the person closes it, until the pile changes.
-    if since == Some(local.trouble_closed) {
+    if t.get("since").and_then(Value::as_f64) == Some(local.trouble_closed) {
         return None;
     }
-    Some(Item {
-        id: nowhere::TROUBLE_ID.into(),
-        product_name: Some(String::new()),
-        status: "open".into(),
-        kind: Some("trouble".into()),
-        title: Some(nowhere::stranded_title(nowhere::trouble_count(t))),
-        body: Some(nowhere::trouble_summary(t)),
-        priority: Some(5.0),
-        created_at: since,
-        updated_at: since,
-        ..Item::default()
-    })
+    Some(trouble_row::trouble_row(t, &snap.items))
 }
 
 /// A task asked for in a chat answers in that chat: while its answer waits, Needs you lists
@@ -484,6 +475,7 @@ pub fn lists_sorted(snap: &Snapshot, now: f64, local: &Local, sort: display::Sor
         done: rows(&page::sorted(&done, "done", order), "done"),
         whole: [0; 4],
         behind: Vec::new(),
+        trouble: trouble.clone(),
     };
     Lists { whole: [lists.needs.len(), lists.progress.len(), lists.later.len(), lists.done.len()], ..lists }
 }

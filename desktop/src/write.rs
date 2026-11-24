@@ -103,6 +103,11 @@ pub enum Sent {
     SignInSaid { thread: String, ask: String },
     /// Whether that sign-in is saved for every cloud thread, ticked or unticked on its card.
     SignInKeep { thread: String, ask: String },
+    /// The row of tasks that could not run put away as of the pile begun at `closed`, or with
+    /// `undo` put back to it, `was` being what it was before (`trouble.rs`).
+    Trouble { closed: f64, was: f64, undo: bool },
+    /// A project made of the folder `repo`, called `name` (`new_project.rs`).
+    Project { name: String, repo: String },
 }
 
 impl Sent {
@@ -125,7 +130,7 @@ impl Sent {
             | Sent::Place { thread, .. }
             | Sent::SignInSaid { thread, .. }
             | Sent::SignInKeep { thread, .. } => thread,
-            Sent::Thread { .. } | Sent::Cloud | Sent::Moved { .. } | Sent::SignIn | Sent::Palette(_) => "",
+            Sent::Thread { .. } | Sent::Cloud | Sent::Moved { .. } | Sent::SignIn | Sent::Palette(_) | Sent::Trouble { .. } | Sent::Project { .. } => "",
         }
     }
 }

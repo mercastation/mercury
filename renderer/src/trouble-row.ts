@@ -32,6 +32,13 @@ type Cause = NonNullable<Trouble['byCause']>[number];
 /** The one id this row ever has. It is not in any ledger and never will be. */
 export const TROUBLE_ID = 'trouble';
 
+/**
+ * The event that puts this row away, or back, from the native window (desktop/), which asks
+ *  through the app's door (`TROUBLE_CLOSED_HERE` in main/local-door.mts) with when the pile it is
+ *  put away against began, or 0. The put-away is kept here, so it is set here, the way E and Z
+ *  set it (`setTroubleClosedAt` in App.tsx). */
+export const TROUBLE_CLOSED = 'agentbox:trouble-closed';
+
 export function isTroubleRow(i: { id?: string } | null | undefined): boolean {
   return !!i && i.id === TROUBLE_ID;
 }

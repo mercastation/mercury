@@ -474,6 +474,12 @@ contextBridge.exposeInMainWorld('zero', {
     ipcRenderer.on('zero:open-cloud-setup', handler);
     return () => ipcRenderer.removeListener('zero:open-cloud-setup', handler);
   },
+  // The native window's plan bar: opens the setup card on the plan pressed (main/local-door.mts).
+  onOpenPlanSetup: (fn) => {
+    const handler = (_e, plan) => fn(plan);
+    ipcRenderer.on('zero:open-plan-setup', handler);
+    return () => ipcRenderer.removeListener('zero:open-plan-setup', handler);
+  },
   // The window moved to a screen that wants the other set of theme pictures.
   // Only main can see which physical display a window is on, and only main can
   // read a display's density without page zoom folded into it, so this is the

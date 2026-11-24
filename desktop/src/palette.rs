@@ -291,12 +291,13 @@ fn pictured_lines(pictured: &[Pictured], threads: Vec<rules::Row>, own: Vec<Line
 
 /// The thread the keys are on, and whether it is the conversation on screen: the open
 /// conversation, or the Inbox's row under the pointer, else its picked row, the one E acts on
-/// (`focused ?? pointed` in `App.tsx`). Home has none, and neither has a row the app made
-/// itself, which is no thread.
+/// (`focused ?? pointed` in `App.tsx`). Home has none. The row the app makes itself when tasks
+/// have not been able to run is in no ledger, and is read off the lists (`trouble.rs`).
 fn under_the_keys(s: &State) -> Option<(&Item, bool)> {
+    let made = |id: &str, product: &str| s.lists.trouble.as_ref().filter(|t| t.id == id && t.product == product);
     match &s.view {
-        View::Thread { .. } => s.open_item().map(|item| (item, true)),
-        View::Inbox => crate::keys::picked_row(s).and_then(|(id, product)| s.item(&id, &product)).map(|item| (item, false)),
+        View::Thread { id, product } => s.open_item().or_else(|| made(id, product)).map(|item| (item, true)),
+        View::Inbox => crate::keys::picked_row(s).and_then(|(id, product)| s.item(&id, &product).or_else(|| made(&id, &product))).map(|item| (item, false)),
         View::Home | View::Files { .. } => None,
     }
 }
@@ -633,6 +634,7 @@ fn run(s: &mut State, does: Does, tx: &mut Tx) {
     s.close_palette();
     let item = |s: &State, (id, product): &(String, String)| s.item(id, product).cloned();
     match does {
+        Does::NewProject => s.new_project(tx),
         Does::NewThread => {
             if let Some(start) = starts_a_thread() {
                 start(s, tx);

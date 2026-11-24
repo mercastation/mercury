@@ -258,6 +258,10 @@ pub struct Lists {
     /// still in that tab as far as a conversation's strip is concerned (`holds`).
     #[serde(skip)]
     pub behind: Vec<(Tab, String, String)>,
+    /// The row the app makes itself when tasks have not been able to run, whole, while Needs you
+    /// holds it: no ledger has it, so opening it reads it here (`troubleItem` in `App.tsx`).
+    #[serde(skip)]
+    pub trouble: Option<Item>,
 }
 
 impl Lists {

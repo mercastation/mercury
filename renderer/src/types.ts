@@ -2055,6 +2055,8 @@ declare global {
       // The corner tag's "Turn off…": open Settings on this page.
       onOpenSettings?(fn: (p: { pane?: string }) => void): () => void;
       onOpenCloudSetup?(fn: () => void): () => void;
+      // The native window's plan bar: open the setup card on this plan.
+      onOpenPlanSetup?(fn: (plan: string) => void): () => void;
       // screenDetail is which set of theme pictures this screen wants, 'soft' or
       // 'sharp' (main/screen-detail.mts). It rides here rather than being
       // pushed because the answer is needed on the first paint.
