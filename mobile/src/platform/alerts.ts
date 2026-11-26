@@ -7,12 +7,18 @@ import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { NAME } from '../../../shared/product-name.mjs';
+import { PERSONAL_TEAM } from './personal-team';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({ shouldPlaySound: true, shouldSetBadge: true, shouldShowBanner: true, shouldShowList: true }),
 });
 
-export const alertsHere = Platform.OS !== 'web';
+// Mercury: a copy signed with a free Apple account can never get a push.
+export const alertsHere = Platform.OS !== 'web' && !PERSONAL_TEAM;
+/** Why this copy has no alerts, said where the switch would be. */
+export const alertsWhyNot = PERSONAL_TEAM
+  ? 'This copy was installed from your computer with a free Apple account, and Apple sends alerts only to apps signed with a paid one.'
+  : 'Alerts need the app on your phone.';
 
 export async function alertToken(): Promise<string> {
   if (!Device.isDevice) throw new Error('Alerts need the app on a phone.');

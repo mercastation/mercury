@@ -8,7 +8,10 @@ import { Redirect } from 'expo-router';
 import { router } from '../lib/router';
 import { useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Platform, View } from 'react-native';
+import Constants from 'expo-constants';
 import { appleAvailable, appleSignIn, googleSignIn } from '../platform/sign-in';
+import { PERSONAL_TEAM } from '../platform/personal-team';
+import { BOTH, signInOffers, type Offers } from '../lib/sign-in-offers';
 import { useCloud } from '../state/cloud';
 import { AppleMark, AppMark, GoogleMark } from '../ui/icons';
 import { Field } from '../ui/Field';
@@ -30,7 +33,18 @@ export default function SignIn() {
   const [failed, setFailed] = useState(false);
   const [apple, setApple] = useState(false);
   useEffect(() => { void appleAvailable().then(setApple); }, []);
+  // Mercury: only the outside sign-ins the cloud offers (lib/sign-in-offers.ts), none until it says.
+  const [offers, setOffers] = useState<Offers | null>(null);
+  useEffect(() => {
+    const cfg = Constants.expoConfig?.extra?.cloud;
+    if (c.preview || !cfg?.url || !cfg?.anonKey) { setOffers(BOTH); return; }
+    let live = true;
+    void signInOffers(cfg).then((o) => { if (live) setOffers(o); });
+    return () => { live = false; };
+  }, [c.preview]);
   if (c.signedIn) return <Redirect href="/" />;
+  const showApple = (apple || c.preview) && !!offers?.apple && !PERSONAL_TEAM;
+  const showGoogle = !!offers?.google;
 
   const run = (which: string, how: () => Promise<unknown>) => async () => {
     if (!c.cloud) return;
@@ -51,13 +65,13 @@ export default function SignIn() {
       <Screen top={24} foot={<>
         <Btn kind="primary" label={busy === 'email' ? 'Signing in…' : 'Sign in'} disabled={!canSubmit} onPress={signIn} />
         {error && <T accessibilityRole="alert" style={{ fontSize: 14, lineHeight: 20, color: color.dim, textAlign: 'center' }}>{error}</T>}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginVertical: 4 }}>
+        {(showApple || showGoogle) && <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginVertical: 4 }}>
           <View style={{ flex: 1, height: 1, backgroundColor: color.line }} />
           <Label>or</Label>
           <View style={{ flex: 1, height: 1, backgroundColor: color.line }} />
-        </View>
-        {(apple || c.preview) && <Btn label={busy === 'apple' ? 'Signing in…' : 'Continue with Apple'} lead={<AppleMark />} disabled={!!busy} onPress={run('apple', () => appleSignIn(c.cloud!))} />}
-        <Btn label={busy === 'google' ? 'Signing in…' : 'Continue with Google'} lead={<GoogleMark />} disabled={!!busy} onPress={run('google', () => googleSignIn(c.cloud!))} />
+        </View>}
+        {showApple && <Btn label={busy === 'apple' ? 'Signing in…' : 'Continue with Apple'} lead={<AppleMark />} disabled={!!busy} onPress={run('apple', () => appleSignIn(c.cloud!))} />}
+        {showGoogle && <Btn label={busy === 'google' ? 'Signing in…' : 'Continue with Google'} lead={<GoogleMark />} disabled={!!busy} onPress={run('google', () => googleSignIn(c.cloud!))} />}
         {/* Separate elements: Android gives a link nested in other text no bounds, so it cannot be tapped. */}
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', marginTop: 6 }}>
           <T style={{ fontSize: 14, lineHeight: 20, color: color.faint }}>{failed ? `New to ${NAME}? ` : 'No account? '}</T>

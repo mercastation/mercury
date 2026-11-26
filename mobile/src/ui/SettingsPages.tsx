@@ -26,7 +26,7 @@ import { withDeadline } from '../lib/deadline';
 import { backAt } from '../lib/back-at';
 import { STORE_BUILD } from '../lib/store-build';
 import { PHONE_LOOKS } from '../lib/look';
-import { alertsHere, sendTestAlert } from '../platform/alerts';
+import { alertsHere, alertsWhyNot, sendTestAlert } from '../platform/alerts';
 import { useCloud } from '../state/cloud';
 import type { PhoneWorkspaceCopy } from '../../../renderer/src/phone-settings-view';
 import { useLook } from '../state/look';
@@ -226,7 +226,7 @@ function AlertRows() {
     setBusy(true); setSaid(null);
     try { await fn(); } catch (err) { setSaid(String((err as Error)?.message ?? err)); } finally { setBusy(false); }
   };
-  if (!alertsHere) return <Row first label="Alerts on this phone" desc="Alerts need the app on your phone." />;
+  if (!alertsHere) return <Row first label="Alerts on this phone" desc={alertsWhyNot} />;
   if (!token) return <Row first label="Alerts on this phone" desc={said ?? 'A thread that needs you arrives on the lock screen.'} control={<Button title="Turn on" disabled={busy} onPress={attempt(() => c.turnOnAlerts())} />} />;
   return (
     <>

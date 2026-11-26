@@ -49,6 +49,13 @@ const SPEECH_USE = `${NAME} writes what you say into your message. Your iPhone d
 
 const bundleId = process.env.MOBILE_BUNDLE_ID || 'io.github.matheusmercadante.mercury';
 const projectId = process.env.EAS_PROJECT_ID || undefined;
+// A FREE APPLE ACCOUNT (Xcode's Personal Team) signs an app for its owner's
+// own iPhone, for seven days at a time, and cannot sign push or Sign in with
+// Apple: Xcode refuses the whole build when either is asked for. So
+// MOBILE_PERSONAL_TEAM=1 takes both out and tells the app (extra.personalTeam)
+// to hide what needs them. Give it to the prebuild and to the Xcode build
+// alike, since the build reads this file again for the copy it embeds.
+const personalTeam = process.env.MOBILE_PERSONAL_TEAM === '1';
 
 const config: ExpoConfig = {
   name: NAME,
@@ -89,6 +96,8 @@ const config: ExpoConfig = {
   android: { package: bundleId },
   web: { favicon: './assets/favicon.png' },
   plugins: [
+    // First, so it runs last (plugins/without-paid-entitlements.js).
+    ...(personalTeam ? ['./plugins/without-paid-entitlements'] : []),
     'expo-router',
     // The keychain holds the sign-in without Face ID, so the build asks for none.
     ['expo-secure-store', { faceIDPermission: false }],
@@ -103,6 +112,7 @@ const config: ExpoConfig = {
   extra: {
     cloud: cloudConfig(),
     eas: { projectId },
+    ...(personalTeam ? { personalTeam: true } : {}),
   },
 };
 

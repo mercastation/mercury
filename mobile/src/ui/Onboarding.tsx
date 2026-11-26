@@ -8,6 +8,7 @@ import { Pressable, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Line, Rect } from 'react-native-svg';
 import { SETUP_STEPS, type Setup } from '../lib/first-run';
+import { PERSONAL_TEAM } from '../platform/personal-team';
 import { AppMark, Back } from './icons';
 import { T, Wall } from './parts';
 import { color, font } from './theme';
@@ -139,11 +140,14 @@ export function Steps({ items }: { items: ReactNode[] }) {
 }
 
 /** The four steps as bars: done in ink, this one in the accent, the rest a line. */
+// Mercury: a copy with no alerts (platform/personal-team.ts) never reaches their step, so it counts three.
+const STEPS = PERSONAL_TEAM ? SETUP_STEPS.filter((s) => s !== 'alerts') : SETUP_STEPS;
+
 export function Bars({ at }: { at: Setup }) {
-  const on = SETUP_STEPS.indexOf(at);
+  const on = STEPS.indexOf(at);
   return (
-    <View accessible accessibilityLabel={`Step ${on + 1} of ${SETUP_STEPS.length}`} style={{ flexDirection: 'row', gap: 4, marginBottom: 30 }}>
-      {SETUP_STEPS.map((s, i) => <View key={s} style={{ flex: 1, height: 4, borderRadius: 2, backgroundColor: i < on ? color.text : i === on ? color.accent : color.lineStrong }} />)}
+    <View accessible accessibilityLabel={`Step ${on + 1} of ${STEPS.length}`} style={{ flexDirection: 'row', gap: 4, marginBottom: 30 }}>
+      {STEPS.map((s, i) => <View key={s} style={{ flex: 1, height: 4, borderRadius: 2, backgroundColor: i < on ? color.text : i === on ? color.accent : color.lineStrong }} />)}
     </View>
   );
 }
