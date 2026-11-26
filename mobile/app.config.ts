@@ -13,22 +13,31 @@ import path from 'node:path';
 import type { ExpoConfig } from 'expo/config';
 import { NAME, nameSlug } from '../shared/product-name.mjs';
 import { CLOUD_ADDRESS, PHONE_SITE } from '../shared/cloud-address.mts';
+import { schemaOf } from '../shared/db-schema.mts';
 
 // `phoneSite` is where a new account's email link lands (the phone website),
 // and where Settings' Privacy policy and Terms open. With nothing given, the
 // build uses Agentbox Cloud's public address, so it can never ship unable to
 // sign in or without its privacy page.
-type Cloud = { url: string; anonKey: string; phoneSite: string | null };
+// `schema` is the one the team's tables live in when it is not `public`, as
+// on Mercury's self-hosted cloud: the phone site passes it on the same way
+// (renderer/src/cloud-bridge.ts), and without it every read asks `public`,
+// which has none of the tables.
+type Cloud = { url: string; anonKey: string; phoneSite: string | null; schema?: string };
 const TEAM_CONFIGS = [path.join(__dirname, '..', 'cloud', 'team.config.json'), path.join(os.homedir(), `.${nameSlug}`, 'team.config.json')];
+const inSchema = (given: unknown) => {
+  const schema = schemaOf({ schema: given });
+  return schema !== 'public' ? { schema } : {};
+};
 export function cloudConfig(env: Record<string, string | undefined> = process.env, files = TEAM_CONFIGS): Cloud {
   const site = (url: string, given: unknown) => (typeof given === 'string' && given ? given : url === CLOUD_ADDRESS.supabaseUrl ? PHONE_SITE : null);
   const url = env.EXPO_PUBLIC_CLOUD_URL;
   const anonKey = env.EXPO_PUBLIC_CLOUD_KEY;
-  if (url && anonKey) return { url, anonKey, phoneSite: site(url, env.EXPO_PUBLIC_PHONE_SITE) };
+  if (url && anonKey) return { url, anonKey, phoneSite: site(url, env.EXPO_PUBLIC_PHONE_SITE), ...inSchema(env.EXPO_PUBLIC_CLOUD_SCHEMA) };
   for (const file of files) {
     if (!fs.existsSync(file)) continue;
     const c = JSON.parse(fs.readFileSync(file, 'utf8'));
-    if (typeof c?.url === 'string' && typeof c?.anonKey === 'string') return { url: c.url, anonKey: c.anonKey, phoneSite: site(c.url, c.phoneSite) };
+    if (typeof c?.url === 'string' && typeof c?.anonKey === 'string') return { url: c.url, anonKey: c.anonKey, phoneSite: site(c.url, c.phoneSite), ...inSchema(c.schema) };
   }
   return { url: CLOUD_ADDRESS.supabaseUrl, anonKey: CLOUD_ADDRESS.anonKey, phoneSite: env.EXPO_PUBLIC_PHONE_SITE || PHONE_SITE };
 }

@@ -45,3 +45,24 @@ describe('a build given an address', () => {
     expect(cloudConfig({ EXPO_PUBLIC_CLOUD_URL: 'https://other.supabase.co' }, [none]).url).toBe(CLOUD_ADDRESS.supabaseUrl);
   });
 });
+
+// Mercury's self-hosted cloud keeps its tables in a schema of their own
+// (tests/the-phone-database-can-live-in-a-schema-of-its-own.test.mts). An
+// iPhone build that left the schema out asked `public` for every row, which
+// the server answers with "Could not find the table 'public.push_devices'".
+describe('a cloud whose tables live in a schema of their own', () => {
+  it('the team.config.json schema rides with the address', () => {
+    const f = file({ url: 'https://team.example', anonKey: 't', phoneSite: 'https://phone.team.example', schema: 'mercury' });
+    expect(cloudConfig({}, [f])).toEqual({ url: 'https://team.example', anonKey: 't', phoneSite: 'https://phone.team.example', schema: 'mercury' });
+  });
+  it('so does the environment\'s, for a build machine with no team.config.json', () => {
+    const env = { EXPO_PUBLIC_CLOUD_URL: 'https://team.example', EXPO_PUBLIC_CLOUD_KEY: 'k', EXPO_PUBLIC_PHONE_SITE: 'https://phone.team.example', EXPO_PUBLIC_CLOUD_SCHEMA: 'mercury' };
+    expect(cloudConfig(env, [none])).toEqual({ url: 'https://team.example', anonKey: 'k', phoneSite: 'https://phone.team.example', schema: 'mercury' });
+  });
+  it('public is said by saying nothing, as the phone site says it', () => {
+    expect(cloudConfig({}, [file({ url: 'https://team.example', anonKey: 't', schema: 'public' })])).not.toHaveProperty('schema');
+  });
+  it('a name that is not a schema is refused, never built in', () => {
+    expect(() => cloudConfig({}, [file({ url: 'https://team.example', anonKey: 't', schema: 'mercury; drop table x' })])).toThrow(/not a schema name/);
+  });
+});
