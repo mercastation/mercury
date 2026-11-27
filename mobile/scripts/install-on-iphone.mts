@@ -105,6 +105,12 @@ function main(argv: string[]) {
   if (!phone.paired) throw new Error(`${phone.name} has not trusted this Mac yet: unlock it on the cable and tap Trust.`);
   if (phone.developerMode === 'disabled') throw new Error(`Turn on Developer Mode on ${phone.name}: Settings › Privacy & Security › Developer Mode, then restart it.`);
 
+  // Without the team's config (not in git) the app is built for Agentbox Cloud,
+  // where a Mercury account cannot sign in (app.config.ts cloudConfig).
+  const teamCloud = path.join(mobile, '..', 'cloud', 'team.config.json');
+  if (!process.env.EXPO_PUBLIC_CLOUD_URL && !fs.existsSync(teamCloud)) throw new Error(`No ${path.relative(process.cwd(), teamCloud)}, so the app would sign in to Agentbox Cloud, not yours. Copy it from the app folder; git does not carry it.`);
+  console.log(`Signs in to ${process.env.EXPO_PUBLIC_CLOUD_URL ?? JSON.parse(fs.readFileSync(teamCloud, 'utf8')).url}.`);
+
   const env = { ...process.env, MOBILE_PERSONAL_TEAM: '1', LANG: 'en_US.UTF-8', LC_ALL: 'en_US.UTF-8', CI: '1' };
   const entitlements = path.join(mobile, 'ios', 'Mercury', 'Mercury.entitlements');
   const madeForPaid = fs.existsSync(entitlements) && /aps-environment|applesignin/.test(fs.readFileSync(entitlements, 'utf8'));
