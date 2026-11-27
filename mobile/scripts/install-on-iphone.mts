@@ -7,13 +7,17 @@
 //
 // Once, by hand: Xcode › Settings › Accounts › + your Apple Account; the iPhone
 // on the cable, unlocked, Trust; then on the iPhone, Settings › Privacy &
-// Security › Developer Mode on. After the first install, Settings › General ›
-// VPN & Device Management › your Apple Account › Trust.
+// Security › Developer Mode on. Xcode 27 keeps an account's teams nowhere a
+// script can read them, so the first time also open mobile/ios/Mercury.xcworkspace
+// and pick your team under Mercury › Signing & Capabilities › Team; after that
+// the certificate Xcode made names it. After the first install, Settings ›
+// General › VPN & Device Management › your Apple Account › Trust.
 //
 //   node mobile/scripts/install-on-iphone.mts [--team <id>] [--device <name or udid>] [--fresh]
 //
 // --fresh makes the native project again (after a package or app.config.ts change).
 import { spawnSync, type SpawnSyncOptions } from 'node:child_process';
+import { X509Certificate } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -42,7 +46,30 @@ export function pickIphone(phones: Device[], wanted?: string): Device {
   throw new Error(`${found.length ? 'More than one' : 'No'} iPhone matches${wanted ? ` "${wanted}"` : ''}; pass --device with one of: ${phones.map((p) => p.name).join(', ')}`);
 }
 
-/** The free team's id from `defaults read com.apple.dt.Xcode` text; a lone team is taken as it is. */
+/** The team picked once in Xcode (Signing & Capabilities › Team), as the project file keeps it. */
+export function teamInProject(pbxproj: string): string | null {
+  const ids = new Set([...pbxproj.matchAll(/DEVELOPMENT_TEAM = "?([A-Z0-9]{10})"?;/g)].map((m) => m[1]));
+  return ids.size === 1 ? [...ids][0] : null;
+}
+
+/**
+ * The teams of the Apple Development certificates in the keychain (each
+ * subject's OU). Xcode 27 keeps an account's teams nowhere on disk, but the
+ * certificate it makes at the first signing names the team, so a project made
+ * again (--fresh) still finds it.
+ */
+export function teamsInCertificates(pems: string): string[] {
+  const teams = new Set<string>();
+  for (const pem of pems.match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g) ?? []) {
+    try {
+      const ou = /^OU=([A-Z0-9]{10})$/m.exec(new X509Certificate(pem).subject)?.[1];
+      if (ou) teams.add(ou);
+    } catch { /* not one we can read */ }
+  }
+  return [...teams];
+}
+
+/** The free team's id from `defaults read com.apple.dt.Xcode` text (Xcode before 27); a lone team is taken as it is. */
 export function freeTeamIn(defaults: string): string | null {
   const teams = [...defaults.matchAll(/\{[^{}]*?teamID = "?([A-Z0-9]{10})"?;[^{}]*?\}/g)].map((m) => ({ id: m[1], free: /isFreeProvisioningTeam = 1;/.test(m[0]) }));
   const free = teams.filter((t) => t.free);
@@ -64,8 +91,13 @@ function read(cmd: string, args: string[]) {
 function main(argv: string[]) {
   const arg = (name: string) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
 
-  const team = arg('--team') ?? freeTeamIn(read('defaults', ['read', 'com.apple.dt.Xcode']));
-  if (!team) throw new Error('No Apple Account in Xcode. Add yours in Xcode › Settings › Accounts, or pass --team <id>.');
+  const pbxproj = path.join(mobile, 'ios', 'Mercury.xcodeproj', 'project.pbxproj');
+  const certified = teamsInCertificates(read('security', ['find-certificate', '-a', '-c', 'Apple Development', '-p']));
+  const team = arg('--team')
+    ?? (fs.existsSync(pbxproj) ? teamInProject(fs.readFileSync(pbxproj, 'utf8')) : null)
+    ?? (certified.length === 1 ? certified[0] : null)
+    ?? freeTeamIn(read('defaults', ['read', 'com.apple.dt.Xcode']));
+  if (!team) throw new Error('No team to sign with. Add your Apple Account in Xcode › Settings › Accounts, then open mobile/ios/Mercury.xcworkspace once and pick it under Mercury › Signing & Capabilities › Team (or pass --team <id>).');
 
   const listed = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'iphone-')), 'devices.json');
   run('xcrun', ['devicectl', 'list', 'devices', '--json-output', listed], { stdio: 'ignore' });

@@ -4,7 +4,11 @@
 // Xcode holds for his Apple Account and puts it on his iPhone, again each
 // week. These are the parts that decide which iPhone and which team.
 import { describe, it, expect } from 'vitest';
-import { freeTeamIn, iphonesIn, pickIphone } from '../mobile/scripts/install-on-iphone.mts';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { freeTeamIn, iphonesIn, pickIphone, teamInProject, teamsInCertificates } from '../mobile/scripts/install-on-iphone.mts';
 
 const sim = (name) => ({ identifier: `sim-${name}`, hardwareProperties: { reality: 'simulated', deviceType: 'iPhone', udid: `sim-${name}` }, deviceProperties: { name }, connectionProperties: { pairingState: 'paired' } });
 const phone = (name, udid, extra = {}) => ({ identifier: `core-${udid}`, hardwareProperties: { reality: 'physical', deviceType: 'iPhone', udid }, deviceProperties: { name, developerModeStatus: 'enabled' }, connectionProperties: { pairingState: 'paired' }, ...extra });
@@ -42,5 +46,31 @@ describe('which team signs it', () => {
   });
   it('no account in Xcode is no team', () => {
     expect(freeTeamIn('{\n    DVTDeveloperAccountManagerAppleIDLists = { "IDE.Identifiers.Prod" = ( ); };\n}')).toBeNull();
+  });
+});
+
+// Xcode 27 keeps an account's teams nowhere on disk (looked for on 2026-11-27:
+// not in its settings, caches or logs), so the team comes from the project file
+// once it was picked in Xcode, else from the certificate Xcode made with it.
+describe('the team, where Xcode 27 leaves it', () => {
+  it('the project file, once it was picked in Xcode', () => {
+    expect(teamInProject('\t\t\t\tDEVELOPMENT_TEAM = ABCDE12345;\n\t\t\t\tDEVELOPMENT_TEAM = ABCDE12345;')).toBe('ABCDE12345');
+    expect(teamInProject('\t\t\t\tDEVELOPMENT_TEAM = "ABCDE12345";')).toBe('ABCDE12345');
+  });
+  it('no team, or two, is not one', () => {
+    expect(teamInProject('PRODUCT_NAME = Mercury;')).toBeNull();
+    expect(teamInProject('DEVELOPMENT_TEAM = ABCDE12345;\nDEVELOPMENT_TEAM = FGHIJ67890;')).toBeNull();
+  });
+  const openssl = spawnSync('openssl', ['version']).status === 0;
+  it.skipIf(!openssl)('an Apple Development certificate names its team in its OU', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cert-'));
+    const made = spawnSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-keyout', path.join(dir, 'k.pem'), '-out', path.join(dir, 'c.pem'),
+      '-subj', '/UID=ABCDEFGHIJ/CN=Apple Development: someone (ZZZZZZZZZZ)/OU=TEAM123456/O=Someone/C=BR']);
+    expect(made.status).toBe(0);
+    const pem = fs.readFileSync(path.join(dir, 'c.pem'), 'utf8');
+    expect(teamsInCertificates(pem + 'not a certificate\n' + pem)).toEqual(['TEAM123456']);
+  });
+  it('no certificate is no team', () => {
+    expect(teamsInCertificates('')).toEqual([]);
   });
 });
