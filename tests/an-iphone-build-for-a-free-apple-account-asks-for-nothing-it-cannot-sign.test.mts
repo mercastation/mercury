@@ -13,6 +13,9 @@
 // no Continue with Apple.
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
 const mobile = new URL('../mobile/', import.meta.url);
@@ -60,9 +63,16 @@ describe('the build config', () => {
 });
 
 // What Xcode is asked to sign, as Expo works it out; needs the app's packages
-// (cd mobile && npm ci), which a checkout without them skips.
+// (cd mobile && npm ci), which a checkout without them skips. Expo's own
+// command writes an id into ~/.expo on every run, which the push hook's sandbox
+// refuses (EPERM, 2026-11-27), so it gets a home of its own, offline and silent.
 const entitlements = (env) => {
-  const r = spawnSync('npx', ['expo', 'config', '--type', 'introspect', '--json'], { cwd: mobile, encoding: 'utf8', env: { ...process.env, MOBILE_PERSONAL_TEAM: env } });
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'expo-home-'));
+  const r = spawnSync(process.execPath, [fileURLToPath(new URL('node_modules/expo/bin/cli', mobile)), 'config', '--type', 'introspect', '--json'], {
+    cwd: mobile, encoding: 'utf8',
+    env: { ...process.env, MOBILE_PERSONAL_TEAM: env, __UNSAFE_EXPO_HOME_DIRECTORY: home, EXPO_OFFLINE: '1', EXPO_NO_TELEMETRY: '1' },
+  });
+  fs.rmSync(home, { recursive: true, force: true });
   if (r.status !== 0) throw new Error(r.stderr);
   return JSON.parse(r.stdout).ios.entitlements ?? {};
 };
